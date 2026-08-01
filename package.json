@@ -1,8 +1,8 @@
 {
-  "name": "platform-targets",
+  "name": "platform-toolkit",
   "version": "0.0.0",
   "private": true,
-  "description": "Powerlifting classification, record, and meet-qualification targets on one screen.",
+  "description": "Open-source tools for powerlifters and meet directors. Each works alone and embeds anywhere.",
   "license": "MIT",
   "author": "Jason Smathers <jason@smathe.rs>",
   "type": "module",
@@ -16,7 +16,7 @@
   "scripts": {
     "prepare": "node scripts/install-git-hooks.mjs",
     "build": "npm run build --workspaces --if-present",
-    "dev": "npm run dev --workspace @platform-targets/web",
+    "dev": "npm run dev --workspace @platform-toolkit/web",
     "typecheck": "run-s typecheck:packages typecheck:tests typecheck:tooling",
     "typecheck:packages": "tsc --build --force",
     "typecheck:tests": "tsc -p tsconfig.tests.json",
@@ -28,7 +28,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "scan:references": "node scripts/scan-prohibited-references.mjs",
-    "verify": "run-s format:check lint typecheck test scan:references build"
+    "verify": "run-s format:check typecheck lint test scan:references build"
   },
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "4.7.2",

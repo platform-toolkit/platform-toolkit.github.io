@@ -5,9 +5,9 @@ import {
   type EffectiveTheme,
   type ResolvedThemeMode,
   type ThemeMode,
-} from '@platform-targets/configuration';
+} from '@platform-toolkit/configuration';
 
-const STORAGE_KEY = 'pt.theme-mode';
+const STORAGE_KEY = 'ptk.theme-mode';
 const DARK_QUERY = '(prefers-color-scheme: dark)';
 
 /** Notified whenever the configured mode or the effective theme changes. */

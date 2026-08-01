@@ -1,22 +1,22 @@
 {
-  "name": "@platform-toolkit/ingestion",
+  "name": "@platform-toolkit/ui",
   "version": "0.0.0",
   "private": true,
-  "description": "Source adapters, normalizers, and anomaly checks. Runs in CI, never in the browser.",
+  "description": "Shared custom elements, design tokens, and theme wiring used by every tool.",
   "license": "MIT",
   "type": "module",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./tokens.css": "./src/tokens.css"
   },
   "scripts": {
     "build": "tsc --build"
   },
   "dependencies": {
-    "@platform-toolkit/data-contracts": "*",
-    "@platform-toolkit/domain": "*",
-    "valibot": "1.4.2"
+    "@platform-toolkit/configuration": "*",
+    "lit": "3.3.3"
   }
 }

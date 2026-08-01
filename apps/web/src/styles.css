@@ -1,0 +1,29 @@
+/*
+ * The single stylesheet every page in this site links.
+ *
+ * Tokens live in the shared UI package so that a tool published as a standalone
+ * widget carries them too. This file exists to pull them in and to hold the
+ * handful of page-level rules that belong to the site rather than to any tool.
+ */
+
+@import '@platform-toolkit/ui/tokens.css';
+
+.page {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: var(--ptk-space-xl) var(--ptk-space-md);
+}
+
+.page > header {
+  margin-block-end: var(--ptk-space-lg);
+}
+
+.page h1 {
+  margin: 0 0 var(--ptk-space-xs);
+  font-size: var(--ptk-font-size-xl);
+}
+
+.page .tagline {
+  margin: 0;
+  color: var(--ptk-color-text-muted);
+}

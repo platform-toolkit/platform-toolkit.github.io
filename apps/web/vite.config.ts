@@ -40,7 +40,7 @@ const CONTENT_SECURITY_POLICY = [
  */
 function contentSecurityPolicy(): Plugin {
   return {
-    name: 'pt-content-security-policy',
+    name: 'ptk-content-security-policy',
     apply: 'build',
     transformIndexHtml: {
       order: 'pre',
@@ -66,14 +66,17 @@ function contentSecurityPolicy(): Plugin {
 /**
  * `base` is the one host-specific setting in the build.
  *
- * A GitHub Pages *project* site is served from a subpath (/<repo>/), while a user
- * site, a custom domain, or any other static host is served from the root. Rather
- * than hard-coding either, the deployment workflow supplies it. This is the whole
- * of the coupling between the application and its host, which is what makes the
- * documented fallback to another static host a configuration change rather than a
- * rewrite.
+ * The production target is an organisation *user* site, served from the root, so
+ * that is the default. A GitHub Pages *project* site is served from a subpath
+ * (/<repo>/), as is most shared static hosting; rather than hard-code either, the
+ * deployment workflow supplies it. This is the whole of the coupling between the
+ * application and its host, which is what makes the documented fallback to
+ * another static host a configuration change rather than a rewrite.
+ *
+ * Links between pages are written relative rather than root-absolute for the same
+ * reason -- see the note in `src/tools.ts`.
  */
-const base = process.env['PT_BASE_PATH'] ?? '/';
+const base = process.env['PTK_BASE_PATH'] ?? '/';
 
 export default defineConfig({
   base,
@@ -85,9 +88,13 @@ export default defineConfig({
     // application source on a production origin without anyone asking for it.
     sourcemap: false,
     rolldownOptions: {
+      // One entry per page. Every tool in the collection contributes its own
+      // entries, which is what makes a page load only the tool it is showing --
+      // embedding one tool ships none of the others.
       input: {
-        standalone: here('index.html'),
-        embed: here('embed/uspa/index.html'),
+        hub: here('index.html'),
+        'platform-targets': here('platform-targets/index.html'),
+        'platform-targets-embed': here('platform-targets/embed/uspa/index.html'),
       },
     },
   },

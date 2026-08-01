@@ -1,5 +1,5 @@
 {
-  "name": "@platform-targets/configuration",
+  "name": "@platform-toolkit/configuration",
   "version": "0.0.0",
   "private": true,
   "description": "Defaults, theme configuration, and precedence resolution.",
@@ -15,6 +15,6 @@
     "build": "tsc --build"
   },
   "dependencies": {
-    "@platform-targets/data-contracts": "*"
+    "@platform-toolkit/data-contracts": "*"
   }
 }

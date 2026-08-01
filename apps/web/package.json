@@ -1,8 +1,8 @@
 {
-  "name": "@platform-targets/web",
+  "name": "@platform-toolkit/web",
   "version": "0.0.0",
   "private": true,
-  "description": "Browser application: standalone screen and embeddable route.",
+  "description": "The deployed site: the tool index, and each tool's standalone and embeddable pages.",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -11,9 +11,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@platform-targets/configuration": "*",
-    "@platform-targets/data-contracts": "*",
-    "@platform-targets/domain": "*",
+    "@platform-toolkit/configuration": "*",
+    "@platform-toolkit/data-contracts": "*",
+    "@platform-toolkit/domain": "*",
+    "@platform-toolkit/ui": "*",
     "lit": "3.3.3"
   },
   "devDependencies": {

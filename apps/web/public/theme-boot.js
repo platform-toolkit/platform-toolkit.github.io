@@ -13,7 +13,7 @@
  *
  * Because it cannot be bundled, it cannot import the shared theme resolver. The
  * accepted values are therefore duplicated here, and a test asserts this file
- * stays in step with the canonical list in @platform-targets/configuration.
+ * stays in step with the canonical list in @platform-toolkit/configuration.
  *
  * Note what this does NOT do: `system` mode sets no attribute at all. It is
  * handled purely by `@media (prefers-color-scheme: dark)` in CSS, so the common
@@ -48,7 +48,7 @@
       // An explicit user choice outranks a host-suggested default.
       let stored = null;
       try {
-        stored = asMode(window.localStorage.getItem('pt.theme-mode'));
+        stored = asMode(window.localStorage.getItem('ptk.theme-mode'));
       } catch {
         // Storage can be unavailable in an embedded context with third-party
         // cookies blocked. That is expected, not exceptional: fall through to

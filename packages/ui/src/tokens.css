@@ -1,0 +1,153 @@
+/*
+ * Semantic design tokens.
+ *
+ * Tokens are named for their role, not their appearance: `--ptk-color-surface`
+ * rather than `--ptk-color-white`. A palette-named token becomes a lie the moment
+ * a dark theme exists, and every component that referenced it has to change.
+ *
+ * Three selectors define the theme, in increasing specificity:
+ *
+ *   :root                         light values, the baseline
+ *   @media (prefers-color-scheme) dark values when following the system
+ *   [data-theme="dark"]           dark values when explicitly chosen
+ *
+ * The media query is what makes `system` mode work with no JavaScript at all,
+ * so the default experience cannot flash the wrong theme even if scripting is
+ * slow or blocked.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* Surfaces */
+  --ptk-color-surface: #ffffff;
+  --ptk-color-surface-raised: #f6f7f9;
+  --ptk-color-surface-sunken: #eceef2;
+
+  /* Text */
+  --ptk-color-text: #16191d;
+  --ptk-color-text-muted: #565d67;
+  --ptk-color-text-inverse: #ffffff;
+
+  /* Lines */
+  --ptk-color-border: #d3d8de;
+  --ptk-color-border-strong: #9aa3ae;
+
+  /* Interaction */
+  --ptk-color-accent: #1f5fa8;
+  --ptk-color-accent-text: #ffffff;
+  --ptk-color-focus-ring: #1f5fa8;
+
+  /* Status. Never the sole carrier of meaning -- always paired with text or an icon. */
+  --ptk-color-positive: #1c6b3c;
+  --ptk-color-caution: #7a5300;
+  --ptk-color-negative: #a12525;
+
+  /* Type */
+  --ptk-font-family: system-ui, -apple-system, 'Segoe UI', roboto, helvetica, arial, sans-serif;
+  --ptk-font-size-sm: 0.875rem;
+  --ptk-font-size-md: 1rem;
+  --ptk-font-size-lg: 1.25rem;
+  --ptk-font-size-xl: 1.75rem;
+  --ptk-line-height: 1.5;
+
+  /* Space */
+  --ptk-space-xs: 0.25rem;
+  --ptk-space-sm: 0.5rem;
+  --ptk-space-md: 1rem;
+  --ptk-space-lg: 1.5rem;
+  --ptk-space-xl: 2.5rem;
+
+  /* Shape */
+  --ptk-radius-sm: 4px;
+  --ptk-radius-md: 8px;
+  --ptk-focus-ring-width: 2px;
+  --ptk-focus-ring-offset: 2px;
+}
+
+/* Dark values, applied when following the system preference. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --ptk-color-surface: #14171b;
+    --ptk-color-surface-raised: #1d2126;
+    --ptk-color-surface-sunken: #0e1013;
+
+    --ptk-color-text: #e9edf2;
+    --ptk-color-text-muted: #a3acb8;
+    --ptk-color-text-inverse: #14171b;
+
+    --ptk-color-border: #333a43;
+    --ptk-color-border-strong: #5b6672;
+
+    --ptk-color-accent: #7fb2ee;
+    --ptk-color-accent-text: #0e1013;
+    --ptk-color-focus-ring: #7fb2ee;
+
+    --ptk-color-positive: #6fce97;
+    --ptk-color-caution: #e5b95c;
+    --ptk-color-negative: #f08a8a;
+  }
+}
+
+/* Dark values, applied when the user or host chose dark explicitly. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --ptk-color-surface: #14171b;
+  --ptk-color-surface-raised: #1d2126;
+  --ptk-color-surface-sunken: #0e1013;
+
+  --ptk-color-text: #e9edf2;
+  --ptk-color-text-muted: #a3acb8;
+  --ptk-color-text-inverse: #14171b;
+
+  --ptk-color-border: #333a43;
+  --ptk-color-border-strong: #5b6672;
+
+  --ptk-color-accent: #7fb2ee;
+  --ptk-color-accent-text: #0e1013;
+  --ptk-color-focus-ring: #7fb2ee;
+
+  --ptk-color-positive: #6fce97;
+  --ptk-color-caution: #e5b95c;
+  --ptk-color-negative: #f08a8a;
+}
+
+/* Light values, applied when the user or host chose light explicitly, even
+   under a dark system preference. */
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--ptk-color-surface);
+  color: var(--ptk-color-text);
+  font-family: var(--ptk-font-family);
+  font-size: var(--ptk-font-size-md);
+  line-height: var(--ptk-line-height);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: var(--ptk-focus-ring-width) solid var(--ptk-color-focus-ring);
+  outline-offset: var(--ptk-focus-ring-offset);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
