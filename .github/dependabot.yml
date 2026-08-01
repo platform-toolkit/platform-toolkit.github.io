@@ -1,0 +1,29 @@
+version: 2
+
+updates:
+  # Workflow actions are pinned to commit SHAs so a moved tag cannot change what
+  # runs. That pinning is only safe if something keeps proposing the bumps --
+  # otherwise it quietly freezes the toolchain on old, unpatched code.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: 'ci'
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # Every dependency is pinned to an exact version, so a lockfile-only update
+    # would never appear. Both are wanted.
+    versioning-strategy: increase
+    groups:
+      # One pull request per ecosystem for routine patch and minor bumps.
+      # Majors stay separate because they are the ones worth reading.
+      dev-dependencies:
+        dependency-type: development
+        update-types: [minor, patch]
+      production-dependencies:
+        dependency-type: production
+        update-types: [minor, patch]
