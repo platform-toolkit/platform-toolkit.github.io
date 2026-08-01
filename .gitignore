@@ -33,7 +33,12 @@ apps/web/public/data/
 # Maintainer working notes: direction given in conversation that is not
 # derivable from the code. Local only, and deliberately so -- it exists to
 # survive a lost session, not to be published.
+#
+# `notes/` holds the same kind of thing at length: requirements for tools that
+# have not been built yet. Published requirements would read as a commitment,
+# and half of what is in them is still a conversation.
 /CLAUDE.md
+/notes/
 
 .DS_Store
 *.log

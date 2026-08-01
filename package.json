@@ -14,11 +14,18 @@
   "scripts": {
     "prepare": "node scripts/install-git-hooks.mjs",
     "build": "pnpm --recursive --if-present run build",
+    "build:libraries": "pnpm --filter \"./packages/**\" run build",
     "dev": "pnpm --filter @platform-toolkit/web run dev",
-    "typecheck": "run-s typecheck:packages typecheck:tests typecheck:tooling",
+    "storybook": "run-s build:libraries storybook:dev",
+    "storybook:dev": "storybook dev -p 6006 --no-open",
+    "storybook:build": "storybook build --quiet",
+    "storybook:smoke": "node scripts/smoke-stories.mjs",
+    "storybook:check": "run-s storybook:build storybook:smoke",
+    "typecheck": "run-s typecheck:packages typecheck:tests typecheck:tooling typecheck:stories",
     "typecheck:packages": "tsc --build --force",
     "typecheck:tests": "tsc -p tsconfig.tests.json",
     "typecheck:tooling": "tsc -p tsconfig.tooling.json",
+    "typecheck:stories": "tsc -p tsconfig.stories.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -27,11 +34,13 @@
     "test:watch": "vitest",
     "scan:references": "node scripts/scan-prohibited-references.mjs",
     "scan:references:strict": "node scripts/scan-prohibited-references.mjs --require-tokens",
-    "verify": "run-s format:check typecheck lint test scan:references build"
+    "verify": "run-s format:check typecheck lint test scan:references build storybook:check"
   },
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "4.7.2",
     "@eslint/js": "10.0.1",
+    "@storybook/addon-a11y": "10.5.5",
+    "@storybook/web-components-vite": "10.5.5",
     "@types/node": "24.13.3",
     "@vitest/browser": "4.1.10",
     "@vitest/browser-playwright": "4.1.10",
@@ -41,6 +50,7 @@
     "npm-run-all2": "9.0.3",
     "playwright": "1.62.1",
     "prettier": "3.9.6",
+    "storybook": "10.5.5",
     "typescript": "6.0.3",
     "typescript-eslint": "8.65.0",
     "vitest": "4.1.10"

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+
+  // Storybook's configuration and every story, checked with the same strictness
+  // as shipped code. They are excluded from the package projects so that `dist`
+  // contains what the site loads and nothing else, which would otherwise leave
+  // them unchecked entirely -- and a story that no longer compiles is
+  // documentation asserting an interface the component does not have.
+  //
+  // `.storybook/main.ts` runs in Node and the stories run in a browser, so this
+  // config carries both libraries. That is the same compromise `tsconfig.tests.json`
+  // makes, and for the same reason: splitting it would buy one true statement
+  // about two small files.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    // `vite/client` is what declares a side-effect `.css` import as legal. The
+    // preview imports the token stylesheet the same way every page does, and
+    // without this the type checker reports it as a module with no declarations.
+    "types": ["node", "vite/client"],
+
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "incremental": false,
+
+    // Resolve workspace imports to source rather than to built output, so a
+    // story type-checks on a clean checkout before anything has been compiled.
+    // Storybook itself still loads the built packages -- see the note in
+    // `.storybook/main.ts` about why that difference is deliberate.
+    "paths": {
+      "@platform-toolkit/configuration": ["./packages/configuration/src/index.ts"],
+      "@platform-toolkit/data-access": ["./packages/data-access/src/index.ts"],
+      "@platform-toolkit/data-contracts": ["./packages/data-contracts/src/index.ts"],
+      "@platform-toolkit/domain": ["./packages/domain/src/index.ts"],
+      "@platform-toolkit/ingestion": ["./packages/ingestion/src/index.ts"],
+      "@platform-toolkit/ui": ["./packages/ui/src/index.ts"]
+    }
+  },
+  "include": [
+    ".storybook/**/*.ts",
+    "packages/*/src/**/*.stories.ts",
+    "apps/web/src/**/*.stories.ts"
+  ]
+}

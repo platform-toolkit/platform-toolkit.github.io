@@ -40,6 +40,7 @@ export default tseslint.config(
           './apps/web/tsconfig.json',
           './tsconfig.tests.json',
           './tsconfig.tooling.json',
+          './tsconfig.stories.json',
         ],
         tsconfigRootDir: import.meta.dirname,
       },
@@ -88,7 +89,7 @@ export default tseslint.config(
   // below: it is the one package that touches the DOM, which is precisely why
   // the pure ones stay separate from it.
   {
-    files: ['apps/web/**/*.ts', 'packages/ui/**/*.ts'],
+    files: ['apps/web/**/*.ts', 'packages/ui/**/*.ts', '.storybook/preview.ts'],
     languageOptions: { globals: globals.browser },
   },
 
@@ -138,6 +139,7 @@ export default tseslint.config(
       'packages/ingestion/**/*.ts',
       '**/vite.config.ts',
       'vitest.config.ts',
+      '.storybook/main.ts',
       'scripts/**/*.mjs',
       'eslint.config.js',
     ],

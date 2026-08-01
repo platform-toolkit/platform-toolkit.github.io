@@ -12,7 +12,9 @@
     "outDir": "./dist-types"
   },
   "include": ["src/**/*.ts", "vite.config.ts"],
-  "exclude": ["src/**/*.test.ts"],
+  // Stories are excluded for the same reason tests are: `dist` should contain what
+  // the site loads and nothing else. They are type-checked by `tsconfig.stories.json`.
+  "exclude": ["src/**/*.test.ts", "src/**/*.stories.ts"],
   "references": [
     { "path": "../../packages/configuration" },
     { "path": "../../packages/data-access" },

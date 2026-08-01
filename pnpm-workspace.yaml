@@ -4,13 +4,16 @@ packages:
   - packages/*
   - apps/*
 
-# Dependency lifecycle scripts do not run unless the package is named in
-# `onlyBuiltDependencies`. Nothing is listed because nothing in the tree needs
-# one: Vite 8 builds through Rolldown, so the esbuild binary download that
-# normally forces an entry here is not a dependency of this project.
+# Dependency lifecycle scripts do not run unless the package is allowed one here.
+# A postinstall script in any transitive dependency is arbitrary code execution at
+# install time, on developer machines and in the workflow that publishes the site,
+# so this list is a decision to make deliberately rather than a warning to silence.
 #
-# That default is a large part of why pnpm is worth the move. A postinstall
-# script in any transitive dependency is arbitrary code execution at install
-# time, on developer machines and in the workflow that publishes the site.
-# Keep this list empty. If an install ever reports a blocked build script,
-# treat it as a decision to make deliberately rather than a warning to silence.
+# `esbuild` is refused rather than merely absent. It arrives as a dependency of
+# both Vite and Storybook's Vite builder, and its install script downloads a
+# platform binary. Neither needs it here -- Vite 8 transforms through Rolldown,
+# and the Storybook builder reaches esbuild only on code paths this repository
+# does not use. Saying `false` records that as an answer, so the next install does
+# not re-ask and nobody resolves the prompt by saying yes.
+allowBuilds:
+  esbuild: false
