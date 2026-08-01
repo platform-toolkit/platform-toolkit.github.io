@@ -103,12 +103,32 @@ export class PtkConversionTable extends LitElement {
       font-size: var(--ptk-font-size-sm);
     }
 
+    /*
+     * The copy column is sized from the button, not from a guess.
+     *
+     * It was 3.5rem, and a copy button with the shared inline padding is wider
+     * than that -- so every row's button overflowed its own cell, centred, and
+     * the right-hand half of that bleed hung off the end of the table. At 320px
+     * that is a sideways scroll on the whole page, which §5.7 forbids, and the
+     * amount by which it overflowed depended on how wide the platform's default
+     * font drew the word "Copy": macOS landed a third of a pixel over and rounded
+     * away, Linux landed six pixels over and failed. A layout whose correctness
+     * turns on a font metric is a layout that passes locally and breaks in CI,
+     * which is exactly what it did for seven consecutive deploys.
+     *
+     * So the button is given table-column padding through the custom property
+     * ptk-button exposes for it, and the column is widened to leave real
+     * headroom on top of the result rather than a rounding error. The button
+     * keeps its 44px minimum on both axes -- the padding shrinks, the tap target
+     * does not.
+     */
     td.action,
     th.action {
-      width: 3.5rem;
+      width: 5rem;
       text-align: center;
       padding-left: 0;
       padding-right: 0;
+      --ptk-button-padding-inline: var(--ptk-space-xs);
     }
 
     tr[aria-current] td {

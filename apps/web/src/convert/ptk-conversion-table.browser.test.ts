@@ -294,4 +294,37 @@ describe('ptk-conversion-table', () => {
 
     expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
   });
+
+  it('keeps the copy button inside its column with room for a wider font', async () => {
+    // The assertion above is the requirement; this one is the cause, and it is
+    // here because the requirement failed by a third of a pixel on macOS and by
+    // six pixels on Linux CI. `scrollWidth` is an integer, so the version that
+    // matters most -- a copy button one pixel wider than the column it sits in --
+    // rounds away on the machine the change is written on and only appears on the
+    // machine that deploys. Measuring the button against its own cell reports the
+    // real quantity, and the margin says how much a wider default font may cost
+    // before the layout is a sideways scroll again.
+    const frame = document.createElement('div');
+    frame.style.width = '320px';
+    document.body.append(frame);
+    teardown.push(() => {
+      frame.remove();
+    });
+
+    const element = document.createElement('ptk-conversion-table');
+    element.chart = CHART;
+    element.chartStatus = 'ready';
+    frame.append(element);
+    await element.updateComplete;
+    await unfold(element);
+
+    const cell = element.shadowRoot?.querySelector('td.action');
+    const button = cell?.querySelector('ptk-copy-button');
+    if (!(cell instanceof HTMLElement) || !(button instanceof HTMLElement)) {
+      throw new Error('No copy button rendered in the action column.');
+    }
+
+    const spare = cell.getBoundingClientRect().width - button.getBoundingClientRect().width;
+    expect(spare).toBeGreaterThanOrEqual(8);
+  });
 });

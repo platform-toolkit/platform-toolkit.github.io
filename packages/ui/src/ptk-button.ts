@@ -52,7 +52,13 @@ export class PtkButton extends LitElement {
          at 320px has to grow, and a height would clip the second line. */
       min-height: var(--ptk-tap-target-min);
       min-width: var(--ptk-tap-target-min);
-      padding: var(--ptk-space-sm) var(--ptk-space-md);
+      /* The inline padding is a knob because a button in a dense table column is
+         a different shape from a button on its own line, and there is no way to
+         reach across the shadow boundary to say so. A custom property inherits
+         through it; a part would let a caller restyle anything. The block
+         padding is not a knob -- shrinking it is how the 44px floor above stops
+         being reached by the content rather than by the minimum. */
+      padding: var(--ptk-space-sm) var(--ptk-button-padding-inline, var(--ptk-space-md));
       border: 1px solid transparent;
       border-radius: var(--ptk-radius-sm);
       /* Buttons do not inherit the page font family, and 16px is the floor a
