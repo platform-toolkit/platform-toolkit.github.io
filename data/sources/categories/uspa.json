@@ -1,0 +1,121 @@
+{
+  "$comment": [
+    "USPA's competition categories, transcribed from the rulebook cited in `provenance`.",
+    "",
+    "Curated by hand rather than parsed, and that is a decision, not a shortcut. The",
+    "only machine-readable form of these figures is a 68-page PDF whose layout changes",
+    "every year; a layout-sensitive parser that half-succeeds would publish a ladder",
+    "with a class missing from the middle, and nothing downstream can tell that from a",
+    "federation that removed one. Transcription fails visibly in review instead.",
+    "",
+    "What keeps it honest is `provenance.retrievedAt` and the invariants the adapter",
+    "checks -- see `packages/ingestion/src/sources/uspa-categories.ts`. What is still",
+    "missing is upstream change detection, so that a rulebook revision announces itself",
+    "rather than waiting for someone to notice.",
+    "",
+    "Only figures belong here. Labels are derived, so a boundary and its caption cannot",
+    "disagree. Identifiers are not derived, because they key records and standards and",
+    "must survive a boundary moving."
+  ],
+
+  "id": "uspa",
+  "label": "USPA",
+
+  "provenance": {
+    "id": "uspa-categories",
+    "label": "USPA competition categories",
+    "document": "USPA Technical Rules 2025v1",
+    "url": "https://uspa.net/rulebook",
+    "sections": [
+      "Item 1.2 Age Categories",
+      "Item 1.3 Bodyweight Categories",
+      "Item 3.14 Raw, Classic Raw, Single Ply and Multi Ply Equipment Definition"
+    ],
+    "retrievedAt": "2026-07-31T00:00:00.000Z"
+  },
+
+  "equipment": [
+    { "id": "raw", "label": "Raw" },
+    { "id": "classic-raw", "label": "Classic Raw" },
+    { "id": "single-ply", "label": "Single Ply" },
+    { "id": "multi-ply", "label": "Multi Ply" }
+  ],
+
+  "weightClassLadders": [
+    {
+      "id": "uspa-female",
+      "label": "Women",
+      "sex": "female",
+      "classes": [
+        { "id": "f-44", "maximumKilograms": 44 },
+        { "id": "f-48", "maximumKilograms": 48 },
+        { "id": "f-52", "maximumKilograms": 52 },
+        { "id": "f-56", "maximumKilograms": 56 },
+        { "id": "f-60", "maximumKilograms": 60 },
+        { "id": "f-67.5", "maximumKilograms": 67.5 },
+        { "id": "f-75", "maximumKilograms": 75 },
+        { "id": "f-82.5", "maximumKilograms": 82.5 },
+        { "id": "f-90", "maximumKilograms": 90 },
+        { "id": "f-100", "maximumKilograms": 100 },
+        { "id": "f-110", "maximumKilograms": 110 },
+        { "id": "f-110-plus", "maximumKilograms": null }
+      ]
+    },
+    {
+      "id": "uspa-male",
+      "label": "Men",
+      "sex": "male",
+      "classes": [
+        { "id": "m-52", "maximumKilograms": 52 },
+        { "id": "m-56", "maximumKilograms": 56 },
+        { "id": "m-60", "maximumKilograms": 60 },
+        { "id": "m-67.5", "maximumKilograms": 67.5 },
+        { "id": "m-75", "maximumKilograms": 75 },
+        { "id": "m-82.5", "maximumKilograms": 82.5 },
+        { "id": "m-90", "maximumKilograms": 90 },
+        { "id": "m-100", "maximumKilograms": 100 },
+        { "id": "m-110", "maximumKilograms": 110 },
+        { "id": "m-125", "maximumKilograms": 125 },
+        { "id": "m-140", "maximumKilograms": 140 },
+        { "id": "m-140-plus", "maximumKilograms": null }
+      ]
+    }
+  ],
+
+  "ageDivisions": {
+    "id": "uspa-age-divisions",
+    "label": "USPA age divisions",
+    "$comment": [
+      "`age-on-meet-date` is the rulebook's own basis: Item 1.2.1 requires the lifter to",
+      "have attained the age on the day of the competition. Federations that read age",
+      "across the calendar year instead put a December-born lifter in a different",
+      "division for most of the year, which is why the basis travels with the set.",
+      "",
+      "The rulebook prints five separate divisions under the single word Junior and",
+      "distinguishes them only by the range beside it. The range is therefore part of",
+      "the name here, not a gloss added by this project -- five options reading Junior",
+      "would be unusable, and the adapter refuses duplicate labels so that going back",
+      "to one is a build failure rather than a screen nobody can answer."
+    ],
+    "basis": "age-on-meet-date",
+    "divisions": [
+      { "id": "junior-10-12", "label": "Junior 10-12", "minimumAge": 10, "maximumAge": 12 },
+      { "id": "junior-13-15", "label": "Junior 13-15", "minimumAge": 13, "maximumAge": 15 },
+      { "id": "junior-16-17", "label": "Junior 16-17", "minimumAge": 16, "maximumAge": 17 },
+      { "id": "junior-18-19", "label": "Junior 18-19", "minimumAge": 18, "maximumAge": 19 },
+      { "id": "junior-20-23", "label": "Junior 20-23", "minimumAge": 20, "maximumAge": 23 },
+      { "id": "open", "label": "Open", "minimumAge": 13, "maximumAge": null },
+      { "id": "submaster-35-39", "label": "Submaster 35-39", "minimumAge": 35, "maximumAge": 39 },
+      { "id": "master-40-44", "label": "Master 40-44", "minimumAge": 40, "maximumAge": 44 },
+      { "id": "master-45-49", "label": "Master 45-49", "minimumAge": 45, "maximumAge": 49 },
+      { "id": "master-50-54", "label": "Master 50-54", "minimumAge": 50, "maximumAge": 54 },
+      { "id": "master-55-59", "label": "Master 55-59", "minimumAge": 55, "maximumAge": 59 },
+      { "id": "master-60-64", "label": "Master 60-64", "minimumAge": 60, "maximumAge": 64 },
+      { "id": "master-65-69", "label": "Master 65-69", "minimumAge": 65, "maximumAge": 69 },
+      { "id": "master-70-74", "label": "Master 70-74", "minimumAge": 70, "maximumAge": 74 },
+      { "id": "master-75-79", "label": "Master 75-79", "minimumAge": 75, "maximumAge": 79 },
+      { "id": "master-80-84", "label": "Master 80-84", "minimumAge": 80, "maximumAge": 84 },
+      { "id": "master-85-plus", "label": "Master 85+", "minimumAge": 85, "maximumAge": null }
+    ]
+  }
+}

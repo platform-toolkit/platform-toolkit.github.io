@@ -28,6 +28,13 @@ export {
   type PublishedFile,
 } from './publication.js';
 export {
+  CategorySourceDocumentSchema,
+  CategorySourceError,
+  buildCategoryCatalog,
+  type CategorySourceDocument,
+  type CategorySourceResult,
+} from './sources/category-catalog.js';
+export {
   DuplicateRecordError,
   ShardNamingError,
   shardRecordBook,

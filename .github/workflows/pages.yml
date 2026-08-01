@@ -59,8 +59,17 @@ jobs:
       # The `ui` test project runs in a real browser. See the note in ci.yml.
       - run: pnpm exec playwright install --with-deps chromium
 
+      # The commit's own timestamp, not the clock, so that a rebuild of this
+      # commit publishes byte-identical files and can be checked against what
+      # went live. The build reads it when it stamps `meta.json`; see
+      # `readGeneratedAt` in the publish script. `fetch-depth: 0` above is what
+      # makes the log available.
+      - run: echo "PTK_GENERATED_AT=$(git log -1 --format=%cI)" >> "$GITHUB_ENV"
+
       # The full check, not just a build. Nothing reaches the live site without
       # passing format, typecheck, lint, tests, and the reference scan first.
+      # `build` publishes the data artifacts into `apps/web/public/data` before
+      # bundling the site, so the uploaded artifact carries them.
       - run: pnpm run verify
         env:
           PTK_PROHIBITED_TOKENS: ${{ secrets.PTK_PROHIBITED_TOKENS }}
