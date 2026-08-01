@@ -1,5 +1,7 @@
 import type { WeightClass } from '@platform-toolkit/data-contracts';
 
+import { ceilToHundredths, floorToHundredths } from './rounding.js';
+
 /**
  * Placing a lifter on a ladder of bodyweight classes.
  *
@@ -95,12 +97,8 @@ export class WeightClassLadder {
 
     return {
       weightClass,
-      // The margin rounds down and the cut rounds up. Binary floating point turns
-      // `75 - 74.7` into 0.2999999999999972, which would otherwise reach the
-      // interface verbatim. The directions differ on purpose: an understated
-      // margin and an overstated cut are both conservative, and either opposite
-      // would tell a lifter they have room they do not have. Same reasoning as
-      // the ceiling in `units.ts`.
+      // The margin is room, so it rounds down; the cut is work, so it rounds up.
+      // See `rounding.ts` for why those directions are not interchangeable.
       marginKilograms:
         weightClass.maximumKilograms === null
           ? null
@@ -188,27 +186,4 @@ function findProblems(classes: readonly WeightClass[]): WeightClassLadderProblem
   }
 
   return problems;
-}
-
-/** Weigh-ins are recorded to a hundredth of a kilogram, so margins are reported there too. */
-const HUNDREDTHS = 100;
-
-/**
- * Absorbs representation error without absorbing a real difference.
- *
- * `74.7 - 60` is 14.700000000000003, and a bare ceiling would report a cut of
- * 14.71 kg -- safe, but wrong-looking enough that a lifter would distrust the
- * rest of the screen. This slack is around a billionth of a kilogram, some seven
- * orders of magnitude below the 0.01 kg a scale reports, so it can only ever
- * cancel noise. A genuinely sub-hundredth margin still rounds away, and a
- * genuinely sub-hundredth cut still rounds up.
- */
-const FLOATING_POINT_SLACK = 1e-9;
-
-function floorToHundredths(value: number): number {
-  return Math.floor(value * HUNDREDTHS + FLOATING_POINT_SLACK) / HUNDREDTHS;
-}
-
-function ceilToHundredths(value: number): number {
-  return Math.ceil(value * HUNDREDTHS - FLOATING_POINT_SLACK) / HUNDREDTHS;
 }

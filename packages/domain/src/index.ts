@@ -7,6 +7,16 @@ export {
   type AgeDivisionProblem,
 } from './age-division.js';
 export {
+  ClassificationLadder,
+  selectClassificationTable,
+  type Classification,
+  type ClassificationLadderProblem,
+  type ClassificationLadderProblemCode,
+  type ClassificationLadderResult,
+  type ClassificationQuery,
+  type ClassificationTableSelection,
+} from './classification.js';
+export {
   comparePlainDates,
   completedYearsBetween,
   formatPlainDate,

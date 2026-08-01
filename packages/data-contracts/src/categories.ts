@@ -24,6 +24,20 @@ const Label = v.pipe(v.string(), v.minLength(1));
 export const SexCategorySchema = v.picklist(['female', 'male']);
 export type SexCategory = v.InferOutput<typeof SexCategorySchema>;
 
+/**
+ * An equipment category, such as the one a raw lifter competes in.
+ *
+ * Left as data rather than a fixed list because federations disagree about both
+ * the names and the boundaries -- what counts as raw in one is a separate
+ * category in another -- and because a lifter comparing themselves against a
+ * record needs the source's own category, not this project's translation of it.
+ */
+export const EquipmentCategorySchema = v.object({
+  id: Identifier,
+  label: Label,
+});
+export type EquipmentCategory = v.InferOutput<typeof EquipmentCategorySchema>;
+
 /** A single bodyweight class. */
 export const WeightClassSchema = v.object({
   /** Stable identifier, e.g. "m-75". Used to key records and standards. */
