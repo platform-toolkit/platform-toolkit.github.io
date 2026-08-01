@@ -3,10 +3,10 @@
 Open-source tools for powerlifters and meet directors. Each one works on its own, and any site may
 embed a single tool without taking the rest.
 
-**Status: early development.** The site is live at <https://platform-toolkit.github.io>. Platform
-Targets is usable end to end for classification standards: pick a category, enter what you have
-lifted, and it tells you where that places and how far the next class is. Records, meet
-qualification, and profile import are not built yet, and Platform Targets is the only tool so far.
+**Status: early development.** The site is live at <https://platform-toolkit.github.io>. Four tools
+ship today. Platform Targets is usable end to end for classification standards: pick a category,
+enter what you have lifted, and it tells you where that places and how far the next class is.
+Records, meet qualification, and profile import are not built yet.
 
 ## The tools
 
@@ -34,6 +34,58 @@ always wins, because a lifter entering one directly is asserting it came from a 
 
 Still to come: applicable records at state, national, and IPL World level, and whether a chosen
 meet's published criteria are met — per discipline, and per equipment category.
+
+### Warm-Up Calculator
+
+A warm-up ramp for a working weight, on the plates that are actually in front of you.
+
+Tell it what is on the rack — the bar, the plates you have, whether collars go on — and it builds a
+ramp that is loadable at every step rather than a percentage table you then round by hand. Each set
+shows the loading, plate by plate and per side, and you tick sets off as you take them.
+
+A working weight the bar cannot be loaded to is shown as exactly that, with the nearest weight below
+and the nearest above. It is never silently moved to one of them.
+
+The ticked-off sets deliberately do not outlive the session. A rack and a set of plates are settings
+and are remembered; a half-finished ramp reopened next week would be presenting scratch state as a
+training record.
+
+### Pounds and Kilograms
+
+Two numbers that are routinely confused, kept apart.
+
+The **exact** conversion is arithmetic: `1 lb = 0.45359237 kg`, with no intermediate rounding. The
+**chart** figure is the weight a federation's own published conversion chart lists, and that is the
+one that governs an attempt. They are labelled separately and the chart figure leads, because a
+lifter who submits the exact figure has submitted a weight the table does not contain.
+
+No chart row is ever generated. A weight between two published rows produces the rows either side
+and says which is nearer — measured in the column the weight was stated in, since the published
+pound figures are the federation's own and not conversions of the kilogram column. An exact midpoint
+is shown as equally close to both and resolves nothing.
+
+Barbell milestones are listed for both units, with their loading assumptions stated: the pound
+sequence excludes collars, the kilogram sequence includes 5 kg of competition collars.
+
+### One-Rep Max Estimator
+
+What a set you have already done suggests about a single, from the published equations — including
+where they disagree.
+
+Enter a weight and a repetition count and it answers with a conservative figure, a middle figure and
+an optimistic one, rounded to a step a bar can actually be loaded to. Underneath, every published
+equation in the library is listed with its notation, its citation, what it answered for this set,
+and the reason it did or did not contribute. Equations that are the same relationship under two
+names get one vote between them, not two.
+
+Optional questions — movement standard, repetitions left in reserve, freshness, form, training
+experience — change the **grade** of the estimate rather than the figure. Answering all of them does
+not produce a bigger number, and the tool opens on the answer that claims nothing rather than on the
+one that flatters the estimate.
+
+The spread between equations is shown as what it is: disagreement between published models. It is
+not a confidence interval, not a margin of error, and says nothing about how likely any figure is.
+No attempt is labelled safe, and nothing here is an opener.
 
 ## Architecture
 
@@ -165,6 +217,18 @@ elsewhere.
 
 The federation is a path segment rather than a query parameter, so each federation's rules get their
 own cacheable URL and an embedding site cannot silently switch which rules a reader is looking at.
+Tools whose answers do not depend on a federation have no such segment:
+
+| Tool                  | Embed route                     |
+| --------------------- | ------------------------------- |
+| Platform Targets      | `/platform-targets/embed/uspa/` |
+| Warm-Up Calculator    | `/warm-up/embed/`               |
+| Pounds and Kilograms  | `/convert/embed/uspa/`          |
+| One-Rep Max Estimator | `/one-rep-max/embed/`           |
+
+An embed route is chrome-free: no site header, no navigation, and no link out of the frame. It also
+installs nothing on your visitors — no service worker is registered and no web app manifest is
+linked from a framed document, so embedding a tool never caches anything under your origin.
 
 ## Theming
 
