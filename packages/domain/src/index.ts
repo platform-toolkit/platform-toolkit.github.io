@@ -1,4 +1,22 @@
 export {
+  ATTEMPT_PLAN_METHODOLOGY_VERSION,
+  ATTEMPT_RISKS,
+  DATA_CONFIDENCES,
+  assessDataConfidence,
+  classifyAttemptRisk,
+  isRiskierThan,
+  type AttemptRisk,
+  type AttemptRiskQuery,
+  type ConfidenceEvidence,
+  type ConfidenceReason,
+  type ConfidenceReasonCode,
+  type DataConfidence,
+  type DataConfidenceAssessment,
+  type EvidenceAge,
+  type MaximumSource,
+  type Readiness,
+} from './attempt-risk.js';
+export {
   admitsAge,
   competitionAge,
   eligibleAgeDivisions,
