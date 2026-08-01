@@ -1,0 +1,56 @@
+{
+  "$comment": [
+    "Every URL here is relative, and that is the whole trick. Manifest members resolve",
+    "against the manifest's own URL, so `./` is the site root on the user site and the",
+    "project subpath under PTK_BASE_PATH -- no build step has to rewrite this file, and a",
+    "subpath deploy cannot ship a manifest whose start_url points at somebody else's root.",
+    "Unknown members like this one are ignored by the manifest parser, which is what lets",
+    "a JSON file carry the reasoning that a comment normally would.",
+    "",
+    "theme_color is the accent, matching the icon background, because it colours the",
+    "system chrome around the installed app and the accent is the one colour that is",
+    "recognisably this product in either scheme. background_color is the light surface: it",
+    "paints the splash before any CSS loads, a manifest has exactly one of them, and a",
+    "manifest cannot vary by prefers-color-scheme. The per-scheme values live in the",
+    "documents as meta theme-color, which browsers do honour."
+  ],
+  "name": "Platform Toolkit",
+  "short_name": "Toolkit",
+  "description": "Open-source tools for powerlifters and meet directors. Every tool works on its own and embeds anywhere.",
+  "start_url": "./",
+  "scope": "./",
+  "id": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#1f5fa8",
+  "background_color": "#ffffff",
+  "categories": ["sports", "utilities"],
+  "lang": "en",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

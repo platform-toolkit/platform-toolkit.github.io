@@ -93,6 +93,52 @@
 }
 
 /*
+ * The offer to install, shown only where a browser has said it would.
+ *
+ * Below the tools rather than above them: somebody who arrived to look up a
+ * record should reach the record first. Sized as a card so that appearing does
+ * not shove the list -- it is added at the end, where growth pushes nothing.
+ */
+.install-prompt {
+  display: grid;
+  gap: var(--ptk-space-sm);
+  justify-items: start;
+  margin-block-start: var(--ptk-space-lg);
+  padding: var(--ptk-space-md);
+  border: 1px solid var(--ptk-color-border);
+  border-radius: var(--ptk-radius-md);
+  background-color: var(--ptk-color-surface-sunken);
+}
+
+.install-prompt p {
+  margin: 0;
+  color: var(--ptk-color-text-muted);
+}
+
+.install-prompt button {
+  min-height: var(--ptk-tap-target-min);
+  padding-inline: var(--ptk-space-lg);
+  border: 1px solid transparent;
+  border-radius: var(--ptk-radius-sm);
+  background-color: var(--ptk-color-accent);
+  color: var(--ptk-color-accent-text);
+  /*
+   * Buttons do not inherit the page font, and 16px is the floor an input needs
+   * on iOS. Matching it here keeps the whole card at one size rather than
+   * shrinking the only thing anybody taps.
+   */
+  font: inherit;
+  font-size: var(--ptk-font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.install-prompt button:focus-visible {
+  outline: var(--ptk-focus-ring-width) solid var(--ptk-color-focus-ring);
+  outline-offset: var(--ptk-focus-ring-offset);
+}
+
+/*
  * The embed route has no page chrome by design, but it cannot have no gutter.
  *
  * The focus ring is drawn two pixels outside the control, so an option tile

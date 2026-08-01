@@ -110,7 +110,8 @@ Unmet peer dependencies are configured to fail the install rather than warn.
 corepack enable pnpm  # once per machine
 pnpm install          # also points git at .githooks
 pnpm dev              # the whole site: tool index and every tool
-pnpm verify           # format, typecheck, lint, test, reference scan, build
+pnpm verify           # format, typecheck, lint, test, reference scan, build, and the checks
+                      # that need a build: narrow layout, installability, stories
 ```
 
 | Script                 | Purpose                                       |
@@ -122,6 +123,11 @@ pnpm verify           # format, typecheck, lint, test, reference scan, build
 | `pnpm format`          | Prettier, write                               |
 | `pnpm test`            | Vitest, one project per package               |
 | `pnpm scan:references` | Commit-identity and forbidden-reference check |
+| `pnpm check:narrow`    | The built site at phone widths                |
+| `pnpm check:pwa`       | Manifest, icons, and offline rendering        |
+| `pnpm storybook:check` | Builds every story and loads it in a browser  |
+
+The last three run against `dist`, so they need `pnpm build` first.
 
 `verify` runs `typecheck` before `lint` deliberately. Type-aware lint rules read the declaration
 output of referenced projects, so linting a package that has never been built reports its imports as
@@ -207,6 +213,47 @@ before first paint, external so that a strict `script-src 'self'` policy still c
 Internally the configured _mode_ and the theme actually _in effect_ stay distinct. `system` is a
 real mode, not a synonym for whichever theme it currently resolves to — code that conflates them
 stops following the system the moment the system changes.
+
+## Installing and offline use
+
+The site is an installable progressive web app. Open it in a browser that supports installation and
+you can add it to a home screen or launcher; opened from there it runs without browser chrome, and
+it works with no network.
+
+That is not a novelty. These tools are used in a gym: a lifter checking a weight class at a warm-up
+rack, a meet director working a registration list on the platform floor. Both are places where a
+phone shows one bar of signal and a page load takes fifteen seconds, and both are places where the
+answer is needed between sets.
+
+**One application, not one per tool.** Installing from any page in the collection installs the same
+thing, and it opens at the tool index. The collection is the app; the tools are screens within it.
+
+What is available offline:
+
+| Content                       | How it is cached                                                                          |
+| ----------------------------- | ----------------------------------------------------------------------------------------- |
+| Pages, scripts, styles, icons | Precached at install. Available on first launch, before any page has been visited.        |
+| Published federation data     | Cached the first time a page reads it. A tool you have opened once keeps working offline. |
+
+Federation data is deliberately not precached. Each published artifact is budgeted at 2 MiB, and
+downloading every federation's record book the moment somebody installs the site is exactly the
+thing a metered connection notices.
+
+Updates arrive on the next visit with a connection. Pages and the data index are fetched from the
+network first and fall back to the cache, so a working connection always shows current content; new
+application code takes effect once every tab of the old version has been closed. Waiting for that is
+intentional — a new worker that took over immediately would leave an open page asking for files its
+cache no longer holds.
+
+**Embedded frames install nothing.** The embed routes carry no manifest and register no service
+worker, so embedding a tool never puts anything on the embedding site's visitor, and never caches
+anything under the embedding page's origin. Installation is offered on the tool index and the
+standalone tool pages only.
+
+Installability is verified against the real build by `pnpm check:pwa`, which serves the output,
+waits for a service worker to take control, clears the browser's own HTTP cache, switches the
+network off, and requires the pages to still render. It also reads each icon's PNG header to check
+the file is the size the manifest claims, and asserts the embed route registered nothing.
 
 ## Privacy
 

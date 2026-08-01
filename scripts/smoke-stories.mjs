@@ -30,57 +30,15 @@
  *   node scripts/smoke-stories.mjs            after `pnpm run storybook:build`
  */
 import { readFile } from 'node:fs/promises';
-import { createServer } from 'node:http';
-import { extname, join, relative, resolve, sep } from 'node:path';
+import { join } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import { chromium } from 'playwright';
 
+import { serveDirectory } from './lib/static-server.mjs';
+
 const OUTPUT_DIRECTORY = fileURLToPath(new URL('../storybook-static', import.meta.url));
-
-/** Enough to serve a Storybook build. An unknown extension is not guessed at. */
-const CONTENT_TYPES = new Map([
-  ['.css', 'text/css'],
-  ['.html', 'text/html; charset=utf-8'],
-  ['.js', 'text/javascript'],
-  ['.json', 'application/json'],
-  ['.map', 'application/json'],
-  ['.svg', 'image/svg+xml'],
-  ['.woff2', 'font/woff2'],
-]);
-
-/**
- * Serves the built output on an ephemeral loopback port.
- *
- * The path is resolved and then checked to be inside the output directory. A
- * request for `/../../.commit-identity.local` is a real thing a browser can be
- * made to send, and this server is trivially reachable while it runs.
- */
-async function serve(root) {
-  const server = createServer((request, response) => {
-    const requested = new URL(request.url ?? '/', 'http://localhost');
-    const file = resolve(root, `.${decodeURIComponent(requested.pathname)}`);
-    const inside = relative(root, file);
-    if (inside.startsWith(`..${sep}`) || inside === '..') {
-      response.writeHead(403).end();
-      return;
-    }
-    readFile(file).then(
-      (body) => {
-        const type = CONTENT_TYPES.get(extname(file));
-        response.writeHead(200, type === undefined ? {} : { 'content-type': type });
-        response.end(body);
-      },
-      () => {
-        response.writeHead(404).end();
-      },
-    );
-  });
-  await new Promise((ready) => server.listen(0, '127.0.0.1', ready));
-  const address = server.address();
-  return { server, origin: `http://127.0.0.1:${String(address.port)}` };
-}
 
 /**
  * The text a visitor would see, shadow roots included.
@@ -120,7 +78,7 @@ async function main() {
     return;
   }
 
-  const { server, origin } = await serve(OUTPUT_DIRECTORY);
+  const { server, origin } = await serveDirectory(OUTPUT_DIRECTORY);
   const browser = await chromium.launch();
   const page = await browser.newPage();
 

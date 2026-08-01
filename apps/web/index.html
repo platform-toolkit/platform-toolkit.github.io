@@ -16,6 +16,34 @@
     -->
     <script src="/theme-boot.js"></script>
     <link rel="stylesheet" href="/src/styles.css" />
+    <!--
+      Installation. Present on the hub and on each tool page, and deliberately
+      absent from every embed route: a manifest inside an iframe is ignored, but
+      an install prompt offered for a widget sitting in somebody else's article
+      would be offering to install their page.
+
+      Paths are written root-absolute because the build rewrites them for the
+      deployed base; the manifest's own members are relative for the same reason,
+      by a different mechanism. See the note in `public/manifest.webmanifest`.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <!--
+      iOS reads none of the manifest. The home-screen icon comes from this link,
+      and without it an installed shortcut shows a screenshot of the page.
+    -->
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Toolkit" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <!--
+      Browser and system chrome around the page. Two values because a manifest
+      carries only one and cannot follow `prefers-color-scheme`; these can, and
+      they match the surface colours in `tokens.css` so the chrome and the page
+      are the same colour rather than nearly.
+    -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#14171b" />
   </head>
   <body>
     <div class="page">

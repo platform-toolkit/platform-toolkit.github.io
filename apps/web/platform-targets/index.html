@@ -16,6 +16,20 @@
     -->
     <script src="/theme-boot.js"></script>
     <link rel="stylesheet" href="/src/styles.css" />
+    <!--
+      The same manifest as the hub, on purpose. One installed application holding
+      the collection, not one installable icon per tool: `start_url` is the hub,
+      so installing from here and installing from there give the same thing.
+      Absent from the embed route beside this one -- see the hub for why.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Toolkit" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#14171b" />
   </head>
   <body>
     <div class="page">

@@ -1,6 +1,9 @@
 import { initializeTheme } from '@platform-toolkit/ui';
 
+import { registerServiceWorker } from '../pwa.js';
 import { TOOLS } from '../tools.js';
+
+import { createInstallPrompt } from './install.js';
 
 const app = document.querySelector<HTMLElement>('#app');
 if (app === null) {
@@ -8,6 +11,7 @@ if (app === null) {
 }
 
 initializeTheme();
+registerServiceWorker();
 
 const list = document.createElement('ul');
 list.className = 'tool-list';
@@ -28,4 +32,7 @@ for (const tool of TOOLS) {
   list.append(item);
 }
 
-app.replaceChildren(list);
+// Built even where installation is not offered: it stays hidden until a browser
+// says it is willing, and constructing it up front is what lets the listener
+// inside be registered before the event fires.
+app.replaceChildren(list, createInstallPrompt());

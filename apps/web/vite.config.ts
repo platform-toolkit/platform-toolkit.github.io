@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 
@@ -66,6 +68,96 @@ function contentSecurityPolicy(policy: string): Plugin {
 }
 
 /**
+ * Files copied verbatim from `public/` that the shell cannot render without.
+ *
+ * Listed rather than discovered, because `public/` also holds `data/` -- the
+ * published artifacts, budgeted at 2 MiB each. Precaching a directory would put
+ * every federation's record book on a phone at install time, which is the one
+ * thing a metered connection would actually notice. Data is cached on demand
+ * instead; see the fetch handler in `service-worker.js`.
+ */
+const PRECACHED_PUBLIC_FILES = [
+  'theme-boot.js',
+  'manifest.webmanifest',
+  'icons/icon-192.png',
+  'icons/icon-512.png',
+  'icons/apple-touch-icon.png',
+  'icons/icon.svg',
+];
+
+/**
+ * A placeholder in the worker template, and the value that replaces it.
+ *
+ * The template is valid JavaScript with the placeholders in place, so it can be
+ * linted and read on its own. That only holds if a substitution that finds
+ * nothing is an error -- otherwise a renamed placeholder ships a worker with an
+ * empty precache, which behaves perfectly until the network goes away.
+ */
+function substitute(source: string, marker: string, value: unknown): string {
+  // The template writes each placeholder as `/* @__MARKER__ */ <default>`, so the
+  // pattern is the comment plus whatever literal follows it up to the semicolon.
+  const pattern = new RegExp(`/\\* @__${marker}__ \\*/[^;]+`);
+  if (!pattern.test(source)) {
+    throw new Error(`The service worker template has no ${marker} placeholder left to replace.`);
+  }
+  return source.replace(pattern, JSON.stringify(value));
+}
+
+/**
+ * Emits `sw.js` with a precache list of everything this build produced.
+ *
+ * The list has to come from the build because every filename in it carries a
+ * content hash. A hand-written list would be wrong on the first deploy that
+ * changed a byte, and wrong in the direction that fails only offline.
+ */
+function serviceWorkerPlugin(dataBaseUrl: string): Plugin {
+  return {
+    name: 'ptk-service-worker',
+    apply: 'build',
+    generateBundle: {
+      // After everything else. Vite emits the HTML documents from this same hook,
+      // so a precache list gathered at the default order contains every hashed
+      // script and not one page -- a build that succeeds and an application that
+      // shows the browser's offline page.
+      order: 'post',
+      async handler(_options, bundle) {
+        const paths = new Set<string>();
+
+        for (const [fileName, output] of Object.entries(bundle)) {
+          if (output.type === 'asset' && fileName.endsWith('.html')) {
+            // Cached under the URL a visitor navigates to, not the filename the
+            // server resolves it from. A cache lookup is a string comparison: an
+            // entry keyed `platform-targets/index.html` is simply not there when
+            // the request is for `platform-targets/`, and the page that fails
+            // offline is every page.
+            paths.add(`./${fileName.replace(/(^|\/)index\.html$/, '$1')}`);
+            continue;
+          }
+          paths.add(`./${fileName}`);
+        }
+
+        for (const file of PRECACHED_PUBLIC_FILES) {
+          paths.add(`./${file}`);
+        }
+
+        // Sorted so the list -- and therefore the build identifier derived from
+        // it -- depends on what the build contains and not on the order Rolldown
+        // happened to emit it in. Same rule as the published artifacts.
+        const precache = [...paths].sort();
+        const buildId = createHash('sha256').update(precache.join('\n')).digest('hex').slice(0, 16);
+
+        let source = await readFile(here('service-worker.js'), 'utf8');
+        source = substitute(source, 'PTK_PRECACHE', precache);
+        source = substitute(source, 'PTK_BUILD_ID', buildId);
+        source = substitute(source, 'PTK_DATA_BASE', dataBaseUrl);
+
+        this.emitFile({ type: 'asset', fileName: 'sw.js', source });
+      },
+    },
+  };
+}
+
+/**
  * `base` is the one host-specific setting in the build.
  *
  * The production target is an organisation *user* site, served from the root, so
@@ -124,7 +216,7 @@ const CONTENT_SECURITY_POLICY = buildContentSecurityPolicy(
 export default defineConfig({
   base,
   appType: 'mpa',
-  plugins: [contentSecurityPolicy(CONTENT_SECURITY_POLICY)],
+  plugins: [contentSecurityPolicy(CONTENT_SECURITY_POLICY), serviceWorkerPlugin(dataBaseUrl)],
   // Named one at a time, never by prefix. Vite's `envPrefix` would inline every
   // matching variable into the bundle, and the deploy workflow puts
   // `PTK_PROHIBITED_TOKENS` -- a repository secret -- in the same environment as

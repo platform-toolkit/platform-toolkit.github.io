@@ -38,7 +38,8 @@
     "scan:references": "node scripts/scan-prohibited-references.mjs",
     "scan:references:strict": "node scripts/scan-prohibited-references.mjs --require-tokens",
     "check:narrow": "node scripts/check-narrow-layout.mjs",
-    "verify": "run-s format:check typecheck lint test scan:references build check:narrow storybook:check"
+    "check:pwa": "node scripts/check-pwa.mjs",
+    "verify": "run-s format:check typecheck lint test scan:references build check:narrow check:pwa storybook:check"
   },
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "4.7.2",

@@ -133,6 +133,18 @@ export default tseslint.config(
     },
   },
 
+  // The service worker template. It is neither browser code nor Node code: there
+  // is no `window` and no `document`, and referring to either must be the
+  // undefined variable it would be at runtime. Kept out of `public/` because the
+  // build substitutes its precache list before emitting it as `sw.js`.
+  {
+    files: ['apps/web/service-worker.js'],
+    languageOptions: {
+      globals: globals.serviceworker,
+      sourceType: 'script',
+    },
+  },
+
   // Node code: ingestion, build config, and scripts.
   {
     files: [

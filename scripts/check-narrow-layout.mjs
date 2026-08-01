@@ -34,12 +34,13 @@
  *   node scripts/check-narrow-layout.mjs        after `pnpm run build`
  */
 import { readFile } from 'node:fs/promises';
-import { createServer } from 'node:http';
-import { extname, join, relative, resolve, sep } from 'node:path';
+import { join } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import { chromium } from 'playwright';
+
+import { serveDirectory } from './lib/static-server.mjs';
 
 const OUTPUT_DIRECTORY = fileURLToPath(new URL('../apps/web/dist', import.meta.url));
 
@@ -72,52 +73,6 @@ const TAP_TARGET_MIN = 44;
 
 /** Below this, iOS Safari zooms the page when a field takes focus. */
 const MINIMUM_INPUT_FONT_SIZE = 16;
-
-const CONTENT_TYPES = new Map([
-  ['.css', 'text/css'],
-  ['.html', 'text/html; charset=utf-8'],
-  ['.js', 'text/javascript'],
-  ['.json', 'application/json'],
-  ['.map', 'application/json'],
-  ['.svg', 'image/svg+xml'],
-  ['.woff2', 'font/woff2'],
-]);
-
-/**
- * Serves the built output on an ephemeral loopback port.
- *
- * The path is resolved and then checked to be inside the output directory, for
- * the same reason the story smoke check does it: this server is trivially
- * reachable while it runs, and `/../../.commit-identity.local` is a request a
- * browser can be made to send.
- */
-async function serve(root) {
-  const server = createServer((request, response) => {
-    const requested = new URL(request.url ?? '/', 'http://localhost');
-    let pathname = decodeURIComponent(requested.pathname);
-    if (pathname.endsWith('/')) {
-      pathname += 'index.html';
-    }
-    const file = resolve(root, `.${pathname}`);
-    const inside = relative(root, file);
-    if (inside.startsWith(`..${sep}`) || inside === '..') {
-      response.writeHead(403).end();
-      return;
-    }
-    readFile(file).then(
-      (body) => {
-        const type = CONTENT_TYPES.get(extname(file));
-        response.writeHead(200, type === undefined ? {} : { 'content-type': type });
-        response.end(body);
-      },
-      () => {
-        response.writeHead(404).end();
-      },
-    );
-  });
-  await new Promise((ready) => server.listen(0, '127.0.0.1', ready));
-  return { server, origin: `http://127.0.0.1:${String(server.address().port)}` };
-}
 
 /**
  * Measures the page, reaching into shadow roots.
@@ -197,7 +152,7 @@ async function main() {
     return;
   }
 
-  const { server, origin } = await serve(OUTPUT_DIRECTORY);
+  const { server, origin } = await serveDirectory(OUTPUT_DIRECTORY);
   const browser = await chromium.launch();
   const failures = [];
   let measured = 0;

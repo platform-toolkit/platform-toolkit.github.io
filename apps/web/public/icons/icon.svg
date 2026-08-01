@@ -1,0 +1,43 @@
+<!--
+  The mark, and the source every raster icon is generated from.
+
+  Kept out of `public/` deliberately: this file is the artwork, the PNGs beside
+  it in `public/icons/` are the build product, and putting both in the copied
+  directory would publish a second, subtly different icon that some platform
+  would eventually pick. Regenerate with `node scripts/generate-icons.mjs`.
+
+  Two constraints shape the drawing, and both are about where it ends up:
+
+  A maskable icon is cropped by the platform to whatever shape it likes -- a
+  circle on one launcher, a squircle on another, a rounded square on a third.
+  What survives every crop is the centred circle of 80% diameter, so the barbell
+  sits well inside a radius of 205 on this 512 canvas and the background runs
+  full bleed to the edges. There is no padding to lose.
+
+  It is also read at 48 pixels in a launcher and at 16 in a tab. That rules out
+  a thin outline or a plate count anyone has to resolve: four heavy rectangles
+  and a bar, in two colours with a contrast ratio a specification would accept.
+  The accent is the one from `tokens.css`, so the installed icon and the
+  application are demonstrably the same product.
+-->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 512 512"
+  width="512"
+  height="512"
+  role="img"
+  aria-label="Platform Toolkit"
+>
+  <title>Platform Toolkit</title>
+  <rect width="512" height="512" fill="#1f5fa8" />
+  <g fill="#ffffff">
+    <!-- The bar, sleeve to sleeve. -->
+    <rect x="106" y="242" width="300" height="28" rx="10" />
+    <!-- Inner plates, the tall pair. -->
+    <rect x="176" y="176" width="36" height="160" rx="10" />
+    <rect x="300" y="176" width="36" height="160" rx="10" />
+    <!-- Outer plates, shorter, so the silhouette still reads at 16 pixels. -->
+    <rect x="130" y="201" width="30" height="110" rx="9" />
+    <rect x="352" y="201" width="30" height="110" rx="9" />
+  </g>
+</svg>
