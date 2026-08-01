@@ -7,6 +7,15 @@ export {
   type AgeDivisionProblem,
 } from './age-division.js';
 export {
+  KILOGRAM_MILESTONES,
+  POUND_MILESTONES,
+  milestonesFor,
+  standingAmongMilestones,
+  type BarbellMilestone,
+  type MilestoneChart,
+  type MilestoneStanding,
+} from './barbell-milestones.js';
+export {
   ClassificationLadder,
   selectClassificationTable,
   type Classification,
@@ -16,6 +25,15 @@ export {
   type ClassificationQuery,
   type ClassificationTableSelection,
 } from './classification.js';
+export {
+  ConversionChart,
+  type ChartColumn,
+  type ChartLookup,
+  type ConversionChartGap,
+  type ConversionChartProblem,
+  type ConversionChartProblemCode,
+  type ConversionChartResult,
+} from './conversion-chart.js';
 export {
   LIFTS,
   PRIMARY_LIFTS,

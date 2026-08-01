@@ -149,7 +149,11 @@ async function download(url: string, fetchImpl: typeof fetch): Promise<string> {
   const response = await fetchImpl(url, {
     redirect: 'follow',
     signal: AbortSignal.timeout(TIMEOUT_MILLISECONDS),
-    headers: { accept: 'application/json, text/plain;q=0.5' },
+    // `*/*` is present rather than implied. A watched source may be a PDF as
+    // easily as a dataset, and a strict origin answering 406 would be reported as
+    // an unreachable source when nothing is wrong with it. Only the digest of
+    // whatever comes back is used, so the type does not matter here.
+    headers: { accept: 'application/json, text/plain;q=0.5, */*;q=0.1' },
   });
 
   if (!response.ok) {

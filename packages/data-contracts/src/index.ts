@@ -43,6 +43,15 @@ export {
   type ClassificationShardKey,
 } from './classification-shards.js';
 export {
+  ConversionChartSchema,
+  ConversionRowSchema,
+  ConversionSourceSchema,
+  conversionChartArtifactId,
+  type ConversionChartData,
+  type ConversionRow,
+  type ConversionSource,
+} from './conversions.js';
+export {
   DataMetaSchema,
   SourceFreshnessSchema,
   type DataMeta,

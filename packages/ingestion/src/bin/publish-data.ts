@@ -30,7 +30,9 @@ import process from 'node:process';
 
 import {
   CategoryCatalogSchema,
+  ConversionChartSchema,
   categoryCatalogArtifactId,
+  conversionChartArtifactId,
   type CategoryCatalog,
   type SourceFreshness,
 } from '@platform-toolkit/data-contracts';
@@ -42,6 +44,7 @@ import {
   buildClassificationTables,
   readClassificationSourceReferences,
 } from '../sources/classification-standards.js';
+import { buildConversionChart } from '../sources/conversion-chart.js';
 import { writePublication } from '../write-publication.js';
 
 /**
@@ -55,6 +58,7 @@ import { writePublication } from '../write-publication.js';
 const SOURCE_ROOT = 'data/sources';
 const CATEGORY_SOURCES = join(SOURCE_ROOT, 'categories');
 const CLASSIFICATION_SOURCES = join(SOURCE_ROOT, 'classifications');
+const CONVERSION_SOURCES = join(SOURCE_ROOT, 'conversions');
 
 /**
  * Where a classification mapping's committed upstream dataset lives.
@@ -153,6 +157,43 @@ async function main(): Promise<void> {
       console.log(
         `${document.path}: withheld ${String(withheld.length)} published rows:\n  ` +
           withheld.map((entry) => `${entry.row} -- ${entry.reason}`).join('\n  '),
+      );
+    }
+  }
+
+  // Conversion charts stand alone deliberately: a converter is useful to a lifter
+  // in a federation this project has never transcribed a rulebook for, and
+  // requiring a category catalogue alongside would make the smallest tool depend
+  // on the largest dataset.
+  for (const document of await readSourceDocuments(CONVERSION_SOURCES)) {
+    const { chart, freshness, anomalies } = buildConversionChart(document.value);
+    const id = conversionChartArtifactId(chart.id);
+    if (id === null) {
+      throw new Error(
+        `${document.path}: federation identifier "${chart.id}" cannot be used in a filename.`,
+      );
+    }
+    artifacts.push({
+      id,
+      schema: ConversionChartSchema,
+      schemaVersion: SCHEMA_VERSION,
+      value: chart,
+    });
+    sources.push(freshness);
+
+    // Printed, not thrown. A row the chart's own factor does not reproduce is
+    // still the row the meet runs on; what it needs is somebody's eyes, not a
+    // failed build. See the note in the adapter.
+    if (anomalies.length > 0) {
+      console.log(
+        `${document.path}: ${String(anomalies.length)} row(s) disagree with the chart's printed factor:\n  ` +
+          anomalies
+            .map(
+              (anomaly) =>
+                `${String(anomaly.kilograms)} kg: chart says ${String(anomaly.publishedPounds)} lb, ` +
+                `the factor gives ${String(anomaly.factorPounds)} lb`,
+            )
+            .join('\n  '),
       );
     }
   }

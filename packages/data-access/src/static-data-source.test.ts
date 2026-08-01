@@ -38,6 +38,12 @@ const VALID_META = {
       byteLength: 512,
       schemaVersion: 1,
     },
+    'conversions-example': {
+      path: 'artifacts/conversions-example.76543210fedcba98.json',
+      sha256: '3'.repeat(64),
+      byteLength: 384,
+      schemaVersion: 1,
+    },
   },
 };
 
@@ -420,6 +426,81 @@ describe('classification standards', () => {
     await source.getClassifications(PARTITION);
 
     expect(fetch.calls.filter((url) => url.endsWith('meta.json'))).toHaveLength(1);
+  });
+});
+
+const CONVERSIONS_URL = '/data/artifacts/conversions-example.76543210fedcba98.json';
+
+/** Invented rows. The real chart is transcribed once, in `data/sources/`. */
+const CONVERSION_CHART = {
+  id: 'example',
+  label: 'Example Federation',
+  source: {
+    label: 'Example Federation Conversion Chart',
+    url: 'https://example.test/chart/',
+    revision: '2026-01',
+    verifiedOn: '2026-08-01',
+  },
+  rows: [
+    { kilograms: 100, pounds: 220 },
+    { kilograms: 110, pounds: 240 },
+  ],
+};
+
+describe('conversion chart', () => {
+  const routes = { '/data/meta.json': VALID_META, [CONVERSIONS_URL]: CONVERSION_CHART };
+
+  it('resolves one federation’s chart through the index', async () => {
+    const fetch = routingFetch(routes);
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    await expect(source.getConversionChart('example')).resolves.toEqual(CONVERSION_CHART);
+    expect(fetch.calls).toEqual(['/data/meta.json', CONVERSIONS_URL]);
+  });
+
+  it('answers null for a federation with no published chart', async () => {
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch: routingFetch(routes) });
+    await expect(source.getConversionChart('nowhere')).resolves.toBeNull();
+  });
+
+  it('answers null without a request when nothing can be named', async () => {
+    const fetch = routingFetch(routes);
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    await expect(source.getConversionChart('///')).resolves.toBeNull();
+    expect(fetch.calls).toEqual([]);
+  });
+
+  it('refuses a chart whose citation is not https', async () => {
+    // The citation is rendered into an `href`. A `javascript:` URL published by
+    // accident would run when a lifter tapped the source line, and it validates
+    // as a URL.
+    const source = createStaticDataSource({
+      baseUrl: '/data/',
+      fetch: routingFetch({
+        '/data/meta.json': VALID_META,
+        [CONVERSIONS_URL]: {
+          ...CONVERSION_CHART,
+          source: { ...CONVERSION_CHART.source, url: 'javascript:alert(1)' },
+        },
+      }),
+    });
+
+    await expect(source.getConversionChart('example')).rejects.toThrow(DataSourceError);
+  });
+
+  it('refuses a chart of one row', async () => {
+    // "The rows around this weight" has no answer in a one-row table, and the
+    // whole between-rows behaviour is built on there being one.
+    const source = createStaticDataSource({
+      baseUrl: '/data/',
+      fetch: routingFetch({
+        '/data/meta.json': VALID_META,
+        [CONVERSIONS_URL]: { ...CONVERSION_CHART, rows: [CONVERSION_CHART.rows[0]] },
+      }),
+    });
+
+    await expect(source.getConversionChart('example')).rejects.toThrow(DataSourceError);
   });
 });
 

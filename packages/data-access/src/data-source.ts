@@ -28,6 +28,7 @@
 import type {
   CategoryCatalog,
   ClassificationBook,
+  ConversionChartData,
   DataMeta,
   RecordBook,
   SexCategory,
@@ -202,4 +203,23 @@ export interface DataSource {
     query: ClassificationSetQuery,
     options?: ReadOptions,
   ): Promise<ClassificationBook | null>;
+
+  /**
+   * One federation's published kilogram/pound conversion chart, or `null` if none
+   * is published for it.
+   *
+   * The whole chart, not a lookup. Reading a weight against it is
+   * `ConversionChart` in `packages/domain`, and it stays there for two reasons: a
+   * lookup involves rules -- which rows surround a weight, when two are equally
+   * close -- that must not differ between a static build and an API, and a
+   * converter is a control a lifter moves continuously. Round-tripping every
+   * keystroke would make an offline-capable tool require a network.
+   *
+   * `null` is an answer, as everywhere else here: a federation this project has
+   * not transcribed a chart for is a thing to say plainly rather than a failure.
+   */
+  getConversionChart(
+    federationId: string,
+    options?: ReadOptions,
+  ): Promise<ConversionChartData | null>;
 }

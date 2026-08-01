@@ -47,6 +47,15 @@ export {
   type WithheldRow,
 } from './sources/classification-standards.js';
 export {
+  ConversionSourceDocumentSchema,
+  ConversionSourceError,
+  buildConversionChart,
+  readConversionSourceReferences,
+  type ConversionAnomaly,
+  type ConversionSourceDocument,
+  type ConversionSourceResult,
+} from './sources/conversion-chart.js';
+export {
   ClassificationShardNamingError,
   DuplicateClassificationTableError,
   shardClassificationBook,

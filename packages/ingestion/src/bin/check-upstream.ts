@@ -32,9 +32,11 @@ import { join, resolve } from 'node:path';
 import process from 'node:process';
 
 import { readClassificationSourceReferences } from '../sources/classification-standards.js';
+import { readConversionSourceReferences } from '../sources/conversion-chart.js';
 import { checkUpstream, type UpstreamSource } from '../upstream-check.js';
 
 const CLASSIFICATION_SOURCES = join('data', 'sources', 'classifications');
+const CONVERSION_SOURCES = join('data', 'sources', 'conversions');
 
 /** Committed. See the note above on why its timestamp moves every run. */
 const DEFAULT_REPORT = join('data', 'upstream-check.json');
@@ -70,21 +72,17 @@ async function main(): Promise<void> {
  * because they are transcribed from a rulebook rather than pinned to a file --
  * they have nothing to compare, which is a different thing again and belongs in
  * the report only once there is something to say about it.
+ *
+ * A conversion chart is pinned without its document being committed: the chart
+ * PDF carries a federation's logo and is not redistributed, so the digest in the
+ * source file is the only copy of those bytes the repository holds. That makes
+ * this check the sole thing standing between a revised chart and a site quietly
+ * serving the old one.
  */
 async function collectSources(): Promise<readonly UpstreamSource[]> {
-  const root = resolve(process.cwd(), CLASSIFICATION_SOURCES);
-  const names = (await readdir(root)).filter((name) => name.endsWith('.json')).sort();
-
   const sources: UpstreamSource[] = [];
-  for (const name of names) {
-    const path = join(CLASSIFICATION_SOURCES, name);
-    const contents = await readFile(join(root, name), 'utf8');
-    let document: unknown;
-    try {
-      document = JSON.parse(contents);
-    } catch (cause) {
-      throw new Error(`${path}: is not valid JSON.`, { cause });
-    }
+
+  for (const { path, document } of await readSourceDocuments(CLASSIFICATION_SOURCES)) {
     const references = readClassificationSourceReferences(document);
     sources.push({
       id: `${references.federationId}-classifications`,
@@ -93,7 +91,38 @@ async function collectSources(): Promise<readonly UpstreamSource[]> {
       url: references.standardsUrl,
     });
   }
+
+  for (const { path, document } of await readSourceDocuments(CONVERSION_SOURCES)) {
+    const references = readConversionSourceReferences(document);
+    sources.push({
+      id: `${references.federationId}-conversions`,
+      document: path,
+      sha256: references.chartSha256,
+      url: references.chartUrl,
+    });
+  }
+
   return sources;
+}
+
+/** Every JSON document in a directory, in filename order so a report is stable. */
+async function readSourceDocuments(
+  directory: string,
+): Promise<readonly { path: string; document: unknown }[]> {
+  const root = resolve(process.cwd(), directory);
+  const names = (await readdir(root)).filter((name) => name.endsWith('.json')).sort();
+
+  const documents: { path: string; document: unknown }[] = [];
+  for (const name of names) {
+    const path = join(directory, name);
+    const contents = await readFile(join(root, name), 'utf8');
+    try {
+      documents.push({ path, document: JSON.parse(contents) as unknown });
+    } catch (cause) {
+      throw new Error(`${path}: is not valid JSON.`, { cause });
+    }
+  }
+  return documents;
 }
 
 /**

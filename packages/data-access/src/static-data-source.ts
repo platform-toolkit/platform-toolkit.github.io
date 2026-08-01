@@ -12,14 +12,17 @@
 import {
   CategoryCatalogSchema,
   ClassificationBookSchema,
+  ConversionChartSchema,
   DataMetaSchema,
   RecordBookSchema,
   categoryCatalogArtifactId,
   classificationArtifactId,
+  conversionChartArtifactId,
   recordArtifactId,
   type ArtifactReference,
   type CategoryCatalog,
   type ClassificationBook,
+  type ConversionChartData,
   type DataMeta,
   type RecordBook,
 } from '@platform-toolkit/data-contracts';
@@ -174,6 +177,17 @@ export function createStaticDataSource(options: StaticDataSourceOptions): DataSo
         equipmentId: query.equipmentId,
       });
       return readArtifact(artifactId, ClassificationBookSchema, readOptions);
+    },
+
+    getConversionChart(
+      federationId: string,
+      readOptions?: ReadOptions,
+    ): Promise<ConversionChartData | null> {
+      return readArtifact(
+        conversionChartArtifactId(federationId),
+        ConversionChartSchema,
+        readOptions,
+      );
     },
   };
 }
