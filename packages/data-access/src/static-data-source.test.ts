@@ -15,6 +15,14 @@ const VALID_META = {
       status: 'ok',
     },
   ],
+  artifacts: {
+    'uspa-records': {
+      path: 'artifacts/uspa-records.0123456789abcdef.json',
+      sha256: '0'.repeat(64),
+      byteLength: 128,
+      schemaVersion: 1,
+    },
+  },
 };
 
 /** Records the URLs it was asked for, so path construction can be asserted. */

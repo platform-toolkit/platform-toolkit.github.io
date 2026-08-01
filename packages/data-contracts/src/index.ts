@@ -1,4 +1,11 @@
 export {
+  ArtifactIndexSchema,
+  ArtifactPathSchema,
+  ArtifactReferenceSchema,
+  type ArtifactIndex,
+  type ArtifactReference,
+} from './artifacts.js';
+export {
   AgeBasisSchema,
   AgeDivisionSchema,
   AgeDivisionSetSchema,

@@ -1,5 +1,7 @@
 import * as v from 'valibot';
 
+import { ArtifactIndexSchema } from './artifacts.js';
+
 /**
  * Freshness and provenance for a single upstream source.
  *
@@ -33,7 +35,13 @@ export const SourceFreshnessSchema = v.object({
 
 export type SourceFreshness = v.InferOutput<typeof SourceFreshnessSchema>;
 
-/** Top-level metadata artifact describing every published data source. */
+/**
+ * Top-level metadata artifact: the only published file with a fixed name.
+ *
+ * It answers two questions in one request, because both are needed before
+ * anything can be shown: how current the data is, and where the data is. See
+ * `artifacts.ts` for why the second one is not simply a set of known paths.
+ */
 export const DataMetaSchema = v.object({
   /** Schema version of this artifact, incremented on breaking shape changes. */
   schemaVersion: v.literal(1),
@@ -42,6 +50,9 @@ export const DataMetaSchema = v.object({
   generatedAt: v.pipe(v.string(), v.isoTimestamp()),
 
   sources: v.pipe(v.array(SourceFreshnessSchema), v.minLength(1)),
+
+  /** Where each published artifact currently lives. */
+  artifacts: ArtifactIndexSchema,
 });
 
 export type DataMeta = v.InferOutput<typeof DataMetaSchema>;
