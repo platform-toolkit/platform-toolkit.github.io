@@ -36,3 +36,15 @@ if ! node "$root/scripts/scan-prohibited-references.mjs" --pending; then
 	echo >&2
 	exit 1
 fi
+
+# Invisible characters, checked here rather than only in CI because this is the
+# last point at which the fix is an edit. A NUL committed into a file makes git
+# treat that file as binary from then on, so its diff stops being printed for
+# every later change too -- and unlike the scan above, this one applies to
+# everyone, since it depends on no local file and forbids nothing anybody wants.
+if ! node "$root/scripts/check-source-text.mjs"; then
+	echo >&2
+	echo "pre-commit: BLOCKED. Nothing has been committed." >&2
+	echo >&2
+	exit 1
+fi

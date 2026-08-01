@@ -36,11 +36,12 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "check:text": "node scripts/check-source-text.mjs",
     "scan:references": "node scripts/scan-prohibited-references.mjs",
     "scan:references:strict": "node scripts/scan-prohibited-references.mjs --require-tokens",
     "check:narrow": "node scripts/check-narrow-layout.mjs",
     "check:pwa": "node scripts/check-pwa.mjs",
-    "verify": "run-s format:check typecheck lint test scan:references build check:narrow check:pwa storybook:check"
+    "verify": "run-s format:check typecheck lint test check:text scan:references build check:narrow check:pwa storybook:check"
   },
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "4.7.2",
