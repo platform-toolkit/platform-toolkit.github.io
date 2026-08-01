@@ -1,0 +1,22 @@
+{
+  "name": "@platform-targets/ingestion",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Source adapters, normalizers, and anomaly checks. Runs in CI, never in the browser.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "dependencies": {
+    "@platform-targets/data-contracts": "*",
+    "@platform-targets/domain": "*",
+    "valibot": "1.4.2"
+  }
+}

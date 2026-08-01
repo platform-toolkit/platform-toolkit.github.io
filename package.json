@@ -1,0 +1,45 @@
+{
+  "name": "platform-targets",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Powerlifting classification, record, and meet-qualification targets on one screen.",
+  "license": "MIT",
+  "author": "Jason Smathers <jason@smathe.rs>",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "prepare": "node scripts/install-git-hooks.mjs",
+    "build": "npm run build --workspaces --if-present",
+    "dev": "npm run dev --workspace @platform-targets/web",
+    "typecheck": "run-s typecheck:packages typecheck:tests typecheck:tooling",
+    "typecheck:packages": "tsc --build --force",
+    "typecheck:tests": "tsc -p tsconfig.tests.json",
+    "typecheck:tooling": "tsc -p tsconfig.tooling.json",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "scan:references": "node scripts/scan-prohibited-references.mjs",
+    "verify": "run-s format:check lint typecheck test scan:references build"
+  },
+  "devDependencies": {
+    "@eslint-community/eslint-plugin-eslint-comments": "4.7.2",
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.13.3",
+    "eslint": "10.8.0",
+    "globals": "17.8.0",
+    "npm-run-all2": "9.0.3",
+    "prettier": "3.9.6",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.65.0",
+    "vitest": "4.1.10"
+  }
+}

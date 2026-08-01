@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en" data-theme-mode="system">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Platform Targets (embedded)</title>
+    <!--
+      Embedding this route is intentional and unrestricted: any site may frame it.
+      No frame-ancestors directive and no X-Frame-Options are set anywhere.
+
+      Framing grants the parent page no access to anything inside. Theme and
+      defaults are accepted only through documented query parameters and validated
+      postMessage payloads, and no imported athlete information is ever sent out.
+    -->
+    <script src="/theme-boot.js"></script>
+    <link rel="stylesheet" href="/src/styles/tokens.css" />
+  </head>
+  <body data-embedded="true">
+    <main id="app">
+      <noscript>
+        <p>Platform Targets needs JavaScript to calculate classifications and standards.</p>
+      </noscript>
+    </main>
+    <script type="module" src="/src/embed.ts"></script>
+  </body>
+</html>

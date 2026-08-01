@@ -1,0 +1,38 @@
+#!/bin/sh
+#
+# Checks the commit about to be made for strings that must not enter this
+# repository -- including in author and committer metadata, which no later file
+# edit can reach and which a push makes permanent.
+#
+# THIS HOOK IMPOSES NOTHING ON CONTRIBUTORS.
+#
+# Everything it enforces is driven by untracked, gitignored files that exist
+# only on a machine that opted in:
+#
+#   .prohibited-tokens.local  strings that must not appear anywhere
+#   .commit-identity.local    one exact email this machine must commit as,
+#                             and a requirement that commits be signed
+#
+# With neither file present -- the normal case for anyone cloning this project
+# -- the hook runs, finds nothing to check, and passes. Contributors commit
+# under their own name and address with no interference.
+#
+# Enabled via core.hooksPath (see the "prepare" script in the root
+# package.json), so it survives a fresh clone.
+
+set -e
+
+root=$(git rev-parse --show-toplevel)
+
+# A hook that blocks commits because a toolchain is missing is a hook people
+# turn off. CI remains the enforcing copy for anything committed without it.
+if ! command -v node >/dev/null 2>&1; then
+	exit 0
+fi
+
+if ! node "$root/scripts/scan-prohibited-references.mjs" --pending; then
+	echo >&2
+	echo "pre-commit: BLOCKED. Nothing has been committed." >&2
+	echo >&2
+	exit 1
+fi

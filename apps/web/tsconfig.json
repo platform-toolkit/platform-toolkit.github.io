@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client", "node"],
+    // Vite performs the real build. TypeScript here is a type checker only, so it
+    // emits declarations and nothing else. (`noEmit` is not an option: a composite
+    // project must emit, and composite is what makes `tsc --build` incremental.)
+    "emitDeclarationOnly": true,
+    "outDir": "./dist-types"
+  },
+  "include": ["src/**/*.ts", "vite.config.ts"],
+  "exclude": ["src/**/*.test.ts"],
+  "references": [
+    { "path": "../../packages/configuration" },
+    { "path": "../../packages/data-contracts" },
+    { "path": "../../packages/domain" }
+  ]
+}

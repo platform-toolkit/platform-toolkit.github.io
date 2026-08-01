@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+
+  // Tests are deliberately excluded from the package projects so that `dist`
+  // contains shipped code and nothing else. They still have to be type-checked,
+  // though -- an untyped test is a test that can assert the wrong thing without
+  // anyone noticing -- so they are checked here instead, with no emit.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "incremental": false,
+
+    // Resolve workspace imports to source rather than to built output, so tests
+    // type-check on a clean checkout before anything has been compiled.
+    "paths": {
+      "@platform-targets/configuration": ["./packages/configuration/src/index.ts"],
+      "@platform-targets/data-contracts": ["./packages/data-contracts/src/index.ts"],
+      "@platform-targets/domain": ["./packages/domain/src/index.ts"],
+      "@platform-targets/ingestion": ["./packages/ingestion/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/src/**/*.test.ts", "apps/web/src/**/*.test.ts"]
+}

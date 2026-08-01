@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en" data-theme-mode="system">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Platform Targets</title>
+    <meta
+      name="description"
+      content="Powerlifting classifications, records, and meet qualification targets on one screen."
+    />
+    <!--
+      Runs before first paint to apply an explicitly chosen theme. Must stay an
+      external classic script: a module script would be deferred until after
+      parsing, which is the flash of wrong theme this prevents, and an inline
+      script would require weakening the Content Security Policy.
+    -->
+    <script src="/theme-boot.js"></script>
+    <link rel="stylesheet" href="/src/styles/tokens.css" />
+  </head>
+  <body>
+    <main id="app">
+      <noscript>
+        <p>
+          Platform Targets needs JavaScript to calculate classifications and qualification
+          standards. The published source data remains available without it.
+        </p>
+      </noscript>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

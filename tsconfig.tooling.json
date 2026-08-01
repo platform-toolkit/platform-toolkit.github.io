@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+
+  // Root-level build and test configuration. These files run in Node at build
+  // time and are not part of any shipped package, so they belong to no
+  // composite project -- but they are still TypeScript, and a broken Vitest
+  // config should fail typecheck rather than fail at run time.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "incremental": false
+  },
+  "include": ["vitest.config.ts"]
+}

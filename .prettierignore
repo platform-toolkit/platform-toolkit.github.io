@@ -1,0 +1,16 @@
+node_modules/
+dist/
+dist-types/
+coverage/
+storybook-static/
+test-results/
+playwright-report/
+.cache/
+tmp/
+
+# Generated data artifacts: hundreds of megabytes of machine-written JSON.
+apps/web/public/data/
+
+*.min.js
+*.min.css
+package-lock.json
