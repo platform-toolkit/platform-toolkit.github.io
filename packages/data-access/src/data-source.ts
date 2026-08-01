@@ -30,6 +30,29 @@ import type { DataMeta, RecordBook } from '@platform-toolkit/data-contracts';
 /** Which strategy is answering. Useful in diagnostics; never for branching logic. */
 export type DataSourceKind = 'static' | 'http';
 
+/**
+ * Which records are wanted.
+ *
+ * Level and region because that is what a lifter is actually looking at -- their
+ * state's records, then the national ones -- not because of how the data happens
+ * to be stored. That the published set is partitioned along the same two axes is
+ * a convenience the static adapter exploits privately; an API implementation
+ * would turn these into query parameters and a caller could not tell.
+ *
+ * The finer axes are deliberately absent. A screen shows a lifter their four
+ * lifts at once, so narrowing to one sex or one lift here would either cost four
+ * reads or push a filter into the interface that every implementation would have
+ * to reimplement identically.
+ */
+export interface RecordQuery {
+  /** The federation's book, e.g. its published record set. */
+  readonly bookId: string;
+  /** The level records are kept at: state, national, world. */
+  readonly levelId: string;
+  /** The region within that level, or `null` where the level has no subdivision. */
+  readonly regionId: string | null;
+}
+
 export interface ReadOptions {
   /**
    * Cancels an in-flight read. Present on every method because a component that
@@ -100,17 +123,17 @@ export interface DataSource {
   getDataMeta(options?: ReadOptions): Promise<DataMeta>;
 
   /**
-   * One federation's record book, or `null` if none is published for it.
+   * The records kept at one level and region, or `null` if none are published.
    *
    * `null` is an answer rather than a failure. A federation whose records this
-   * project has not yet ingested, or a level that genuinely has no book, is
-   * something the interface should say plainly -- distinguishing it from a
-   * failed read is what lets the screen choose between "no records here" and
-   * "could not load records".
+   * project has not yet ingested, or a state that genuinely has no records on
+   * the books, is something the interface should say plainly -- distinguishing
+   * it from a failed read is what lets the screen choose between "no records
+   * here" and "could not load records".
    *
-   * `bookId` names a book, not a location. A static implementation resolves it
-   * through the published index; an API implementation makes it a query
-   * parameter. Neither lets the caller influence a URL directly.
+   * The query names records, not a location. A static implementation resolves it
+   * through the published index; an API implementation makes it a query string.
+   * Neither lets the caller influence a URL directly.
    */
-  getRecordBook(bookId: string, options?: ReadOptions): Promise<RecordBook | null>;
+  getRecords(query: RecordQuery, options?: ReadOptions): Promise<RecordBook | null>;
 }

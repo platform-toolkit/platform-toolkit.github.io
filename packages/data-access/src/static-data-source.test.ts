@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { DataSourceError } from './data-source.js';
+import { DataSourceError, type RecordQuery } from './data-source.js';
 import type { FetchLike } from './fetch-json.js';
 import { createStaticDataSource } from './static-data-source.js';
 
@@ -26,11 +26,20 @@ const VALID_META = {
 };
 
 const RECORD_BOOK = {
-  id: 'example-state',
+  id: 'records-example-state',
   label: 'Example state records',
   minimumIncrementKilograms: 0.5,
   records: [],
 };
+
+/**
+ * The published shard the fixture index points at: one level, no region.
+ *
+ * Written out rather than derived so the test states the caller's side of the
+ * contract independently. If the naming ever changed, deriving it here would
+ * keep this test passing while the published files moved.
+ */
+const PUBLISHED: RecordQuery = { bookId: 'example', levelId: 'state', regionId: null };
 
 /** Records the URLs it was asked for, so path construction can be asserted. */
 function stubFetch(response: () => Response): FetchLike & { calls: string[] } {
@@ -107,32 +116,53 @@ const ARTIFACT_URL = '/data/artifacts/records-example-state.0123456789abcdef.jso
 describe('artifact resolution', () => {
   const routes = { '/data/meta.json': VALID_META, [ARTIFACT_URL]: RECORD_BOOK };
 
-  it('resolves a book identifier through the published index', async () => {
-    // The caller never supplies a path. It names a book, and the index -- a
-    // same-origin document CI wrote, validated on read -- says where it lives.
+  it('resolves a level and region through the published index', async () => {
+    // The caller never supplies a path. It names records, and the index -- a
+    // same-origin document CI wrote, validated on read -- says where they live.
     const fetch = routingFetch(routes);
     const source = createStaticDataSource({ baseUrl: '/data/', fetch });
 
-    await expect(source.getRecordBook('example-state')).resolves.toEqual(RECORD_BOOK);
+    await expect(source.getRecords(PUBLISHED)).resolves.toEqual(RECORD_BOOK);
     expect(fetch.calls).toEqual(['/data/meta.json', ARTIFACT_URL]);
   });
 
-  it('answers null for a book that is not published', async () => {
+  it('reaches a different shard for a different region', async () => {
+    // Level and region choose the file. A source that ignored the region would
+    // answer every state with whichever shard it happened to resolve first, and
+    // a lifter in Ohio would be measured against Iowa's records.
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch: routingFetch(routes) });
+
+    await expect(source.getRecords({ ...PUBLISHED, regionId: 'ohio' })).resolves.toBeNull();
+  });
+
+  it('answers null for records that are not published', async () => {
     // Not a failure. "No records here" and "could not load records" are
     // different things to put on a screen.
     const source = createStaticDataSource({ baseUrl: '/data/', fetch: routingFetch(routes) });
-    await expect(source.getRecordBook('nowhere')).resolves.toBeNull();
+    await expect(source.getRecords({ ...PUBLISHED, bookId: 'nowhere' })).resolves.toBeNull();
+  });
+
+  it('answers null without a request when nothing can be named', async () => {
+    // Punctuation only: no artifact could ever have been published under it, so
+    // the index does not need consulting to know that.
+    const fetch = routingFetch(routes);
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    await expect(source.getRecords({ ...PUBLISHED, levelId: '///' })).resolves.toBeNull();
+    expect(fetch.calls).toEqual([]);
   });
 
   it('does not treat an inherited property as an artifact', async () => {
     // The index comes from JSON.parse, so it inherits Object.prototype. A plain
     // property read would answer `constructor` with a function, and the request
-    // would then be built from `undefined`.
+    // would then be built from `undefined`. The artifact prefix happens to make
+    // this unreachable through a query today; the `Object.hasOwn` guard is what
+    // keeps it unreachable when a later artifact kind is named differently.
     const fetch = routingFetch(routes);
     const source = createStaticDataSource({ baseUrl: '/data/', fetch });
 
     for (const bookId of ['constructor', 'toString', '__proto__']) {
-      await expect(source.getRecordBook(bookId), bookId).resolves.toBeNull();
+      await expect(source.getRecords({ ...PUBLISHED, bookId }), bookId).resolves.toBeNull();
     }
     expect(fetch.calls).toEqual(['/data/meta.json']);
   });
@@ -145,17 +175,20 @@ describe('artifact resolution', () => {
         [ARTIFACT_URL]: { ...RECORD_BOOK, minimumIncrementKilograms: -1 },
       }),
     });
-    await expect(source.getRecordBook('example-state')).rejects.toThrow(DataSourceError);
+    await expect(source.getRecords(PUBLISHED)).rejects.toThrow(DataSourceError);
   });
 
   it('reads the index once, so one screen shows one build', async () => {
     // Two reads either side of a deploy would otherwise mix an old record book
-    // with a new classification table, and nothing would look wrong.
+    // with a new classification table, and nothing would look wrong. It matters
+    // more now that records are sharded: a screen comparing a lifter against
+    // state and national records reads two artifacts, and they must be the two
+    // the same build published.
     const fetch = routingFetch(routes);
     const source = createStaticDataSource({ baseUrl: '/data/', fetch });
 
     await source.getDataMeta();
-    await source.getRecordBook('example-state');
+    await source.getRecords(PUBLISHED);
     await source.getDataMeta();
 
     expect(fetch.calls.filter((url) => url.endsWith('meta.json'))).toHaveLength(1);
@@ -182,7 +215,7 @@ describe('artifact resolution', () => {
       fetch: routingFetch({ '/data/meta.json': VALID_META }),
     });
 
-    const error = await rejection(source.getRecordBook('example-state'));
+    const error = await rejection(source.getRecords(PUBLISHED));
     expect(error.message).toBe('Could not read "records-example-state": http 404');
   });
 });

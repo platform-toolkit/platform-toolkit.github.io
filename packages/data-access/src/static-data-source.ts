@@ -3,20 +3,22 @@
  * alongside the site.
  *
  * Everything that is true only of static hosting lives in this file. Artifact
- * paths, the eventual shard arithmetic, and any client-side narrowing that an
- * API would do in a query belong here and nowhere above it. That containment is
- * the whole point -- an HTTP adapter added later implements the same interface,
- * and no calling code learns which one it got.
+ * paths, the fact that records are partitioned into one file per level and
+ * region, and any client-side narrowing that an API would do in a query belong
+ * here and nowhere above it. That containment is the whole point -- an HTTP
+ * adapter added later implements the same interface, and no calling code learns
+ * which one it got.
  */
 import {
   DataMetaSchema,
   RecordBookSchema,
+  recordArtifactId,
   type ArtifactReference,
   type DataMeta,
   type RecordBook,
 } from '@platform-toolkit/data-contracts';
 
-import type { DataSource, DataSourceKind, ReadOptions } from './data-source.js';
+import type { DataSource, DataSourceKind, ReadOptions, RecordQuery } from './data-source.js';
 import { fetchJson, type FetchLike } from './fetch-json.js';
 
 /**
@@ -31,9 +33,6 @@ import { fetchJson, type FetchLike } from './fetch-json.js';
  * parsed. An identifier that is not in the index resolves to nothing at all.
  */
 const DATA_META_PATH = 'meta.json';
-
-/** Prefix that turns a book identifier into its artifact identifier. */
-const RECORD_BOOK_ARTIFACT_PREFIX = 'records-';
 
 export interface StaticDataSourceOptions {
   /**
@@ -88,8 +87,23 @@ export function createStaticDataSource(options: StaticDataSourceOptions): DataSo
       return readMeta(readOptions);
     },
 
-    async getRecordBook(bookId: string, readOptions?: ReadOptions): Promise<RecordBook | null> {
-      const artifactId = RECORD_BOOK_ARTIFACT_PREFIX + bookId;
+    async getRecords(query: RecordQuery, readOptions?: ReadOptions): Promise<RecordBook | null> {
+      // Computed with the same function the publisher named the file with, from
+      // the contracts package that both sides share. Deriving it independently
+      // here would work until someone changed one of the two, and the symptom
+      // would be a lookup that finds nothing -- which the interface renders as
+      // "no records in this category", a real and unremarkable answer.
+      const artifactId = recordArtifactId(query.bookId, {
+        levelId: query.levelId,
+        regionId: query.regionId,
+      });
+      if (artifactId === null) {
+        // Nothing in the identifiers survives slugging, so no artifact could
+        // ever have been published under them. Same answer as an unpublished
+        // one, and for the same reason: this is not a failed read.
+        return null;
+      }
+
       const reference = resolveArtifact(await readMeta(readOptions), artifactId);
       if (reference === null) {
         return null;
