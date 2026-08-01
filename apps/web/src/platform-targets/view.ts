@@ -7,22 +7,17 @@ import type { PtkTargetCategories } from './ptk-target-categories.js';
 /** Identifier for this tool, and what it calls itself in a height message. */
 export const TOOL_ID = 'platform-targets';
 
-/**
- * The federation whose categories this tool shows.
- *
- * One today, and it is also the segment in the embed route's path
- * (`platform-targets/embed/uspa/`) -- a path segment rather than a query
- * parameter so that each federation gets a cacheable URL and an embedding site
- * cannot silently switch which rules a reader is looking at. When a second
- * federation is published this becomes a per-page value read from that segment;
- * until then a constant is honest and a parser would be guessing at a shape.
- */
-export const DEFAULT_FEDERATION_ID = 'uspa';
-
 export interface PlatformTargetsViewOptions {
+  /**
+   * Whose categories to show. Required, and required for a reason: a default
+   * here would be a federation named in code, which is the thing that reads as
+   * correct while one is published and is silently wrong once two are. The page
+   * declares it -- see `../federation.ts`.
+   */
+  readonly federationId: string;
+
   /** Defaults to the site's configured source. Injected in tests. */
   readonly source?: DataSource;
-  readonly federationId?: string;
 }
 
 /**
@@ -34,13 +29,12 @@ export interface PlatformTargetsViewOptions {
  * jumps is worse than one that starts the size of a sentence.
  */
 export function createPlatformTargetsView(
-  options: PlatformTargetsViewOptions = {},
+  options: PlatformTargetsViewOptions,
 ): PtkTargetCategories {
   const element = document.createElement('ptk-target-categories');
   const source = options.source ?? dataSource;
-  const federationId = options.federationId ?? DEFAULT_FEDERATION_ID;
 
-  void loadCatalog(element, source, federationId);
+  void loadCatalog(element, source, options.federationId);
   return element;
 }
 

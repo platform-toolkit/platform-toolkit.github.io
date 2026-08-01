@@ -5,12 +5,18 @@ import {
 } from '@platform-toolkit/configuration';
 import { initializeTheme } from '@platform-toolkit/ui';
 
+import { FEDERATION_ATTRIBUTE, parseFederationId } from '../federation.js';
 import { TOOL_ID, createPlatformTargetsView } from './view.js';
 
 const app = document.querySelector<HTMLElement>('#app');
 if (app === null) {
   throw new Error('Application mount point #app is missing from the document.');
 }
+
+// Read from the page, not from the path -- the route happens to end in the
+// federation, but a parser here would be one more thing to keep in step with the
+// directory layout. See `../federation.ts`.
+const federationId = parseFederationId(app.getAttribute(FEDERATION_ATTRIBUTE));
 
 // A theme change resizes nothing on its own today, but it can once there is a
 // real view -- a different type scale or a wrapped label changes the height, and
@@ -21,7 +27,7 @@ initializeTheme({
   },
 });
 
-app.replaceChildren(createPlatformTargetsView());
+app.replaceChildren(createPlatformTargetsView({ federationId }));
 
 /**
  * Tells the embedding page how tall this view is.

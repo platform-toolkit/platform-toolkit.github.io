@@ -27,7 +27,13 @@
           Classifications, records, and meet qualification standards for one lifter, on one screen.
         </p>
       </header>
-      <main id="app">
+      <!--
+        Which federation's rules this page shows. Declared here rather than
+        named in the application code, so that publishing a second federation
+        means adding a page instead of editing a view that reads as correct
+        until the day it is not.
+      -->
+      <main id="app" data-federation="uspa">
         <noscript>
           <p>
             Platform Targets needs JavaScript to calculate classifications and qualification

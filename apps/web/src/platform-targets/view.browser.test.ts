@@ -52,8 +52,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** Not a real federation: the point is that the view asks for what it was given. */
+const FEDERATION_ID = 'example-federation';
+
 function mount(source: DataSource): PtkTargetCategories {
-  const element = createPlatformTargetsView({ source });
+  const element = createPlatformTargetsView({ source, federationId: FEDERATION_ID });
   document.body.append(element);
   teardown.push(() => {
     element.remove();
@@ -80,10 +83,13 @@ describe('createPlatformTargetsView', () => {
     });
   });
 
-  it('asks for the federation the route is for', () => {
+  it('asks for the federation the page declared, and no other', () => {
+    // A federation the code has never heard of, so a view that fell back to a
+    // constant would fail here rather than pass by coincidence -- which is the
+    // whole reason the option is required instead of defaulted.
     const source = sourceThat(() => Promise.resolve(CATALOG));
     mount(source);
-    expect(source.federations).toEqual(['uspa']);
+    expect(source.federations).toEqual([FEDERATION_ID]);
   });
 
   it('treats an unpublished federation as an answer, not as a failure', async () => {

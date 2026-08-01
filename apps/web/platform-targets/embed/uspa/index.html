@@ -19,13 +19,16 @@
       The `uspa` segment is the federation whose classifications and qualification
       rules this view applies. It is a path segment rather than a query parameter
       so that each federation gets its own cacheable URL, and so an embedding site
-      cannot silently switch which rules a reader is looking at.
+      cannot silently switch which rules a reader is looking at. The view reads it
+      from the `data-federation` attribute below rather than from the path: the
+      two agree because they are both written here, and nothing has to parse a
+      directory layout to find out.
     -->
     <script src="/theme-boot.js"></script>
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body data-embedded="true">
-    <main id="app">
+    <main id="app" data-federation="uspa">
       <noscript>
         <p>Platform Targets needs JavaScript to calculate classifications and standards.</p>
       </noscript>
