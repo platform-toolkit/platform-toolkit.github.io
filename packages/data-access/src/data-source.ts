@@ -31,7 +31,13 @@ import type { DataMeta, RecordBook } from '@platform-toolkit/data-contracts';
 export type DataSourceKind = 'static' | 'http';
 
 /**
- * Which records are wanted.
+ * Which set of records to load.
+ *
+ * A *set*, and named as one, because `packages/domain` exports a `RecordQuery`
+ * that means something adjacent and different: the eight-axis category one
+ * record belongs to. A screen uses both -- this one to load a level's records,
+ * that one to find the lifter's within them -- and the two are structurally
+ * incompatible, so the compiler catches a swap. The names should not need it to.
  *
  * Level and region because that is what a lifter is actually looking at -- their
  * state's records, then the national ones -- not because of how the data happens
@@ -44,7 +50,7 @@ export type DataSourceKind = 'static' | 'http';
  * reads or push a filter into the interface that every implementation would have
  * to reimplement identically.
  */
-export interface RecordQuery {
+export interface RecordSetQuery {
   /** The federation's book, e.g. its published record set. */
   readonly bookId: string;
   /** The level records are kept at: state, national, world. */
@@ -135,5 +141,5 @@ export interface DataSource {
    * through the published index; an API implementation makes it a query string.
    * Neither lets the caller influence a URL directly.
    */
-  getRecords(query: RecordQuery, options?: ReadOptions): Promise<RecordBook | null>;
+  getRecords(query: RecordSetQuery, options?: ReadOptions): Promise<RecordBook | null>;
 }

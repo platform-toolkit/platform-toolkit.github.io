@@ -18,7 +18,7 @@ import {
   type RecordBook,
 } from '@platform-toolkit/data-contracts';
 
-import type { DataSource, DataSourceKind, ReadOptions, RecordQuery } from './data-source.js';
+import type { DataSource, DataSourceKind, ReadOptions, RecordSetQuery } from './data-source.js';
 import { fetchJson, type FetchLike } from './fetch-json.js';
 
 /**
@@ -87,7 +87,7 @@ export function createStaticDataSource(options: StaticDataSourceOptions): DataSo
       return readMeta(readOptions);
     },
 
-    async getRecords(query: RecordQuery, readOptions?: ReadOptions): Promise<RecordBook | null> {
+    async getRecords(query: RecordSetQuery, readOptions?: ReadOptions): Promise<RecordBook | null> {
       // Computed with the same function the publisher named the file with, from
       // the contracts package that both sides share. Deriving it independently
       // here would work until someone changed one of the two, and the symptom

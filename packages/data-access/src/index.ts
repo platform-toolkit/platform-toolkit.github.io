@@ -4,7 +4,7 @@ export {
   type DataSourceFailureReason,
   type DataSourceKind,
   type ReadOptions,
-  type RecordQuery,
+  type RecordSetQuery,
 } from './data-source.js';
 export { type FetchLike } from './fetch-json.js';
 export { createStaticDataSource, type StaticDataSourceOptions } from './static-data-source.js';

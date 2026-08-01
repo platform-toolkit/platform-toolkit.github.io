@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { DataSourceError, type RecordQuery } from './data-source.js';
+import { DataSourceError, type RecordSetQuery } from './data-source.js';
 import type { FetchLike } from './fetch-json.js';
 import { createStaticDataSource } from './static-data-source.js';
 
@@ -39,7 +39,7 @@ const RECORD_BOOK = {
  * contract independently. If the naming ever changed, deriving it here would
  * keep this test passing while the published files moved.
  */
-const PUBLISHED: RecordQuery = { bookId: 'example', levelId: 'state', regionId: null };
+const PUBLISHED: RecordSetQuery = { bookId: 'example', levelId: 'state', regionId: null };
 
 /** Records the URLs it was asked for, so path construction can be asserted. */
 function stubFetch(response: () => Response): FetchLike & { calls: string[] } {
