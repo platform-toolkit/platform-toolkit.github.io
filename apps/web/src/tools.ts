@@ -31,4 +31,11 @@ export const TOOLS: readonly Tool[] = [
     summary: 'Warm-up sets and plate loading for a working weight, on the plates in front of you.',
     embedPath: 'warm-up/embed/',
   },
+  {
+    id: 'convert',
+    name: 'Pounds and Kilograms',
+    summary:
+      "The exact conversion and the weight the federation's published chart actually lists, side by side.",
+    embedPath: 'convert/embed/uspa/',
+  },
 ];

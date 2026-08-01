@@ -126,6 +126,36 @@ const WARM_UP_FILL = [
   { selector: 'ptk-lift-card ptk-number-field[data-field="weight"] input', value: '102.5' },
 ];
 
+/**
+ * What has to be tapped before the converter's dense sections exist.
+ *
+ * Both are folded on arrival and a folded section measures one line. The chart
+ * fold matters most: its body is not merely hidden while closed, it is not
+ * rendered at all (a copy button per row is several hundred elements), so with
+ * it shut the check would measure a page with no table on it -- and a
+ * two-column numeric table with a per-row action is the one layout here that
+ * has a real chance of scrolling sideways at 320 px.
+ *
+ * The precision fold is opened too because the choice group inside it is the
+ * widest set of radio labels the tool renders.
+ */
+const CONVERT_CLICK = [
+  'ptk-disclosure[label="Result precision"] summary',
+  'ptk-disclosure[label="Full conversion chart"] summary',
+];
+
+/**
+ * A weight that lands between two published rows.
+ *
+ * 315 lb is three plates a side and is on no row of a chart indexed in 2.5 kg
+ * steps, so the result panel renders its widest state: two neighbouring
+ * options, each with a heading, a figure, the pair, a select button and a copy
+ * button. An exact match would render one number and measure nothing.
+ */
+const CONVERT_FILL = [
+  { selector: 'ptk-converter ptk-number-field[data-field="weight"] input', value: '315' },
+];
+
 /** The routes, and what has to happen before each is worth measuring. */
 const ROUTES = [
   { path: '/', click: [], reveal: [], fill: [] },
@@ -159,6 +189,23 @@ const ROUTES = [
     reveal: [],
     fill: WARM_UP_FILL,
     settle: 'ptk-lift-card li',
+  },
+  {
+    path: '/convert/',
+    click: CONVERT_CLICK,
+    reveal: [],
+    fill: CONVERT_FILL,
+    // An option card, not the field just typed into: a filled field says the
+    // keystroke landed, which it did before the chart was consulted. A card
+    // exists only once a published row has been found to offer.
+    settle: 'ptk-conversion-result li',
+  },
+  {
+    path: '/convert/embed/uspa/',
+    click: CONVERT_CLICK,
+    reveal: [],
+    fill: CONVERT_FILL,
+    settle: 'ptk-conversion-result li',
   },
 ];
 

@@ -15,6 +15,7 @@
 // silently never upgrades.
 import './ptk-button.js';
 import './ptk-choice-group.js';
+import './ptk-copy-button.js';
 import './ptk-disclosure.js';
 import './ptk-notice.js';
 import './ptk-number-field.js';
@@ -28,6 +29,7 @@ export {
   type Choice,
   type ChoiceChangeDetail,
 } from './ptk-choice-group.js';
+export { COPY_EVENT, PtkCopyButton, type CopyDetail } from './ptk-copy-button.js';
 export {
   DISCLOSURE_TOGGLE_EVENT,
   PtkDisclosure,

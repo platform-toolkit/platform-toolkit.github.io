@@ -85,7 +85,25 @@ export function weightIn(weight: Weight, unit: WeightUnit): number {
 }
 
 /**
- * Rounds a figure to display precision.
+ * The most decimal places anything here will round to.
+ *
+ * Not a precision judgement -- it is the point past which `10 ** places` stops
+ * being exactly representable and the scale-round-unscale trick starts adding
+ * error instead of removing it. A caller asking for more than this has a bug,
+ * and a thrown `RangeError` says so where a silently wrong hundredth would not.
+ */
+const MAX_PLACES = 10;
+
+function assertPlaces(places: number): void {
+  if (!Number.isInteger(places) || places < 0 || places > MAX_PLACES) {
+    throw new RangeError(
+      `Expected 0 to ${String(MAX_PLACES)} decimal places, received ${String(places)}`,
+    );
+  }
+}
+
+/**
+ * Rounds a figure to a given number of decimal places.
  *
  * Half away from zero rather than JavaScript's half-up, so that -- for a
  * quantity that is always positive here -- 2.345 shows as 2.35 and not as 2.34
@@ -93,12 +111,18 @@ export function weightIn(weight: Weight, unit: WeightUnit): number {
  * representation error only: it is nine orders of magnitude below a hundredth,
  * so it can never move a value that was genuinely on the boundary.
  */
-export function roundForDisplay(amount: number): number {
+export function roundToPlaces(amount: number, places: number): number {
   assertFinite(amount, 'weight');
-  const scale = 10 ** DISPLAY_PLACES;
+  assertPlaces(places);
+  const scale = 10 ** places;
   const scaled = amount * scale;
   const nudged = scaled + Math.sign(scaled) * 1e-9;
   return Math.round(nudged) / scale;
+}
+
+/** Rounds to the collection's default display precision. */
+export function roundForDisplay(amount: number): number {
+  return roundToPlaces(amount, DISPLAY_PLACES);
 }
 
 /**
@@ -109,11 +133,27 @@ export function roundForDisplay(amount: number): number {
  * places is a fractional plate, which keeps them.
  */
 export function formatWeight(weight: Weight): string {
-  const rounded = roundForDisplay(weight.amount);
+  return formatWeightAt(weight, DISPLAY_PLACES);
+}
+
+/**
+ * The same, at a precision the caller chooses.
+ *
+ * The converter offers a more precise reading of a conversion, because the
+ * two-place default is the right answer at a rack and the wrong one for somebody
+ * checking arithmetic. Trailing zeros still go, so asking for four places does
+ * not turn 100 kg into 100.0000 kg -- the extra places appear only where there
+ * is something in them.
+ */
+export function formatWeightAt(weight: Weight, places: number): string {
+  const rounded = roundToPlaces(weight.amount, places);
   // `toFixed` then strip, rather than `toLocaleString`: this is a number a lifter
   // loads on a bar, and a thousands separator or a comma decimal point would be
   // read as a different number by half the audience.
-  const text = rounded.toFixed(DISPLAY_PLACES).replace(/\.?0+$/, '');
+  const fixed = rounded.toFixed(places);
+  // Guarded on the point rather than stripping zeros unconditionally: at zero
+  // places there is no point in the string, and `/\.?0+$/` would turn 100 into 1.
+  const text = fixed.includes('.') ? fixed.replace(/0+$/, '').replace(/\.$/, '') : fixed;
   return `${text} ${weight.unit}`;
 }
 

@@ -7,8 +7,10 @@ import {
   entryAmount,
   entryWeight,
   formatWeight,
+  formatWeightAt,
   retypeEntry,
   roundForDisplay,
+  roundToPlaces,
   showEntryIn,
   weightIn,
   type WeightUnit,
@@ -150,5 +152,43 @@ describe('EnteredWeight', () => {
     expect(entryWeight(entry).amount).toBeGreaterThan(220.462);
     expect(entryWeight(entry).amount).toBeLessThan(220.463);
     expect(entryAmount(entry)).toBe(220.46);
+  });
+});
+
+describe('roundToPlaces', () => {
+  it('rounds at the precision it was asked for', () => {
+    expect(roundToPlaces(183.70490985, 2)).toBe(183.7);
+    expect(roundToPlaces(183.70490985, 4)).toBe(183.7049);
+    expect(roundToPlaces(183.70490985, 0)).toBe(184);
+  });
+
+  it('refuses a precision the scaling trick cannot do honestly', () => {
+    // Past ten places `10 ** places` stops being exact and the round-trip starts
+    // adding error rather than removing it. A throw says so; a silently wrong
+    // digit in the eleventh place would not.
+    expect(() => roundToPlaces(1.5, 11)).toThrow(RangeError);
+    expect(() => roundToPlaces(1.5, -1)).toThrow(RangeError);
+    expect(() => roundToPlaces(1.5, 2.5)).toThrow(RangeError);
+  });
+});
+
+describe('formatWeightAt', () => {
+  it('shows the extra places only where there is something in them', () => {
+    // The converter offers a more precise reading; it must not turn every round
+    // number into a row of zeros while doing it.
+    expect(formatWeightAt({ amount: 100, unit: 'kg' }, 4)).toBe('100 kg');
+    expect(formatWeightAt({ amount: 220.46226218, unit: 'lb' }, 4)).toBe('220.4623 lb');
+  });
+
+  it('drops the point entirely at zero places', () => {
+    // The regression this guards: stripping trailing zeros with `/\.?0+$/` on a
+    // string with no decimal point turns 100 into 1.
+    expect(formatWeightAt({ amount: 100, unit: 'kg' }, 0)).toBe('100 kg');
+  });
+
+  it('agrees with formatWeight at the default precision', () => {
+    expect(formatWeightAt({ amount: 142.8815, unit: 'kg' }, 2)).toBe(
+      formatWeight({ amount: 142.8815, unit: 'kg' }),
+    );
   });
 });

@@ -26,6 +26,21 @@ export {
   type ClassificationTableSelection,
 } from './classification.js';
 export {
+  chartColumnFor,
+  convertAgainstChart,
+  convertMilestones,
+  directionFrom,
+  directionInputUnit,
+  directionOutputUnit,
+  filterRowsByStep,
+  nearestRowIndex,
+  reverseDirection,
+  rowWeight,
+  type ConversionAnswer,
+  type ConversionDirection,
+  type MilestoneConversion,
+} from './conversion.js';
+export {
   ConversionChart,
   type ChartColumn,
   type ChartLookup,
@@ -99,14 +114,22 @@ export {
   entryAmount,
   entryWeight,
   formatWeight,
+  formatWeightAt,
   retypeEntry,
   roundForDisplay,
+  roundToPlaces,
   showEntryIn,
   weightIn,
   type EnteredWeight,
   type Weight,
   type WeightUnit,
 } from './weight.js';
+export {
+  MAX_WEIGHT_INPUT,
+  parseWeightInput,
+  type ParsedWeightInput,
+  type WeightInputProblem,
+} from './weight-input.js';
 export {
   WeightClassLadder,
   type WeightClassFit,

@@ -239,6 +239,8 @@ export default defineConfig({
         'platform-targets-embed': here('platform-targets/embed/uspa/index.html'),
         'warm-up': here('warm-up/index.html'),
         'warm-up-embed': here('warm-up/embed/index.html'),
+        convert: here('convert/index.html'),
+        'convert-embed': here('convert/embed/uspa/index.html'),
       },
     },
   },

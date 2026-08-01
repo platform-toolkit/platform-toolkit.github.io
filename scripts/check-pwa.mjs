@@ -68,6 +68,8 @@ const PAGES = [
   { path: '/platform-targets/embed/uspa/', installable: false },
   { path: '/warm-up/', installable: true },
   { path: '/warm-up/embed/', installable: false },
+  { path: '/convert/', installable: true },
+  { path: '/convert/embed/uspa/', installable: false },
 ];
 
 /**

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en" data-theme-mode="system">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pounds and Kilograms (embedded)</title>
+    <!--
+      Embedding this route is intentional and unrestricted: any site may frame it.
+      No frame-ancestors directive and no X-Frame-Options are set anywhere.
+
+      Framing grants the parent page no access to anything inside. Theme is
+      accepted only through the documented query parameter and validated
+      postMessage payloads, and the only message sent outward is this frame's
+      height -- never the weight the visitor typed.
+
+      `?theme=light|dark` forces a theme for embedders whose page is not the same
+      colour as the visitor's operating system. Left off, the view follows
+      `prefers-color-scheme`; the visitor is never asked to choose twice.
+
+      The `uspa` segment is the federation whose published conversion chart this
+      view quotes. It is a path segment rather than a query parameter so that each
+      federation's chart gets its own cacheable URL, and so an embedding site
+      cannot silently switch which federation's rounding a reader is looking at --
+      which is the entire content of this tool. The view reads it from the
+      `data-federation` attribute below rather than from the path: the two agree
+      because they are both written here, and nothing has to parse a directory
+      layout to find out.
+    -->
+    <script src="/theme-boot.js"></script>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body data-embedded="true">
+    <main id="app" data-federation="uspa">
+      <noscript>
+        <p>The converter needs JavaScript to read the published conversion chart.</p>
+      </noscript>
+    </main>
+    <script type="module" src="/src/convert/embed.ts"></script>
+  </body>
+</html>
