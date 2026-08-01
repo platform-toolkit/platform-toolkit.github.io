@@ -17,6 +17,28 @@ export {
   type ClassificationTableSelection,
 } from './classification.js';
 export {
+  LIFTS,
+  PRIMARY_LIFTS,
+  findLift,
+  liftsByGroup,
+  type LiftDefinition,
+  type LiftGroup,
+} from './lifts.js';
+export {
+  LOADING_TOLERANCE,
+  buildLoadingTable,
+  emptyImplement,
+  findLoading,
+  plateChange,
+  type BarbellSetup,
+  type FindLoadingOptions,
+  type Loading,
+  type LoadingBound,
+  type LoadingTable,
+  type PlateChange,
+  type PlateDenomination,
+} from './plates.js';
+export {
   comparePlainDates,
   completedYearsBetween,
   formatPlainDate,
@@ -37,6 +59,36 @@ export {
   parseKilograms,
   type ParsedKilograms,
 } from './units.js';
+export {
+  planWarmup,
+  type WarmupAdvisory,
+  type WarmupAdvisoryCode,
+  type WarmupFamily,
+  type WarmupPlan,
+  type WarmupPlanResult,
+  type WarmupProblem,
+  type WarmupProblemCode,
+  type WarmupRequest,
+  type WarmupSet,
+  type WarmupStage,
+  type WorkingSetLoad,
+  type WorkingSetPlan,
+} from './warmup.js';
+export {
+  KILOGRAMS_PER_POUND,
+  convertWeight,
+  enterWeight,
+  entryAmount,
+  entryWeight,
+  formatWeight,
+  retypeEntry,
+  roundForDisplay,
+  showEntryIn,
+  weightIn,
+  type EnteredWeight,
+  type Weight,
+  type WeightUnit,
+} from './weight.js';
 export {
   WeightClassLadder,
   type WeightClassFit,
