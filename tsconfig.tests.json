@@ -30,6 +30,7 @@
       "@platform-toolkit/data-contracts": ["./packages/data-contracts/src/index.ts"],
       "@platform-toolkit/domain": ["./packages/domain/src/index.ts"],
       "@platform-toolkit/ingestion": ["./packages/ingestion/src/index.ts"],
+      "@platform-toolkit/preferences": ["./packages/preferences/src/index.ts"],
       "@platform-toolkit/ui": ["./packages/ui/src/index.ts"]
     }
   },

@@ -17,7 +17,15 @@ import { defineConfig, type TestProjectInlineConfiguration } from 'vitest/config
  * the same mapping for the runtime, and the two must stay in step.
  */
 const workspaceSource = Object.fromEntries(
-  ['configuration', 'data-access', 'data-contracts', 'domain', 'ingestion', 'ui'].map((name) => [
+  [
+    'configuration',
+    'data-access',
+    'data-contracts',
+    'domain',
+    'ingestion',
+    'preferences',
+    'ui',
+  ].map((name) => [
     `@platform-toolkit/${name}`,
     fileURLToPath(new URL(`./packages/${name}/src/index.ts`, import.meta.url)),
   ]),
@@ -78,6 +86,19 @@ const projects: TestProjectInlineConfiguration[] = [
     test: {
       name: 'ingestion',
       root: './packages/ingestion',
+      environment: 'node',
+      include: ['src/**/*.test.ts'],
+    },
+  },
+  {
+    test: {
+      // Node, despite this package existing to talk to `localStorage`. The
+      // storage port is injected, so a fake covers every case the real one has
+      // -- including the two that matter most and cannot be reproduced in a
+      // test browser at all: storage that throws on access, and storage that
+      // accepts a read and refuses a write.
+      name: 'preferences',
+      root: './packages/preferences',
       environment: 'node',
       include: ['src/**/*.test.ts'],
     },

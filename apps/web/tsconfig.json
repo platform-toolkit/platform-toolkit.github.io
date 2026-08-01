@@ -20,6 +20,7 @@
     { "path": "../../packages/data-access" },
     { "path": "../../packages/data-contracts" },
     { "path": "../../packages/domain" },
+    { "path": "../../packages/preferences" },
     { "path": "../../packages/ui" }
   ]
 }

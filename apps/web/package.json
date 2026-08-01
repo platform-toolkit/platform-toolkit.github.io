@@ -15,6 +15,7 @@
     "@platform-toolkit/data-access": "workspace:*",
     "@platform-toolkit/data-contracts": "workspace:*",
     "@platform-toolkit/domain": "workspace:*",
+    "@platform-toolkit/preferences": "workspace:*",
     "@platform-toolkit/ui": "workspace:*",
     "lit": "3.3.3"
   },

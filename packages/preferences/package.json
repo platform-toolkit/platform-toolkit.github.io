@@ -1,0 +1,20 @@
+{
+  "name": "@platform-toolkit/preferences",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The seam between a tool and whatever remembers a visitor's own settings between visits.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "dependencies": {
+    "valibot": "1.4.2"
+  }
+}

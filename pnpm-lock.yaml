@@ -89,6 +89,9 @@ importers:
       '@platform-toolkit/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@platform-toolkit/preferences':
+        specifier: workspace:*
+        version: link:../../packages/preferences
       '@platform-toolkit/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -138,6 +141,12 @@ importers:
       '@platform-toolkit/domain':
         specifier: workspace:*
         version: link:../domain
+      valibot:
+        specifier: 1.4.2
+        version: 1.4.2(typescript@6.0.3)
+
+  packages/preferences:
+    dependencies:
       valibot:
         specifier: 1.4.2
         version: 1.4.2(typescript@6.0.3)
