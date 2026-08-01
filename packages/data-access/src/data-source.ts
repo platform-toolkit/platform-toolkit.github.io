@@ -25,7 +25,7 @@
  * push the same narrowing into a query. Callers express which slice they want
  * and stay out of the argument.
  */
-import type { DataMeta } from '@platform-toolkit/data-contracts';
+import type { DataMeta, RecordBook } from '@platform-toolkit/data-contracts';
 
 /** Which strategy is answering. Useful in diagnostics; never for branching logic. */
 export type DataSourceKind = 'static' | 'http';
@@ -98,4 +98,19 @@ export interface DataSource {
    * classification.
    */
   getDataMeta(options?: ReadOptions): Promise<DataMeta>;
+
+  /**
+   * One federation's record book, or `null` if none is published for it.
+   *
+   * `null` is an answer rather than a failure. A federation whose records this
+   * project has not yet ingested, or a level that genuinely has no book, is
+   * something the interface should say plainly -- distinguishing it from a
+   * failed read is what lets the screen choose between "no records here" and
+   * "could not load records".
+   *
+   * `bookId` names a book, not a location. A static implementation resolves it
+   * through the published index; an API implementation makes it a query
+   * parameter. Neither lets the caller influence a URL directly.
+   */
+  getRecordBook(bookId: string, options?: ReadOptions): Promise<RecordBook | null>;
 }

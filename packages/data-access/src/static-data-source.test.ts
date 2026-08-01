@@ -16,13 +16,20 @@ const VALID_META = {
     },
   ],
   artifacts: {
-    'uspa-records': {
-      path: 'artifacts/uspa-records.0123456789abcdef.json',
+    'records-example-state': {
+      path: 'artifacts/records-example-state.0123456789abcdef.json',
       sha256: '0'.repeat(64),
       byteLength: 128,
       schemaVersion: 1,
     },
   },
+};
+
+const RECORD_BOOK = {
+  id: 'example-state',
+  label: 'Example state records',
+  minimumIncrementKilograms: 0.5,
+  records: [],
 };
 
 /** Records the URLs it was asked for, so path construction can be asserted. */
@@ -80,6 +87,103 @@ describe('createStaticDataSource', () => {
     expect(() =>
       createStaticDataSource({ baseUrl, fetch: stubFetch(() => jsonResponse(VALID_META)) }),
     ).toThrow(TypeError);
+  });
+});
+
+/** Serves a body per URL, and 404s anything else. */
+function routingFetch(routes: Record<string, unknown>): FetchLike & { calls: string[] } {
+  const calls: string[] = [];
+  const impl = (input: string): Promise<Response> => {
+    calls.push(input);
+    return Promise.resolve(
+      Object.hasOwn(routes, input) ? jsonResponse(routes[input]) : jsonResponse({}, 404),
+    );
+  };
+  return Object.assign(impl, { calls });
+}
+
+const ARTIFACT_URL = '/data/artifacts/records-example-state.0123456789abcdef.json';
+
+describe('artifact resolution', () => {
+  const routes = { '/data/meta.json': VALID_META, [ARTIFACT_URL]: RECORD_BOOK };
+
+  it('resolves a book identifier through the published index', async () => {
+    // The caller never supplies a path. It names a book, and the index -- a
+    // same-origin document CI wrote, validated on read -- says where it lives.
+    const fetch = routingFetch(routes);
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    await expect(source.getRecordBook('example-state')).resolves.toEqual(RECORD_BOOK);
+    expect(fetch.calls).toEqual(['/data/meta.json', ARTIFACT_URL]);
+  });
+
+  it('answers null for a book that is not published', async () => {
+    // Not a failure. "No records here" and "could not load records" are
+    // different things to put on a screen.
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch: routingFetch(routes) });
+    await expect(source.getRecordBook('nowhere')).resolves.toBeNull();
+  });
+
+  it('does not treat an inherited property as an artifact', async () => {
+    // The index comes from JSON.parse, so it inherits Object.prototype. A plain
+    // property read would answer `constructor` with a function, and the request
+    // would then be built from `undefined`.
+    const fetch = routingFetch(routes);
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    for (const bookId of ['constructor', 'toString', '__proto__']) {
+      await expect(source.getRecordBook(bookId), bookId).resolves.toBeNull();
+    }
+    expect(fetch.calls).toEqual(['/data/meta.json']);
+  });
+
+  it('validates the artifact against its own contract', async () => {
+    const source = createStaticDataSource({
+      baseUrl: '/data/',
+      fetch: routingFetch({
+        '/data/meta.json': VALID_META,
+        [ARTIFACT_URL]: { ...RECORD_BOOK, minimumIncrementKilograms: -1 },
+      }),
+    });
+    await expect(source.getRecordBook('example-state')).rejects.toThrow(DataSourceError);
+  });
+
+  it('reads the index once, so one screen shows one build', async () => {
+    // Two reads either side of a deploy would otherwise mix an old record book
+    // with a new classification table, and nothing would look wrong.
+    const fetch = routingFetch(routes);
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    await source.getDataMeta();
+    await source.getRecordBook('example-state');
+    await source.getDataMeta();
+
+    expect(fetch.calls.filter((url) => url.endsWith('meta.json'))).toHaveLength(1);
+  });
+
+  it('does not cache a failed index read', async () => {
+    let attempt = 0;
+    const fetch: FetchLike = (input: string) => {
+      attempt += 1;
+      if (attempt === 1) return Promise.resolve(jsonResponse({}, 503));
+      return Promise.resolve(
+        input.endsWith('meta.json') ? jsonResponse(VALID_META) : jsonResponse(RECORD_BOOK),
+      );
+    };
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    await expect(source.getDataMeta()).rejects.toThrow(DataSourceError);
+    await expect(source.getDataMeta()).resolves.toEqual(VALID_META);
+  });
+
+  it('names the artifact, not its URL, when a read fails', async () => {
+    const source = createStaticDataSource({
+      baseUrl: '/data/',
+      fetch: routingFetch({ '/data/meta.json': VALID_META }),
+    });
+
+    const error = await rejection(source.getRecordBook('example-state'));
+    expect(error.message).toBe('Could not read "records-example-state": http 404');
   });
 });
 
