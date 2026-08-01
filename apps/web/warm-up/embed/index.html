@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en" data-theme-mode="system">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Warm-Up Calculator (embedded)</title>
+    <!--
+      Embedding this route is intentional and unrestricted: any site may frame it.
+      No frame-ancestors directive and no X-Frame-Options are set anywhere.
+
+      Framing grants the parent page no access to anything inside. Theme is
+      accepted only through the documented query parameter and validated
+      postMessage payloads, and the only message sent outward is this frame's
+      height -- never a weight, a lift, or anything else the visitor typed.
+
+      `?theme=light|dark` forces a theme for embedders whose page is not the same
+      colour as the visitor's operating system. Left off, the view follows
+      `prefers-color-scheme`; the visitor is never asked to choose twice.
+
+      No federation segment, unlike the Platform Targets embed: this tool applies
+      no federation's rules and reads no published data.
+    -->
+    <script src="/theme-boot.js"></script>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body data-embedded="true">
+    <main id="app">
+      <noscript>
+        <p>The warm-up calculator needs JavaScript to work out plate loading.</p>
+      </noscript>
+    </main>
+    <script type="module" src="/src/warm-up/embed.ts"></script>
+  </body>
+</html>

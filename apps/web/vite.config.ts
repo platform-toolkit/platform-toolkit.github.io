@@ -237,6 +237,8 @@ export default defineConfig({
         hub: here('index.html'),
         'platform-targets': here('platform-targets/index.html'),
         'platform-targets-embed': here('platform-targets/embed/uspa/index.html'),
+        'warm-up': here('warm-up/index.html'),
+        'warm-up-embed': here('warm-up/embed/index.html'),
       },
     },
   },

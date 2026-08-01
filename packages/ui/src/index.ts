@@ -13,22 +13,38 @@
 // Side-effect import: defining a custom element is what makes the tag usable in
 // a template, and a consumer that imported only the type would get markup that
 // silently never upgrades.
+import './ptk-button.js';
 import './ptk-choice-group.js';
+import './ptk-disclosure.js';
 import './ptk-notice.js';
 import './ptk-number-field.js';
+import './ptk-plate-stack.js';
+import './ptk-toggle-group.js';
 
+export { PtkButton, type ButtonVariant } from './ptk-button.js';
 export {
   CHOICE_CHANGE_EVENT,
   PtkChoiceGroup,
   type Choice,
   type ChoiceChangeDetail,
 } from './ptk-choice-group.js';
+export {
+  DISCLOSURE_TOGGLE_EVENT,
+  PtkDisclosure,
+  type DisclosureToggleDetail,
+} from './ptk-disclosure.js';
 export { PtkNotice, type NoticeTone } from './ptk-notice.js';
+export { PtkPlateStack } from './ptk-plate-stack.js';
 export {
   NUMBER_FIELD_CHANGE_EVENT,
   PtkNumberField,
   type NumberFieldChangeDetail,
 } from './ptk-number-field.js';
+export {
+  TOGGLE_GROUP_CHANGE_EVENT,
+  PtkToggleGroup,
+  type ToggleGroupChangeDetail,
+} from './ptk-toggle-group.js';
 export {
   applyThemeMode,
   currentThemeMode,

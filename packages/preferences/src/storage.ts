@@ -119,6 +119,26 @@ export function browserPreferenceStorage(): PreferenceStorage | null {
 }
 
 /**
+ * The browser's per-tab storage, or `null` where there is none to be had.
+ *
+ * Separate from the one above because some things are deliberately *not* meant
+ * to outlive the visit. A lifter's ticked-off warm-up sets are the case this was
+ * added for: they have to survive a phone locking and the tab being reloaded an
+ * hour later at the rack, and they must not still be ticked next Tuesday, which
+ * would present a session's scratch state as a training record.
+ *
+ * The property read is inside the try for the same reason as `localStorage`:
+ * denied access throws on the getter, not on the first method call.
+ */
+export function browserSessionStorage(): PreferenceStorage | null {
+  try {
+    return webStorage(globalThis.sessionStorage);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Storage that keeps values only for the life of the page.
  *
  * Not a test double -- tests use it, but its reason for existing is the native

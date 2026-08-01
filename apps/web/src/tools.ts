@@ -25,4 +25,10 @@ export const TOOLS: readonly Tool[] = [
       'Classifications, records, and meet qualification standards for one lifter, on one screen.',
     embedPath: 'platform-targets/embed/uspa/',
   },
+  {
+    id: 'warm-up',
+    name: 'Warm-Up Calculator',
+    summary: 'Warm-up sets and plate loading for a working weight, on the plates in front of you.',
+    embedPath: 'warm-up/embed/',
+  },
 ];

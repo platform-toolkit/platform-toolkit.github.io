@@ -1,5 +1,6 @@
 export {
   browserPreferenceStorage,
+  browserSessionStorage,
   memoryPreferenceStorage,
   webStorage,
   type PreferenceStorage,

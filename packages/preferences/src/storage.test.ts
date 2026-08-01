@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { browserPreferenceStorage, memoryPreferenceStorage, webStorage } from './storage.js';
+import {
+  browserPreferenceStorage,
+  browserSessionStorage,
+  memoryPreferenceStorage,
+  webStorage,
+} from './storage.js';
 
 /** A minimal stand-in for the browser's own storage, with the failures made switchable. */
 function fakeWebStorage(options: { readonly refuseWrites?: boolean } = {}) {
@@ -97,5 +102,14 @@ describe('browserPreferenceStorage', () => {
     // reaching a component that seeds itself from preferences would otherwise
     // die on an undefined global.
     expect(browserPreferenceStorage()).toBe(null);
+  });
+});
+
+describe('browserSessionStorage', () => {
+  it('answers null where there is no browser storage rather than throwing', () => {
+    // Same guarantee as its sibling, asserted separately because the two read
+    // different globals: a copy-paste that left `localStorage` in place here
+    // would pass every test that only exercised one of them.
+    expect(browserSessionStorage()).toBe(null);
   });
 });

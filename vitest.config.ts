@@ -15,21 +15,27 @@ import { defineConfig, type TestProjectInlineConfiguration } from 'vitest/config
  *
  * `tsconfig.tests.json` already maps these paths for the type checker. This is
  * the same mapping for the runtime, and the two must stay in step.
+ *
+ * Anchored regular expressions rather than plain strings, because a string
+ * alias matches by *prefix*: `@platform-toolkit/ui/tokens.css` would be
+ * rewritten to `packages/ui/src/index.ts/tokens.css`, a path under a file. The
+ * failure is a test suite that will not import at all, and it appears the first
+ * time anybody reaches for a subpath export. Anchored, a subpath falls through
+ * to ordinary resolution and is answered by the package's own `exports` map --
+ * which is the thing that should decide what a subpath means.
  */
-const workspaceSource = Object.fromEntries(
-  [
-    'configuration',
-    'data-access',
-    'data-contracts',
-    'domain',
-    'ingestion',
-    'preferences',
-    'ui',
-  ].map((name) => [
-    `@platform-toolkit/${name}`,
-    fileURLToPath(new URL(`./packages/${name}/src/index.ts`, import.meta.url)),
-  ]),
-);
+const workspaceSource = [
+  'configuration',
+  'data-access',
+  'data-contracts',
+  'domain',
+  'ingestion',
+  'preferences',
+  'ui',
+].map((name) => ({
+  find: new RegExp(`^@platform-toolkit/${name}$`),
+  replacement: fileURLToPath(new URL(`./packages/${name}/src/index.ts`, import.meta.url)),
+}));
 
 /**
  * One project per workspace package.
