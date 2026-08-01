@@ -22,6 +22,11 @@ export {
   type WeightClassLadderData,
 } from './categories.js';
 export {
+  CategoryCatalogSchema,
+  categoryCatalogArtifactId,
+  type CategoryCatalog,
+} from './catalog.js';
+export {
   ClassificationScopeSchema,
   ClassificationStandardSchema,
   ClassificationTableSchema,

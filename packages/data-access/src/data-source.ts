@@ -25,7 +25,7 @@
  * push the same narrowing into a query. Callers express which slice they want
  * and stay out of the argument.
  */
-import type { DataMeta, RecordBook } from '@platform-toolkit/data-contracts';
+import type { CategoryCatalog, DataMeta, RecordBook } from '@platform-toolkit/data-contracts';
 
 /** Which strategy is answering. Useful in diagnostics; never for branching logic. */
 export type DataSourceKind = 'static' | 'http';
@@ -127,6 +127,17 @@ export interface DataSource {
    * classification.
    */
   getDataMeta(options?: ReadOptions): Promise<DataMeta>;
+
+  /**
+   * One federation's equipment, weight classes, and divisions, or `null` if no
+   * catalogue is published for it.
+   *
+   * The first read any screen makes: the manual selection path cannot draw a
+   * single control without it. `null` means the tool renders an honest "this
+   * federation's categories have not been published yet" rather than an empty
+   * set of questions, which looks like a broken page.
+   */
+  getCategoryCatalog(federationId: string, options?: ReadOptions): Promise<CategoryCatalog | null>;
 
   /**
    * The records kept at one level and region, or `null` if none are published.

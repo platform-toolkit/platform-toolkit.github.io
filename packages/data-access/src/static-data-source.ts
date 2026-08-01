@@ -10,13 +10,17 @@
  * which one it got.
  */
 import {
+  CategoryCatalogSchema,
   DataMetaSchema,
   RecordBookSchema,
+  categoryCatalogArtifactId,
   recordArtifactId,
   type ArtifactReference,
+  type CategoryCatalog,
   type DataMeta,
   type RecordBook,
 } from '@platform-toolkit/data-contracts';
+import type * as v from 'valibot';
 
 import type { DataSource, DataSourceKind, ReadOptions, RecordSetQuery } from './data-source.js';
 import { fetchJson, type FetchLike } from './fetch-json.js';
@@ -80,6 +84,42 @@ export function createStaticDataSource(options: StaticDataSourceOptions): DataSo
     return meta;
   }
 
+  /**
+   * Looks a name up in the index and fetches what it points at, or answers
+   * `null` if nothing is published under it.
+   *
+   * Shared by every artifact read so that the two things worth getting right --
+   * that an unpublished name is an answer rather than a failure, and that a
+   * `null` name never becomes a request -- are written once. `artifactId` is
+   * `string | null` because the naming functions are total: an identifier that
+   * slugs away to nothing could not have been published, which is the same
+   * answer for a different reason.
+   */
+  async function readArtifact<TValue>(
+    artifactId: string | null,
+    schema: v.GenericSchema<unknown, TValue>,
+    readOptions?: ReadOptions,
+  ): Promise<TValue | null> {
+    if (artifactId === null) {
+      return null;
+    }
+
+    const reference = resolveArtifact(await readMeta(readOptions), artifactId);
+    if (reference === null) {
+      return null;
+    }
+
+    return fetchJson({
+      // The identifier is safe to name in an error only because it was found in
+      // the index, which validated its shape. An unknown one never reaches here.
+      resource: artifactId,
+      url: baseUrl + reference.path,
+      schema,
+      fetch: fetchImpl,
+      ...(readOptions?.signal ? { signal: readOptions.signal } : {}),
+    });
+  }
+
   return {
     kind: 'static' satisfies DataSourceKind,
 
@@ -87,37 +127,28 @@ export function createStaticDataSource(options: StaticDataSourceOptions): DataSo
       return readMeta(readOptions);
     },
 
-    async getRecords(query: RecordSetQuery, readOptions?: ReadOptions): Promise<RecordBook | null> {
-      // Computed with the same function the publisher named the file with, from
-      // the contracts package that both sides share. Deriving it independently
-      // here would work until someone changed one of the two, and the symptom
-      // would be a lookup that finds nothing -- which the interface renders as
-      // "no records in this category", a real and unremarkable answer.
+    getCategoryCatalog(
+      federationId: string,
+      readOptions?: ReadOptions,
+    ): Promise<CategoryCatalog | null> {
+      return readArtifact(
+        categoryCatalogArtifactId(federationId),
+        CategoryCatalogSchema,
+        readOptions,
+      );
+    },
+
+    getRecords(query: RecordSetQuery, readOptions?: ReadOptions): Promise<RecordBook | null> {
+      // Named with the same function the publisher named the file with, from the
+      // contracts package both sides share. Deriving it independently here would
+      // work until someone changed one of the two, and the symptom would be a
+      // lookup that finds nothing -- which the interface renders as "no records
+      // in this category", a real and unremarkable answer.
       const artifactId = recordArtifactId(query.bookId, {
         levelId: query.levelId,
         regionId: query.regionId,
       });
-      if (artifactId === null) {
-        // Nothing in the identifiers survives slugging, so no artifact could
-        // ever have been published under them. Same answer as an unpublished
-        // one, and for the same reason: this is not a failed read.
-        return null;
-      }
-
-      const reference = resolveArtifact(await readMeta(readOptions), artifactId);
-      if (reference === null) {
-        return null;
-      }
-      return fetchJson({
-        // The identifier is safe to name in an error only because it was found
-        // in the index, which validated its shape. An unknown one never reaches
-        // here.
-        resource: artifactId,
-        url: baseUrl + reference.path,
-        schema: RecordBookSchema,
-        fetch: fetchImpl,
-        ...(readOptions?.signal ? { signal: readOptions.signal } : {}),
-      });
+      return readArtifact(artifactId, RecordBookSchema, readOptions);
     },
   };
 }

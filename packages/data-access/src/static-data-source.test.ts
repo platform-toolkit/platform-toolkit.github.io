@@ -16,12 +16,39 @@ const VALID_META = {
     },
   ],
   artifacts: {
+    'categories-example': {
+      path: 'artifacts/categories-example.fedcba9876543210.json',
+      sha256: '1'.repeat(64),
+      byteLength: 256,
+      schemaVersion: 1,
+    },
     'records-example-state': {
       path: 'artifacts/records-example-state.0123456789abcdef.json',
       sha256: '0'.repeat(64),
       byteLength: 128,
       schemaVersion: 1,
     },
+  },
+};
+
+/** Invented figures. Real federation boundaries belong in published data. */
+const CATALOG = {
+  id: 'example',
+  label: 'Example Federation',
+  equipment: [{ id: 'raw', label: 'Raw' }],
+  weightClassLadders: [
+    {
+      id: 'example-female',
+      label: 'Female classes',
+      sex: 'female',
+      classes: [{ id: 'f-56', label: '56 kg', maximumKilograms: 56 }],
+    },
+  ],
+  ageDivisions: {
+    id: 'example-divisions',
+    label: 'Divisions',
+    basis: 'age-on-meet-date',
+    divisions: [{ id: 'open', label: 'Open', minimumAge: null, maximumAge: null }],
   },
 };
 
@@ -217,6 +244,63 @@ describe('artifact resolution', () => {
 
     const error = await rejection(source.getRecords(PUBLISHED));
     expect(error.message).toBe('Could not read "records-example-state": http 404');
+  });
+});
+
+const CATALOG_URL = '/data/artifacts/categories-example.fedcba9876543210.json';
+
+describe('category catalogue', () => {
+  const routes = { '/data/meta.json': VALID_META, [CATALOG_URL]: CATALOG };
+
+  it('resolves a federation catalogue through the same index', async () => {
+    const fetch = routingFetch(routes);
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    await expect(source.getCategoryCatalog('example')).resolves.toEqual(CATALOG);
+    expect(fetch.calls).toEqual(['/data/meta.json', CATALOG_URL]);
+  });
+
+  it('answers null for a federation with no published catalogue', async () => {
+    // Distinct from a failure, and the screen says so: "this federation's
+    // categories have not been published yet" rather than an empty set of
+    // questions, which reads as a broken page.
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch: routingFetch(routes) });
+    await expect(source.getCategoryCatalog('nowhere')).resolves.toBeNull();
+  });
+
+  it('answers null without a request when nothing can be named', async () => {
+    const fetch = routingFetch(routes);
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    await expect(source.getCategoryCatalog('///')).resolves.toBeNull();
+    expect(fetch.calls).toEqual([]);
+  });
+
+  it('refuses a catalogue that does not match its contract', async () => {
+    // A federation published with no weight classes would otherwise draw a
+    // question with no answers. Failing the read is what makes that visible.
+    const source = createStaticDataSource({
+      baseUrl: '/data/',
+      fetch: routingFetch({
+        '/data/meta.json': VALID_META,
+        [CATALOG_URL]: { ...CATALOG, weightClassLadders: [] },
+      }),
+    });
+
+    await expect(source.getCategoryCatalog('example')).rejects.toThrow(DataSourceError);
+  });
+
+  it('shares one index read with the records on the same screen', async () => {
+    // The catalogue draws the controls and the records answer them. Reading the
+    // index twice could straddle a deploy and pair a new weight class with a
+    // record book that has never heard of it.
+    const fetch = routingFetch({ ...routes, [ARTIFACT_URL]: RECORD_BOOK });
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    await source.getCategoryCatalog('example');
+    await source.getRecords(PUBLISHED);
+
+    expect(fetch.calls.filter((url) => url.endsWith('meta.json'))).toHaveLength(1);
   });
 });
 

@@ -1,3 +1,4 @@
+import { slugSegment } from './artifact-naming.js';
 import type { RecordScope } from './records.js';
 
 /**
@@ -63,8 +64,8 @@ export function sameRecordShard(left: RecordShardKey, right: RecordShardKey): bo
  * at a time and cannot know what else was published.
  */
 export function recordArtifactId(bookId: string, key: RecordShardKey): string | null {
-  const book = toSlug(bookId);
-  const level = toSlug(key.levelId);
+  const book = slugSegment(bookId);
+  const level = slugSegment(key.levelId);
   if (book === null || level === null) {
     return null;
   }
@@ -73,21 +74,6 @@ export function recordArtifactId(bookId: string, key: RecordShardKey): string | 
     return `${RECORD_ARTIFACT_PREFIX}-${book}-${level}`;
   }
 
-  const region = toSlug(key.regionId);
+  const region = slugSegment(key.regionId);
   return region === null ? null : `${RECORD_ARTIFACT_PREFIX}-${book}-${level}-${region}`;
-}
-
-/**
- * Reduces a source identifier to the character set an artifact name allows.
- *
- * `toLowerCase` rather than `toLocaleLowerCase`: the same corpus must produce
- * the same filenames on a build machine in any locale, and the Turkish dotless
- * i would otherwise make that untrue.
- */
-function toSlug(value: string): string | null {
-  const slug = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return slug === '' ? null : slug;
 }
