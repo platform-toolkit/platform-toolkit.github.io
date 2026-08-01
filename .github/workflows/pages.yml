@@ -28,19 +28,27 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Must precede setup-node: the `cache: pnpm` option below shells out to
+      # pnpm to locate the store directory, so pnpm has to exist by then.
+      # No version input -- the action reads `packageManager` from package.json,
+      # which keeps CI and local machines on one pinned version by construction.
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
-          cache: npm
+          cache: pnpm
 
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
         id: pages
 
-      - run: npm ci
+      # Fails rather than updating the lockfile if it disagrees with the
+      # manifests, which is the property `npm ci` provided.
+      - run: pnpm install --frozen-lockfile
 
       # The full check, not just a build. Nothing reaches the live site without
       # passing format, typecheck, lint, tests, and the reference scan first.
-      - run: npm run verify
+      - run: pnpm run verify
         env:
           PTK_PROHIBITED_TOKENS: ${{ secrets.PTK_PROHIBITED_TOKENS }}
           # Empty for an organisation user site, `/<repo>` for a project site.

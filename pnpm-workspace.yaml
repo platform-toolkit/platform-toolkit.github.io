@@ -1,0 +1,16 @@
+# Which directories are workspace projects. pnpm keeps this here rather than in
+# package.json, so the root manifest no longer carries a `workspaces` field.
+packages:
+  - packages/*
+  - apps/*
+
+# Dependency lifecycle scripts do not run unless the package is named in
+# `onlyBuiltDependencies`. Nothing is listed because nothing in the tree needs
+# one: Vite 8 builds through Rolldown, so the esbuild binary download that
+# normally forces an entry here is not a dependency of this project.
+#
+# That default is a large part of why pnpm is worth the move. A postinstall
+# script in any transitive dependency is arbitrary code execution at install
+# time, on developer machines and in the workflow that publishes the site.
+# Keep this list empty. If an install ever reports a blocked build script,
+# treat it as a decision to make deliberately rather than a warning to silence.

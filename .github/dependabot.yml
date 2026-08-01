@@ -11,6 +11,9 @@ updates:
     commit-message:
       prefix: 'ci'
 
+  # `npm` is the ecosystem name for the whole JavaScript family, pnpm included.
+  # Dependabot reads pnpm-lock.yaml and the workspace layout; there is no
+  # separate `pnpm` value to select.
   - package-ecosystem: npm
     directory: /
     schedule:

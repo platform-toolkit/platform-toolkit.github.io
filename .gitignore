@@ -32,3 +32,7 @@ apps/web/public/data/
 
 .DS_Store
 *.log
+
+# pnpm writes these on failure or when a store is placed inside the repo.
+.pnpm-store/
+.pnpm-debug.log*

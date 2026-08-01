@@ -74,25 +74,37 @@ configuration rather than a rewrite.
 
 ## Requirements
 
-Node 24 (`.nvmrc` pins it; `nvm use` picks it up).
+Node 24 (`.nvmrc` pins it; `nvm use` picks it up) and pnpm.
+
+The pnpm version is pinned by the `packageManager` field, so you do not install it separately —
+`corepack enable pnpm` once, and Node fetches the exact pinned version on first use. CI reads the
+same field, which is what keeps the two from drifting.
+
+pnpm is a security choice more than an ergonomic one. Dependency lifecycle scripts do not run unless
+the package is named in `pnpm-workspace.yaml`, and the list here is empty, so installing this project
+executes no third-party code — on a contributor's machine or in the workflow that publishes the
+site. A package that is not declared as a dependency also cannot be imported, which is what keeps
+the boundary between the pure packages and the one DOM package real rather than conventional. Unmet
+peer dependencies are configured to fail the install rather than warn.
 
 ## Getting started
 
 ```sh
-npm install     # also points git at .githooks
-npm run dev     # the whole site: tool index and every tool
-npm run verify  # format, typecheck, lint, test, reference scan, build
+corepack enable pnpm  # once per machine
+pnpm install          # also points git at .githooks
+pnpm dev              # the whole site: tool index and every tool
+pnpm verify           # format, typecheck, lint, test, reference scan, build
 ```
 
-| Script                    | Purpose                                       |
-| ------------------------- | --------------------------------------------- |
-| `npm run dev`             | Vite dev server                               |
-| `npm run build`           | Production build of every workspace           |
-| `npm run typecheck`       | Packages, tests, and build config             |
-| `npm run lint`            | ESLint, type-aware                            |
-| `npm run format`          | Prettier, write                               |
-| `npm test`                | Vitest, one project per package               |
-| `npm run scan:references` | Commit-identity and forbidden-reference check |
+| Script                 | Purpose                                       |
+| ---------------------- | --------------------------------------------- |
+| `pnpm dev`             | Vite dev server                               |
+| `pnpm build`           | Production build of every workspace           |
+| `pnpm typecheck`       | Packages, tests, and build config             |
+| `pnpm lint`            | ESLint, type-aware                            |
+| `pnpm format`          | Prettier, write                               |
+| `pnpm test`            | Vitest, one project per package               |
+| `pnpm scan:references` | Commit-identity and forbidden-reference check |
 
 `verify` runs `typecheck` before `lint` deliberately. Type-aware lint rules read the declaration
 output of referenced projects, so linting a package that has never been built reports its imports as
@@ -152,10 +164,10 @@ waiver. Only its published data is consumed; none of its application code is use
 
 ## Contributing
 
-Run `npm run verify` before opening a pull request. Commit under your own name and email — the
-project imposes no identity requirement on contributors.
+Run `pnpm verify` before opening a pull request. Commit under your own name and email — the project
+imposes no identity requirement on contributors.
 
-`npm run scan:references` checks tracked content, file paths, and commit metadata against a list of
+`pnpm scan:references` checks tracked content, file paths, and commit metadata against a list of
 strings that must not appear in this repository. That list is deliberately **not** committed, in
 plaintext or as digests: the tokens are short enough that a wordlist recovers them from hashes in
 seconds, so a committed digest list is a committed list. Supply it locally through an untracked

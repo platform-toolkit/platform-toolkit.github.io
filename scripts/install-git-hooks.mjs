@@ -4,7 +4,7 @@
  *
  * Hooks in `.git/hooks` are not cloned, so a hook that only lives there protects
  * exactly one working copy and silently protects nothing everywhere else. Setting
- * `core.hooksPath` to a tracked directory during `npm install` means a fresh
+ * `core.hooksPath` to a tracked directory during `pnpm install` means a fresh
  * clone is protected as soon as anyone installs dependencies.
  *
  * Failing here must never break an install: CI checkouts, published tarballs, and

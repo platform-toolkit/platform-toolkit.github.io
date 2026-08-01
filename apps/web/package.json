@@ -11,10 +11,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@platform-toolkit/configuration": "*",
-    "@platform-toolkit/data-contracts": "*",
-    "@platform-toolkit/domain": "*",
-    "@platform-toolkit/ui": "*",
+    "@platform-toolkit/configuration": "workspace:*",
+    "@platform-toolkit/data-contracts": "workspace:*",
+    "@platform-toolkit/domain": "workspace:*",
+    "@platform-toolkit/ui": "workspace:*",
     "lit": "3.3.3"
   },
   "devDependencies": {

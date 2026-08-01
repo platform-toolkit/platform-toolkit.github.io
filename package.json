@@ -7,16 +7,14 @@
   "author": "Jason Smathers <jason@smathe.rs>",
   "type": "module",
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=24.0.0",
+    "pnpm": ">=11.0.0"
   },
-  "workspaces": [
-    "packages/*",
-    "apps/*"
-  ],
+  "packageManager": "pnpm@11.18.0",
   "scripts": {
     "prepare": "node scripts/install-git-hooks.mjs",
-    "build": "npm run build --workspaces --if-present",
-    "dev": "npm run dev --workspace @platform-toolkit/web",
+    "build": "pnpm --recursive --if-present run build",
+    "dev": "pnpm --filter @platform-toolkit/web run dev",
     "typecheck": "run-s typecheck:packages typecheck:tests typecheck:tooling",
     "typecheck:packages": "tsc --build --force",
     "typecheck:tests": "tsc -p tsconfig.tests.json",

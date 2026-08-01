@@ -16,7 +16,7 @@
     "build": "tsc --build"
   },
   "dependencies": {
-    "@platform-toolkit/configuration": "*",
+    "@platform-toolkit/configuration": "workspace:*",
     "lit": "3.3.3"
   }
 }

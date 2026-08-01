@@ -15,8 +15,8 @@
     "build": "tsc --build"
   },
   "dependencies": {
-    "@platform-toolkit/data-contracts": "*",
-    "@platform-toolkit/domain": "*",
+    "@platform-toolkit/data-contracts": "workspace:*",
+    "@platform-toolkit/domain": "workspace:*",
     "valibot": "1.4.2"
   }
 }
