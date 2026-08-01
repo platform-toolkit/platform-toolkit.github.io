@@ -47,7 +47,7 @@ const checkPending = process.argv.includes('--pending');
 const LOCAL_TOKEN_FILE = '.prohibited-tokens.local';
 
 /** Alternative source, for CI or one-off runs. Same format. */
-const TOKEN_ENV_VAR = 'PT_PROHIBITED_TOKENS';
+const TOKEN_ENV_VAR = 'PTK_PROHIBITED_TOKENS';
 
 /**
  * Untracked, gitignored, and absent for everyone but the maintainer who wants

@@ -1,5 +1,5 @@
 {
-  "name": "@platform-targets/domain",
+  "name": "@platform-toolkit/domain",
   "version": "0.0.0",
   "private": true,
   "description": "Pure powerlifting domain calculations. No DOM, no network, no I/O.",
@@ -15,6 +15,6 @@
     "build": "tsc --build"
   },
   "dependencies": {
-    "@platform-targets/data-contracts": "*"
+    "@platform-toolkit/data-contracts": "*"
   }
 }

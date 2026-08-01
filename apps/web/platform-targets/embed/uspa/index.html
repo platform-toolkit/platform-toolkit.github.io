@@ -11,9 +11,14 @@
       Framing grants the parent page no access to anything inside. Theme and
       defaults are accepted only through documented query parameters and validated
       postMessage payloads, and no imported athlete information is ever sent out.
+
+      The `uspa` segment is the federation whose classifications and qualification
+      rules this view applies. It is a path segment rather than a query parameter
+      so that each federation gets its own cacheable URL, and so an embedding site
+      cannot silently switch which rules a reader is looking at.
     -->
     <script src="/theme-boot.js"></script>
-    <link rel="stylesheet" href="/src/styles/tokens.css" />
+    <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body data-embedded="true">
     <main id="app">
@@ -21,6 +26,6 @@
         <p>Platform Targets needs JavaScript to calculate classifications and standards.</p>
       </noscript>
     </main>
-    <script type="module" src="/src/embed.ts"></script>
+    <script type="module" src="/src/platform-targets/embed.ts"></script>
   </body>
 </html>

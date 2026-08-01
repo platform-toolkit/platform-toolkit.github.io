@@ -1,18 +1,18 @@
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
-import type { ThemeMode } from '@platform-targets/configuration';
+import type { ThemeMode } from '@platform-toolkit/configuration';
 
-/** Detail carried by `pt-theme-mode-change`. */
+/** Detail carried by `ptk-theme-mode-change`. */
 export interface ThemeModeChangeDetail {
   readonly mode: ThemeMode;
 }
 
 declare global {
   interface HTMLElementTagNameMap {
-    'pt-theme-control': PtThemeControl;
+    'ptk-theme-control': PtkThemeControl;
   }
   interface HTMLElementEventMap {
-    'pt-theme-mode-change': CustomEvent<ThemeModeChangeDetail>;
+    'ptk-theme-mode-change': CustomEvent<ThemeModeChangeDetail>;
   }
 }
 
@@ -29,8 +29,8 @@ const OPTIONS: readonly { readonly mode: ThemeMode; readonly label: string }[] =
  * with a visible explanation, rather than disappearing. A control that vanishes
  * reads as a bug; a disabled one that says why reads as a decision.
  */
-@customElement('pt-theme-control')
-export class PtThemeControl extends LitElement {
+@customElement('ptk-theme-control')
+export class PtkThemeControl extends LitElement {
   public static override styles = css`
     :host {
       display: block;
@@ -39,56 +39,56 @@ export class PtThemeControl extends LitElement {
     fieldset {
       display: flex;
       align-items: center;
-      gap: var(--pt-space-sm);
+      gap: var(--ptk-space-sm);
       margin: 0;
-      padding: var(--pt-space-sm) var(--pt-space-md);
-      border: 1px solid var(--pt-color-border);
-      border-radius: var(--pt-radius-md);
-      background-color: var(--pt-color-surface-raised);
+      padding: var(--ptk-space-sm) var(--ptk-space-md);
+      border: 1px solid var(--ptk-color-border);
+      border-radius: var(--ptk-radius-md);
+      background-color: var(--ptk-color-surface-raised);
     }
 
     legend {
-      padding: 0 var(--pt-space-xs);
-      color: var(--pt-color-text-muted);
-      font-size: var(--pt-font-size-sm);
+      padding: 0 var(--ptk-space-xs);
+      color: var(--ptk-color-text-muted);
+      font-size: var(--ptk-font-size-sm);
     }
 
     .options {
       display: flex;
-      gap: var(--pt-space-xs);
+      gap: var(--ptk-space-xs);
     }
 
     label {
       display: inline-flex;
       align-items: center;
-      gap: var(--pt-space-xs);
-      padding: var(--pt-space-xs) var(--pt-space-sm);
+      gap: var(--ptk-space-xs);
+      padding: var(--ptk-space-xs) var(--ptk-space-sm);
       border: 1px solid transparent;
-      border-radius: var(--pt-radius-sm);
-      font-size: var(--pt-font-size-sm);
+      border-radius: var(--ptk-radius-sm);
+      font-size: var(--ptk-font-size-sm);
       cursor: pointer;
     }
 
     label:has(input:checked) {
-      border-color: var(--pt-color-accent);
-      background-color: var(--pt-color-surface);
+      border-color: var(--ptk-color-accent);
+      background-color: var(--ptk-color-surface);
       font-weight: 600;
     }
 
     input:focus-visible {
-      outline: var(--pt-focus-ring-width) solid var(--pt-color-focus-ring);
-      outline-offset: var(--pt-focus-ring-offset);
+      outline: var(--ptk-focus-ring-width) solid var(--ptk-color-focus-ring);
+      outline-offset: var(--ptk-focus-ring-offset);
     }
 
     fieldset:disabled label {
-      color: var(--pt-color-text-muted);
+      color: var(--ptk-color-text-muted);
       cursor: not-allowed;
     }
 
     .lock-note {
       margin: 0;
-      color: var(--pt-color-text-muted);
-      font-size: var(--pt-font-size-sm);
+      color: var(--ptk-color-text-muted);
+      font-size: var(--ptk-font-size-sm);
     }
   `;
 
@@ -139,7 +139,7 @@ export class PtThemeControl extends LitElement {
     }
     this.mode = mode;
     this.dispatchEvent(
-      new CustomEvent<ThemeModeChangeDetail>('pt-theme-mode-change', {
+      new CustomEvent<ThemeModeChangeDetail>('ptk-theme-mode-change', {
         detail: { mode },
         bubbles: true,
         composed: true,

@@ -6,6 +6,7 @@
     { "path": "./packages/domain" },
     { "path": "./packages/configuration" },
     { "path": "./packages/ingestion" },
+    { "path": "./packages/ui" },
     { "path": "./apps/web" }
   ]
 }

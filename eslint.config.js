@@ -84,9 +84,11 @@ export default tseslint.config(
     },
   },
 
-  // Browser code.
+  // Browser code. `packages/ui` belongs here rather than with the packages
+  // below: it is the one package that touches the DOM, which is precisely why
+  // the pure ones stay separate from it.
   {
-    files: ['apps/web/**/*.ts'],
+    files: ['apps/web/**/*.ts', 'packages/ui/**/*.ts'],
     languageOptions: { globals: globals.browser },
   },
 
