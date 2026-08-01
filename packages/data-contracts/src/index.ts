@@ -27,13 +27,21 @@ export {
   type CategoryCatalog,
 } from './catalog.js';
 export {
+  ClassificationBookSchema,
   ClassificationScopeSchema,
   ClassificationStandardSchema,
   ClassificationTableSchema,
+  type ClassificationBook,
   type ClassificationScope,
   type ClassificationStandard,
   type ClassificationTable,
 } from './classification.js';
+export {
+  classificationArtifactId,
+  classificationShardKey,
+  sameClassificationShard,
+  type ClassificationShardKey,
+} from './classification-shards.js';
 export {
   DataMetaSchema,
   SourceFreshnessSchema,

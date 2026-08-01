@@ -15,8 +15,8 @@ import {
  * Invented standards. Real published totals would make a federation revising its
  * table look like a regression in the placement rules, which are what is tested.
  */
-function standard(id: string, rank: number, totalKilograms: number): ClassificationStandard {
-  return { id, label: id, rank, totalKilograms };
+function standard(id: string, rank: number, requiredKilograms: number): ClassificationStandard {
+  return { id, label: id, rank, requiredKilograms };
 }
 
 const STANDARDS: readonly ClassificationStandard[] = [
@@ -147,6 +147,7 @@ describe('selectClassificationTable', () => {
       label: id,
       scope: {
         sex: 'female',
+        lift: 'total',
         equipmentId: null,
         weightClassId: null,
         divisionId: null,
@@ -159,6 +160,7 @@ describe('selectClassificationTable', () => {
 
   const QUERY: ClassificationQuery = {
     sex: 'female',
+    lift: 'total',
     equipmentId: 'raw',
     weightClassId: 'f-60',
     divisionId: 'open',
@@ -200,6 +202,17 @@ describe('selectClassificationTable', () => {
       selectClassificationTable(QUERY, [table('equipped', { equipmentId: 'single-ply' })]),
     ).toEqual({ ok: false, reason: 'no-match' });
     expect(selectClassificationTable(QUERY, [])).toEqual({ ok: false, reason: 'no-match' });
+  });
+
+  it('never reads one lift against another table', () => {
+    // Not a narrowing: a squat standard and a full-power total standard are
+    // different published things, so the squat table simply does not apply.
+    const squat = table('squat', { lift: 'squat' });
+    expect(selectClassificationTable(QUERY, [squat])).toEqual({ ok: false, reason: 'no-match' });
+    expect(selectClassificationTable({ ...QUERY, lift: 'squat' }, [squat])).toEqual({
+      ok: true,
+      table: squat,
+    });
   });
 
   it('reports ambiguity rather than resolving it by document order', () => {

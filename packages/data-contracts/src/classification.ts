@@ -1,6 +1,7 @@
 import * as v from 'valibot';
 
 import { SexCategorySchema } from './categories.js';
+import { LiftSchema } from './records.js';
 
 /**
  * Classification standards: the total a lifter must reach to earn a title.
@@ -30,11 +31,14 @@ export const ClassificationStandardSchema = v.object({
    */
   rank: v.pipe(v.number(), v.integer(), v.minValue(0)),
 
-  /** The total that earns this standard. A floor -- the lifter must reach it. */
-  totalKilograms: v.pipe(
+  /**
+   * The weight that earns this standard, in the lift named by the scope. A
+   * floor -- the lifter must reach it, not come close to it.
+   */
+  requiredKilograms: v.pipe(
     v.number(),
     v.finite(),
-    v.check((kilograms) => kilograms > 0, 'a total above zero'),
+    v.check((kilograms) => kilograms > 0, 'a weight above zero'),
   ),
 });
 export type ClassificationStandard = v.InferOutput<typeof ClassificationStandardSchema>;
@@ -50,6 +54,17 @@ export type ClassificationStandard = v.InferOutput<typeof ClassificationStandard
  */
 export const ClassificationScopeSchema = v.object({
   sex: SexCategorySchema,
+
+  /**
+   * Which lift the standards are read against, and never `null`.
+   *
+   * Unlike the axes below, this one is constitutive rather than a narrowing: a
+   * squat standard and a full-power total standard are different things, not a
+   * general table and a more specific one. Federations publish separate tables
+   * for the single lifts, and a `null` here would let a lifter's squat be read
+   * against a total.
+   */
+  lift: LiftSchema,
 
   /** Equipment category id, or `null` if the same standards apply to all. */
   equipmentId: v.nullable(Identifier),
@@ -73,3 +88,20 @@ export const ClassificationTableSchema = v.object({
   standards: v.pipe(v.array(ClassificationStandardSchema), v.minLength(1)),
 });
 export type ClassificationTable = v.InferOutput<typeof ClassificationTableSchema>;
+
+/**
+ * One federation's published standards, as a single downloadable artifact.
+ *
+ * Partitioned -- see `classification-shards.ts` -- so this is one partition of
+ * one federation's tables rather than all of them. The federation is named on
+ * every partition because a partition is what a reader actually holds, and a
+ * document that cannot say whose standards it contains is a document that can be
+ * shown against the wrong federation's records.
+ */
+export const ClassificationBookSchema = v.object({
+  /** The federation these standards belong to. */
+  id: Identifier,
+  label: Label,
+  tables: v.pipe(v.array(ClassificationTableSchema), v.minLength(1)),
+});
+export type ClassificationBook = v.InferOutput<typeof ClassificationBookSchema>;

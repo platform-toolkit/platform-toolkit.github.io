@@ -7,12 +7,16 @@ import type {
 import { ceilToHundredths } from './rounding.js';
 
 /**
- * Reading a total against a table of classification standards.
+ * Reading a lifted weight against a table of classification standards.
  *
- * Standards are floors. A lifter earns a title by reaching its total, not by
+ * Standards are floors. A lifter earns a title by reaching the weight, not by
  * coming close to it, and every comparison in this file is `>=` for that reason.
- * The question the tool exists to answer is the one after that: given the total
- * a lifter already has, what is the next title and how far away is it.
+ * The question the tool exists to answer is the one after that: given what a
+ * lifter already has, what is the next title and how far away is it.
+ *
+ * Which lift is being read is the caller's business, not this file's. A table
+ * names its lift in its scope, and {@link selectClassificationTable} matches on
+ * it, so a squat is never read against a full-power total.
  */
 
 /** Why a table of standards could not be accepted. */
@@ -29,9 +33,9 @@ export type ClassificationLadderResult =
   | { readonly ok: true; readonly ladder: ClassificationLadder }
   | { readonly ok: false; readonly problems: readonly ClassificationLadderProblem[] };
 
-/** Where a total sits in a table of standards. */
+/** Where a lifted weight sits in a table of standards. */
 export interface Classification {
-  /** The most demanding standard the total reaches, or `null` if it reaches none. */
+  /** The most demanding standard the weight reaches, or `null` if it reaches none. */
   readonly achieved: ClassificationStandard | null;
 
   /** The next standard up, or `null` once the most demanding one is reached. */
@@ -63,25 +67,27 @@ export class ClassificationLadder {
   }
 
   /**
-   * Reads a total against the table.
+   * Reads a lifted weight against the table.
    *
-   * @throws {RangeError} if the total is not a positive finite number.
+   * @throws {RangeError} if the weight is not a positive finite number.
    */
-  classify(totalKilograms: number): Classification {
-    if (!Number.isFinite(totalKilograms)) {
+  classify(achievedKilograms: number): Classification {
+    if (!Number.isFinite(achievedKilograms)) {
       throw new RangeError(
-        `Expected a finite total in kilograms, received ${String(totalKilograms)}`,
+        `Expected a finite weight in kilograms, received ${String(achievedKilograms)}`,
       );
     }
-    if (totalKilograms <= 0) {
-      throw new RangeError(`Expected a positive total in kilograms, received ${totalKilograms}`);
+    if (achievedKilograms <= 0) {
+      throw new RangeError(
+        `Expected a positive weight in kilograms, received ${achievedKilograms}`,
+      );
     }
 
     // The standards ascend, so the last one reached is the most demanding one.
     let achieved: ClassificationStandard | null = null;
     let next: ClassificationStandard | null = null;
     for (const standard of this.standards) {
-      if (totalKilograms >= standard.totalKilograms) {
+      if (achievedKilograms >= standard.requiredKilograms) {
         achieved = standard;
       } else {
         next = standard;
@@ -95,7 +101,7 @@ export class ClassificationLadder {
       // Work left, so it rounds up: a lifter told they need 2.49 kg who adds
       // exactly that has not reached the standard. See `rounding.ts`.
       kilogramsToNext:
-        next === null ? null : ceilToHundredths(next.totalKilograms - totalKilograms),
+        next === null ? null : ceilToHundredths(next.requiredKilograms - achievedKilograms),
     };
   }
 }
@@ -132,10 +138,10 @@ function findProblems(
   const byRank = [...standards].sort((left, right) => left.rank - right.rank);
   for (const [index, standard] of byRank.entries()) {
     const lower = index === 0 ? undefined : byRank[index - 1];
-    if (lower !== undefined && standard.totalKilograms <= lower.totalKilograms) {
+    if (lower !== undefined && standard.requiredKilograms <= lower.requiredKilograms) {
       problems.push({
         code: 'rank-disagrees-with-total',
-        message: `Classification standard "${standard.id}" ranks above "${lower.id}" but does not require a larger total.`,
+        message: `Classification standard "${standard.id}" ranks above "${lower.id}" but does not require a larger weight.`,
       });
     }
   }
@@ -146,6 +152,7 @@ function findProblems(
 /** A lifter, as far as choosing a table of standards is concerned. */
 export interface ClassificationQuery {
   readonly sex: ClassificationScope['sex'];
+  readonly lift: ClassificationScope['lift'];
   readonly equipmentId: string;
   readonly weightClassId: string;
   readonly divisionId: string;
@@ -194,7 +201,9 @@ export function selectClassificationTable(
 }
 
 function scopeMatches(scope: ClassificationScope, query: ClassificationQuery): boolean {
-  if (scope.sex !== query.sex) {
+  // Sex and lift are constitutive: neither is nullable, so neither can widen a
+  // table to cover a lifter it was not published for.
+  if (scope.sex !== query.sex || scope.lift !== query.lift) {
     return false;
   }
   // A null axis is the source saying it does not distinguish on that axis, so it
@@ -207,7 +216,7 @@ function scopeMatches(scope: ClassificationScope, query: ClassificationQuery): b
   );
 }
 
-/** How many axes the scope pins down. Sex is always pinned, so it is not counted. */
+/** How many axes the scope pins down. Sex and lift are always pinned, so neither counts. */
 function specificityOf(scope: ClassificationScope): number {
   return [scope.equipmentId, scope.weightClassId, scope.divisionId, scope.tested].filter(
     (axis) => axis !== null,
