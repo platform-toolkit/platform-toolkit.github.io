@@ -1,27 +1,40 @@
 /**
- * Theme configuration and precedence resolution.
+ * Theme configuration.
  *
- * The central distinction in this module is between the theme *mode* a user or
- * host has configured and the theme that is actually *in effect*. `system` is a
- * legitimate configured mode, but it is never an effective theme -- it resolves
- * to light or dark depending on the operating system preference at that moment.
- * Collapsing the two is the usual source of theme bugs: a UI that stores the
- * effective value cannot tell "the user chose light" from "the user chose system
- * and the system happens to be light", so it stops following the system when the
- * system changes.
+ * Two rules shape this module.
+ *
+ * The visitor does not choose a theme here. That choice already exists, at the
+ * operating system, and a widget that offers its own toggle asks someone to
+ * make the same decision a second time and then be wrong about it on one site
+ * out of every ten. Following `prefers-color-scheme` is the entire default
+ * behaviour, and it needs no JavaScript at all.
+ *
+ * The embedding site does get to override it. A widget framed inside a dark
+ * page and rendering light is a visible defect, and the embedder is the only
+ * party who knows which way it should go. That override arrives as a documented
+ * query parameter carrying one of three fixed words -- never CSS, never markup
+ * -- so a parent page can match its own design without gaining any way to put
+ * content inside the frame.
+ *
+ * Throughout, the configured *mode* and the theme actually *in effect* stay
+ * distinct. `system` is a legitimate mode but is never an effective theme.
+ * Collapsing the two is the usual source of theme bugs: code that stores the
+ * effective value cannot tell "the embedder asked for light" from "the embedder
+ * asked for system and the system is currently light", so it stops following
+ * the system the moment the system changes.
  *
  * This module is pure. It performs no DOM access and reads no globals, so the
- * precedence rules can be tested exhaustively without a browser.
+ * rules can be tested exhaustively without a browser.
  */
 
-/** A theme setting that a user or host can configure. */
+/** A theme setting an embedding site can configure. */
 export type ThemeMode = 'system' | 'light' | 'dark';
 
 /** A theme that can actually be rendered. `system` is deliberately absent. */
 export type EffectiveTheme = 'light' | 'dark';
 
 /**
- * Every accepted mode, and the canonical order they are offered in.
+ * Every accepted mode.
  *
  * Exported because it is duplicated once, unavoidably: `theme-boot.js` runs as
  * an unbundled classic script before first paint and cannot import anything. A
@@ -31,12 +44,21 @@ export type EffectiveTheme = 'light' | 'dark';
 export const THEME_MODES: readonly ThemeMode[] = ['system', 'light', 'dark'];
 
 /**
+ * The query parameter an embedding site uses to force a theme.
+ *
+ * Part of the public embedding contract, so it is named once here and read from
+ * here everywhere. Renaming it breaks every site that has already written the
+ * URL into its markup.
+ */
+export const THEME_PARAMETER = 'theme';
+
+/**
  * Narrows arbitrary input to a ThemeMode.
  *
- * Theme values arrive from untrusted places -- iframe query parameters, host
- * postMessage payloads, persisted storage that a user can edit. Everything is
- * validated through here so no caller can inject an arbitrary string that ends
- * up in a class name, selector, or attribute value.
+ * Theme values arrive from untrusted places: an iframe query parameter and a
+ * host postMessage payload, both of which an arbitrary site controls. Every one
+ * of them is validated through here, so nothing can put a chosen string into an
+ * attribute value, a selector, or the `color-scheme` property.
  */
 export function asThemeMode(value: unknown): ThemeMode | undefined {
   return typeof value === 'string' && (THEME_MODES as readonly string[]).includes(value)
@@ -44,55 +66,18 @@ export function asThemeMode(value: unknown): ThemeMode | undefined {
     : undefined;
 }
 
-/** The inputs that can influence which theme is shown, in no particular order. */
-export interface ThemeInputs {
-  /**
-   * A theme forced by the embedding host. When present this wins outright and
-   * the in-app theme control is disabled with an explanation, so an embedded
-   * instance cannot visually clash with the page around it.
-   */
-  readonly hostLock?: ThemeMode | undefined;
-
-  /** A theme the user explicitly chose, restored from storage or set this session. */
-  readonly userPreference?: ThemeMode | undefined;
-
-  /**
-   * A starting theme suggested by the host via query parameter. Unlike a lock
-   * this is only a default -- the user may override it and their choice sticks.
-   */
-  readonly hostDefault?: ThemeMode | undefined;
-}
-
-/** Why a particular mode won, so the interface can explain itself. */
-export type ThemeModeSource = 'host-lock' | 'user-preference' | 'host-default' | 'fallback';
-
-export interface ResolvedThemeMode {
-  readonly mode: ThemeMode;
-  readonly source: ThemeModeSource;
-  /** True when the user cannot change the theme, i.e. the host has locked it. */
-  readonly locked: boolean;
-}
-
 /**
- * Resolves the configured theme mode from all inputs.
+ * Reads the mode an embedding site asked for out of a query string.
  *
- * Precedence, highest first:
- *   1. Host lock       -- an embedding page's explicit requirement
- *   2. User preference -- an explicit human choice outranks any suggestion
- *   3. Host default    -- a suggestion, used only until the user decides
- *   4. `system`        -- follow the operating system
+ * Anything absent, misspelled, or hostile resolves to `system`. That is not
+ * leniency for its own sake: `system` is what the CSS already assumes when no
+ * attribute is set, so an unrecognised value produces the correct default
+ * appearance rather than an unstyled page.
+ *
+ * @param search a `location.search` value, with or without its leading `?`
  */
-export function resolveThemeMode(inputs: ThemeInputs): ResolvedThemeMode {
-  if (inputs.hostLock !== undefined) {
-    return { mode: inputs.hostLock, source: 'host-lock', locked: true };
-  }
-  if (inputs.userPreference !== undefined) {
-    return { mode: inputs.userPreference, source: 'user-preference', locked: false };
-  }
-  if (inputs.hostDefault !== undefined) {
-    return { mode: inputs.hostDefault, source: 'host-default', locked: false };
-  }
-  return { mode: 'system', source: 'fallback', locked: false };
+export function themeModeFromSearch(search: string): ThemeMode {
+  return asThemeMode(new URLSearchParams(search).get(THEME_PARAMETER)) ?? 'system';
 }
 
 /**

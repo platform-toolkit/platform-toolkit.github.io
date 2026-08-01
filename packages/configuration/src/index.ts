@@ -1,11 +1,18 @@
 export {
+  HeightMessageSchema,
+  HostThemeMessageSchema,
+  MESSAGE_SOURCE,
+  MESSAGE_VERSION,
+  readHostThemeMessage,
+  type HeightMessage,
+  type HostThemeMessage,
+} from './embedding.js';
+export {
   THEME_MODES,
+  THEME_PARAMETER,
   asThemeMode,
   resolveEffectiveTheme,
-  resolveThemeMode,
+  themeModeFromSearch,
   type EffectiveTheme,
-  type ResolvedThemeMode,
-  type ThemeInputs,
   type ThemeMode,
-  type ThemeModeSource,
 } from './theme.js';

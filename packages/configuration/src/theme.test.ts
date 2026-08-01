@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { asThemeMode, resolveEffectiveTheme, resolveThemeMode, type ThemeMode } from './theme.js';
+import {
+  THEME_PARAMETER,
+  asThemeMode,
+  resolveEffectiveTheme,
+  themeModeFromSearch,
+  type ThemeMode,
+} from './theme.js';
 
 describe('asThemeMode', () => {
   it.each(['system', 'light', 'dark'])('accepts %p', (value) => {
@@ -24,46 +30,44 @@ describe('asThemeMode', () => {
   });
 });
 
-describe('resolveThemeMode precedence', () => {
-  it('falls back to system when nothing is configured', () => {
-    expect(resolveThemeMode({})).toEqual({ mode: 'system', source: 'fallback', locked: false });
+describe('themeModeFromSearch', () => {
+  it.each(['light', 'dark', 'system'])('reads %p from the documented parameter', (mode) => {
+    expect(themeModeFromSearch(`?${THEME_PARAMETER}=${mode}`)).toBe(mode);
   });
 
-  it('uses a host default when the user has expressed no preference', () => {
-    expect(resolveThemeMode({ hostDefault: 'dark' })).toEqual({
-      mode: 'dark',
-      source: 'host-default',
-      locked: false,
-    });
+  it('tolerates a search string without its leading question mark', () => {
+    // `location.search` includes it; a hand-assembled string often does not.
+    expect(themeModeFromSearch(`${THEME_PARAMETER}=dark`)).toBe('dark');
   });
 
-  it('lets an explicit user choice beat a host default', () => {
-    expect(resolveThemeMode({ hostDefault: 'dark', userPreference: 'light' })).toEqual({
-      mode: 'light',
-      source: 'user-preference',
-      locked: false,
-    });
+  it('follows the system when the embedder asks for nothing', () => {
+    expect(themeModeFromSearch('')).toBe('system');
+    expect(themeModeFromSearch('?federation=example')).toBe('system');
   });
 
-  it('lets a host lock beat everything, including a stored user choice', () => {
-    expect(
-      resolveThemeMode({ hostLock: 'dark', userPreference: 'light', hostDefault: 'light' }),
-    ).toEqual({ mode: 'dark', source: 'host-lock', locked: true });
+  it.each([
+    '?theme=Dark',
+    '?theme=',
+    '?theme=auto',
+    '?theme=dark;--ptk-color-surface:red',
+    '?theme=%3Cscript%3E',
+  ])('falls back to system for %p rather than passing it on', (search) => {
+    // Every one of these is a string an arbitrary embedding site could put in
+    // the URL, and the fallback is what keeps it out of an attribute value.
+    expect(themeModeFromSearch(search)).toBe('system');
   });
 
-  it('reports locked only for a host lock', () => {
-    expect(resolveThemeMode({ hostLock: 'light' }).locked).toBe(true);
-    expect(resolveThemeMode({ userPreference: 'light' }).locked).toBe(false);
-    expect(resolveThemeMode({ hostDefault: 'light' }).locked).toBe(false);
-    expect(resolveThemeMode({}).locked).toBe(false);
+  it('takes the first value when the parameter is repeated', () => {
+    // A second copy must not be able to override a value that was already
+    // checked, and the first must not be ignored in favour of the last.
+    expect(themeModeFromSearch('?theme=light&theme=dark')).toBe('light');
   });
 
-  it('treats a host lock of "system" as a real lock, not an absence', () => {
-    // A host that locks to `system` is asking to follow the OS and forbidding
-    // the user from overriding. That is different from setting nothing at all.
-    const resolved = resolveThemeMode({ hostLock: 'system', userPreference: 'dark' });
-    expect(resolved.mode).toBe('system');
-    expect(resolved.locked).toBe(true);
+  it('reads only the theme parameter', () => {
+    // The visitor-facing toggle and its stored preference were removed on
+    // purpose, and so was the separate lock parameter they made necessary. A
+    // page still looks correct in manual testing if one of them creeps back.
+    expect(themeModeFromSearch('?themeLock=dark')).toBe('system');
   });
 });
 
@@ -82,9 +86,9 @@ describe('resolveEffectiveTheme', () => {
     },
   );
 
-  it('keeps an explicit choice stable when the system preference flips', () => {
-    // The regression this guards: storing the effective theme instead of the mode
-    // makes an explicit "light" silently start following the OS.
+  it('keeps a forced theme stable when the system preference flips', () => {
+    // The regression this guards: storing the effective theme instead of the
+    // mode makes an embedder's explicit "light" silently start following the OS.
     expect(resolveEffectiveTheme('light', false)).toBe(resolveEffectiveTheme('light', true));
   });
 

@@ -9,7 +9,7 @@
       content="Open-source tools for powerlifters and meet directors. Every tool works on its own and embeds anywhere."
     />
     <!--
-      Runs before first paint to apply an explicitly chosen theme. Must stay an
+      Runs before first paint to apply a theme an embedder forced. Must stay an
       external classic script: a module script would be deferred until after
       parsing, which is the flash of wrong theme this prevents, and an inline
       script would require weakening the Content Security Policy.
@@ -30,8 +30,9 @@
         <noscript>
           <!--
             The index is a static list of links, so it stays useful without
-            scripting. Only the theme control needs JavaScript, and its absence
-            costs nothing: `system` mode is handled entirely in CSS.
+            scripting. Theming costs nothing here either: following the system
+            is handled entirely in CSS, and a forced theme is applied by a
+            classic script that runs whether or not modules do.
           -->
           <ul>
             <li><a href="/platform-targets/">Platform Targets</a></li>

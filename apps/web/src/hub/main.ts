@@ -1,13 +1,13 @@
-import { ThemeController } from '@platform-toolkit/ui';
+import { initializeTheme } from '@platform-toolkit/ui';
+
 import { TOOLS } from '../tools.js';
-import { mountThemeControl } from '../theme-control.js';
 
 const app = document.querySelector<HTMLElement>('#app');
 if (app === null) {
   throw new Error('Application mount point #app is missing from the document.');
 }
 
-const theme = new ThemeController();
+initializeTheme();
 
 const list = document.createElement('ul');
 list.className = 'tool-list';
@@ -28,4 +28,4 @@ for (const tool of TOOLS) {
   list.append(item);
 }
 
-app.replaceChildren(list, mountThemeControl(theme));
+app.replaceChildren(list);

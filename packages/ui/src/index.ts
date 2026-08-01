@@ -10,9 +10,11 @@
  * JavaScript. Import them at `@platform-toolkit/ui/tokens.css`.
  */
 
-// Side-effect import: defining a custom element is the point of the module, and
-// a consumer that only wants the type should import the type explicitly.
-import './ptk-theme-control.js';
-
-export { PtkThemeControl, type ThemeModeChangeDetail } from './ptk-theme-control.js';
-export { ThemeController, type ThemeChangeListener, type ThemeState } from './theme-controller.js';
+export {
+  applyThemeMode,
+  currentThemeMode,
+  effectiveTheme,
+  initializeTheme,
+  listenForHostTheme,
+  type ThemeOptions,
+} from './theme.js';

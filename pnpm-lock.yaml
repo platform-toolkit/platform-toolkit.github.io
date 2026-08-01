@@ -78,6 +78,9 @@ importers:
       '@platform-toolkit/data-contracts':
         specifier: workspace:*
         version: link:../data-contracts
+      valibot:
+        specifier: 1.4.2
+        version: 1.4.2(typescript@6.0.3)
 
   packages/data-access:
     dependencies:

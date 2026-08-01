@@ -48,8 +48,8 @@ packages/domain/          Pure calculation. No DOM, no network, no I/O.
 packages/data-contracts/  Runtime schemas and types for every published artifact
 packages/data-access/     The port to wherever data lives, and today's static adapter
 packages/ingestion/       Source adapters and anomaly checks. CI only.
-packages/configuration/   Defaults, theme configuration, precedence resolution
-packages/ui/              Shared custom elements and design tokens. The only DOM package.
+packages/configuration/   Theme rules, and the protocol an embedding page speaks to a frame
+packages/ui/              Shared elements, design tokens, theme wiring. The only DOM package.
 data/                     Reviewed rule files, fixtures, change-detection state
 docs/                     ADRs, source notes, embedding and operations guides
 ```
@@ -140,30 +140,73 @@ allow it.
 ```
 
 Framing grants the parent page no access to application data and no control over it. Theme and
-defaults are set through documented query parameters. Inbound `postMessage` payloads are
-origin-checked and schema-validated, and no arbitrary URL, CSS, HTML, or script is ever accepted
-from a parent. The only message sent outward is the content height, which is a layout measurement
-and contains nothing else — imported athlete information is never transmitted to a parent. That
-message names both the collection and the tool, so a page embedding two tools can tell them apart
-rather than sizing both frames to whichever spoke last.
+defaults are set through documented query parameters — see [Theming](#theming). Inbound
+`postMessage` payloads are accepted only from the framing window and are schema-validated, and no
+arbitrary URL, CSS, HTML, or script is ever accepted from a parent. The only message sent outward is
+the content height, which is a layout measurement and contains nothing else — imported athlete
+information is never transmitted to a parent. That message names both the collection and the tool,
+so a page embedding two tools can tell them apart rather than sizing both frames to whichever spoke
+last.
+
+Both directions of that protocol are declared together in `packages/configuration/src/embedding.ts`,
+so the whole framing surface can be read in one file rather than inferred from the absence of code
+elsewhere.
 
 The federation is a path segment rather than a query parameter, so each federation's rules get their
 own cacheable URL and an embedding site cannot silently switch which rules a reader is looking at.
 
 ## Theming
 
-Three modes: `system`, `light`, `dark`. The configured mode and the resulting theme are kept
-distinct throughout — `system` is a real choice, not a synonym for whichever theme it resolves to.
+**Every tool follows the visitor's system setting, and no tool offers a theme toggle.** The visitor
+has already made that choice, in their operating system. Asking again would mean asking them to keep
+it right on every site that embeds one of these tools, and to be wrong on the ones they forget.
 
-Precedence, highest first: host lock, then stored user preference, then host default, then `system`.
-A host that locks the theme cannot have that lock overridden by a stored preference or by a message.
+**The embedding site can override it**, because it is the only party that knows its own design. A
+widget framed inside a dark page and rendering light is a visible defect, so add `theme` to the URL:
+
+```html
+<!-- Follows the visitor's system setting. This is the default; the parameter can be omitted. -->
+<iframe
+  src="https://example.invalid/platform-targets/embed/uspa/"
+  title="Platform Targets"
+></iframe>
+
+<!-- Forces light, for a page that is light regardless of the visitor's setting. -->
+<iframe
+  src="https://example.invalid/platform-targets/embed/uspa/?theme=light"
+  title="Platform Targets"
+></iframe>
+
+<!-- Forces dark. -->
+<iframe
+  src="https://example.invalid/platform-targets/embed/uspa/?theme=dark"
+  title="Platform Targets"
+></iframe>
+```
+
+Accepted values are `system`, `light`, and `dark`. Anything else falls back to `system` rather than
+reaching the page.
+
+If your page has its own light/dark switch, the frame can follow it without being reloaded — a
+reload would discard whatever the visitor had entered. Post to the frame:
+
+```js
+frame.contentWindow.postMessage(
+  { source: 'platform-toolkit', version: 1, type: 'set-theme', mode: 'dark' },
+  'https://example.invalid',
+);
+```
+
+Only the page that framed the document may send this, only these four fields are read, and only
+those three modes are accepted. No CSS, markup, URL, or script is ever accepted from a parent.
 
 There is no theme flash. `system` is handled entirely by `prefers-color-scheme` in CSS, so the
-common case involves no JavaScript at all; a forced theme is applied by a small external script
+default case involves no JavaScript at all; a forced theme is applied by a small external script
 before first paint, external so that a strict `script-src 'self'` policy still covers it.
 
-Because every tool is served from one origin, a preference chosen in one tool applies to all of
-them.
+Internally the configured _mode_ and the theme actually _in effect_ stay distinct. `system` is a
+real mode, not a synonym for whichever theme it currently resolves to — code that conflates them
+stops following the system the moment the system changes.
 
 ## Privacy
 
