@@ -1,0 +1,286 @@
+{
+  "$comment": [
+    "How USPA's published classification standards map onto this project's categories.",
+    "",
+    "The standards themselves are not transcribed here. They are a machine-readable",
+    "table the federation publishes for its own calculator, and it is committed beside",
+    "this file under `snapshots/` exactly as it was served, so that a change upstream",
+    "arrives as a reviewable diff instead of a silent difference in what a lifter is",
+    "told. `standards.sha256` pins the copy this mapping was written against: refreshing",
+    "the snapshot without revisiting this document fails the build, which is the point.",
+    "",
+    "What is curated is the translation. The snapshot names its axes in the federation's",
+    "own words -- `Cl Raw`, `Full Power`, `80+` -- and this file says what each one means",
+    "in terms of the identifiers in `data/sources/categories/uspa.json`. None of it is",
+    "derived. A mapping guessed from a string that happens to look like an age range is",
+    "a mapping that changes meaning the year the federation renames a division.",
+    "",
+    "Every axis value in the snapshot must appear here, and every mapping here must",
+    "appear in the snapshot. Both directions are checked, because a standard nobody can",
+    "reach and a mapping that no longer matches anything fail the same way on screen:",
+    "a lifter is shown nothing, and nothing looks exactly like a category the federation",
+    "does not publish standards for."
+  ],
+
+  "id": "uspa",
+  "label": "USPA",
+
+  "provenance": {
+    "id": "uspa-classifications",
+    "label": "USPA classification standards",
+    "document": "USPA Classification Calculator dataset",
+    "url": "https://uspa.net/classification-calculator/",
+    "sections": ["Classification standards for every sex, lift, equipment, class and age"],
+    "retrievedAt": "2026-07-31T00:00:00.000Z"
+  },
+
+  "standards": {
+    "file": "uspa-standards.json",
+    "sha256": "8a560b5558b247243472f094cfc8bcc11a095bb435c1cab9ae63e5e2b6748973"
+  },
+
+  "$comment:tested": [
+    "The federation publishes one set of standards and does not split them by drug-tested",
+    "status. `null` states that as a fact about the source rather than leaving it to be",
+    "inferred from a missing field -- see `ClassificationScope`."
+  ],
+  "tested": null,
+
+  "$comment:grades": [
+    "Rank ascends from the least demanding standard at zero. It is carried rather than",
+    "derived from the totals so that a mistranscribed figure is caught as a contradiction",
+    "instead of quietly reordering the ladder.",
+    "",
+    "Upstream abbreviates the top grade to `Int'l Elite` to fit a table column. The label",
+    "here is the expansion, not a rename."
+  ],
+  "grades": [
+    { "column": "Class IV", "id": "class-iv", "label": "Class IV", "rank": 0 },
+    { "column": "Class III", "id": "class-iii", "label": "Class III", "rank": 1 },
+    { "column": "Class II", "id": "class-ii", "label": "Class II", "rank": 2 },
+    { "column": "Class I", "id": "class-i", "label": "Class I", "rank": 3 },
+    { "column": "Master", "id": "master", "label": "Master", "rank": 4 },
+    { "column": "Elite", "id": "elite", "label": "Elite", "rank": 5 },
+    {
+      "column": "Int'l Elite",
+      "id": "international-elite",
+      "label": "International Elite",
+      "rank": 6
+    }
+  ],
+
+  "$comment:lifts": [
+    "`Full Power` is the three-lift total. The other three are single-lift meets, and",
+    "their standards are separate published figures rather than a narrower view of the",
+    "total -- which is why the lift is part of a table's scope and is never null."
+  ],
+  "lifts": [
+    { "event": "Full Power", "lift": "total", "label": "Full Power" },
+    { "event": "SQ", "lift": "squat", "label": "Squat" },
+    { "event": "BP", "lift": "bench", "label": "Bench Press" },
+    { "event": "DL", "lift": "deadlift", "label": "Deadlift" }
+  ],
+
+  "equipment": [
+    { "gear": "Raw", "equipmentId": "raw" },
+    { "gear": "Cl Raw", "equipmentId": "classic-raw" },
+    { "gear": "SP", "equipmentId": "single-ply" },
+    { "gear": "MP", "equipmentId": "multi-ply" }
+  ],
+
+  "sexes": [
+    { "gender": "Female", "sex": "female" },
+    { "gender": "Male", "sex": "male" }
+  ],
+
+  "$comment:weightClasses": [
+    "Keyed by sex as well as weight, because the two ladders overlap: `52` is a women's",
+    "class and a men's class, and they are not the same class."
+  ],
+  "weightClasses": [
+    { "sex": "female", "weight": "44", "weightClassId": "f-44" },
+    { "sex": "female", "weight": "48", "weightClassId": "f-48" },
+    { "sex": "female", "weight": "52", "weightClassId": "f-52" },
+    { "sex": "female", "weight": "56", "weightClassId": "f-56" },
+    { "sex": "female", "weight": "60", "weightClassId": "f-60" },
+    { "sex": "female", "weight": "67.5", "weightClassId": "f-67.5" },
+    { "sex": "female", "weight": "75", "weightClassId": "f-75" },
+    { "sex": "female", "weight": "82.5", "weightClassId": "f-82.5" },
+    { "sex": "female", "weight": "90", "weightClassId": "f-90" },
+    { "sex": "female", "weight": "100", "weightClassId": "f-100" },
+    { "sex": "female", "weight": "110", "weightClassId": "f-110" },
+    { "sex": "female", "weight": "110+", "weightClassId": "f-110-plus" },
+    { "sex": "male", "weight": "52", "weightClassId": "m-52" },
+    { "sex": "male", "weight": "56", "weightClassId": "m-56" },
+    { "sex": "male", "weight": "60", "weightClassId": "m-60" },
+    { "sex": "male", "weight": "67.5", "weightClassId": "m-67.5" },
+    { "sex": "male", "weight": "75", "weightClassId": "m-75" },
+    { "sex": "male", "weight": "82.5", "weightClassId": "m-82.5" },
+    { "sex": "male", "weight": "90", "weightClassId": "m-90" },
+    { "sex": "male", "weight": "100", "weightClassId": "m-100" },
+    { "sex": "male", "weight": "110", "weightClassId": "m-110" },
+    { "sex": "male", "weight": "125", "weightClassId": "m-125" },
+    { "sex": "male", "weight": "140", "weightClassId": "m-140" },
+    { "sex": "male", "weight": "140+", "weightClassId": "m-140-plus" }
+  ],
+
+  "$comment:divisions": [
+    "The standards use coarser age bands than the rulebook's divisions, so one band can",
+    "cover more than one division. Each band is written out as the divisions it applies",
+    "to, rather than matched by comparing age bounds: the bounds agree today, and the",
+    "year they stop agreeing a derived mapping would keep producing an answer.",
+    "",
+    "`80+` covers both of the rulebook's divisions above eighty. `Junior 15-19` covers",
+    "the 16-17 and 18-19 divisions in full and the 13-15 division only in part; see",
+    "`unmappedDivisions` for why partial coverage is left out rather than rounded up."
+  ],
+  "divisions": [
+    { "age": "OPEN", "divisionIds": ["open"] },
+    { "age": "Junior 15-19", "divisionIds": ["junior-16-17", "junior-18-19"] },
+    { "age": "Junior 20-23", "divisionIds": ["junior-20-23"] },
+    { "age": "40-44", "divisionIds": ["master-40-44"] },
+    { "age": "45-49", "divisionIds": ["master-45-49"] },
+    { "age": "50-54", "divisionIds": ["master-50-54"] },
+    { "age": "55-59", "divisionIds": ["master-55-59"] },
+    { "age": "60-64", "divisionIds": ["master-60-64"] },
+    { "age": "65-69", "divisionIds": ["master-65-69"] },
+    { "age": "70-74", "divisionIds": ["master-70-74"] },
+    { "age": "75-79", "divisionIds": ["master-75-79"] },
+    { "age": "80+", "divisionIds": ["master-80-84", "master-85-plus"] }
+  ],
+
+  "$comment:unmappedDivisions": [
+    "Divisions the rulebook defines and this dataset does not cover. Listing them is",
+    "required: a division that is neither mapped nor listed here fails the build, so",
+    "adding one to the categories document forces a decision instead of quietly",
+    "producing a division with no standards.",
+    "",
+    "A lifter in one of these sees that no standards are published for their division,",
+    "which is true. Borrowing the nearest band would be a more helpful screen and a",
+    "false one."
+  ],
+  "unmappedDivisions": [
+    {
+      "divisionId": "junior-10-12",
+      "reason": "The dataset's youngest band starts at fifteen."
+    },
+    {
+      "divisionId": "junior-13-15",
+      "reason": "The dataset's Junior 15-19 band overlaps this division only at fifteen. Applying it whole would hold a thirteen-year-old to a nineteen-year-old's standard."
+    },
+    {
+      "divisionId": "submaster-35-39",
+      "reason": "The dataset goes straight from Open to 40-44 and publishes no submaster standards."
+    }
+  ],
+
+  "$comment:quarantine": [
+    "Rows the federation publishes whose grades do not ascend, listed so that they are",
+    "excluded deliberately and exactly once.",
+    "",
+    "Every one of these is a women's raw 75-79 row whose Master figure sits above its",
+    "Elite figure -- in the squat rows, above every other grade in the row. A Master",
+    "standard of 120 kg beside an Elite standard of 52.5 kg in the same 52 kg squat is",
+    "not a demanding standard, it is a total-shaped number in a squat column.",
+    "",
+    "There is no way to repair it here. Dropping the Master figure alone would publish a",
+    "ladder that runs Class I straight to Elite and tell a lifter their next grade is one",
+    "they have to skip a rank to reach, so the whole row is withheld and the combination",
+    "reports no published standards.",
+    "",
+    "The list is checked in both directions. A row that fails and is not listed stops the",
+    "build, so a new contradiction cannot slip out. A listed row that no longer fails also",
+    "stops the build, so the entry is removed the day upstream corrects it rather than",
+    "quietly suppressing a row that had become good."
+  ],
+  "quarantine": [
+    {
+      "gender": "Female",
+      "gear": "Raw",
+      "event": "Full Power",
+      "age": "75-79",
+      "weight": "67.5",
+      "reason": "Master is 120.0, below the Class I figure of 155.0 in the same row."
+    },
+    {
+      "gender": "Female",
+      "gear": "Raw",
+      "event": "SQ",
+      "age": "75-79",
+      "weight": "52",
+      "reason": "Master is 120.0, above every other grade in the row including Elite at 52.5."
+    },
+    {
+      "gender": "Female",
+      "gear": "Raw",
+      "event": "SQ",
+      "age": "75-79",
+      "weight": "56",
+      "reason": "Master is 120.0, above every other grade in the row including Elite at 57.5."
+    },
+    {
+      "gender": "Female",
+      "gear": "Raw",
+      "event": "SQ",
+      "age": "75-79",
+      "weight": "60",
+      "reason": "Master is 120.0, above every other grade in the row including Elite at 62.5."
+    },
+    {
+      "gender": "Female",
+      "gear": "Raw",
+      "event": "SQ",
+      "age": "75-79",
+      "weight": "67.5",
+      "reason": "Master is 120.0, above every other grade in the row including Elite at 67.5."
+    },
+    {
+      "gender": "Female",
+      "gear": "Raw",
+      "event": "SQ",
+      "age": "75-79",
+      "weight": "75",
+      "reason": "Master is 120.0, above every other grade in the row including Elite at 75.0."
+    },
+    {
+      "gender": "Female",
+      "gear": "Raw",
+      "event": "SQ",
+      "age": "75-79",
+      "weight": "82.5",
+      "reason": "Master is 120.0, above every other grade in the row including Elite at 80.0."
+    },
+    {
+      "gender": "Female",
+      "gear": "Raw",
+      "event": "SQ",
+      "age": "75-79",
+      "weight": "90",
+      "reason": "Master is 120.0, above every other grade in the row including Elite at 87.5."
+    },
+    {
+      "gender": "Female",
+      "gear": "Raw",
+      "event": "SQ",
+      "age": "75-79",
+      "weight": "100",
+      "reason": "Master is 120.0, above every other grade in the row including Elite at 92.5."
+    },
+    {
+      "gender": "Female",
+      "gear": "Raw",
+      "event": "SQ",
+      "age": "75-79",
+      "weight": "110",
+      "reason": "Master is 127.5, above every other grade in the row including Elite at 97.5."
+    },
+    {
+      "gender": "Female",
+      "gear": "Raw",
+      "event": "SQ",
+      "age": "75-79",
+      "weight": "110+",
+      "reason": "Master is 140.0, above every other grade in the row including Elite at 107.5."
+    }
+  ]
+}
