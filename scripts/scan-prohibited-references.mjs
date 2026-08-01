@@ -16,6 +16,12 @@
  * successfully. A check that is loudly absent is honest; one that silently
  * passes because its input vanished is worse than no check at all.
  *
+ * That default is right for contributors and for pull requests from forks,
+ * which GitHub does not give secrets to. It is wrong on the path that publishes
+ * the site, where a missing list means the check did not run on the thing about
+ * to go live and nobody was told. `--require-tokens` turns the skip into a
+ * failure, and the deploy workflow uses it.
+ *
  * WHY THIS IS A DENYLIST AND NOT AN IDENTITY ALLOWLIST
  *
  * The risk being managed is one maintainer's machine defaulting to an employer
@@ -31,9 +37,12 @@
  *
  * USAGE
  *
- *   node scripts/scan-prohibited-references.mjs            history and worktree
- *   node scripts/scan-prohibited-references.mjs --pending  also the commit about
- *                                                          to be made (pre-commit)
+ *   node scripts/scan-prohibited-references.mjs                  history and worktree
+ *   node scripts/scan-prohibited-references.mjs --pending        also the commit
+ *                                                                about to be made
+ *                                                                (pre-commit)
+ *   node scripts/scan-prohibited-references.mjs --require-tokens fail if no list
+ *                                                                is configured
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
@@ -42,6 +51,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const checkPending = process.argv.includes('--pending');
+const requireTokens = process.argv.includes('--require-tokens');
 
 /** Untracked, gitignored. One token per line; `#` comments and blanks ignored. */
 const LOCAL_TOKEN_FILE = '.prohibited-tokens.local';
@@ -118,6 +128,29 @@ const deniedTokens = new Set(
     .map(normalize)
     .filter((token) => token.length >= 4),
 );
+
+// Checked before any scanning, so a misconfigured publish fails in seconds
+// rather than after a full build. This also catches a secret that exists but is
+// empty, or one whose entries are all too short to be usable -- both of which
+// otherwise look identical to success.
+if (requireTokens && deniedTokens.size === 0) {
+  console.error(
+    [
+      'Reference scan FAILED: --require-tokens was passed and no usable token list',
+      'was found.',
+      '',
+      `Provide one through $${TOKEN_ENV_VAR} or an untracked ${LOCAL_TOKEN_FILE}.`,
+      'In GitHub Actions that means a repository secret of the same name.',
+      '',
+      'This flag exists for the workflow that publishes the site. Skipping the',
+      'scan there would mean nothing checked what is about to go live, and saying',
+      'so is the whole point -- a check that quietly passes when its input is',
+      'missing is worse than no check.',
+      '',
+    ].join('\n'),
+  );
+  process.exit(1);
+}
 
 /**
  * Splits text into lowercase alphanumeric tokens, plus the concatenation of each

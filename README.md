@@ -189,7 +189,12 @@ strings that must not appear in this repository. That list is deliberately **not
 plaintext or as digests: the tokens are short enough that a wordlist recovers them from hashes in
 seconds, so a committed digest list is a committed list. Supply it locally through an untracked
 `.prohibited-tokens.local` file or a `PTK_PROHIBITED_TOKENS` environment variable. With neither
-present the scan reports "skipped" and passes, which is the expected result for most people.
+present the scan reports "skipped" and passes, which is the expected result for most people, and for
+pull requests from forks — GitHub does not expose secrets to those.
+
+The workflow that publishes the site runs `pnpm scan:references:strict`, which fails rather than
+skips when no list is configured. Skipping there would mean nothing checked what is about to go live
+and nobody was told, so the deploy is the one place the check refuses to be absent.
 
 A maintainer whose machine has a work email configured globally can add an untracked
 `.commit-identity.local` holding one exact address; the pre-commit hook then requires that address

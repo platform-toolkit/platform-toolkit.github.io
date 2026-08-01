@@ -26,6 +26,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "scan:references": "node scripts/scan-prohibited-references.mjs",
+    "scan:references:strict": "node scripts/scan-prohibited-references.mjs --require-tokens",
     "verify": "run-s format:check typecheck lint test scan:references build"
   },
   "devDependencies": {

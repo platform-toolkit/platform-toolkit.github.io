@@ -46,6 +46,16 @@ jobs:
       # manifests, which is the property `npm ci` provided.
       - run: pnpm install --frozen-lockfile
 
+      # Before the build rather than after, so a missing secret costs seconds.
+      # `verify` runs the same scan, but in its permissive mode: no token list
+      # means "skipped, passed", which is right for a fork's pull request and
+      # wrong here. This is the publish path -- if the list is absent, nothing
+      # checked what is about to go live, and that must fail rather than pass
+      # quietly.
+      - run: pnpm run scan:references:strict
+        env:
+          PTK_PROHIBITED_TOKENS: ${{ secrets.PTK_PROHIBITED_TOKENS }}
+
       # The full check, not just a build. Nothing reaches the live site without
       # passing format, typecheck, lint, tests, and the reference scan first.
       - run: pnpm run verify
