@@ -118,7 +118,7 @@ describe('ptk-target-categories', () => {
     const fields = [...(element.shadowRoot?.querySelectorAll('ptk-choice-group') ?? [])].map(
       (node) => node.dataset['field'],
     );
-    expect(fields).toEqual(['sex', 'equipment', 'weightClass', 'division']);
+    expect(fields).toEqual(['sex', 'equipment', 'weightClass', 'division', 'tested']);
   });
 
   it('says it is loading before the catalogue arrives', async () => {
@@ -153,7 +153,7 @@ describe('ptk-target-categories', () => {
     element.status = 'ready';
     await element.updateComplete;
 
-    expect(element.shadowRoot?.querySelectorAll('ptk-choice-group')).toHaveLength(4);
+    expect(element.shadowRoot?.querySelectorAll('ptk-choice-group')).toHaveLength(5);
   });
 
   it('offers no weight classes until a sex category is chosen', async () => {
@@ -222,11 +222,20 @@ describe('ptk-target-categories', () => {
     await choose(element, 'equipment', 'raw');
     await choose(element, 'weightClass', 'f-56');
     expect(seen.at(-1)).toEqual({
-      selection: { sex: 'female', equipment: 'raw', weightClass: 'f-56', division: null },
+      selection: {
+        sex: 'female',
+        equipment: 'raw',
+        weightClass: 'f-56',
+        division: null,
+        tested: null,
+      },
       complete: false,
     });
 
     await choose(element, 'division', 'open');
+    expect(seen.at(-1)?.complete).toBe(false);
+
+    await choose(element, 'tested', 'tested');
     expect(seen.at(-1)?.complete).toBe(true);
   });
 
@@ -239,6 +248,7 @@ describe('ptk-target-categories', () => {
     await choose(element, 'equipment', 'raw');
     await choose(element, 'weightClass', 'f-56');
     await choose(element, 'division', 'open');
+    await choose(element, 'tested', 'untested');
 
     expect(element.shadowRoot?.querySelector('[role="status"]')?.textContent).toContain(
       'Category complete',
@@ -266,7 +276,7 @@ describe('ptk-target-categories', () => {
 
   it('fits a phone-width column with every question answered', async () => {
     // The composed case, which the shared component's own tests cannot cover:
-    // four groups stacked, the longest labels the catalogue produces, and the
+    // five groups stacked, the longest labels the catalogue produces, and the
     // outstanding-status line underneath. A phone is where this tool is used --
     // at a warm-up rack, on a platform floor -- so the narrow layout is the one
     // that has to hold, and horizontal scroll is the failure it fails with.

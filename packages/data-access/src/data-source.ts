@@ -25,7 +25,13 @@
  * push the same narrowing into a query. Callers express which slice they want
  * and stay out of the argument.
  */
-import type { CategoryCatalog, DataMeta, RecordBook } from '@platform-toolkit/data-contracts';
+import type {
+  CategoryCatalog,
+  ClassificationBook,
+  DataMeta,
+  RecordBook,
+  SexCategory,
+} from '@platform-toolkit/data-contracts';
 
 /** Which strategy is answering. Useful in diagnostics; never for branching logic. */
 export type DataSourceKind = 'static' | 'http';
@@ -57,6 +63,28 @@ export interface RecordSetQuery {
   readonly levelId: string;
   /** The region within that level, or `null` where the level has no subdivision. */
   readonly regionId: string | null;
+}
+
+/**
+ * Which set of classification standards to load.
+ *
+ * Two axes, and only two, for the same reason `RecordSetQuery` has two: these
+ * are what a reader holds fixed for a whole session. A lifter is one sex and
+ * competes in one equipment category, and within that the screen moves freely --
+ * their squat and their total, the class they are in and the one they are
+ * cutting to, the Open division and their Masters division. Naming any of those
+ * here would turn one screen into a dozen reads.
+ *
+ * Sex is the contract's picklist rather than a bare string. Unlike the
+ * federation and the equipment category, which are identifiers a federation
+ * chooses, this one is a closed set the whole project agrees on, and a typo in
+ * it should not compile.
+ */
+export interface ClassificationSetQuery {
+  /** Whose standards, e.g. the federation the catalogue came from. */
+  readonly federationId: string;
+  readonly sex: SexCategory;
+  readonly equipmentId: string;
 }
 
 export interface ReadOptions {
@@ -153,4 +181,25 @@ export interface DataSource {
    * Neither lets the caller influence a URL directly.
    */
   getRecords(query: RecordSetQuery, options?: ReadOptions): Promise<RecordBook | null>;
+
+  /**
+   * The classification standards for one sex and equipment category, or `null`
+   * if none are published for them.
+   *
+   * `null` is an answer, as it is for records: a federation may publish no
+   * standards at all, or none for multi-ply, and a screen that says so plainly
+   * is telling the truth. Distinguishing it from a failed read is what lets the
+   * tool avoid offering a reload that would change nothing.
+   *
+   * What comes back is every table in that partition -- all four lifts, every
+   * weight class, every division -- because the lifter varies all of those while
+   * looking at one screen. Choosing which of them applies is
+   * `selectClassificationTable` in `packages/domain`, not a filter here: the
+   * choice involves specificity ranking and can legitimately come back
+   * ambiguous, and that is a rule about federations rather than about storage.
+   */
+  getClassifications(
+    query: ClassificationSetQuery,
+    options?: ReadOptions,
+  ): Promise<ClassificationBook | null>;
 }

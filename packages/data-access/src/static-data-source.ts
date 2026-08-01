@@ -11,18 +11,27 @@
  */
 import {
   CategoryCatalogSchema,
+  ClassificationBookSchema,
   DataMetaSchema,
   RecordBookSchema,
   categoryCatalogArtifactId,
+  classificationArtifactId,
   recordArtifactId,
   type ArtifactReference,
   type CategoryCatalog,
+  type ClassificationBook,
   type DataMeta,
   type RecordBook,
 } from '@platform-toolkit/data-contracts';
 import type * as v from 'valibot';
 
-import type { DataSource, DataSourceKind, ReadOptions, RecordSetQuery } from './data-source.js';
+import type {
+  ClassificationSetQuery,
+  DataSource,
+  DataSourceKind,
+  ReadOptions,
+  RecordSetQuery,
+} from './data-source.js';
 import { fetchJson, type FetchLike } from './fetch-json.js';
 
 /**
@@ -149,6 +158,22 @@ export function createStaticDataSource(options: StaticDataSourceOptions): DataSo
         regionId: query.regionId,
       });
       return readArtifact(artifactId, RecordBookSchema, readOptions);
+    },
+
+    getClassifications(
+      query: ClassificationSetQuery,
+      readOptions?: ReadOptions,
+    ): Promise<ClassificationBook | null> {
+      // Same discipline as `getRecords`: the name comes from the contracts
+      // package the publisher used, never from a template literal here. The two
+      // spellings would agree until one of them changed, and a name that no
+      // longer resolves renders as "no standards published for this category" --
+      // a real answer for several categories already, so nobody would look.
+      const artifactId = classificationArtifactId(query.federationId, {
+        sex: query.sex,
+        equipmentId: query.equipmentId,
+      });
+      return readArtifact(artifactId, ClassificationBookSchema, readOptions);
     },
   };
 }

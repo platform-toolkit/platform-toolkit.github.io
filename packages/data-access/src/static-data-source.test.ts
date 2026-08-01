@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { DataSourceError, type RecordSetQuery } from './data-source.js';
+import {
+  DataSourceError,
+  type ClassificationSetQuery,
+  type RecordSetQuery,
+} from './data-source.js';
 import type { FetchLike } from './fetch-json.js';
 import { createStaticDataSource } from './static-data-source.js';
 
@@ -26,6 +30,12 @@ const VALID_META = {
       path: 'artifacts/records-example-state.0123456789abcdef.json',
       sha256: '0'.repeat(64),
       byteLength: 128,
+      schemaVersion: 1,
+    },
+    'classifications-example-female-raw': {
+      path: 'artifacts/classifications-example-female-raw.89abcdef01234567.json',
+      sha256: '2'.repeat(64),
+      byteLength: 512,
       schemaVersion: 1,
     },
   },
@@ -299,6 +309,115 @@ describe('category catalogue', () => {
 
     await source.getCategoryCatalog('example');
     await source.getRecords(PUBLISHED);
+
+    expect(fetch.calls.filter((url) => url.endsWith('meta.json'))).toHaveLength(1);
+  });
+});
+
+const CLASSIFICATIONS_URL =
+  '/data/artifacts/classifications-example-female-raw.89abcdef01234567.json';
+
+/** Invented figures, and deliberately not a plausible ladder shape. */
+const CLASSIFICATION_BOOK = {
+  id: 'example',
+  label: 'Example Federation',
+  tables: [
+    {
+      id: 'example-female-raw-total-open',
+      label: 'Women, Raw Total, Open',
+      scope: {
+        sex: 'female',
+        lift: 'total',
+        equipmentId: 'raw',
+        weightClassId: null,
+        divisionId: 'open',
+        tested: null,
+      },
+      standards: [{ id: 'first', label: 'First', rank: 0, requiredKilograms: 100 }],
+    },
+  ],
+};
+
+const PARTITION: ClassificationSetQuery = {
+  federationId: 'example',
+  sex: 'female',
+  equipmentId: 'raw',
+};
+
+describe('classification standards', () => {
+  const routes = { '/data/meta.json': VALID_META, [CLASSIFICATIONS_URL]: CLASSIFICATION_BOOK };
+
+  it('resolves a sex and equipment partition through the same index', async () => {
+    const fetch = routingFetch(routes);
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    await expect(source.getClassifications(PARTITION)).resolves.toEqual(CLASSIFICATION_BOOK);
+    expect(fetch.calls).toEqual(['/data/meta.json', CLASSIFICATIONS_URL]);
+  });
+
+  it('reaches a different partition for a different equipment category', async () => {
+    // Both axes choose the file. An adapter that dropped one would answer every
+    // equipment category with whichever partition it resolved first, and a raw
+    // lifter would be measured against multi-ply standards -- a difference of
+    // tens of kilograms that still looks like a plausible table.
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch: routingFetch(routes) });
+
+    await expect(
+      source.getClassifications({ ...PARTITION, equipmentId: 'multi-ply' }),
+    ).resolves.toBeNull();
+    await expect(source.getClassifications({ ...PARTITION, sex: 'male' })).resolves.toBeNull();
+  });
+
+  it('answers null for a category with no published standards', async () => {
+    // Already true of several real categories, which is why it must not be a
+    // failure: the screen says the federation publishes none for them.
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch: routingFetch(routes) });
+    await expect(
+      source.getClassifications({ ...PARTITION, federationId: 'nowhere' }),
+    ).resolves.toBeNull();
+  });
+
+  it('answers null without a request when nothing can be named', async () => {
+    const fetch = routingFetch(routes);
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    await expect(
+      source.getClassifications({ ...PARTITION, equipmentId: '///' }),
+    ).resolves.toBeNull();
+    expect(fetch.calls).toEqual([]);
+  });
+
+  it('refuses a book whose standards do not match their contract', async () => {
+    // A standard requiring zero kilograms would place every lifter at it, and
+    // the screen would tell them they had earned a title for turning up.
+    const source = createStaticDataSource({
+      baseUrl: '/data/',
+      fetch: routingFetch({
+        '/data/meta.json': VALID_META,
+        [CLASSIFICATIONS_URL]: {
+          ...CLASSIFICATION_BOOK,
+          tables: [
+            {
+              ...CLASSIFICATION_BOOK.tables[0],
+              standards: [{ id: 'first', label: 'First', rank: 0, requiredKilograms: 0 }],
+            },
+          ],
+        },
+      }),
+    });
+
+    await expect(source.getClassifications(PARTITION)).rejects.toThrow(DataSourceError);
+  });
+
+  it('shares one index read with the catalogue that drew the controls', async () => {
+    // The catalogue offers the equipment categories and this read is keyed by
+    // the one chosen. Two index reads could straddle a deploy and pair a
+    // category with a partition published before it existed.
+    const fetch = routingFetch({ ...routes, [CATALOG_URL]: CATALOG });
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    await source.getCategoryCatalog('example');
+    await source.getClassifications(PARTITION);
 
     expect(fetch.calls.filter((url) => url.endsWith('meta.json'))).toHaveLength(1);
   });

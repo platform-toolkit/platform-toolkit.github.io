@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   NO_SELECTION,
   resolveSelection,
+  testedFlag,
   type CategorySelection,
   type SelectionField,
   type SelectionQuestion,
@@ -67,6 +68,7 @@ const CHOSEN: CategorySelection = {
   equipment: 'raw',
   weightClass: 'f-56',
   division: 'open',
+  tested: 'tested',
 };
 
 function question(
@@ -99,6 +101,7 @@ describe('resolveSelection', () => {
       'equipment',
       'weightClass',
       'division',
+      'tested',
     ]);
   });
 
@@ -155,7 +158,7 @@ describe('resolveSelection', () => {
     expect(switched.selection.division).toBe('open');
   });
 
-  it.each(['sex', 'equipment', 'weightClass', 'division'] as const)(
+  it.each(['sex', 'equipment', 'weightClass', 'division', 'tested'] as const)(
     'drops an unpublished %s outright rather than snapping to a neighbour',
     (field) => {
       const spoiled = resolveSelection(CATALOG, { ...CHOSEN, [field]: 'not-published' });
@@ -196,10 +199,49 @@ describe('resolveSelection', () => {
     expect(descriptions).toEqual([undefined, '19 and under', '40 to 49', '70 and over']);
   });
 
+  it('asks the drug-tested question regardless of what the catalogue publishes', () => {
+    // The catalogue has no say in it: `tested` is a `boolean | null` on every
+    // scope in the contracts package, so the two answers are fixed. A federation
+    // that publishes one set of standards for everybody still needs the answer,
+    // because records and qualifying totals split on it where standards do not.
+    expect(values(CATALOG, NO_SELECTION, 'tested')).toEqual(['tested', 'untested']);
+  });
+
+  it('spells out what tested and untested mean', () => {
+    // "Untested" reads as "has not been tested yet" to anyone who has not
+    // competed, which is a large share of the people planning a first meet.
+    const descriptions = question(CATALOG, NO_SELECTION, 'tested').choices.map(
+      (choice) => choice.description,
+    );
+    expect(descriptions).toEqual([
+      'Competing in drug-tested divisions',
+      'Competing in untested divisions',
+    ]);
+  });
+
   it('leaves the top class label as the catalogue wrote it', () => {
     const labels = question(CATALOG, { ...NO_SELECTION, sex: 'female' }, 'weightClass').choices.map(
       (choice) => choice.label,
     );
     expect(labels).toEqual(['56 kg', '56+ kg']);
+  });
+});
+
+describe('testedFlag', () => {
+  it('converts the answer to the boolean the domain asks for', () => {
+    expect(testedFlag(CHOSEN)).toBe(true);
+    expect(testedFlag({ ...CHOSEN, tested: 'untested' })).toBe(false);
+  });
+
+  it('answers null while the question is unanswered', () => {
+    // Not `false`. Defaulting an unanswered question to untested would read a
+    // tested lifter against untested standards on a screen that looks complete.
+    expect(testedFlag(NO_SELECTION)).toBeNull();
+  });
+
+  it('answers null for anything it does not recognise', () => {
+    // The value originates as a string from the DOM. A conversion written as
+    // `value !== 'untested'` would turn a typo into a confident `true`.
+    expect(testedFlag({ ...CHOSEN, tested: 'Tested' })).toBeNull();
   });
 });

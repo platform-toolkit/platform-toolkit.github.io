@@ -3,8 +3,10 @@
 Open-source tools for powerlifters and meet directors. Each one works on its own, and any site may
 embed a single tool without taking the rest.
 
-**Status: early development.** The site is live at <https://platform-toolkit.github.io>, but the
-tools are still shells — no data is published yet and no calculation is wired up.
+**Status: early development.** The site is live at <https://platform-toolkit.github.io>. Platform
+Targets is usable end to end for classification standards: pick a category, enter what you have
+lifted, and it tells you where that places and how far the next class is. Records, meet
+qualification, and profile import are not built yet, and Platform Targets is the only tool so far.
 
 ## The tools
 
@@ -26,9 +28,12 @@ Two ways in, one model out:
 Import assists; it never takes over. Every imported value stays editable, and the manual path works
 on its own.
 
-From there it shows current classification, the exact gap to the next one, applicable records at
-state, national, and IPL World level, and whether a chosen meet's published criteria are met — per
-discipline, and per equipment category.
+From there it shows current classification and the exact gap to the next one, per lift and for the
+total. A total left blank is added up from the three lifts, and the field says so — a typed total
+always wins, because a lifter entering one directly is asserting it came from a different day.
+
+Still to come: applicable records at state, national, and IPL World level, and whether a chosen
+meet's published criteria are met — per discipline, and per equipment category.
 
 ## Architecture
 

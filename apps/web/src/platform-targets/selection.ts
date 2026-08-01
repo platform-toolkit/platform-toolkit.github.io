@@ -19,7 +19,7 @@ import type { CategoryCatalog, SexCategory } from '@platform-toolkit/data-contra
 import type { Choice } from '@platform-toolkit/ui';
 
 /** The questions, in the order they are asked. */
-export type SelectionField = 'sex' | 'equipment' | 'weightClass' | 'division';
+export type SelectionField = 'sex' | 'equipment' | 'weightClass' | 'division' | 'tested';
 
 /** What the lifter has chosen so far. `null` is "not answered yet". */
 export type CategorySelection = Readonly<Record<SelectionField, string | null>>;
@@ -29,7 +29,34 @@ export const NO_SELECTION: CategorySelection = {
   equipment: null,
   weightClass: null,
   division: null,
+  tested: null,
 };
+
+/**
+ * The two answers to the drug-tested question, as the scope contract models it.
+ *
+ * A closed pair rather than published data, for the same reason the sex
+ * categories are: `tested` is a `boolean | null` on every scope in
+ * `data-contracts`, so these are the only two things a lifter can be. The
+ * `null` on a scope means something else entirely -- "the source does not
+ * distinguish" -- and is never an answer a lifter gives.
+ */
+export const TESTED_VALUES = ['tested', 'untested'] as const;
+export type TestedValue = (typeof TESTED_VALUES)[number];
+
+/**
+ * The answer as the domain wants it, or `null` while it is unanswered.
+ *
+ * Kept as a function rather than inlined at each call site so that the mapping
+ * exists once. Two places converting the string themselves is how one of them
+ * ends up treating an unrecognised value as untested, which quietly measures a
+ * tested lifter against an untested field.
+ */
+export function testedFlag(selection: CategorySelection): boolean | null {
+  if (selection.tested === 'tested') return true;
+  if (selection.tested === 'untested') return false;
+  return null;
+}
 
 /** One question, ready to hand to a choice group. */
 export interface SelectionQuestion {
@@ -63,6 +90,15 @@ const SEX_LABELS: Readonly<Record<SexCategory, string>> = {
   female: 'Female',
   male: 'Male',
 };
+
+/**
+ * Descriptions rather than bare labels, because "Untested" is widely misread as
+ * "has not been tested yet" rather than as the division's name.
+ */
+const TESTED_CHOICES: readonly Choice[] = [
+  { value: 'tested', label: 'Tested', description: 'Competing in drug-tested divisions' },
+  { value: 'untested', label: 'Untested', description: 'Competing in untested divisions' },
+];
 
 export function resolveSelection(
   catalog: CategoryCatalog,
@@ -101,6 +137,14 @@ export function resolveSelection(
   ask('weightClass', 'Weight class', classes.choices, classes.emptyMessage);
 
   ask('division', 'Age division', divisionChoices(catalog), 'No age divisions are published.');
+
+  // Last, and asked even by federations that publish one set of standards for
+  // everybody. It is not redundant there: records and qualifying totals are
+  // split on it where classifications are not, and a screen that only asked when
+  // the current federation happened to need it would drop the question the day a
+  // second one did -- silently, since an unasked question reads as an answered
+  // one downstream.
+  ask('tested', 'Drug-tested status', TESTED_CHOICES, 'No drug-tested categories are published.');
 
   return {
     questions,

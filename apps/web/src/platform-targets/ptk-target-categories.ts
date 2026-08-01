@@ -4,7 +4,7 @@
  *
  * This is a tool component rather than shared chrome. It knows that a weight
  * class belongs to a sex category and that a division has an age band;
- * `ptk-choice-group` knows none of that and is repeated four times here.
+ * `ptk-choice-group` knows none of that and is repeated once per question here.
  *
  * It does no loading. The catalogue and the state of the read arrive as
  * properties, which is what lets the whole interface be exercised in a browser
@@ -52,14 +52,9 @@ export class PtkTargetCategories extends LitElement {
       gap: var(--ptk-space-lg);
     }
 
-    .notice,
     .outstanding {
-      margin: 0;
+      margin: var(--ptk-space-lg) 0 0;
       color: var(--ptk-color-text-muted);
-    }
-
-    .outstanding {
-      margin-block-start: var(--ptk-space-lg);
     }
   `;
 
@@ -111,17 +106,20 @@ export class PtkTargetCategories extends LitElement {
 
   override render(): TemplateResult {
     if (this.status === 'loading') {
-      return html`<p class="notice">Loading this federation's categories…</p>`;
+      return html`<ptk-notice>Loading this federation's categories…</ptk-notice>`;
     }
     if (this.status === 'failed') {
-      return html`<p class="notice">
+      return html`<ptk-notice tone="error">
         The published categories could not be loaded. Reload the page to try again.
-      </p>`;
+      </ptk-notice>`;
     }
     if (this.catalog === null) {
       // Covers `unavailable`, and covers `ready` arriving without a catalogue,
-      // which is a wiring mistake that should still render something true.
-      return html`<p class="notice">This federation's categories have not been published yet.</p>`;
+      // which is a wiring mistake that should still render something true. Not
+      // an error tone: nothing failed, and a reload will not change it.
+      return html`<ptk-notice>
+        This federation's categories have not been published yet.
+      </ptk-notice>`;
     }
 
     const resolved = resolveSelection(this.catalog, this.requested);
@@ -174,7 +172,7 @@ export class PtkTargetCategories extends LitElement {
   };
 }
 
-const FIELDS: readonly SelectionField[] = ['sex', 'equipment', 'weightClass', 'division'];
+const FIELDS: readonly SelectionField[] = ['sex', 'equipment', 'weightClass', 'division', 'tested'];
 
 /**
  * Which question an event came from, or `null` if it did not come from one.

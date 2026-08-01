@@ -1,5 +1,6 @@
 export {
   DataSourceError,
+  type ClassificationSetQuery,
   type DataSource,
   type DataSourceFailureReason,
   type DataSourceKind,

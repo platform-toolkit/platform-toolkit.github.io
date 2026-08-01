@@ -55,17 +55,59 @@ const OUTPUT_DIRECTORY = fileURLToPath(new URL('../apps/web/dist', import.meta.u
 const WIDTHS = [320, 390];
 
 /**
- * The routes, and the one interaction that reveals the rest of each screen.
+ * The interactions that reveal the rest of the Platform Targets screen.
  *
- * Platform Targets asks for a sex category before it can offer a weight class,
- * so the state with the most on it -- four questions and the longest ladder --
- * is only reachable by answering the first. Checking the initial render alone
- * would measure about a third of the page.
+ * Each question is only offered once the one before it has been answered -- the
+ * catalogue cannot name a weight class before it knows a sex category -- so the
+ * state with the most on it is reachable only by working down the list. Every
+ * selector picks the *first* option in its group, which is enough: the check is
+ * about layout, and the longest label in each group is measured whether or not
+ * it is the one chosen.
+ *
+ * All five matter. The standards panel below the questions renders four fields
+ * and four status lines, and it is inert until a category is complete, so
+ * stopping after the first answer would measure roughly a third of the page --
+ * which is what this list used to do, and why it is a list now.
  */
+const PLATFORM_TARGETS_REVEAL = [
+  'ptk-choice-group[data-field="sex"] input',
+  'ptk-choice-group[data-field="equipment"] input',
+  'ptk-choice-group[data-field="weightClass"] input',
+  'ptk-choice-group[data-field="division"] input',
+  'ptk-choice-group[data-field="tested"] input',
+];
+
+/**
+ * Weights typed into the lift fields once the category is answered.
+ *
+ * Three component lifts and no total, so the fourth field fills itself and the
+ * derived-total sentence -- the longest string the panel ever renders -- is on
+ * screen when the measurement runs. A blank panel would measure the placeholder
+ * layout, which is not the one that overflows.
+ *
+ * The figures are invented. Nothing here compares them against anything.
+ */
+const PLATFORM_TARGETS_FILL = [
+  { selector: 'ptk-number-field[data-lift="squat"] input', value: '142.5' },
+  { selector: 'ptk-number-field[data-lift="bench"] input', value: '82.5' },
+  { selector: 'ptk-number-field[data-lift="deadlift"] input', value: '175' },
+];
+
+/** The routes, and what has to happen before each is worth measuring. */
 const ROUTES = [
-  { path: '/', reveal: null },
-  { path: '/platform-targets/', reveal: 'ptk-choice-group[data-field="sex"] input' },
-  { path: '/platform-targets/embed/uspa/', reveal: 'ptk-choice-group[data-field="sex"] input' },
+  { path: '/', reveal: [], fill: [] },
+  {
+    path: '/platform-targets/',
+    reveal: PLATFORM_TARGETS_REVEAL,
+    fill: PLATFORM_TARGETS_FILL,
+    settle: 'ptk-number-field[data-lift="total"] input',
+  },
+  {
+    path: '/platform-targets/embed/uspa/',
+    reveal: PLATFORM_TARGETS_REVEAL,
+    fill: PLATFORM_TARGETS_FILL,
+    settle: 'ptk-number-field[data-lift="total"] input',
+  },
 ];
 
 /** Kept in step with `--ptk-tap-target-min` in `packages/ui/src/tokens.css`. */
@@ -143,6 +185,58 @@ const MEASURE = `(() => {
   return problems;
 })()`;
 
+/**
+ * Drives a route into the state worth measuring.
+ *
+ * Returns false, having recorded a failure, if any step could not be taken. A
+ * selector that stops matching is treated as a failure rather than skipped:
+ * these controls come from published data, so a silent skip is how the check
+ * quietly stops checking the state it exists for while still reporting a pass.
+ */
+async function reveal(page, route, width, failures) {
+  const where = `${String(width)}px ${route.path}`;
+
+  for (const selector of route.reveal) {
+    const control = page.locator(selector).first();
+    if ((await control.count()) === 0) {
+      failures.push(`${where}: nothing matched ${selector}`);
+      return false;
+    }
+    await control.check();
+  }
+
+  for (const { selector, value } of route.fill) {
+    const field = page.locator(selector).first();
+    if ((await field.count()) === 0) {
+      failures.push(`${where}: nothing matched ${selector}`);
+      return false;
+    }
+    await field.fill(value);
+  }
+
+  if (route.settle !== undefined && !(await settled(page, route.settle))) {
+    // The derived total is the last thing to appear, so an empty one means the
+    // panel never re-rendered -- and a panel that never re-rendered is showing
+    // placeholder-width text, which is not the layout at risk of overflowing.
+    failures.push(`${where}: ${route.settle} never took a value`);
+    return false;
+  }
+
+  return true;
+}
+
+/** Polls for a field to hold something, rather than trusting a fixed pause. */
+async function settled(page, selector) {
+  const field = page.locator(selector).first();
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if ((await field.count()) > 0 && (await field.inputValue()) !== '') {
+      return true;
+    }
+    await page.waitForTimeout(20);
+  }
+  return false;
+}
+
 async function main() {
   try {
     await readFile(join(OUTPUT_DIRECTORY, 'index.html'));
@@ -173,17 +267,10 @@ async function main() {
         const page = await context.newPage();
         await page.goto(origin + route.path, { waitUntil: 'networkidle' });
 
-        if (route.reveal !== null) {
-          const control = page.locator(route.reveal).first();
-          if ((await control.count()) === 0) {
-            // The published data is what puts these controls on the page, so a
-            // selector that stops matching means the check has quietly stopped
-            // checking the state it exists for.
-            failures.push(`${String(width)}px ${route.path}: nothing matched ${route.reveal}`);
-            await page.close();
-            continue;
-          }
-          await control.check();
+        const reached = await reveal(page, route, width, failures);
+        if (!reached) {
+          await page.close();
+          continue;
         }
 
         for (const problem of await page.evaluate(MEASURE)) {
