@@ -209,4 +209,17 @@ declare global {
   interface HTMLElementTagNameMap {
     'ptk-choice-group': PtkChoiceGroup;
   }
+
+  /**
+   * So that a delegated listener gets the detail typed without a cast.
+   *
+   * A container listening for this event is the normal way to read several
+   * groups at once, and `addEventListener` would otherwise hand back a bare
+   * `Event`. The alternative every caller reaches for is `as CustomEvent<…>`,
+   * which is an assertion that would keep compiling after the detail changed
+   * shape.
+   */
+  interface HTMLElementEventMap {
+    [CHOICE_CHANGE_EVENT]: CustomEvent<ChoiceChangeDetail>;
+  }
 }

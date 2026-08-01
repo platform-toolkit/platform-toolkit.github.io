@@ -29,5 +29,13 @@
       "@platform-toolkit/ui": ["./packages/ui/src/index.ts"]
     }
   },
-  "include": ["packages/*/src/**/*.test.ts", "apps/web/src/**/*.test.ts"]
+  // `build-constants.d.ts` is not a test, but a test that reaches the site's
+  // composition root pulls in a build-time constant declared only there. Without
+  // it the type checker reports an undefined name in application code that the
+  // application's own project checks perfectly well.
+  "include": [
+    "packages/*/src/**/*.test.ts",
+    "apps/web/src/**/*.test.ts",
+    "apps/web/src/build-constants.d.ts"
+  ]
 }

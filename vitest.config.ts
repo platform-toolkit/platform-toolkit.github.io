@@ -85,11 +85,35 @@ const projects: TestProjectInlineConfiguration[] = [
   {
     test: {
       // Not a package: this guards `apps/web/public/theme-boot.js`, which is
-      // served verbatim and so cannot be covered by anything that imports it.
+      // served verbatim and so cannot be covered by anything that imports it,
+      // plus the tool's pure selection rules.
       name: 'web',
       root: './apps/web',
       environment: 'node',
       include: ['src/**/*.test.ts'],
+      // The browser suite below matches the same glob, so it has to be excluded
+      // by name. Vitest replaces the default exclude list rather than adding to
+      // it, so the standard entries are repeated here.
+      exclude: ['**/node_modules/**', '**/dist/**', 'src/**/*.browser.test.ts'],
+    },
+  },
+  {
+    // The tool's own composed interface, in a real browser for the same reason
+    // `ui` is: custom elements, Shadow DOM, and Lit's update scheduling are what
+    // is being tested, and an emulation of them makes a passing test weak
+    // evidence.
+    define: { __PTK_DATA_BASE_URL__: JSON.stringify('/data/') },
+    test: {
+      name: 'web-browser',
+      root: './apps/web',
+      include: ['src/**/*.browser.test.ts'],
+      browser: {
+        enabled: true,
+        provider: playwright(),
+        instances: [{ browser: 'chromium' }],
+        headless: true,
+        screenshotFailures: false,
+      },
     },
   },
   {

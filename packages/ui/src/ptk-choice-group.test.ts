@@ -1,12 +1,7 @@
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import {
-  CHOICE_CHANGE_EVENT,
-  type Choice,
-  type ChoiceChangeDetail,
-  type PtkChoiceGroup,
-} from './ptk-choice-group.js';
+import { CHOICE_CHANGE_EVENT, type Choice, type PtkChoiceGroup } from './ptk-choice-group.js';
 import './ptk-choice-group.js';
 
 /**
@@ -111,7 +106,9 @@ describe('ptk-choice-group', () => {
     const element = await mount();
     const heard: string[] = [];
     element.addEventListener(CHOICE_CHANGE_EVENT, (event) => {
-      heard.push((event as CustomEvent<ChoiceChangeDetail>).detail.value);
+      // Typed without a cast: the element declares its event in
+      // `HTMLElementEventMap`, so `detail` is known here.
+      heard.push(event.detail.value);
     });
 
     radios(element)[1]?.click();
