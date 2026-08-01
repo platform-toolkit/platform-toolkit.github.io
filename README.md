@@ -3,7 +3,8 @@
 Open-source tools for powerlifters and meet directors. Each one works on its own, and any site may
 embed a single tool without taking the rest.
 
-**Status: early development.** Nothing is deployed yet.
+**Status: early development.** The site is live at <https://platform-toolkit.github.io>, but the
+tools are still shells — no data is published yet and no calculation is wired up.
 
 ## The tools
 
@@ -81,11 +82,11 @@ The pnpm version is pinned by the `packageManager` field, so you do not install 
 same field, which is what keeps the two from drifting.
 
 pnpm is a security choice more than an ergonomic one. Dependency lifecycle scripts do not run unless
-the package is named in `pnpm-workspace.yaml`, and the list here is empty, so installing this project
-executes no third-party code — on a contributor's machine or in the workflow that publishes the
-site. A package that is not declared as a dependency also cannot be imported, which is what keeps
-the boundary between the pure packages and the one DOM package real rather than conventional. Unmet
-peer dependencies are configured to fail the install rather than warn.
+the package is named in `pnpm-workspace.yaml`, and the list here is empty, so installing this
+project executes no third-party code — on a contributor's machine or in the workflow that publishes
+the site. A package that is not declared as a dependency also cannot be imported, which is what
+keeps the boundary between the pure packages and the one DOM package real rather than conventional.
+Unmet peer dependencies are configured to fail the install rather than warn.
 
 ## Getting started
 
