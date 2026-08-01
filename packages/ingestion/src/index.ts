@@ -25,3 +25,4 @@ export {
   type PublicationRequest,
   type PublishedFile,
 } from './publication.js';
+export { writePublication, type WriteSummary } from './write-publication.js';

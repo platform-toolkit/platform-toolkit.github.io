@@ -30,6 +30,11 @@ apps/web/public/data/
 .prohibited-tokens.local
 .commit-identity.local
 
+# Maintainer working notes: direction given in conversation that is not
+# derivable from the code. Local only, and deliberately so -- it exists to
+# survive a lost session, not to be published.
+/CLAUDE.md
+
 .DS_Store
 *.log
 
