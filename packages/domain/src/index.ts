@@ -17,6 +17,35 @@ export {
   type Readiness,
 } from './attempt-risk.js';
 export {
+  RESEARCH_BASIS_NOTE,
+  reviewJumps,
+  type JumpAdvisory,
+  type JumpAdvisoryCode,
+  type JumpAdvisorySeverity,
+  type JumpEvidence,
+  type JumpPopulation,
+  type JumpSequence,
+  type ResearchComparison,
+} from './attempt-jumps.js';
+export {
+  MEET_GOALS,
+  percentagesFor,
+  planAttempts,
+  strategyForGoal,
+  type AttemptPlan,
+  type AttemptPlanProblem,
+  type AttemptPlanProblemCode,
+  type AttemptPlanRequest,
+  type AttemptPlanResult,
+  type MeetGoal,
+  type PercentBand,
+  type PlanStrategy,
+  type PlannedAttempt,
+  type RoundingNote,
+  type RoundingReason,
+  type StrategyPercentages,
+} from './attempt-plan.js';
+export {
   admitsAge,
   competitionAge,
   eligibleAgeDivisions,
