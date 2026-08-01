@@ -35,3 +35,40 @@ export function floorToHundredths(value: number): number {
 export function ceilToHundredths(value: number): number {
   return Math.ceil(value * HUNDREDTHS - FLOATING_POINT_SLACK) / HUNDREDTHS;
 }
+
+/*
+ * The same three directions at whole units, for figures that are estimates
+ * rather than measurements.
+ *
+ * A hundredth of a kilogram is the right resolution for a bodyweight, which was
+ * weighed. It is the wrong resolution for a one-repetition maximum inferred from
+ * a set of five: 154.83 kg states a precision the method does not have, and a
+ * reader who sees two decimal places reasonably concludes somebody measured
+ * something. Whole units also make the direction visible -- a conservative
+ * figure that is a whole kilogram below the middle one reads as a range, where
+ * 154.82 against 154.83 reads as noise.
+ */
+
+/** Rounds down to a whole unit: use for the low end of an estimated range. */
+export function floorToWhole(value: number): number {
+  return Math.floor(value + FLOATING_POINT_SLACK);
+}
+
+/** Rounds up to a whole unit: use for the high end of an estimated range. */
+export function ceilToWhole(value: number): number {
+  return Math.ceil(value - FLOATING_POINT_SLACK);
+}
+
+/**
+ * Rounds to the nearest whole unit, halves away from zero.
+ *
+ * Away from zero rather than JavaScript's built-in half-up, which is asymmetric
+ * about zero and would round -0.5 to -0. No estimate here is negative, but the
+ * helper sits beside two that are direction-symmetric and an exception would be
+ * a trap for the next caller.
+ */
+export function roundToWhole(value: number): number {
+  return value < 0
+    ? -Math.round(-value + FLOATING_POINT_SLACK)
+    : Math.round(value + FLOATING_POINT_SLACK);
+}
