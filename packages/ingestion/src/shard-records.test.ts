@@ -56,17 +56,49 @@ function book(records: readonly FederationRecord[]): RecordBook {
 }
 
 describe('shardRecordBook', () => {
-  it('puts every scope in one level and region into a single artifact', () => {
+  it('puts every scope one lifter looks at into a single artifact', () => {
     // The whole point of the partition: a screen showing squat, bench, deadlift
-    // and total for one lifter must be one fetch, not four.
+    // and total for one lifter, in the class they are in and the one they are
+    // cutting to, and every division they are eligible for, must be one fetch.
     const shards = shardRecordBook(
-      book([record('r-1', { lift: 'squat' }), record('r-2', { lift: 'bench' }), record('r-3')]),
+      book([
+        record('r-1', { lift: 'squat' }),
+        record('r-2', { lift: 'bench' }),
+        record('r-3'),
+        record('r-4', { weightClassId: 'wc-69' }),
+        record('r-5', { divisionId: 'master-1' }),
+        record('r-6', { tested: false }),
+      ]),
       SCHEMA_VERSION,
     );
 
     expect(shards).toHaveLength(1);
-    expect(shards[0]?.id).toBe('records-uspa-state-iowa');
-    expect(shards[0]?.recordCount).toBe(3);
+    expect(shards[0]?.id).toBe('records-uspa-state-iowa-female-raw');
+    expect(shards[0]?.recordCount).toBe(6);
+  });
+
+  it('separates the sexes and equipment categories', () => {
+    // The measured reason the key is four axes rather than two: on the real
+    // corpus the national partition is 15,593 rows, 6.9 MB against a 2 MiB
+    // budget, and level and region alone cannot divide it. See the note on
+    // `RecordShardKey`.
+    const shards = shardRecordBook(
+      book([
+        record('r-1'),
+        record('r-2', { sex: 'male' }),
+        record('r-3', { equipmentId: 'single-ply' }),
+        record('r-4', { sex: 'male', equipmentId: 'single-ply' }),
+      ]),
+      SCHEMA_VERSION,
+    );
+
+    expect(shards.map((shard) => shard.id)).toEqual([
+      'records-uspa-state-iowa-female-raw',
+      'records-uspa-state-iowa-female-single-ply',
+      'records-uspa-state-iowa-male-raw',
+      'records-uspa-state-iowa-male-single-ply',
+    ]);
+    expect(shards.map((shard) => shard.recordCount)).toEqual([1, 1, 1, 1]);
   });
 
   it('separates levels and regions from each other', () => {
@@ -80,9 +112,9 @@ describe('shardRecordBook', () => {
     );
 
     expect(shards.map((shard) => shard.id)).toEqual([
-      'records-uspa-national',
-      'records-uspa-state-iowa',
-      'records-uspa-state-ohio',
+      'records-uspa-national-female-raw',
+      'records-uspa-state-iowa-female-raw',
+      'records-uspa-state-ohio-female-raw',
     ]);
     expect(shards.map((shard) => shard.recordCount)).toEqual([1, 1, 1]);
   });
@@ -93,7 +125,12 @@ describe('shardRecordBook', () => {
       SCHEMA_VERSION,
     );
 
-    expect(shard?.key).toEqual({ levelId: 'national', regionId: null });
+    expect(shard?.key).toEqual({
+      levelId: 'national',
+      regionId: null,
+      sex: 'female',
+      equipmentId: 'raw',
+    });
   });
 
   it('names each shard with the identifier the browser will compute', () => {
@@ -103,7 +140,14 @@ describe('shardRecordBook', () => {
     // back empty, which reads on screen as "no records in this category".
     const shards = shardRecordBook(book([record('r-1')]), SCHEMA_VERSION);
 
-    expect(shards[0]?.id).toBe(recordArtifactId('uspa', { levelId: 'state', regionId: 'iowa' }));
+    expect(shards[0]?.id).toBe(
+      recordArtifactId('uspa', {
+        levelId: 'state',
+        regionId: 'iowa',
+        sex: 'female',
+        equipmentId: 'raw',
+      }),
+    );
   });
 
   it('gives the shard its own id, not the book id', () => {
@@ -161,8 +205,8 @@ describe('shardRecordBook', () => {
     });
 
     expect(Object.keys(plan.meta.artifacts)).toEqual([
-      'records-uspa-state-iowa',
-      'records-uspa-state-ohio',
+      'records-uspa-state-iowa-female-raw',
+      'records-uspa-state-ohio-female-raw',
     ]);
   });
 
@@ -187,7 +231,7 @@ describe('shardRecordBook', () => {
 
     expect(thrown).toBeInstanceOf(ArtifactTooLargeError);
     const failure = thrown as ArtifactTooLargeError;
-    expect(failure.artifactId).toBe('records-uspa-state-iowa');
+    expect(failure.artifactId).toBe('records-uspa-state-iowa-female-raw');
     expect(failure.byteLength).toBeGreaterThan(ARTIFACT_BUDGET_BYTES);
   });
 
@@ -241,11 +285,28 @@ describe('shardRecordBook', () => {
     ).toThrow(ShardNamingError);
   });
 
-  it('reports level and region on an unnameable partition, not the record id', () => {
-    // The fix is in the source's region list, so that is what the message points
+  it('reports the whole partition on an unnameable one, not the record id', () => {
+    // The fix is in the source's vocabulary, so that is what the message points
     // at. A record identifier would send whoever reads the log to the wrong row.
+    // All four axes, even the ones that are fine: the message exists to locate
+    // the rows that produced it, and a partial one makes that a search.
     expect(() =>
       shardRecordBook(book([record('r-1', { levelId: '--', regionId: 'iowa' })]), SCHEMA_VERSION),
-    ).toThrow(/level "--"/);
+    ).toThrow(/level "--" region "iowa" sex "female" equipment "raw"/);
+  });
+
+  it('never puts a record holder in a failure message', () => {
+    // §2.3: an athlete's name stays out of anything that reaches a log, and a CI
+    // transcript is forever. The partition is named by its identifiers, which are
+    // published federation vocabulary and safe to print.
+    let thrown: unknown;
+    try {
+      shardRecordBook(book([record('r-1', { regionId: '///' })]), SCHEMA_VERSION);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ShardNamingError);
+    expect((thrown as Error).message).not.toContain('Fixture Lifter');
   });
 });

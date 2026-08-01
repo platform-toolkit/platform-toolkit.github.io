@@ -26,8 +26,8 @@ const VALID_META = {
       byteLength: 256,
       schemaVersion: 1,
     },
-    'records-example-state': {
-      path: 'artifacts/records-example-state.0123456789abcdef.json',
+    'records-example-state-female-raw': {
+      path: 'artifacts/records-example-state-female-raw.0123456789abcdef.json',
       sha256: '0'.repeat(64),
       byteLength: 128,
       schemaVersion: 1,
@@ -77,20 +77,27 @@ const CATALOG = {
 };
 
 const RECORD_BOOK = {
-  id: 'records-example-state',
+  id: 'records-example-state-female-raw',
   label: 'Example state records',
   minimumIncrementKilograms: 0.5,
   records: [],
 };
 
 /**
- * The published shard the fixture index points at: one level, no region.
+ * The published shard the fixture index points at: one level, no region, one
+ * lifter's sex and equipment category.
  *
  * Written out rather than derived so the test states the caller's side of the
  * contract independently. If the naming ever changed, deriving it here would
  * keep this test passing while the published files moved.
  */
-const PUBLISHED: RecordSetQuery = { bookId: 'example', levelId: 'state', regionId: null };
+const PUBLISHED: RecordSetQuery = {
+  bookId: 'example',
+  levelId: 'state',
+  regionId: null,
+  sex: 'female',
+  equipmentId: 'raw',
+};
 
 /** Records the URLs it was asked for, so path construction can be asserted. */
 function stubFetch(response: () => Response): FetchLike & { calls: string[] } {
@@ -162,7 +169,7 @@ function routingFetch(routes: Record<string, unknown>): FetchLike & { calls: str
   return Object.assign(impl, { calls });
 }
 
-const ARTIFACT_URL = '/data/artifacts/records-example-state.0123456789abcdef.json';
+const ARTIFACT_URL = '/data/artifacts/records-example-state-female-raw.0123456789abcdef.json';
 
 describe('artifact resolution', () => {
   const routes = { '/data/meta.json': VALID_META, [ARTIFACT_URL]: RECORD_BOOK };
@@ -184,6 +191,20 @@ describe('artifact resolution', () => {
     const source = createStaticDataSource({ baseUrl: '/data/', fetch: routingFetch(routes) });
 
     await expect(source.getRecords({ ...PUBLISHED, regionId: 'ohio' })).resolves.toBeNull();
+  });
+
+  it.each([
+    ['sex', { sex: 'male' } as const],
+    ['equipment category', { equipmentId: 'single-ply' } as const],
+  ])('reaches a different shard for a different %s', async (_axis, difference) => {
+    // These two are in the query because they are in the shard key, and they are
+    // in the shard key because the corpus does not fit without them. An adapter
+    // that dropped either would answer a male lifter with the female records
+    // under a name that resolved -- plausible figures, tens of kilograms out,
+    // with nothing on screen to indicate it.
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch: routingFetch(routes) });
+
+    await expect(source.getRecords({ ...PUBLISHED, ...difference })).resolves.toBeNull();
   });
 
   it('answers null for records that are not published', async () => {
@@ -267,7 +288,7 @@ describe('artifact resolution', () => {
     });
 
     const error = await rejection(source.getRecords(PUBLISHED));
-    expect(error.message).toBe('Could not read "records-example-state": http 404');
+    expect(error.message).toBe('Could not read "records-example-state-female-raw": http 404');
   });
 });
 

@@ -162,6 +162,8 @@ export function createStaticDataSource(options: StaticDataSourceOptions): DataSo
       const artifactId = recordArtifactId(query.bookId, {
         levelId: query.levelId,
         regionId: query.regionId,
+        sex: query.sex,
+        equipmentId: query.equipmentId,
       });
       return readArtifact(artifactId, RecordBookSchema, readOptions);
     },

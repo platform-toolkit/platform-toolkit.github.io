@@ -1,6 +1,7 @@
 # 2. Shard published data, and cap one artifact at two megabytes
 
-**Status:** accepted — 2026-07-31
+**Status:** accepted — 2026-07-31; shard key amended 2026-08-01, see
+[Amendment](#amendment-2026-08-01-the-record-shard-key-is-four-axes-not-two)
 
 ## Context
 
@@ -52,9 +53,10 @@ judgement about what is reasonable to hand a browser, not a platform limit; it i
 that raising it is a decision someone makes rather than a threshold something drifts past.
 
 **Shards are chosen so that one question needs one artifact.** A lifter asks about one region at one
-level, so that is the shard key. Sharding by row count instead would be simpler to implement and
-would mean a lookup could not know which shard to fetch without an index of every row, which is the
-thing that does not fit.
+level, so that is the shard key. (Amended: it is now level, region, sex and equipment — see below.
+The principle is unchanged; the axis list was wrong.) Sharding by row count instead would be simpler
+to implement and would mean a lookup could not know which shard to fetch without an index of every
+row, which is the thing that does not fit.
 
 **Sharding stays inside the static adapter.** ADR 1 already requires it: callers name a book, and
 `packages/data-access/src/static-data-source.ts` resolves that name through the published index.
@@ -81,3 +83,46 @@ is no benefit to paying for an API today.
   That threshold is worth remembering, not solving now.
 - The spike script stays in the repository. When the shard key or the row shape changes, the
   measurement should be rerun rather than reasoned about.
+
+## Amendment 2026-08-01: the record shard key is four axes, not two
+
+The decision above says a lifter asks about one region at one level, so that is the shard key. That
+principle survives. The axis list did not: it was reasoned from how a lifter reads a screen, never
+measured against a real corpus, because no corpus existed yet.
+
+One does now. Counting rows across a representative sample of the published record tables:
+
+| partition | rows   | at 438 bytes/row |
+| --------- | ------ | ---------------- |
+| one state | 1,502  | 0.66 MB          |
+| one state | 4,669  | 2.05 MB          |
+| one state | 6,878  | 3.01 MB          |
+| national  | 15,593 | 6.83 MB          |
+| world     | 12,275 | 5.38 MB          |
+
+Four of the five clear the 2 MB budget, two of them by more than three times. Under the original key
+those four partitions throw `ArtifactTooLargeError` and the build does not complete — which is the
+budget working, and also a corpus that cannot be published.
+
+**Sex and equipment join the shard key.** They are the same pair classifications already split on
+(`shardClassificationBook`), for the same reason: a lifter is one sex in one equipment category for
+the whole session, while everything else on the screen moves. That divides each partition by eight
+and puts the national one at roughly 1,950 rows, about 0.86 MB.
+
+What makes that a fix rather than a reprieve is that the result is **bounded, not extrapolated**. A
+record exists per distinct scope, so a partition holds at most weight classes x divisions x lifts x
+tested rows — for this corpus 14 x 25 x 4 x 2, about 2,800 rows or 1.2 MB — however many meets are
+held, because records replace each other rather than accumulating. The earlier figures grow with
+history; these do not. Reaching the budget again takes a federation deliberately adding weight
+classes or divisions, which is a change somebody makes on purpose.
+
+Weight class, division, tested status and lift stay out of the key, and that is the part worth
+holding: a lifter reads all four lifts at once, in the class they are in and the class they are
+cutting to, across every division they are eligible for. Splitting on any of those turns one screen
+into a dozen requests, which is the failure sharding exists to prevent.
+
+The change reaches `RecordShardKey`, `recordShardKey`, `sameRecordShard` and `recordArtifactId` in
+`data-contracts`, `shardRecordBook` in `ingestion`, and `RecordSetQuery` in `data-access`. It was
+cheap because nothing was published yet — the amendment is filed now, before a corpus lands, rather
+than after somebody's cached artifacts have to be invalidated for it. The consequence noted above,
+that the spike should be rerun when the shard key changes, is what this amendment is.

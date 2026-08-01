@@ -47,16 +47,24 @@ export type DataSourceKind = 'static' | 'http';
  * that one to find the lifter's within them -- and the two are structurally
  * incompatible, so the compiler catches a swap. The names should not need it to.
  *
- * Level and region because that is what a lifter is actually looking at -- their
- * state's records, then the national ones -- not because of how the data happens
- * to be stored. That the published set is partitioned along the same two axes is
- * a convenience the static adapter exploits privately; an API implementation
- * would turn these into query parameters and a caller could not tell.
+ * Four axes, and they are the ones a reader holds fixed for a whole session:
+ * which competition's records these are, and which lifter is reading them. A
+ * lifter looks at their state's records and then the national ones, and they are
+ * one sex in one equipment category throughout. That the published set happens to
+ * be partitioned along the same four is a convenience the static adapter exploits
+ * privately; an API implementation would turn these into query parameters and a
+ * caller could not tell.
  *
- * The finer axes are deliberately absent. A screen shows a lifter their four
- * lifts at once, so narrowing to one sex or one lift here would either cost four
- * reads or push a filter into the interface that every implementation would have
- * to reimplement identically.
+ * The finer axes are deliberately absent. Within those four the screen moves
+ * freely -- all four lifts, the class the lifter is in and the one they are
+ * cutting to, every division they are eligible for, tested and untested.
+ * Narrowing here would either cost a read per lift or push a filter into the
+ * interface that every implementation would have to reimplement identically.
+ *
+ * Sex is the contract's picklist rather than a bare string, for the same reason
+ * `ClassificationSetQuery`'s is: unlike the level, region and equipment category,
+ * which are identifiers a federation chooses, it is a closed set the whole
+ * project agrees on, and a typo in it should not compile.
  */
 export interface RecordSetQuery {
   /** The federation's book, e.g. its published record set. */
@@ -65,6 +73,8 @@ export interface RecordSetQuery {
   readonly levelId: string;
   /** The region within that level, or `null` where the level has no subdivision. */
   readonly regionId: string | null;
+  readonly sex: SexCategory;
+  readonly equipmentId: string;
 }
 
 /**
@@ -170,13 +180,19 @@ export interface DataSource {
   getCategoryCatalog(federationId: string, options?: ReadOptions): Promise<CategoryCatalog | null>;
 
   /**
-   * The records kept at one level and region, or `null` if none are published.
+   * The records a lifter in one category can be measured against at one level
+   * and region, or `null` if none are published.
    *
    * `null` is an answer rather than a failure. A federation whose records this
    * project has not yet ingested, or a state that genuinely has no records on
    * the books, is something the interface should say plainly -- distinguishing
    * it from a failed read is what lets the screen choose between "no records
    * here" and "could not load records".
+   *
+   * What comes back is every record in that partition -- all four lifts, every
+   * weight class, every division, tested and untested -- because a lifter varies
+   * all of those while looking at one screen. Finding the one that applies is a
+   * domain question (`RecordQuery`), not a filter here.
    *
    * The query names records, not a location. A static implementation resolves it
    * through the published index; an API implementation makes it a query string.

@@ -15,14 +15,18 @@ import type { ArtifactSource } from './publication.js';
  *
  * ADR 2 measured a record row at about 440 bytes, which puts a complete set
  * somewhere past four hundred megabytes. This is the function that keeps that
- * off a phone: it partitions on level and region -- the axes a lifter asks along
- * -- so that one question needs one file.
+ * off a phone: it partitions on the axes named by `RecordShardKey` -- level,
+ * region, sex and equipment -- so that one question needs one file.
+ *
+ * The key is where the reasoning for those four lives, including the measurements
+ * that ruled out the narrower pair. Nothing about the partitioning is decided
+ * here; this function only applies it and refuses the two ways it can go wrong.
  *
  * It produces the list `planPublication` already accepts and changes nothing
  * about publishing. The size budget is enforced there, on the serialized bytes,
  * because that is the only place the real number is known; a shard that is still
  * too large fails the build under its own name, which is enough to say which
- * level and region need splitting further.
+ * partition needs splitting further.
  *
  * Two hazards are checked rather than documented, because both are silent:
  *
@@ -50,7 +54,7 @@ export class DuplicateRecordError extends Error {
 
 /** One partition, ready to publish. */
 export interface RecordShardArtifact extends ArtifactSource<RecordBook> {
-  /** The level and region this partition holds. */
+  /** Which slice of the corpus this partition holds. */
   readonly key: RecordShardKey;
   /** How many records are in it. Worth logging: it is what the budget is spent on. */
   readonly recordCount: number;
@@ -65,7 +69,7 @@ export interface RecordShardArtifact extends ArtifactSource<RecordBook> {
 }
 
 /**
- * Partitions a record book by level and region.
+ * Partitions a record book onto the axes `RecordShardKey` names.
  *
  * @param book          the whole corpus
  * @param schemaVersion version of {@link RecordBookSchema} to record in the index
@@ -91,8 +95,7 @@ export function shardRecordBook(
     const artifactId = recordArtifactId(book.id, key);
     if (artifactId === null) {
       throw new ShardNamingError(
-        `No artifact name can be formed for level "${key.levelId}" and region ` +
-          `"${key.regionId ?? '(none)'}" of book "${book.id}".`,
+        `No artifact name can be formed for ${describe(key)} of book "${book.id}".`,
       );
     }
 
@@ -108,9 +111,8 @@ export function shardRecordBook(
       // under the first would show a lifter another region's records with
       // nothing on screen to suggest it.
       throw new ShardNamingError(
-        `Artifact name "${artifactId}" is claimed by two partitions: level ` +
-          `"${existing.key.levelId}" region "${existing.key.regionId ?? '(none)'}" and level ` +
-          `"${key.levelId}" region "${key.regionId ?? '(none)'}".`,
+        `Artifact name "${artifactId}" is claimed by two partitions: ` +
+          `${describe(existing.key)} and ${describe(key)}.`,
       );
     }
 
@@ -137,6 +139,22 @@ export function shardRecordBook(
         records: [...partition.records].sort((left, right) => compare(left.id, right.id)),
       } satisfies RecordBook,
     }));
+}
+
+/**
+ * A partition, in the words the source document uses for it.
+ *
+ * Every axis, always, even the ones that happen to be equal in a collision --
+ * the whole point of the message is to send somebody to the two rows that
+ * produced it, and a message naming only what differs makes them guess which
+ * pair of rows those were. Identifiers only: a record carries a holder's name and
+ * §2.3 keeps one out of anything that reaches a log or a CI transcript.
+ */
+function describe(key: RecordShardKey): string {
+  return (
+    `level "${key.levelId}" region "${key.regionId ?? '(none)'}" ` +
+    `sex "${key.sex}" equipment "${key.equipmentId}"`
+  );
 }
 
 /** Code-unit ordering, so the result does not depend on the build machine's locale. */
