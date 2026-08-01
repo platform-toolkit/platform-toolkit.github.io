@@ -36,6 +36,12 @@ export {
   type SourceFreshness,
 } from './freshness.js';
 export {
+  recordArtifactId,
+  recordShardKey,
+  sameRecordShard,
+  type RecordShardKey,
+} from './record-shards.js';
+export {
   FederationRecordSchema,
   LiftSchema,
   RecordBookSchema,

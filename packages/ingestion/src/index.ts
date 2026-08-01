@@ -27,4 +27,10 @@ export {
   type PublicationRequest,
   type PublishedFile,
 } from './publication.js';
+export {
+  DuplicateRecordError,
+  ShardNamingError,
+  shardRecordBook,
+  type RecordShardArtifact,
+} from './shard-records.js';
 export { writePublication, type WriteSummary } from './write-publication.js';
