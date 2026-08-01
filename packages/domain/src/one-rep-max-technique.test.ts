@@ -44,18 +44,32 @@ describe('the technique catalogue', () => {
     }
   });
 
-  it('starts each lift on its competition version', () => {
-    for (const lift of ['squat', 'bench-press', 'deadlift', 'overhead-press'] as const) {
+  it('starts each lift on the answer that matches the intended maximum', () => {
+    for (const lift of ESTIMATE_LIFTS) {
       expect(defaultTechniqueFor(lift)?.match, lift).toBe('matches');
     }
   });
 
-  it('offers nothing at all for an unnamed lift', () => {
-    // Asking which variation of an unnamed lift somebody did is a question with
-    // no answer, and a lone "Not sure" entry is a control that exists only to be
-    // ignored. The interface hides it; an `other` estimate is capped anyway.
-    expect(techniquesFor('other')).toEqual([]);
-    expect(defaultTechniqueFor('other')).toBeNull();
+  it('asks an unnamed lift about the standard rather than about the variation', () => {
+    // "Which variation was it" has no answer for a movement this tool cannot
+    // name. The answerable question is whether the intended maximum uses the
+    // same movement standard as the set, which is the part that changes what the
+    // estimate describes -- so `other` gets three options rather than none.
+    const options = techniquesFor('other');
+    expect(options.map((option) => option.match)).toEqual(['matches', 'differs', 'unsure']);
+    expect(defaultTechniqueFor('other')?.id).toBe('other-same-standard');
+  });
+
+  it('carries no field for a typed exercise name, anywhere', () => {
+    // Deliberate, and the reason is `packages/preferences`: it has no builder
+    // that admits free text, so a name could be typed and could not survive the
+    // refresh everything else on the screen survives. A label that vanishes
+    // while the numbers stay is worse than no label, and the name changes no
+    // arithmetic. If a text builder ever lands, this is the test that has to be
+    // deleted on purpose rather than the omission nobody notices.
+    for (const option of techniquesFor('other')) {
+      expect(Object.keys(option)).not.toContain('name');
+    }
   });
 
   it('counts both deadlift stances as competition lifts', () => {
@@ -92,7 +106,7 @@ describe('the technique catalogue', () => {
   });
 
   it('ends each lift on an unsure option, because not knowing is an answer', () => {
-    for (const lift of ['squat', 'bench-press', 'deadlift', 'overhead-press'] as const) {
+    for (const lift of ESTIMATE_LIFTS) {
       const options = techniquesFor(lift);
       expect(options[options.length - 1]?.match, lift).toBe('unsure');
     }

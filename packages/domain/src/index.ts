@@ -75,9 +75,12 @@ export {
   MAX_COMPLETED_REPS,
   MIN_COMPLETED_REPS,
   ONE_REP_MAX_METHODOLOGY_VERSION,
+  ROUNDING_INCREMENTS,
+  defaultRoundingIncrement,
   estimateOneRepMax,
   type EstimatedMax,
   type FormQuality,
+  type FormulaDisagreement,
   type FormulaOutcome,
   type InputGrade,
   type ObservedSingle,
@@ -92,9 +95,17 @@ export {
   type ReportedSex,
   type RepsInReserve,
   type SetFreshness,
+  type TrainingExperience,
   type WithheldEstimate,
   type WithheldReasonCode,
 } from './one-rep-max.js';
+export {
+  DEFAULT_PERCENTAGE_STEP,
+  PERCENTAGE_STEPS,
+  trainingPercentages,
+  type PercentageOptions,
+  type TrainingPercentage,
+} from './one-rep-max-percentages.js';
 export {
   ESTIMATE_LIFTS,
   FORMULAS,

@@ -37,38 +37,72 @@ export function ceilToHundredths(value: number): number {
 }
 
 /*
- * The same three directions at whole units, for figures that are estimates
- * rather than measurements.
+ * The same three directions at a caller's chosen step, for figures that are
+ * estimates rather than measurements.
  *
  * A hundredth of a kilogram is the right resolution for a bodyweight, which was
  * weighed. It is the wrong resolution for a one-repetition maximum inferred from
  * a set of five: 154.83 kg states a precision the method does not have, and a
  * reader who sees two decimal places reasonably concludes somebody measured
- * something. Whole units also make the direction visible -- a conservative
- * figure that is a whole kilogram below the middle one reads as a range, where
- * 154.82 against 154.83 reads as noise.
+ * something. The step is the caller's because what counts as a meaningful
+ * difference depends on what is going to be loaded -- half a kilogram is a real
+ * jump on a microloaded bar and noise on a bar being loaded in 2.5 kg plates.
+ *
+ * The three directions matter more here than the step does. A low figure that
+ * rounds up can end up above the middle one, and then a range that was ordered
+ * before rounding is out of order on screen with no arithmetic error anywhere.
  */
 
-/** Rounds down to a whole unit: use for the low end of an estimated range. */
-export function floorToWhole(value: number): number {
-  return Math.floor(value + FLOATING_POINT_SLACK);
-}
-
-/** Rounds up to a whole unit: use for the high end of an estimated range. */
-export function ceilToWhole(value: number): number {
-  return Math.ceil(value - FLOATING_POINT_SLACK);
+/** Absorbs representation error in the *quotient*, so it scales with the step. */
+function stepsIn(value: number, increment: number): number {
+  return value / increment;
 }
 
 /**
- * Rounds to the nearest whole unit, halves away from zero.
+ * Removes the dust a multiply can leave behind.
+ *
+ * Every step this project offers (0.5, 1, 2.5, 5) is exactly representable, so
+ * today the product is exact. That is a property of the current list rather than
+ * of the arithmetic, and a step of 0.1 added later would otherwise put
+ * 142.60000000000002 on the screen.
+ */
+const CLEANUP_SCALE = 1e6;
+function withoutDust(value: number): number {
+  return Math.round(value * CLEANUP_SCALE) / CLEANUP_SCALE;
+}
+
+function assertIncrement(increment: number): void {
+  if (!Number.isFinite(increment) || increment <= 0) {
+    throw new RangeError(`Rounding increment must be a positive finite number, got ${increment}.`);
+  }
+}
+
+/** Rounds down to a step: use for the low end of an estimated range. */
+export function floorToIncrement(value: number, increment: number): number {
+  assertIncrement(increment);
+  return withoutDust(Math.floor(stepsIn(value, increment) + FLOATING_POINT_SLACK) * increment);
+}
+
+/** Rounds up to a step: use for the high end of an estimated range. */
+export function ceilToIncrement(value: number, increment: number): number {
+  assertIncrement(increment);
+  return withoutDust(Math.ceil(stepsIn(value, increment) - FLOATING_POINT_SLACK) * increment);
+}
+
+/**
+ * Rounds to the nearest step, halves away from zero.
  *
  * Away from zero rather than JavaScript's built-in half-up, which is asymmetric
  * about zero and would round -0.5 to -0. No estimate here is negative, but the
  * helper sits beside two that are direction-symmetric and an exception would be
  * a trap for the next caller.
  */
-export function roundToWhole(value: number): number {
-  return value < 0
-    ? -Math.round(-value + FLOATING_POINT_SLACK)
-    : Math.round(value + FLOATING_POINT_SLACK);
+export function roundToIncrement(value: number, increment: number): number {
+  assertIncrement(increment);
+  const steps = stepsIn(value, increment);
+  const rounded =
+    steps < 0
+      ? -Math.round(-steps + FLOATING_POINT_SLACK)
+      : Math.round(steps + FLOATING_POINT_SLACK);
+  return withoutDust(rounded * increment);
 }

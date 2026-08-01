@@ -47,7 +47,7 @@ import {
   type FormulaFamily,
 } from './one-rep-max-formulas.js';
 import { findTechnique, type TechniqueOption } from './one-rep-max-technique.js';
-import { ceilToWhole, floorToWhole, roundToWhole } from './rounding.js';
+import { ceilToIncrement, floorToIncrement, roundToIncrement } from './rounding.js';
 import { convertWeight, weightIn, type Weight, type WeightUnit } from './weight.js';
 
 /**
@@ -83,18 +83,28 @@ const MAX_EFFECTIVE_REPS = 20;
 const MINIMUM_FAMILIES = 3;
 
 /**
- * Where "the models disagree" stops being background noise and is worth saying.
+ * Where the models disagree enough to cost the input a grade, and where they
+ * agree closely enough to buy one back.
  *
- * Measured against the core seven rather than picked as a round number. Through
- * ten repetitions the quarter points sit within two to five percent of the
- * middle figure, which is the equations agreeing; from twelve up it climbs
- * through eight, nine and ten percent as the curved and linear models pull
- * apart. Eight percent is the knee, and at a realistic load it is the point
- * where the conservative and optimistic figures are a plate apart -- which is a
- * difference a lifter can see, and therefore one they are owed an explanation
- * for.
+ * Both figures are stated in the requirements rather than chosen here, and both
+ * are measured on the interquartile spread -- the distance between the
+ * conservative and optimistic figures -- as a fraction of the middle one.
+ *
+ * Worth recording what the core seven actually do, because it is what makes the
+ * thresholds bite in the right place rather than arbitrarily. Measured across a
+ * bench press at 100 kg: the interquartile spread is 2.5% at two repetitions,
+ * hovers between 2.5% and 4% from three through nine, crosses five percent at
+ * ten, and climbs from 7.9% at eleven to 9.3% at sixteen as the curved and
+ * linear models pull apart. So the five percent line falls almost exactly where
+ * the literature says repetition-based estimates start to degrade, and the
+ * three percent line is reachable only by a genuinely low-repetition set. There
+ * is a deliberate gap between the two: a set can earn neither band, which is
+ * what stops every result being nudged one way or the other by a threshold it
+ * happened to sit beside. Neither figure is a probability and neither may be
+ * rendered as one.
  */
-const SPREAD_ADVISORY_RATIO = 0.08;
+const SPREAD_DOWNGRADE_RATIO = 0.05;
+const SPREAD_UPGRADE_RATIO = 0.03;
 
 /** Absorbs representation error when comparing an estimate against the entered load. */
 const COMPARISON_SLACK = 1e-9;
@@ -132,6 +142,23 @@ export type ReportedSex = 'man' | 'woman' | null;
 
 export type SetFreshness = 'fresh' | 'fatigued' | 'unstated';
 export type FormQuality = 'consistent' | 'degraded' | 'unstated';
+
+/**
+ * How long the lifter has been training, or `null` for declined.
+ *
+ * It never touches the arithmetic, which the requirements state outright: there
+ * is no defensible coefficient for inexperience, and inventing one would move a
+ * number on the strength of a dropdown. What it does move is the grade, in the
+ * same way fatigue does -- somebody new to maximal effort is systematically poor
+ * at judging how close to failure a set was, and that is a fact about the
+ * *input*, which is the thing being graded.
+ *
+ * `intermediate` exists as a distinct answer from `null` on purpose: one is a
+ * lifter saying where they are, and it happens to move nothing, while the other
+ * is a lifter declining to say. Collapsing them would mean the interface could
+ * not show the answer back.
+ */
+export type TrainingExperience = 'new' | 'intermediate' | 'experienced' | null;
 
 /**
  * How much the input supports an estimate at all.
@@ -184,14 +211,21 @@ export interface FormulaOutcome {
 }
 
 export type OneRepMaxAdvisoryCode =
+  | 'reps-in-reserve-low'
+  | 'reps-in-reserve-moderate'
   | 'reps-in-reserve-unknown'
   | 'far-from-failure'
+  | 'technique-matches'
   | 'technique-differs'
   | 'technique-unstated'
+  | 'set-performed-fresh'
   | 'set-performed-fatigued'
   | 'form-degraded'
+  | 'new-to-maximal-effort'
+  | 'experienced-with-singles'
   | 'lift-not-validated'
   | 'evidence-weighted'
+  | 'estimates-agree'
   | 'estimates-disagree'
   | 'sex-weighting-declined'
   | 'repetitions-high';
@@ -258,9 +292,35 @@ export interface EstimatedMax extends EstimateCommon {
     readonly optimistic: Weight;
   };
   readonly grade: InputGrade;
-  /** Model disagreement as a fraction of the middle figure. Never a probability. */
-  readonly spreadRatio: number;
+  readonly disagreement: FormulaDisagreement;
   readonly familyCount: number;
+}
+
+/**
+ * How far apart the contributing equations are, in five ways the requirements
+ * ask for by name.
+ *
+ * None of it is a confidence interval and none of it may be rendered as one.
+ * `fullRatio` describes the whole cluster and is the honest headline -- at ten
+ * repetitions the outermost equations can be a tenth apart while the middle half
+ * looks tight. `interquartileRatio` is the one the grade is computed from,
+ * because it is the spread the conservative and optimistic figures are actually
+ * drawn from, and grading on the full range would let one outlying equation cost
+ * a well-described set its grade.
+ */
+export interface FormulaDisagreement {
+  /** The lowest contributing estimate, unrounded. */
+  readonly lowest: Weight;
+  /** The highest contributing estimate, unrounded. */
+  readonly highest: Weight;
+  /** `highest - lowest`. */
+  readonly spread: Weight;
+  /** `spread` as a fraction of the unrounded middle figure. */
+  readonly fullRatio: number;
+  /** The unrounded optimistic figure less the unrounded conservative one. */
+  readonly interquartileSpread: Weight;
+  /** `interquartileSpread` as a fraction of the unrounded middle figure. */
+  readonly interquartileRatio: number;
 }
 
 export interface WithheldEstimate extends EstimateCommon {
@@ -282,11 +342,41 @@ export interface OneRepMaxRequest {
   /** A technique identifier from `techniquesFor(lift)`, or `null` for none offered. */
   readonly techniqueId: string | null;
   readonly sex: ReportedSex;
+  readonly experience: TrainingExperience;
   readonly freshness: SetFreshness;
   readonly formQuality: FormQuality;
   /** A spotter took some of the bar. Nothing can be estimated from that. */
   readonly assisted: boolean;
   readonly displayUnit: WeightUnit;
+  /**
+   * The step the three displayed figures are rounded to, in the display unit.
+   *
+   * Required rather than defaulted, because the right step is a fact about the
+   * bar in front of the lifter and not about the arithmetic: half a kilogram is
+   * a real jump on a microloaded bar and noise on one being loaded in 2.5 kg
+   * plates. A default here would be a plausible number that is wrong in a gym
+   * and right in a test. See `ROUNDING_INCREMENTS`.
+   */
+  readonly roundTo: number;
+}
+
+/**
+ * The steps offered for each unit, smallest first.
+ *
+ * Half a kilogram and one pound are the requirements' defaults; the larger steps
+ * are the jumps a competition bar is loaded in. Nothing here is enforced by
+ * `estimateOneRepMax`, which accepts any positive step -- this is the list an
+ * interface offers, kept beside the rule rather than in a component so a second
+ * caller cannot invent a different one.
+ */
+export const ROUNDING_INCREMENTS: Readonly<Record<WeightUnit, readonly number[]>> = {
+  kg: [0.5, 1, 2.5],
+  lb: [1, 2.5, 5],
+};
+
+/** The step a unit starts on. */
+export function defaultRoundingIncrement(unit: WeightUnit): number {
+  return unit === 'kg' ? 0.5 : 1;
 }
 
 /**
@@ -417,32 +507,57 @@ export function estimateOneRepMax(request: OneRepMaxRequest): OneRepMaxResult {
     };
   }
 
-  const spreadRatio = middle > 0 ? (high - low) / middle : 0;
-  const finalAdvisories =
-    spreadRatio > SPREAD_ADVISORY_RATIO
-      ? [...advisories, { code: 'estimates-disagree', effect: 'note' } as const]
-      : advisories;
+  const amounts = contributors.map((outcome) => outcome.estimate.amount);
+  const lowest = Math.min(...amounts);
+  const highest = Math.max(...amounts);
+  const interquartileRatio = middle > 0 ? (high - low) / middle : 0;
+
+  // Computed here rather than in `collectAdvisories` because it is the one
+  // finding that depends on the answer: the quartiles have to exist before the
+  // models can be said to agree about them. It is folded into the list *before*
+  // the grade is computed, which is the whole point -- the requirements make
+  // agreement and disagreement grade adjustments, not footnotes.
+  const advisoriesWithSpread = [...advisories, ...spreadAdvisories(interquartileRatio)];
 
   const unit = request.displayUnit;
+  const step = request.roundTo;
   return {
     ok: true,
     estimate: {
       ...withOutcomes,
-      advisories: finalAdvisories,
+      advisories: advisoriesWithSpread,
       kind: 'estimated',
-      conservative: { amount: floorToWhole(low), unit },
-      toolkit: { amount: roundToWhole(middle), unit },
-      optimistic: { amount: ceilToWhole(high), unit },
+      conservative: { amount: floorToIncrement(low, step), unit },
+      toolkit: { amount: roundToIncrement(middle, step), unit },
+      optimistic: { amount: ceilToIncrement(high, step), unit },
       unrounded: {
         conservative: { amount: low, unit },
         toolkit: { amount: middle, unit },
         optimistic: { amount: high, unit },
       },
-      grade: gradeFor(reserve.effectiveReps, request.lift, advisories),
-      spreadRatio,
+      grade: gradeFor(reserve.effectiveReps, request.lift, advisoriesWithSpread),
+      disagreement: {
+        lowest: { amount: lowest, unit },
+        highest: { amount: highest, unit },
+        spread: { amount: highest - lowest, unit },
+        fullRatio: middle > 0 ? (highest - lowest) / middle : 0,
+        interquartileSpread: { amount: high - low, unit },
+        interquartileRatio,
+      },
       familyCount,
     },
   };
+}
+
+/** Nothing, one upgrade, or one downgrade -- never both, since the bands do not overlap. */
+function spreadAdvisories(interquartileRatio: number): readonly OneRepMaxAdvisory[] {
+  if (interquartileRatio > SPREAD_DOWNGRADE_RATIO) {
+    return [{ code: 'estimates-disagree', effect: 'lowers-confidence' }];
+  }
+  if (interquartileRatio <= SPREAD_UPGRADE_RATIO) {
+    return [{ code: 'estimates-agree', effect: 'raises-confidence' }];
+  }
+  return [];
 }
 
 function validate(request: OneRepMaxRequest): OneRepMaxProblem[] {
@@ -491,11 +606,25 @@ function collectAdvisories(
 ): readonly OneRepMaxAdvisory[] {
   const advisories: OneRepMaxAdvisory[] = [];
 
-  if (request.repsInReserve === 'unknown') {
+  const reserve = request.repsInReserve;
+  if (reserve === 0 || reserve === 1) {
+    advisories.push({ code: 'reps-in-reserve-low', effect: 'raises-confidence' });
+  }
+  // Two or three in reserve is a downgrade even though the arithmetic accepts it
+  // cleanly. The addition is a heuristic, not a measurement: a lifter who
+  // believes they had three left is describing a feeling, and the further from
+  // failure the set was the less that feeling is worth.
+  if (reserve === 2 || reserve === 3) {
+    advisories.push({ code: 'reps-in-reserve-moderate', effect: 'lowers-confidence' });
+  }
+  if (reserve === 'unknown') {
     advisories.push({ code: 'reps-in-reserve-unknown', effect: 'lowers-confidence' });
   }
-  if (request.repsInReserve === 'four-or-more') {
+  if (reserve === 'four-or-more') {
     advisories.push({ code: 'far-from-failure', effect: 'lowers-confidence' });
+  }
+  if (technique?.match === 'matches') {
+    advisories.push({ code: 'technique-matches', effect: 'raises-confidence' });
   }
   if (technique?.match === 'differs') {
     advisories.push({ code: 'technique-differs', effect: 'lowers-confidence' });
@@ -503,11 +632,20 @@ function collectAdvisories(
   if (technique?.match === 'unsure') {
     advisories.push({ code: 'technique-unstated', effect: 'lowers-confidence' });
   }
+  if (request.freshness === 'fresh') {
+    advisories.push({ code: 'set-performed-fresh', effect: 'raises-confidence' });
+  }
   if (request.freshness === 'fatigued') {
     advisories.push({ code: 'set-performed-fatigued', effect: 'lowers-confidence' });
   }
   if (request.formQuality === 'degraded') {
     advisories.push({ code: 'form-degraded', effect: 'lowers-confidence' });
+  }
+  if (request.experience === 'new') {
+    advisories.push({ code: 'new-to-maximal-effort', effect: 'lowers-confidence' });
+  }
+  if (request.experience === 'experienced') {
+    advisories.push({ code: 'experienced-with-singles', effect: 'raises-confidence' });
   }
   if (request.lift === 'overhead-press' || request.lift === 'other') {
     advisories.push({ code: 'lift-not-validated', effect: 'caps-confidence' });

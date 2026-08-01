@@ -173,14 +173,42 @@ const OVERHEAD_PRESS: readonly TechniqueOption[] = [
 ];
 
 /**
- * The technique choices for a lift, most competition-like first.
+ * The one question that can be asked about a movement this tool cannot name.
  *
- * Empty for `other`, and the interface hides the control rather than showing one
- * option: asking somebody which variation of an unnamed lift they did is a
- * question with no answer, and a lone "Not sure" entry is a control that exists
- * only to be ignored. An `other` estimate is already capped by the grading
- * rules, so nothing is lost by not asking.
+ * "Which variation was it" has no answer for an unnamed lift, so the requirements
+ * ask a different question instead: does the intended maximum use exactly the
+ * same movement standard as the set? That is answerable without knowing what the
+ * movement was, and it is the part that changes what the estimate describes.
+ *
+ * The requirements pair it with a free-text exercise name. There is deliberately
+ * no field for that here: `packages/preferences` has no builder that admits free
+ * text (§5.12), so a name could be typed and could not survive the refresh that
+ * everything else on the screen survives -- and a label that vanishes while the
+ * numbers stay is worse than no label. The name changes no arithmetic; the
+ * standard question does, so the standard question is the one that is asked.
  */
+const OTHER: readonly TechniqueOption[] = [
+  {
+    id: 'other-same-standard',
+    label: 'Same movement standard as my intended max',
+    match: 'matches',
+    note: 'The estimate describes the movement as performed, which is the standard the intended maximum uses.',
+  },
+  {
+    id: 'other-different-standard',
+    label: 'A different movement standard',
+    match: 'differs',
+    note: 'The estimate describes the movement as performed, not the standard the intended maximum uses.',
+  },
+  {
+    id: 'other-unstated',
+    label: 'Not sure',
+    match: 'unsure',
+    note: 'The estimate describes whatever movement was performed.',
+  },
+];
+
+/** The technique choices for a lift, most competition-like first. */
 export function techniquesFor(lift: EstimateLift): readonly TechniqueOption[] {
   switch (lift) {
     case 'squat':
@@ -192,7 +220,7 @@ export function techniquesFor(lift: EstimateLift): readonly TechniqueOption[] {
     case 'overhead-press':
       return OVERHEAD_PRESS;
     case 'other':
-      return [];
+      return OTHER;
   }
 }
 

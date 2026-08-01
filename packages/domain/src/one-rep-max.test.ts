@@ -17,6 +17,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ONE_REP_MAX_METHODOLOGY_VERSION,
+  ROUNDING_INCREMENTS,
+  defaultRoundingIncrement,
   estimateOneRepMax,
   type EstimatedMax,
   type OneRepMaxAdvisoryCode,
@@ -29,6 +31,7 @@ import { defaultTechniqueFor } from './one-rep-max-technique.js';
 
 function request(overrides: Partial<OneRepMaxRequest> = {}): OneRepMaxRequest {
   const lift = overrides.lift ?? 'bench-press';
+  const displayUnit = overrides.displayUnit ?? 'kg';
   return {
     weight: { amount: 100, unit: 'kg' },
     completedReps: 5,
@@ -36,10 +39,12 @@ function request(overrides: Partial<OneRepMaxRequest> = {}): OneRepMaxRequest {
     lift,
     techniqueId: defaultTechniqueFor(lift)?.id ?? null,
     sex: null,
+    experience: null,
     freshness: 'fresh',
     formQuality: 'consistent',
     assisted: false,
-    displayUnit: 'kg',
+    displayUnit,
+    roundTo: defaultRoundingIncrement(displayUnit),
     ...overrides,
   };
 }
@@ -109,10 +114,22 @@ describe('validation', () => {
     ]);
   });
 
-  it('accepts no technique at all, which is what an unnamed lift has', () => {
-    // `other` offers no technique choices, so `null` is the only correct answer
-    // and must not be a problem.
+  it('accepts no technique at all, on any lift', () => {
+    // Every lift offers choices, including `other`, but none of them is
+    // mandatory: a lifter who skipped the question has answered `null` and that
+    // is a sincere answer, not a fault. It costs the technique advisory and
+    // nothing else.
     expect(estimate({ lift: 'other', techniqueId: null }).kind).toBe('estimated');
+    expect(estimate({ lift: 'squat', techniqueId: null }).kind).toBe('estimated');
+  });
+
+  it('rejects a rounding step that cannot round anything', () => {
+    // A zero or negative step is a wiring fault rather than a lifter's answer,
+    // so it throws where the rest of the input reports a problem code. Nothing
+    // on a form can produce it, and returning a problem would put a case in
+    // every caller's error rendering that no lifter can ever reach.
+    expect(() => estimate({ roundTo: 0 })).toThrow(RangeError);
+    expect(() => estimate({ roundTo: -1 })).toThrow(RangeError);
   });
 });
 
@@ -339,11 +356,45 @@ describe('the three figures', () => {
 
   it('rounds in three directions so the guarantees hold by construction', () => {
     const value = estimated({ completedReps: 7 });
-    expect(value.conservative.amount).toBe(Math.floor(value.unrounded.conservative.amount));
-    expect(value.optimistic.amount).toBe(Math.ceil(value.unrounded.optimistic.amount));
+    const step = defaultRoundingIncrement('kg');
+    expect(value.conservative.amount).toBe(
+      Math.floor(value.unrounded.conservative.amount / step) * step,
+    );
+    expect(value.optimistic.amount).toBe(
+      Math.ceil(value.unrounded.optimistic.amount / step) * step,
+    );
     // §10, stated directly: rounding may never push the conservative figure past
     // the unrounded middle one.
     expect(value.conservative.amount).toBeLessThanOrEqual(value.unrounded.toolkit.amount);
+  });
+
+  it('rounds to the step the caller asked for, in every unit and at every offered step', () => {
+    // The step is the lifter's bar, not the arithmetic's: half a kilogram is a
+    // real jump on a microloaded bar and noise on one loaded in 2.5 kg plates.
+    // Whichever they pick, the three figures have to land *on* it -- a headline
+    // figure of 142.5 beside a 2.5 kg step is a weight that cannot be loaded.
+    for (const [unit, steps] of Object.entries(ROUNDING_INCREMENTS)) {
+      for (const step of steps) {
+        const value = estimated({
+          displayUnit: unit === 'kg' ? 'kg' : 'lb',
+          roundTo: step,
+          completedReps: 6,
+        });
+        const where = `${unit}/${String(step)}`;
+        for (const figure of [value.conservative, value.toolkit, value.optimistic]) {
+          expect(figure.amount / step, `${where}/${String(figure.amount)}`).toBe(
+            Math.round(figure.amount / step),
+          );
+        }
+        // The §10 guarantee has to survive the coarsest step, which is where a
+        // downward round travels furthest and is most likely to cross something.
+        expect(value.conservative.amount, where).toBeLessThanOrEqual(
+          value.unrounded.toolkit.amount,
+        );
+        expect(value.conservative.amount, where).toBeLessThanOrEqual(value.toolkit.amount);
+        expect(value.toolkit.amount, where).toBeLessThanOrEqual(value.optimistic.amount);
+      }
+    }
   });
 
   it('holds the ordering across every input the tool accepts', () => {
@@ -403,15 +454,58 @@ describe('the three figures', () => {
   });
 
   it('says so when the equations disagree widely, without calling it a probability', () => {
-    // A note, never a confidence interval. The spread measures how much the
-    // published models differ from one another, which is a fact about the
-    // literature and not about this lifter.
-    const tight = estimated({ completedReps: 3 });
+    // Never a confidence interval. The spread measures how much the published
+    // models differ from one another, which is a fact about the literature and
+    // not about this lifter.
+    // Two repetitions is where the core seven are closest -- an interquartile
+    // spread of about two and a half percent. Three is already 3.6% and earns
+    // neither band, which is the point of having two thresholds with a gap
+    // between them rather than one line every set falls on one side of.
+    const tight = estimated({ completedReps: 2 });
     expect(advisories(tight)).not.toContain('estimates-disagree');
+    expect(advisories(tight)).toContain('estimates-agree');
+
+    const neither = estimated({ completedReps: 3 });
+    expect(advisories(neither)).not.toContain('estimates-agree');
+    expect(advisories(neither)).not.toContain('estimates-disagree');
 
     const wide = estimated({ completedReps: 15 });
-    expect(wide.spreadRatio).toBeGreaterThan(tight.spreadRatio);
+    expect(wide.disagreement.interquartileRatio).toBeGreaterThan(
+      tight.disagreement.interquartileRatio,
+    );
     expect(advisories(wide)).toContain('estimates-disagree');
+    expect(advisories(wide)).not.toContain('estimates-agree');
+  });
+
+  it('reports the five disagreement figures §8.4 asks for, all in the display unit', () => {
+    const value = estimated({ completedReps: 8, displayUnit: 'lb', roundTo: 5 });
+    const spread = value.disagreement;
+
+    expect(spread.lowest.amount).toBeLessThan(spread.highest.amount);
+    expect(spread.spread.amount).toBeCloseTo(spread.highest.amount - spread.lowest.amount, 9);
+    expect(spread.fullRatio).toBeCloseTo(spread.spread.amount / value.unrounded.toolkit.amount, 9);
+    expect(spread.interquartileSpread.amount).toBeCloseTo(
+      value.unrounded.optimistic.amount - value.unrounded.conservative.amount,
+      9,
+    );
+    expect(spread.interquartileRatio).toBeCloseTo(
+      spread.interquartileSpread.amount / value.unrounded.toolkit.amount,
+      9,
+    );
+    for (const figure of [spread.lowest, spread.highest, spread.spread, spread.interquartileSpread])
+      expect(figure.unit).toBe('lb');
+  });
+
+  it('measures the whole cluster and the middle half separately', () => {
+    // The grade is computed from the interquartile ratio, not the full one, and
+    // the two are not interchangeable: one equation a long way out widens the
+    // full range without moving the quartiles, and grading on the full range
+    // would let it cost a well-described set a level it earned.
+    const value = estimated({ completedReps: 10 });
+    expect(value.disagreement.interquartileSpread.amount).toBeLessThan(
+      value.disagreement.spread.amount,
+    );
+    expect(value.disagreement.interquartileRatio).toBeLessThan(value.disagreement.fullRatio);
   });
 });
 
@@ -423,18 +517,36 @@ describe('the grade', () => {
     expect(estimated({ completedReps: 14 }).grade).toBe('endurance-dominated');
   });
 
-  it('lowers the grade for each thing that makes the set harder to read', () => {
-    expect(estimated({ completedReps: 3, freshness: 'fatigued' }).grade).toBe('useful');
-    expect(
-      estimated({ completedReps: 3, freshness: 'fatigued', formQuality: 'degraded' }).grade,
-    ).toBe('rough');
-    expect(estimated({ completedReps: 3, techniqueId: 'touch-and-go' }).grade).toBe('useful');
-    expect(estimated({ completedReps: 3, repsInReserve: 'unknown' }).grade).toBe('useful');
+  it('lowers the grade one level for each thing that makes the set harder to read', () => {
+    // Each of these on its own is cancelled by the upgrade the rest of the set
+    // has earned (§8.3 grants exactly one improvement), so the count is what is
+    // measured here: two concerns cost a level, three cost two.
+    const two = estimated({ completedReps: 3, freshness: 'fatigued', formQuality: 'degraded' });
+    expect(two.grade).toBe('useful');
+
+    const three = estimated({
+      completedReps: 3,
+      freshness: 'fatigued',
+      formQuality: 'degraded',
+      techniqueId: 'touch-and-go',
+    });
+    expect(three.grade).toBe('rough');
   });
 
-  it('lets a well-supported set cancel one downgrade and no more', () => {
-    // The upgrade exists so that the strongest evidence case is not punished for
-    // one honest caveat. It cancels one thing.
+  it('grants at most one upgrade however many good answers there are', () => {
+    // §8.3: "the grade may improve by one level". A fresh set at zero reps in
+    // reserve with competition technique and tight formula agreement has four
+    // reasons to be upgraded and gets one, which is why a set with two concerns
+    // still loses a level. Written down because the obvious implementation --
+    // counting upgrades against downgrades -- makes a well-described set immune
+    // to criticism, and nothing on screen would say so.
+    const spotless = estimated({ completedReps: 3, sex: 'man', experience: 'experienced' });
+    const raising = spotless.advisories.filter(
+      (advisory) => advisory.effect === 'raises-confidence',
+    );
+    expect(raising.length).toBeGreaterThan(1);
+
+    // One concern is absorbed; the second is not.
     expect(estimated({ completedReps: 3, sex: 'man', freshness: 'fatigued' }).grade).toBe('strong');
     expect(
       estimated({
@@ -444,6 +556,39 @@ describe('the grade', () => {
         formQuality: 'degraded',
       }).grade,
     ).toBe('useful');
+  });
+
+  it('counts training experience against the input rather than against the number', () => {
+    // §8.3 lists "new to the movement or to maximal effort" as a downgrade, and
+    // the requirements are explicit that experience must not move the estimate:
+    // there is no defensible coefficient for inexperience. So the three answers
+    // produce one arithmetic result and three grades.
+    const base = { completedReps: 3, freshness: 'fatigued' } as const;
+    const novice = estimated({ ...base, experience: 'new' });
+    const middling = estimated({ ...base, experience: 'intermediate' });
+    const veteran = estimated({ ...base, experience: 'experienced' });
+
+    expect(novice.unrounded.toolkit.amount).toBe(middling.unrounded.toolkit.amount);
+    expect(veteran.unrounded.toolkit.amount).toBe(middling.unrounded.toolkit.amount);
+
+    // Fatigue plus inexperience is two concerns against one upgrade.
+    expect(advisories(novice)).toContain('new-to-maximal-effort');
+    expect(novice.grade).toBe('useful');
+    expect(middling.grade).toBe('strong');
+    expect(advisories(veteran)).toContain('experienced-with-singles');
+    expect(veteran.grade).toBe('strong');
+  });
+
+  it('treats a moderate reserve as a concern and a low one as support', () => {
+    // Two or three in reserve is a downgrade even though the arithmetic accepts
+    // it cleanly: the addition is a heuristic, and a lifter reporting three left
+    // is describing a feeling that is worth less the further from failure it was.
+    const low = estimated({ completedReps: 3, repsInReserve: 1 });
+    expect(advisories(low)).toContain('reps-in-reserve-low');
+
+    const moderate = estimated({ completedReps: 3, repsInReserve: 2, freshness: 'fatigued' });
+    expect(advisories(moderate)).toContain('reps-in-reserve-moderate');
+    expect(moderate.grade).toBe('useful');
   });
 
   it('never lets an upgrade beat the repetition count', () => {
@@ -545,7 +690,7 @@ describe('what a later tool can read off the result', () => {
     expect(value.technique?.id).toBe('competition-squat');
     expect(value.familyCount).toBeGreaterThanOrEqual(3);
     expect(value.outcomes.length).toBeGreaterThan(10);
-    expect(value.spreadRatio).toBeGreaterThan(0);
+    expect(value.disagreement.fullRatio).toBeGreaterThan(0);
   });
 
   it('gives an influence to included rows and none to the rest', () => {
