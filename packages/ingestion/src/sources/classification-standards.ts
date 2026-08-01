@@ -71,6 +71,32 @@ const SnapshotReferenceSchema = v.object({
     v.string(),
     v.check((value) => /^[0-9a-f]{64}$/u.test(value), 'a lowercase hex sha-256 digest'),
   ),
+
+  /**
+   * Where the snapshot was downloaded from, or `null` if it was not downloaded.
+   *
+   * Required rather than optional, and explicitly `null` for a dataset that was
+   * transcribed or exported by hand. `check:upstream` reports a `null` as
+   * "manual" and a missing field as a fault; leaving it out would make an
+   * unwatched source indistinguishable from one nobody has got round to
+   * automating, which is the difference between a stale figure being noticed in
+   * a week and being noticed by a lifter.
+   */
+  url: v.nullable(
+    v.pipe(
+      v.string(),
+      v.url(),
+      // `check:upstream` fetches this. It is committed and reviewed rather than
+      // user-supplied, but the narrow rule costs nothing and means a typo that
+      // downgrades the transport, or a credential pasted into the URL, is a
+      // failed schema parse rather than a request that goes out anyway.
+      v.check((value) => value.startsWith('https://'), 'an https URL'),
+      v.check((value) => {
+        const parsed = URL.parse(value);
+        return parsed !== null && parsed.username === '' && parsed.password === '';
+      }, 'a URL with no embedded credentials'),
+    ),
+  ),
 });
 
 /**
@@ -213,10 +239,14 @@ export interface ClassificationSourceReferences {
   readonly federationId: string;
   /** Which file in the snapshot directory holds the published standards. */
   readonly standardsFile: string;
+  /** The digest that file has to have. */
+  readonly standardsSha256: string;
+  /** Where that file came from, or `null` if it was not downloaded. */
+  readonly standardsUrl: string | null;
 }
 
 /**
- * Reads the two things a caller needs before it can call
+ * Reads what a caller needs before it can call
  * {@link buildClassificationTables}: whose catalogue to fetch, and which file to
  * read and digest.
  *
@@ -230,7 +260,12 @@ export function readClassificationSourceReferences(
   document: unknown,
 ): ClassificationSourceReferences {
   const source = parseDocument(document);
-  return { federationId: source.id, standardsFile: source.standards.file };
+  return {
+    federationId: source.id,
+    standardsFile: source.standards.file,
+    standardsSha256: source.standards.sha256,
+    standardsUrl: source.standards.url,
+  };
 }
 
 /**

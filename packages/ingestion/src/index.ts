@@ -58,4 +58,11 @@ export {
   shardRecordBook,
   type RecordShardArtifact,
 } from './shard-records.js';
+export {
+  checkUpstream,
+  type UpstreamFinding,
+  type UpstreamReport,
+  type UpstreamSource,
+  type UpstreamStatus,
+} from './upstream-check.js';
 export { writePublication, type WriteSummary } from './write-publication.js';

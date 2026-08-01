@@ -36,7 +36,10 @@
 
   "standards": {
     "file": "uspa-standards.json",
-    "sha256": "8a560b5558b247243472f094cfc8bcc11a095bb435c1cab9ae63e5e2b6748973"
+    "sha256": "8a560b5558b247243472f094cfc8bcc11a095bb435c1cab9ae63e5e2b6748973",
+
+    "$comment": "Exported by hand from the federation's published calculator. No machine-fetchable URL has been recorded, so `check:upstream` reports this source as manual and nothing watches it. Recording one here is what puts it under automated drift detection.",
+    "url": null
   },
 
   "$comment:tested": [

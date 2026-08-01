@@ -1,0 +1,205 @@
+name: Check upstream data
+
+# Weekly, and on demand. Off the hour on purpose: every repository that asks for
+# "Monday morning" gets minute zero, and the scheduler runs those late.
+#
+# WHY THIS RUNS AT ALL
+#
+# Each committed snapshot is pinned by sha-256 in the mapping beside it, and the
+# build refuses to run when the two disagree. That stops a federation's revision
+# from being published under a mapping nobody re-read -- but only at build time.
+# Between releases, upstream can change and this repository will keep serving the
+# old figures, correctly and confidently, with nothing to say otherwise.
+#
+# So this asks, once a week, and writes down the answer.
+#
+# It never adopts a change. A drifted snapshot needs somebody to read the diff
+# and revisit the mapping with it, which is the deliberate act the pin exists to
+# force; a workflow that re-pinned automatically would delete the only safeguard.
+# What it does instead is open an issue.
+#
+# WHY IT COMMITS EVEN WHEN NOTHING CHANGED
+#
+# GitHub disables a public repository's scheduled workflows after sixty days with
+# no repository activity. A weekly commit is activity, so the schedule keeps
+# itself alive -- and the commit is not a no-op made to game that rule. "Upstream
+# was unchanged on this date" is provenance the repository could not otherwise
+# state. The report is a true record whose timestamp happens to also be a pulse.
+#
+# The push is made with GITHUB_TOKEN, which by design does not trigger other
+# workflows, so this does not redeploy the site. That is correct: the report is
+# not an input to the build, so a rebuild would publish byte-identical files.
+# When a source lands that can be refreshed unattended -- one with no curated
+# mapping to revisit, and so nothing to pin -- the deploy belongs here, as a job
+# that needs `check` and runs only when that source actually moved.
+
+on:
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One at a time, and never cancelled. Two runs pushing a report to main would
+# race for no benefit, and a cancelled run leaves the schedule looking alive
+# while having recorded nothing.
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+jobs:
+  # Installs dependencies and reaches the network. Read-only, and holds no
+  # credential that could write anything: `pnpm install` runs third-party
+  # lifecycle scripts, and a job that does that should not also be able to push.
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      report: ${{ steps.check.outputs.report }}
+      drifted: ${{ steps.check.outputs.drifted }}
+      unreachable: ${{ steps.check.outputs.unreachable }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The checker is TypeScript in a workspace package, so it has to be built
+      # before it can be run. Libraries only -- the site is not involved.
+      - run: pnpm run build:libraries
+
+      - id: check
+        run: |
+          set -euo pipefail
+          pnpm run data:upstream
+
+          # Passed on as a job output rather than an artifact. It is a few
+          # hundred bytes, and the job that commits it should not need to run an
+          # action to receive it.
+          {
+            echo 'report<<PTK_EOF'
+            cat data/upstream-check.json
+            echo 'PTK_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          for status in drifted unreachable; do
+            count=$(jq --arg s "$status" '[.findings[] | select(.status == $s)] | length' \
+              data/upstream-check.json)
+            echo "$status=$count" >> "$GITHUB_OUTPUT"
+          done
+
+      # A warning rather than an issue. An origin is down for ten minutes far
+      # more often than it is gone, and an issue per outage teaches people to
+      # close these unread. Several weeks of warnings in a row is the real
+      # signal, and it is visible on the workflow's own page.
+      - if: steps.check.outputs.unreachable != '0'
+        run: echo "::warning::${{ steps.check.outputs.unreachable }} source(s) could not be reached."
+
+  # Holds the write token. Deliberately runs no project code and installs
+  # nothing: it writes a file it was handed, commits, and pushes.
+  record:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      # Credentials are persisted here, unlike every other checkout in this
+      # repository, because this job exists to push. Nothing third-party runs
+      # between this step and the push.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - env:
+          # Through the environment, never interpolated into the script body.
+          # `${{ }}` inside a run block is textual substitution, and a report
+          # carrying a quote would stop being data and start being shell.
+          REPORT: ${{ needs.check.outputs.report }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$REPORT" > data/upstream-check.json
+
+          if git diff --quiet -- data/upstream-check.json; then
+            # Only reachable if the timestamp somehow did not move. Not an
+            # error, but worth saying: it means no pulse was recorded this week.
+            echo "::warning::The report is unchanged, so nothing was committed."
+            exit 0
+          fi
+
+          # The bot, because the bot wrote it. Attributing an automated record to
+          # a person makes the history lie about who looked at what.
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/upstream-check.json
+          git commit -m 'Record the weekly upstream data check'
+
+          # The branch is unlikely to have moved under a weekly job, but a red X
+          # at two in the morning for a race nobody was in is worth one retry.
+          git push || {
+            git pull --rebase --autostash origin main
+            git push
+          }
+
+  # Only when something actually moved. Opens one issue and keeps it open,
+  # rather than one per week, because the drift persists until a person acts.
+  report-drift:
+    needs: check
+    if: needs.check.outputs.drifted != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # `contents` is not for a checkout -- this job never takes one -- but for
+      # the repository metadata `gh` reads before it can address an issue.
+      contents: read
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          REPORT: ${{ needs.check.outputs.report }}
+          TITLE: Upstream data has drifted from the committed snapshots
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          body=$(
+            printf '%s\n' \
+              'A scheduled check found that at least one federation is publishing something' \
+              'other than what the committed snapshot pins.' \
+              '' \
+              'Nothing has been changed. Re-pinning is deliberate by design: the new dataset' \
+              'has to be read against the mapping beside it, because a federation can add a' \
+              'weight class or renumber a grade and the mapping will still parse.' \
+              '' \
+              'To resolve: download the dataset, replace the snapshot, update `sha256` in the' \
+              'mapping, and work through the coverage failures the build reports.' \
+              '' \
+              '| source | document | pinned | upstream |' \
+              '| --- | --- | --- | --- |'
+            jq -r '.findings[] | select(.status == "drifted")
+              | "| \(.id) | `\(.document)` | `\(.expectedSha256)` | `\(.actualSha256)` |"' \
+              <<< "$REPORT"
+            printf '\n%s\n' "Found by [this run]($RUN_URL)."
+          )
+
+          # Piped into jq with `--arg` rather than using `--jq`, which would
+          # splice the title into the filter as program text.
+          existing=$(gh issue list --state open --limit 100 --json number,title \
+            | jq -r --arg title "$TITLE" \
+              'map(select(.title == $title)) | first | .number // empty')
+
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$TITLE" --body "$body"
+          fi

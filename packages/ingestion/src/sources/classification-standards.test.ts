@@ -70,7 +70,7 @@ function document(overrides: Record<string, unknown> = {}): Record<string, unkno
       sections: ['Item 1'],
       retrievedAt: '1999-01-01T00:00:00.000Z',
     },
-    standards: { file: 'example-standards.json', sha256: DIGEST },
+    standards: { file: 'example-standards.json', sha256: DIGEST, url: null },
     tested: null,
     grades: [
       { column: 'Bronze', id: 'bronze', label: 'Bronze', rank: 0 },
@@ -281,7 +281,7 @@ describe('buildClassificationTables, refusing a snapshot it was not written agai
 
   it('refuses a standards reference that is a path rather than a filename', () => {
     const problems = problemsFrom(
-      document({ standards: { file: '../../etc/passwd.json', sha256: DIGEST } }),
+      document({ standards: { file: '../../etc/passwd.json', sha256: DIGEST, url: null } }),
     );
 
     expect(problems).toEqual(['standards.file: expected a plain JSON filename']);

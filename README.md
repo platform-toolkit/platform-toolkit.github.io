@@ -269,6 +269,25 @@ for both would misrepresent the newer one.
 Competition results come from the OpenPowerlifting bulk dataset, which carries a public-domain
 waiver. Only its published data is consumed; none of its application code is used.
 
+### Keeping them current
+
+Some datasets are downloaded whole and committed under `data/sources/`, alongside a hand-written
+mapping that says what each column means. Those two have to agree: a federation can add a weight
+class or renumber a grade without breaking anything that parses, and the result would be published
+figures nobody re-read. So each snapshot is pinned by sha-256 in its mapping, and the build fails
+when the file and the pin disagree.
+
+That lock only turns when somebody builds. `pnpm data:upstream` is the doorbell — it downloads what
+each source publishes today, digests it, and writes `data/upstream-check.json`. It changes nothing:
+a source that has moved is reported, because adopting it means reading the new data against the
+mapping, which is exactly the deliberate step the pin exists to force.
+
+A weekly workflow runs it, commits the report, and opens an issue when something has drifted. The
+report's timestamp moves on every run, so a green week still records that the repository looked and
+found nothing changed. A source with no recorded download URL is reported as `manual` rather than
+omitted — "nobody is watching this" and "this has not changed" are different facts, and a report
+that renders them identically is worse than no report.
+
 ## Contributing
 
 Run `pnpm verify` before opening a pull request. Commit under your own name and email — the project
