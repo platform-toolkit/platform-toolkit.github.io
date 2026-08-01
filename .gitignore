@@ -40,6 +40,10 @@ apps/web/public/data/
 /CLAUDE.md
 /notes/
 
+# Per-machine editor and agent settings. `.claude/settings.json` is shared if it
+# ever exists; the `.local` variant is one maintainer's machine and nobody else's.
+.claude/settings.local.json
+
 .DS_Store
 *.log
 
