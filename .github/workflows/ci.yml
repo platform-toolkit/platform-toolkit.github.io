@@ -44,6 +44,16 @@ jobs:
       # manifests, which is the property `npm ci` provided.
       - run: pnpm install --frozen-lockfile
 
+      # The `ui` test project runs in a real browser. Playwright ships no
+      # postinstall script, so the engine is downloaded here, explicitly, rather
+      # than as a side effect of installing dependencies -- which is the same
+      # property `pnpm-workspace.yaml` is protecting elsewhere.
+      #
+      # Not cached. One engine is roughly half a minute on a runner, and an
+      # `actions/cache` entry keyed on the Playwright version is another pinned
+      # action to keep current plus a cache that is wrong when it goes stale.
+      - run: pnpm exec playwright install --with-deps chromium
+
       - run: pnpm run verify
         env:
           # Absent on pull requests from forks, because GitHub does not expose

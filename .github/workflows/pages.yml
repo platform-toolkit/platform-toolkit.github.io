@@ -56,6 +56,9 @@ jobs:
         env:
           PTK_PROHIBITED_TOKENS: ${{ secrets.PTK_PROHIBITED_TOKENS }}
 
+      # The `ui` test project runs in a real browser. See the note in ci.yml.
+      - run: pnpm exec playwright install --with-deps chromium
+
       # The full check, not just a build. Nothing reaches the live site without
       # passing format, typecheck, lint, tests, and the reference scan first.
       - run: pnpm run verify

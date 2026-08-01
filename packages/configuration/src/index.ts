@@ -1,4 +1,5 @@
 export {
+  THEME_MODES,
   asThemeMode,
   resolveEffectiveTheme,
   resolveThemeMode,

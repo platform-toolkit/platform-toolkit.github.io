@@ -20,7 +20,15 @@ export type ThemeMode = 'system' | 'light' | 'dark';
 /** A theme that can actually be rendered. `system` is deliberately absent. */
 export type EffectiveTheme = 'light' | 'dark';
 
-const THEME_MODES: readonly ThemeMode[] = ['system', 'light', 'dark'];
+/**
+ * Every accepted mode, and the canonical order they are offered in.
+ *
+ * Exported because it is duplicated once, unavoidably: `theme-boot.js` runs as
+ * an unbundled classic script before first paint and cannot import anything. A
+ * test compares that copy against this list, so the duplication is checked
+ * rather than merely regretted.
+ */
+export const THEME_MODES: readonly ThemeMode[] = ['system', 'light', 'dark'];
 
 /**
  * Narrows arbitrary input to a ThemeMode.
