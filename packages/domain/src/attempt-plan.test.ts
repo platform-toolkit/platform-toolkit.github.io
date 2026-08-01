@@ -1,4 +1,3 @@
-import type { MeetRuleProfile } from '@platform-toolkit/data-contracts';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -11,7 +10,8 @@ import {
   type PlannedAttempt,
   type RoundingReason,
 } from './attempt-plan.js';
-import { MeetRules } from './meet-rules.js';
+import { rulesFor } from './meet-profile.fixture.js';
+import type { MeetRules } from './meet-rules.js';
 
 /**
  * A 100 kg planning maximum throughout, so a weight reads as its own percentage
@@ -22,77 +22,14 @@ import { MeetRules } from './meet-rules.js';
 const MAXIMUM = 100;
 
 /**
- * An invented federation, deliberately not either published profile, for the same
- * reason `meet-rules.test.ts` invents one: a fixture holding a real federation's
- * figures is a second copy of them that keeps asserting the old rule for years
- * after the rulebook moved.
- *
- * Two of them, because the two halves of §9.1 need different grids to be visible
- * at all. On a fine grid almost every percentage of 100 is already a legal weight,
- * which is what makes it the right fixture for reading a plan off the table -- and
- * exactly the wrong one for testing what rounding does.
+ * Two grids, because the two halves of §9.1 need different ones to be visible at
+ * all. Both are the shared invented federation with the increment patched; the
+ * increment is the only thing this file's assertions depend on, and saying so as
+ * a patch is what keeps the rest of the profile from looking load-bearing.
  */
-const BASE: MeetRuleProfile = {
-  id: 'example',
-  label: 'Example Federation',
-  source: {
-    label: 'Example Federation Technical Rules',
-    url: 'https://example.test/rulebook/',
-    revision: '2026v1',
-    verifiedOn: '2026-08-01',
-  },
-  attemptsPerLift: 3,
-  barMultipleKilograms: 0.5,
-  minimumProgressionKilograms: 1,
-  recordProgressionKilograms: 0.25,
-  submissionSeconds: 90,
-  automaticAfterGoodLift: 'increase-by-increment',
-  automaticAfterMiss: 'repeat',
-  forbidsAttemptBelowFailedWeight: true,
-  risingBar: true,
-  openerChange: {
-    allowed: 1,
-    firstGroupMinutesBefore: 4,
-    laterGroupAttemptsBefore: 6,
-    summary: 'One change, up to four minutes before the first round of that lift.',
-  },
-  secondAttemptChangesAllowed: 0,
-  thirdAttemptChanges: [
-    {
-      lift: 'squat',
-      allowed: 0,
-      lapsesOnceCalledToLoadedBar: false,
-      notBelowPrecedingLifter: false,
-    },
-    {
-      lift: 'bench',
-      allowed: 0,
-      lapsesOnceCalledToLoadedBar: false,
-      notBelowPrecedingLifter: false,
-    },
-    {
-      lift: 'deadlift',
-      allowed: 2,
-      lapsesOnceCalledToLoadedBar: true,
-      notBelowPrecedingLifter: true,
-    },
-  ],
-  formatOverrides: [],
-  fourthAttempt: null,
-  tieBreak: ['lighter-bodyweight', 'declared-tie'],
-  notes: [],
-};
-
-function rulesFor(patch: Partial<MeetRuleProfile> = {}): MeetRules {
-  const result = MeetRules.from({ ...BASE, ...patch });
-  if (!result.ok) {
-    throw new Error(`fixture profile was refused: ${JSON.stringify(result.problems)}`);
-  }
-  return result.rules;
-}
 
 /** A half-kilogram grid: every whole percentage of 100 is already legal. */
-const FINE = rulesFor();
+const FINE = rulesFor({ barMultipleKilograms: 0.5, minimumProgressionKilograms: 1 });
 
 /**
  * A five-kilogram grid with a five-kilogram progression.

@@ -38,8 +38,12 @@
   // composition root pulls in a build-time constant declared only there. Without
   // it the type checker reports an undefined name in application code that the
   // application's own project checks perfectly well.
+  // `*.fixture.ts` is test-only for the same reason and excluded from the package
+  // projects alongside the tests, so it has to be checked here or a fixture could
+  // hand every suite that imports it a value of the wrong shape unchecked.
   "include": [
     "packages/*/src/**/*.test.ts",
+    "packages/*/src/**/*.fixture.ts",
     "apps/web/src/**/*.test.ts",
     "apps/web/src/build-constants.d.ts"
   ]

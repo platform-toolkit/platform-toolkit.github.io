@@ -1,103 +1,20 @@
 import type { MeetRuleProfile } from '@platform-toolkit/data-contracts';
 import { describe, expect, it } from 'vitest';
 
+import {
+  FOURTH_ATTEMPT_FIXTURE as FOURTH_ATTEMPT,
+  MEET_PROFILE_FIXTURE as PROFILE,
+  rulesFor,
+} from './meet-profile.fixture.js';
 import { MeetRules } from './meet-rules.js';
 
 /**
- * The fixture's fourth-attempt block, named so no test needs a `!` to reach it.
- *
- * `MeetRuleProfile['fourthAttempt']` is nullable because one published federation
- * has none, so `PROFILE.fourthAttempt!` is the obvious spelling -- and it keeps
- * compiling the day somebody sets the fixture's block to `null`, at which point
- * the spread below it produces a profile missing every field and the test that
- * was checking one rule starts checking whether valibot noticed.
+ * The invented federation is shared (`meet-profile.fixture.ts`) rather than
+ * written out here, because five modules of the meet-day planner take a
+ * `MeetRules` and five copies of one profile disagree the first time the contract
+ * grows a field. This file is the one that tests the constructor itself, so it
+ * reaches for the raw profile as well as the checked rules.
  */
-const FOURTH_ATTEMPT: NonNullable<MeetRuleProfile['fourthAttempt']> = {
-  requiresSuccessfulThird: true,
-  withinKilogramsOfRecord: 16,
-  minimumExcessKilograms: 0.25,
-  requiresPermission: true,
-  submissionSeconds: 45,
-  excludedFrom: ['total', 'placing', 'classification', 'team-points', 'best-lifter'],
-  requiresPostLiftEquipmentCheck: true,
-  summary: 'Only after a good third, and only against a record already standing.',
-};
-
-/**
- * An invented federation, deliberately not either published profile.
- *
- * §5.1: a fixture holding a real federation's numbers is a second copy of those
- * numbers, it reads as authoritative to whoever finds it, and it keeps asserting
- * the old rule for years after the rulebook moved. The figures below are chosen
- * to be *unlike* the real ones on purpose -- a 2 kg bar multiple rather than
- * 2.5, a ninety-second window rather than sixty -- so that a test passing
- * against a hard-coded real number would fail here.
- */
-const PROFILE: MeetRuleProfile = {
-  id: 'example',
-  label: 'Example Federation',
-  source: {
-    label: 'Example Federation Technical Rules',
-    url: 'https://example.test/rulebook/',
-    revision: '2026v1',
-    verifiedOn: '2026-08-01',
-  },
-  attemptsPerLift: 3,
-  barMultipleKilograms: 2,
-  minimumProgressionKilograms: 2,
-  recordProgressionKilograms: 0.25,
-  submissionSeconds: 90,
-  automaticAfterGoodLift: 'increase-by-increment',
-  automaticAfterMiss: 'repeat',
-  forbidsAttemptBelowFailedWeight: true,
-  risingBar: true,
-  openerChange: {
-    allowed: 1,
-    firstGroupMinutesBefore: 4,
-    laterGroupAttemptsBefore: 6,
-    summary: 'One change, up to four minutes before the first round of that lift.',
-  },
-  secondAttemptChangesAllowed: 0,
-  thirdAttemptChanges: [
-    {
-      lift: 'squat',
-      allowed: 0,
-      lapsesOnceCalledToLoadedBar: false,
-      notBelowPrecedingLifter: false,
-    },
-    {
-      lift: 'bench',
-      allowed: 0,
-      lapsesOnceCalledToLoadedBar: false,
-      notBelowPrecedingLifter: false,
-    },
-    {
-      lift: 'deadlift',
-      allowed: 2,
-      lapsesOnceCalledToLoadedBar: true,
-      notBelowPrecedingLifter: true,
-    },
-  ],
-  formatOverrides: [
-    {
-      format: 'bench-only',
-      lift: 'bench',
-      allowed: 2,
-      summary: 'In a single-lift bench press, two changes in the third round.',
-    },
-  ],
-  fourthAttempt: FOURTH_ATTEMPT,
-  tieBreak: ['lighter-bodyweight', 'reweigh', 'declared-tie'],
-  notes: [],
-};
-
-function rulesFor(patch: Partial<MeetRuleProfile> = {}): MeetRules {
-  const result = MeetRules.from({ ...PROFILE, ...patch });
-  if (!result.ok)
-    throw new Error(`fixture profile was refused: ${JSON.stringify(result.problems)}`);
-  return result.rules;
-}
-
 function problemCodesFor(patch: Partial<MeetRuleProfile>): readonly string[] {
   const result = MeetRules.from({ ...PROFILE, ...patch });
   return result.ok ? [] : result.problems.map((problem) => problem.code);
