@@ -17,3 +17,13 @@ packages:
 # not re-ask and nobody resolves the prompt by saying yes.
 allowBuilds:
   esbuild: false
+
+# One version per dependency across the whole workspace, for the few that more
+# than one project declares. Vite is here because the site bundles with it and
+# the root tooling type-checks against it: `tsconfig.tests.json` asks for
+# `vite/client`, which only resolves if the root has Vite of its own. Two
+# manifests naming the same version is a pair that can drift apart silently, and
+# the failure -- a test measuring an element against one Vite's ambient types
+# while the site is built by another's -- would not look like a version problem.
+catalog:
+  vite: 8.2.0
