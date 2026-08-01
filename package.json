@@ -45,6 +45,8 @@
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "4.7.2",
     "@eslint/js": "10.0.1",
+    "@platform-toolkit/configuration": "workspace:*",
+    "@platform-toolkit/ui": "workspace:*",
     "@storybook/addon-a11y": "10.5.5",
     "@storybook/web-components-vite": "10.5.5",
     "@types/node": "24.13.3",

@@ -20,6 +20,12 @@ importers:
       '@eslint/js':
         specifier: 10.0.1
         version: 10.0.1(eslint@10.8.0)
+      '@platform-toolkit/configuration':
+        specifier: workspace:*
+        version: link:packages/configuration
+      '@platform-toolkit/ui':
+        specifier: workspace:*
+        version: link:packages/ui
       '@storybook/addon-a11y':
         specifier: 10.5.5
         version: 10.5.5(storybook@10.5.5(prettier@3.9.6)(react@19.2.8))
