@@ -33,10 +33,12 @@ import process from 'node:process';
 
 import { readClassificationSourceReferences } from '../sources/classification-standards.js';
 import { readConversionSourceReferences } from '../sources/conversion-chart.js';
+import { readMeetRulesSourceReferences } from '../sources/meet-rules.js';
 import { checkUpstream, type UpstreamSource } from '../upstream-check.js';
 
 const CLASSIFICATION_SOURCES = join('data', 'sources', 'classifications');
 const CONVERSION_SOURCES = join('data', 'sources', 'conversions');
+const MEET_RULE_SOURCES = join('data', 'sources', 'meet-rules');
 
 /** Committed. See the note above on why its timestamp moves every run. */
 const DEFAULT_REPORT = join('data', 'upstream-check.json');
@@ -99,6 +101,20 @@ async function collectSources(): Promise<readonly UpstreamSource[]> {
       document: path,
       sha256: references.chartSha256,
       url: references.chartUrl,
+    });
+  }
+
+  // Meet rules are the most time-sensitive thing watched here. A rulebook takes
+  // effect on a date rather than on the day it is posted, so the revision that
+  // will make a profile wrong is usually published weeks before it matters --
+  // which is exactly the window this check exists to put a name on.
+  for (const { path, document } of await readSourceDocuments(MEET_RULE_SOURCES)) {
+    const references = readMeetRulesSourceReferences(document);
+    sources.push({
+      id: `${references.federationId}-meet-rules`,
+      document: path,
+      sha256: references.rulebookSha256,
+      url: references.rulebookUrl,
     });
   }
 

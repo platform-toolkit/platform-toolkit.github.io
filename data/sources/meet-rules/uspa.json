@@ -1,0 +1,130 @@
+{
+  "$comment": [
+    "USPA's competition rules, as far as an attempt planner has to know them,",
+    "transcribed from the rulebook cited in `rulebook`.",
+    "",
+    "This file is the toolkit's only copy of these rules. Every surface that answers",
+    "a legality question under USPA -- the attempt ladder, the submission countdown,",
+    "the third-deadlift change tracker, fourth-attempt eligibility -- reads the",
+    "artifact published from here. There is no fallback profile and there must not",
+    "be one: a set of numbers no federation stands behind is the set a hurried user",
+    "would leave selected.",
+    "",
+    "WHAT IS TRANSCRIBED AND WHAT IS INTERPRETED",
+    "",
+    "Every figure below is stated outright in the rulebook, and `notes` quotes the",
+    "sections it came from. Two fields are the exception and are called out here",
+    "because a later reader deserves to know they are readings rather than",
+    "quotations:",
+    "",
+    "  * `forbidsAttemptBelowFailedWeight` is 6.1.1.2's sentence -- 'At no time may a",
+    "    lifter request an attempt that is less than any attempt previously",
+    "    unsuccessful' -- turned into a flag. The sentence is unambiguous; the flag",
+    "    is the shape.",
+    "  * `formatOverrides` carries only the single-lift bench press, because that is",
+    "    the only format 6.1.16 names. USPA's international parent extends the same",
+    "    allowance further, and it is deliberately NOT copied in: this profile",
+    "    reports USPA's rulebook, and a rule imported from a related organisation",
+    "    would be presented under the wrong name at an expeditor's table.",
+    "",
+    "HOW THIS WAS VERIFIED, 2026-08-01",
+    "",
+    "  1. The rulebook PDF downloaded, digested, and read as text with `pdftotext",
+    "     -layout`. `rulebook.sha256` is the digest of those exact bytes.",
+    "  2. Each figure read back against the numbered section it came from, listed",
+    "     in `provenance.sections`.",
+    "  3. Cross-read against the corresponding public rule pages of USPA's",
+    "     international parent, which state the same sequence of section numbers.",
+    "     Agreement on every figure here. The cross-read is a check, not a source --",
+    "     where the two could differ, the USPA rulebook wins.",
+    "  4. Absence checked as well as presence: the rulebook was searched for any",
+    "     second-attempt or third-squat change allowance, and states none.",
+    "",
+    "THE PDF IS NOT COMMITTED. It carries the federation's logo and nothing here",
+    "needs it. `rulebook.sha256` pins the bytes; `check:upstream` re-downloads and",
+    "re-digests them on a schedule, so a revision announces itself without the",
+    "document being redistributed."
+  ],
+  "id": "uspa",
+  "label": "USPA",
+  "provenance": {
+    "id": "uspa-meet-rules",
+    "label": "USPA technical rules",
+    "document": "USPA Technical Rules",
+    "url": "https://uspa.net/resources/uspa-rulebook/",
+    "sections": ["1.1 Competition Format", "6.1 Attempts", "6.3 Weight Progression", "8.1 Records"],
+    "retrievedAt": "2026-08-01T00:00:00.000Z"
+  },
+  "rulebook": {
+    "$comment": "`revision` is the version the document prints on its cover. `sha256` is the digest of the exact bytes read, and is what actually detects a change; the version string is for a person reading a diff.",
+    "revision": "2025v1",
+    "sha256": "ef23ed9f46c2177f0904fea92c8ee80fa7515321af44ad2eee81bd01fdccb842",
+    "url": "https://uspa.net/rulebook"
+  },
+  "rules": {
+    "attemptsPerLift": 3,
+    "barMultipleKilograms": 2.5,
+    "minimumProgressionKilograms": 2.5,
+    "recordProgressionKilograms": 0.5,
+    "submissionSeconds": 60,
+    "automaticAfterGoodLift": "increase-by-increment",
+    "automaticAfterMiss": "repeat",
+    "forbidsAttemptBelowFailedWeight": true,
+    "risingBar": true,
+    "openerChange": {
+      "allowed": 1,
+      "firstGroupMinutesBefore": 5,
+      "laterGroupAttemptsBefore": 5,
+      "summary": "One change to the first attempt of each lift, higher or lower. In the first group of a session, up to five minutes before the start of that lift's first round. In a later group, up to within five attempts of the end of the previous group's last round."
+    },
+    "secondAttemptChangesAllowed": 0,
+    "thirdAttemptChanges": [
+      {
+        "$comment": "Stated as an absence: the rulebook grants changes in the third round to the deadlift and to a single-lift bench press, and to nothing else. Recorded as an explicit zero rather than by omission so that a screen can say 'this attempt is locked once submitted' rather than falling silent.",
+        "lift": "squat",
+        "allowed": 0,
+        "lapsesOnceCalledToLoadedBar": false,
+        "notBelowPrecedingLifter": false
+      },
+      {
+        "lift": "bench",
+        "allowed": 0,
+        "lapsesOnceCalledToLoadedBar": false,
+        "notBelowPrecedingLifter": false
+      },
+      {
+        "lift": "deadlift",
+        "allowed": 2,
+        "lapsesOnceCalledToLoadedBar": true,
+        "notBelowPrecedingLifter": true
+      }
+    ],
+    "formatOverrides": [
+      {
+        "format": "bench-only",
+        "lift": "bench",
+        "allowed": 2,
+        "summary": "In a single-lift bench press, two changes are permitted in the third round, higher or lower, on the same conditions as the third deadlift."
+      }
+    ],
+    "fourthAttempt": {
+      "withinKilogramsOfRecord": 20,
+      "minimumExcessKilograms": 0.5,
+      "requiresSuccessfulThird": true,
+      "requiresPermission": true,
+      "submissionSeconds": 60,
+      "excludedFrom": ["total", "placing", "classification", "team-points", "best-lifter"],
+      "requiresPostLiftEquipmentCheck": true,
+      "summary": "A fourth attempt at a record needs a successful third attempt, a record already standing before the meet began, a third attempt within 20 kilos of that record, and permission from one of the platform's referees or the expeditor."
+    },
+    "tieBreak": ["lighter-bodyweight", "reweigh", "declared-tie"],
+    "notes": [
+      "Openers are declared at weigh-in, in kilograms.",
+      "A missed attempt may be repeated, but only in the next round; a lifter never follows themselves at the same weight.",
+      "Within a round the bar only rises. It is lowered only to correct a loading error.",
+      "Lifters are called in order of the weight requested. Two lifters on the same weight are ordered by lot number, and then by bodyweight.",
+      "A record attempt may be a weight that is not a multiple of 2.5 kg. Every other attempt must be.",
+      "A fourth attempt is not part of the meet total and does not affect placing, classification, team points or Best Lifter."
+    ]
+  }
+}

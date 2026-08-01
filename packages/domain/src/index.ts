@@ -58,6 +58,24 @@ export {
   type LiftGroup,
 } from './lifts.js';
 export {
+  MeetRules,
+  type AttemptFloorReason,
+  type AttemptLegality,
+  type AttemptOutcome,
+  type AttemptRefusalCode,
+  type AutomaticAttempt,
+  type ChangeAllowance,
+  type ChangeConditionCode,
+  type FourthAttemptBlockCode,
+  type FourthAttemptEligibility,
+  type LegalWeightsAround,
+  type MeetRuleProblem,
+  type MeetRuleProblemCode,
+  type MeetRulesResult,
+  type NextAttemptBounds,
+  type TakenAttempt,
+} from './meet-rules.js';
+export {
   LOADING_TOLERANCE,
   buildLoadingTable,
   emptyImplement,

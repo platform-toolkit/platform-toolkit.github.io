@@ -14,6 +14,8 @@ import {
   ClassificationBookSchema,
   ConversionChartSchema,
   DataMetaSchema,
+  MEET_RULES_ARTIFACT_ID,
+  MeetRuleBookSchema,
   RecordBookSchema,
   categoryCatalogArtifactId,
   classificationArtifactId,
@@ -24,6 +26,7 @@ import {
   type ClassificationBook,
   type ConversionChartData,
   type DataMeta,
+  type MeetRuleBook,
   type RecordBook,
 } from '@platform-toolkit/data-contracts';
 import type * as v from 'valibot';
@@ -188,6 +191,14 @@ export function createStaticDataSource(options: StaticDataSourceOptions): DataSo
         ConversionChartSchema,
         readOptions,
       );
+    },
+
+    getMeetRuleProfiles(readOptions?: ReadOptions): Promise<MeetRuleBook | null> {
+      // The one artifact whose name is a constant rather than a derived slug --
+      // there is one book, not one per federation. It still goes through the
+      // index like everything else, so a build that published no profiles
+      // resolves to `null` rather than to a request for a file that is not there.
+      return readArtifact(MEET_RULES_ARTIFACT_ID, MeetRuleBookSchema, readOptions);
     },
   };
 }

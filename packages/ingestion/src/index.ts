@@ -56,6 +56,14 @@ export {
   type ConversionSourceResult,
 } from './sources/conversion-chart.js';
 export {
+  MeetRulesSourceDocumentSchema,
+  MeetRulesSourceError,
+  buildMeetRuleBook,
+  readMeetRulesSourceReferences,
+  type MeetRulesSourceDocument,
+  type MeetRulesSourceResult,
+} from './sources/meet-rules.js';
+export {
   ClassificationShardNamingError,
   DuplicateClassificationTableError,
   shardClassificationBook,

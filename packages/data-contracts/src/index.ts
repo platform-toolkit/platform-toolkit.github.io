@@ -58,6 +58,27 @@ export {
   type SourceFreshness,
 } from './freshness.js';
 export {
+  AutomaticAttemptBehaviourSchema,
+  FormatOverrideSchema,
+  FourthAttemptSchema,
+  MEET_RULES_ARTIFACT_ID,
+  MeetFormatSchema,
+  MeetRuleBookSchema,
+  MeetRuleProfileSchema,
+  MeetRuleSourceSchema,
+  OpenerChangeSchema,
+  PlatformLiftSchema,
+  ThirdAttemptChangeSchema,
+  TieBreakStepSchema,
+  type AutomaticAttemptBehaviour,
+  type MeetFormat,
+  type MeetRuleBook,
+  type MeetRuleProfile,
+  type MeetRuleSource,
+  type PlatformLift,
+  type TieBreakStep,
+} from './meet-rules.js';
+export {
   recordArtifactId,
   recordShardKey,
   sameRecordShard,

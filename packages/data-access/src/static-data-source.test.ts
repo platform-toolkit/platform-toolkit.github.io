@@ -44,6 +44,14 @@ const VALID_META = {
       byteLength: 384,
       schemaVersion: 1,
     },
+    // Not slugged from a federation, unlike every other name here. There is one
+    // book holding every profile; see the note on `getMeetRuleProfiles`.
+    'meet-rules': {
+      path: 'artifacts/meet-rules.13579bdf2468ace0.json',
+      sha256: '4'.repeat(64),
+      byteLength: 640,
+      schemaVersion: 1,
+    },
   },
 };
 
@@ -501,6 +509,111 @@ describe('conversion chart', () => {
     });
 
     await expect(source.getConversionChart('example')).rejects.toThrow(DataSourceError);
+  });
+});
+
+const MEET_RULES_URL = '/data/artifacts/meet-rules.13579bdf2468ace0.json';
+
+/**
+ * An invented federation. A 2 kg bar multiple where every real profile published
+ * from this repository uses 2.5, so nothing here can be mistaken for a
+ * transcription of anybody's rulebook.
+ */
+const MEET_RULE_BOOK = {
+  profiles: [
+    {
+      id: 'example',
+      label: 'Example Federation',
+      source: {
+        label: 'Example Federation Technical Rules',
+        url: 'https://example.test/rulebook.pdf',
+        revision: '2026v1',
+        verifiedOn: '2026-08-01',
+      },
+      attemptsPerLift: 3,
+      barMultipleKilograms: 2,
+      minimumProgressionKilograms: 2,
+      recordProgressionKilograms: 0.25,
+      submissionSeconds: 90,
+      automaticAfterGoodLift: 'increase-by-increment',
+      automaticAfterMiss: 'repeat',
+      forbidsAttemptBelowFailedWeight: true,
+      risingBar: true,
+      openerChange: {
+        allowed: 1,
+        firstGroupMinutesBefore: 4,
+        laterGroupAttemptsBefore: 6,
+        summary: 'One change, up to four minutes before the first round of that lift.',
+      },
+      secondAttemptChangesAllowed: 0,
+      thirdAttemptChanges: [
+        {
+          lift: 'deadlift',
+          allowed: 2,
+          lapsesOnceCalledToLoadedBar: true,
+          notBelowPrecedingLifter: true,
+        },
+      ],
+      formatOverrides: [],
+      fourthAttempt: null,
+      tieBreak: ['lighter-bodyweight', 'declared-tie'],
+      notes: [],
+    },
+  ],
+};
+
+describe('meet rule profiles', () => {
+  const routes = { '/data/meta.json': VALID_META, [MEET_RULES_URL]: MEET_RULE_BOOK };
+
+  it('resolves the whole book through the index, with no identifier to supply', async () => {
+    const fetch = routingFetch(routes);
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    await expect(source.getMeetRuleProfiles()).resolves.toEqual(MEET_RULE_BOOK);
+    expect(fetch.calls).toEqual(['/data/meta.json', MEET_RULES_URL]);
+  });
+
+  it('answers null when a build published no profiles', async () => {
+    // The publisher refuses an empty book, so this should not happen -- but a
+    // screen still has to tell it apart from a failed read, because only one of
+    // the two is worth offering a reload for.
+    const { 'meet-rules': _omitted, ...withoutMeetRules } = VALID_META.artifacts;
+    const source = createStaticDataSource({
+      baseUrl: '/data/',
+      fetch: routingFetch({
+        '/data/meta.json': { ...VALID_META, artifacts: withoutMeetRules },
+      }),
+    });
+    await expect(source.getMeetRuleProfiles()).resolves.toBeNull();
+  });
+
+  it('refuses a book with no profiles in it', async () => {
+    // A book that parsed with an empty list would render as a federation question
+    // with no answers -- a form nobody can submit, which reads as a working page.
+    const source = createStaticDataSource({
+      baseUrl: '/data/',
+      fetch: routingFetch({ '/data/meta.json': VALID_META, [MEET_RULES_URL]: { profiles: [] } }),
+    });
+
+    await expect(source.getMeetRuleProfiles()).rejects.toThrow(DataSourceError);
+  });
+
+  it('refuses a profile whose citation is not https', async () => {
+    // Rendered into an `href` beside every rule the tool states. A
+    // `javascript:` URL published by accident validates as a URL and runs when a
+    // lifter taps the source line.
+    const [profile] = MEET_RULE_BOOK.profiles;
+    const source = createStaticDataSource({
+      baseUrl: '/data/',
+      fetch: routingFetch({
+        '/data/meta.json': VALID_META,
+        [MEET_RULES_URL]: {
+          profiles: [{ ...profile, source: { ...profile?.source, url: 'javascript:alert(1)' } }],
+        },
+      }),
+    });
+
+    await expect(source.getMeetRuleProfiles()).rejects.toThrow(DataSourceError);
   });
 });
 

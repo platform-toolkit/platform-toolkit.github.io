@@ -31,6 +31,8 @@ import process from 'node:process';
 import {
   CategoryCatalogSchema,
   ConversionChartSchema,
+  MEET_RULES_ARTIFACT_ID,
+  MeetRuleBookSchema,
   categoryCatalogArtifactId,
   conversionChartArtifactId,
   type CategoryCatalog,
@@ -45,6 +47,7 @@ import {
   readClassificationSourceReferences,
 } from '../sources/classification-standards.js';
 import { buildConversionChart } from '../sources/conversion-chart.js';
+import { buildMeetRuleBook } from '../sources/meet-rules.js';
 import { writePublication } from '../write-publication.js';
 
 /**
@@ -59,6 +62,7 @@ const SOURCE_ROOT = 'data/sources';
 const CATEGORY_SOURCES = join(SOURCE_ROOT, 'categories');
 const CLASSIFICATION_SOURCES = join(SOURCE_ROOT, 'classifications');
 const CONVERSION_SOURCES = join(SOURCE_ROOT, 'conversions');
+const MEET_RULE_SOURCES = join(SOURCE_ROOT, 'meet-rules');
 
 /**
  * Where a classification mapping's committed upstream dataset lives.
@@ -197,6 +201,26 @@ async function main(): Promise<void> {
       );
     }
   }
+
+  // Every federation's rules in one artifact, and one adapter call rather than a
+  // loop, because the two checks worth having here are between documents: a
+  // duplicated federation id, and a book with nothing in it. See the adapter.
+  //
+  // Unlike everything above, the artifact id is a constant rather than a name
+  // derived from a federation -- there is one book, and the planner's first
+  // question is which profile in it applies, which it cannot ask without the
+  // whole list in hand.
+  const meetRuleDocuments = await readSourceDocuments(MEET_RULE_SOURCES);
+  const { book, freshness: meetRuleFreshness } = buildMeetRuleBook(
+    meetRuleDocuments.map((document) => document.value),
+  );
+  artifacts.push({
+    id: MEET_RULES_ARTIFACT_ID,
+    schema: MeetRuleBookSchema,
+    schemaVersion: SCHEMA_VERSION,
+    value: book,
+  });
+  sources.push(...meetRuleFreshness);
 
   if (artifacts.length === 0) {
     // Publishing an empty index would replace a working site's data with a

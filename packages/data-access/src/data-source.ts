@@ -30,6 +30,7 @@ import type {
   ClassificationBook,
   ConversionChartData,
   DataMeta,
+  MeetRuleBook,
   RecordBook,
   SexCategory,
 } from '@platform-toolkit/data-contracts';
@@ -222,4 +223,28 @@ export interface DataSource {
     federationId: string,
     options?: ReadOptions,
   ): Promise<ConversionChartData | null>;
+
+  /**
+   * Every published federation's competition rules, or `null` if none are.
+   *
+   * The only method here that takes no identifier, and the asymmetry is the
+   * point: a planner's first question is which federation the meet is under, and
+   * it cannot draw that control without the whole list. Asking for one profile by
+   * id would mean the caller already knew the answer, and the caller who does not
+   * would have to fetch a list from somewhere else to find out -- which is the
+   * shape that ends in a hard-coded array of federation names in the interface.
+   *
+   * Choosing a profile out of the book, and answering anything with it, is
+   * `MeetRules` in `packages/domain`. The split is the same one the conversion
+   * chart draws: a legality question is asked on every keystroke at an
+   * expeditor's table, on a phone with one bar of signal, and a rule that
+   * round-tripped would make the tool useless in exactly the room it is for.
+   *
+   * `null` is an answer rather than a failure, as everywhere else here -- though
+   * unlike the others it should never happen in a build that published anything,
+   * because the publisher refuses an empty book. A screen still has to render it,
+   * because "nothing published" and "the read failed" are different sentences and
+   * only one of them is worth offering a reload for.
+   */
+  getMeetRuleProfiles(options?: ReadOptions): Promise<MeetRuleBook | null>;
 }

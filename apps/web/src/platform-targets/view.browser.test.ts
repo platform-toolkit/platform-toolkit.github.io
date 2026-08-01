@@ -60,10 +60,10 @@ const BOOK: ClassificationBook = {
 /**
  * A source that records what it was asked for.
  *
- * Records and conversion charts are not read by this view, so those methods
- * answer `null` rather than throwing: a stub that threw would turn "nothing asks
- * for this" into a failure the day something does, which is a worse way to find
- * out.
+ * Records, conversion charts and meet rules are not read by this view, so those
+ * methods answer `null` rather than throwing: a stub that threw would turn
+ * "nothing asks for this" into a failure the day something does, which is a worse
+ * way to find out.
  */
 function sourceThat(
   answer: () => Promise<CategoryCatalog | null>,
@@ -82,6 +82,7 @@ function sourceThat(
     },
     getRecords: () => Promise.resolve(null),
     getConversionChart: () => Promise.resolve(null),
+    getMeetRuleProfiles: () => Promise.resolve(null),
     getClassifications: (query) => {
       partitions.push(`${query.federationId} ${query.sex} ${query.equipmentId}`);
       return classifications();

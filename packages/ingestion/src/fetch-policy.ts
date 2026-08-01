@@ -20,6 +20,10 @@ export const ALLOWED_SOURCE_HOSTS: readonly string[] = [
   'www.uspa.net',
   // Record tables (rendered headlessly; see the records adapter).
   'records.uspa.net',
+  // Technical rulebook PDF behind the IPF meet rule profile, re-digested by
+  // `check:upstream`. The edition pinned there takes effect on a date, so an
+  // unwatched copy goes wrong on a day nobody set a reminder for.
+  'www.powerlifting.sport',
   // Bulk competition dataset and its change-detection file.
   'openpowerlifting.gitlab.io',
   // Source repository for the dataset, used for change detection and self-build.

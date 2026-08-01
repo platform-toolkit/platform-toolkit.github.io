@@ -1,0 +1,118 @@
+{
+  "$comment": [
+    "IPF competition rules, as far as an attempt planner has to know them,",
+    "transcribed from the technical rulebook cited in `rulebook`.",
+    "",
+    "THIS PROFILE IS WHY THERE IS NO UNIVERSAL PROFILE.",
+    "",
+    "Read against the USPA profile beside it, this one differs on the opener-change",
+    "deadline (three minutes and three attempts, not five and five), on whether a",
+    "third-deadlift change is floored by the preceding lifter's weight (it is not),",
+    "on how a tie on total is broken after bodyweight (whoever reached the total",
+    "first, rather than a reweigh), and -- most consequentially -- on whether fourth",
+    "attempts exist at all. They do not. A planner that assumed federations share",
+    "these rules would be wrong four times over on one screen.",
+    "",
+    "`fourthAttempt` IS null, NOT A BLOCK OF ZEROES.",
+    "",
+    "The rulebook has no fourth attempt: records are taken on any of the three",
+    "prescribed attempts. A zeroed rule block would render as a fourth attempt",
+    "nobody may take, which is a different and wrong statement, and it would put a",
+    "row on screen that sends a lifter to ask about something that does not exist.",
+    "",
+    "HOW THIS WAS VERIFIED, 2026-08-01",
+    "",
+    "  1. The rulebook PDF downloaded, digested, and read as text with `pdftotext",
+    "     -layout`. `rulebook.sha256` is the digest of those exact bytes.",
+    "  2. Each figure read back against the lettered rule it came from, listed in",
+    "     `provenance.sections`.",
+    "  3. The absence of fourth attempts confirmed by searching the whole document",
+    "     for 'fourth' and '4th'. Neither appears in the attempt rules. An absence",
+    "     asserted from a skim is how a federation ends up with a rule this project",
+    "     invented for it.",
+    "  4. Absence checked for second-attempt and third-squat changes too: rule (k)",
+    "     states outright that they cannot be changed.",
+    "",
+    "THE PDF IS NOT COMMITTED. `rulebook.sha256` pins the bytes and `check:upstream`",
+    "re-downloads and re-digests them on a schedule, so a revision announces itself",
+    "without the document being redistributed. This matters more here than usual:",
+    "the pinned edition takes effect on a date, and a build that hard-coded any of it",
+    "would go wrong on a day nobody set a reminder for."
+  ],
+  "id": "ipf",
+  "label": "IPF",
+  "provenance": {
+    "id": "ipf-meet-rules",
+    "label": "IPF technical rules",
+    "document": "IPF Technical Rulebook",
+    "url": "https://www.powerlifting.sport/rules/codes/info/technical-rules",
+    "sections": [
+      "General rules of powerlifting (e) to (m)",
+      "Weight progression and record attempts"
+    ],
+    "retrievedAt": "2026-08-01T00:00:00.000Z"
+  },
+  "rulebook": {
+    "$comment": "`revision` is the effective date and version the document prints on its cover. `sha256` is the digest of the exact bytes read and is what actually detects a change.",
+    "revision": "effective 2026-03-01, v3",
+    "sha256": "cf3aac6c4a231918217a3155a9fc34b766e35d6f8ec2bbf6da8af59ec1b37145",
+    "url": "https://www.powerlifting.sport/fileadmin/ipf/data/rules/technical-rules/english/2026_IPF_Technical_Rulebook__effective_01_March_2026__v3.pdf"
+  },
+  "rules": {
+    "attemptsPerLift": 3,
+    "barMultipleKilograms": 2.5,
+    "minimumProgressionKilograms": 2.5,
+    "recordProgressionKilograms": 0.5,
+    "submissionSeconds": 60,
+    "automaticAfterGoodLift": "increase-by-increment",
+    "automaticAfterMiss": "repeat",
+    "forbidsAttemptBelowFailedWeight": true,
+    "risingBar": true,
+    "openerChange": {
+      "allowed": 1,
+      "firstGroupMinutesBefore": 3,
+      "laterGroupAttemptsBefore": 3,
+      "summary": "One change to the first attempt of each lift. In the first group of a session, up to within three minutes of the start of that lift's first round. In a later group, up to within three attempts of the end of the previous group's last round."
+    },
+    "secondAttemptChangesAllowed": 0,
+    "thirdAttemptChanges": [
+      {
+        "lift": "squat",
+        "allowed": 0,
+        "lapsesOnceCalledToLoadedBar": false,
+        "notBelowPrecedingLifter": false
+      },
+      {
+        "lift": "bench",
+        "allowed": 0,
+        "lapsesOnceCalledToLoadedBar": false,
+        "notBelowPrecedingLifter": false
+      },
+      {
+        "$comment": "`notBelowPrecedingLifter` is false, and the difference from the USPA profile is deliberate. This rulebook states the rising-bar principle without attaching it to the third-deadlift change, and inventing the attachment would have the planner refuse a change an IPF expeditor would accept.",
+        "lift": "deadlift",
+        "allowed": 2,
+        "lapsesOnceCalledToLoadedBar": true,
+        "notBelowPrecedingLifter": false
+      }
+    ],
+    "formatOverrides": [
+      {
+        "format": "bench-only",
+        "lift": "bench",
+        "allowed": 2,
+        "summary": "In a single-lift bench press, two changes are permitted in the third round, on the same rules as the third deadlift."
+      }
+    ],
+    "fourthAttempt": null,
+    "tieBreak": ["lighter-bodyweight", "first-to-total"],
+    "notes": [
+      "The submission clock for a second or third attempt starts when the referees' lights are activated on the preceding attempt.",
+      "An attempt cannot be withdrawn once it has been turned in.",
+      "A missed attempt may be repeated, but only in the next round; a lifter never follows themselves.",
+      "There are no fourth attempts. A record may be taken on any of the three prescribed attempts.",
+      "A record attempt may be a weight that is not a multiple of 2.5 kg, and only for a record in the championship being competed in. Every other attempt must be a multiple of 2.5 kg.",
+      "Where proper notice of an opener-change deadline was not given, an announcement may reopen changes for one further minute."
+    ]
+  }
+}
