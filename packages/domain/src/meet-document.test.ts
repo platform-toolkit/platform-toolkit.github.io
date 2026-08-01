@@ -298,9 +298,9 @@ describe('advance-attempt', () => {
     const second = attemptAt(timeline, 'squat', 2).id;
     timeline = apply(timeline, { kind: 'set-attempt-weight', attemptId: second, kilograms: 100 });
     timeline = take(timeline, 'squat', 1, 100, GOOD);
-    expect(refusals(timeline, { kind: 'advance-attempt', attemptId: second, to: 'submitted' })).toEqual(
-      ['weight-not-legal'],
-    );
+    expect(
+      refusals(timeline, { kind: 'advance-attempt', attemptId: second, to: 'submitted' }),
+    ).toEqual(['weight-not-legal']);
   });
 
   it('stamps the submission once and keeps the original instant', () => {
@@ -493,9 +493,7 @@ describe('totals', () => {
 
   it('never lets a candidate lower a lift already banked', () => {
     const timeline = take(withLifter(), 'squat', 1, 100, GOOD);
-    expect(
-      projectedTotalWith(timeline.present, only(timeline), 'squat', 80).kilograms,
-    ).toBe(100);
+    expect(projectedTotalWith(timeline.present, only(timeline), 'squat', 80).kilograms).toBe(100);
   });
 });
 
@@ -559,14 +557,10 @@ describe('submissionState', () => {
     // The single most useful thing this screen can say, because it is the rule
     // that applies when nobody is looking at it.
     const madeIt = take(withLifter(), 'squat', 1, 100, GOOD);
-    expect(
-      submissionState(RULES, madeIt.present, only(madeIt), AT)?.automaticKilograms,
-    ).toBe(102);
+    expect(submissionState(RULES, madeIt.present, only(madeIt), AT)?.automaticKilograms).toBe(102);
 
     const missed = take(withLifter(), 'squat', 1, 100, MISSED);
-    expect(
-      submissionState(RULES, missed.present, only(missed), AT)?.automaticKilograms,
-    ).toBe(100);
+    expect(submissionState(RULES, missed.present, only(missed), AT)?.automaticKilograms).toBe(100);
   });
 
   it('reads "submitted" from the stamp rather than from the status', () => {
@@ -672,9 +666,7 @@ describe('add-record-attempt', () => {
       kilograms: 110.25,
       recordKilograms: 110,
     });
-    const record = attemptsOn(only(timeline), 'squat').find(
-      (attempt) => attempt.kind === 'record',
-    );
+    const record = attemptsOn(only(timeline), 'squat').find((attempt) => attempt.kind === 'record');
     expect(record).toMatchObject({ attemptNumber: 4, kilograms: 110.25 });
 
     const recordId = record?.id ?? '';
