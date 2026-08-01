@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en" data-theme-mode="system">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>One-Rep Max Estimator — Platform Toolkit</title>
+    <meta
+      name="description"
+      content="Estimate a one-rep max from a set you actually did, using twenty published equations and showing where they disagree."
+    />
+    <!--
+      Runs before first paint to apply a theme an embedder forced. Must stay an
+      external classic script: a module script would be deferred until after
+      parsing, which is the flash of wrong theme this prevents, and an inline
+      script would require weakening the Content Security Policy.
+    -->
+    <script src="/theme-boot.js"></script>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <!--
+      The same manifest as the hub, on purpose. One installed application holding
+      the collection, not one installable icon per tool: `start_url` is the hub,
+      so installing from here and installing from there give the same thing.
+      Absent from the embed route beside this one -- see the hub for why.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Toolkit" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#14171b" />
+  </head>
+  <body>
+    <div class="page">
+      <header>
+        <!-- Relative, so it resolves under a subpath deploy too. See tools.ts. -->
+        <a class="back-link" href="../">Platform Toolkit</a>
+        <h1>One-Rep Max Estimator</h1>
+        <p class="tagline">
+          What a set you already did suggests about a single, from twenty published equations —
+          including where they disagree.
+        </p>
+      </header>
+      <!--
+        No federation attribute, for the same reason the warm-up calculator has
+        none: this tool reads no published data. Its equations are constants of
+        the literature and live in code beside their citations, so the page needs
+        nothing but a mount point.
+      -->
+      <main id="app">
+        <noscript>
+          <p>
+            The one-rep max estimator needs JavaScript to run the equations. The rest of the
+            collection is listed on the toolkit home page.
+          </p>
+        </noscript>
+      </main>
+    </div>
+    <script type="module" src="/src/one-rep-max/standalone.ts"></script>
+  </body>
+</html>

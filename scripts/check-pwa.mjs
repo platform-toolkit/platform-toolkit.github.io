@@ -70,6 +70,8 @@ const PAGES = [
   { path: '/warm-up/embed/', installable: false },
   { path: '/convert/', installable: true },
   { path: '/convert/embed/uspa/', installable: false },
+  { path: '/one-rep-max/', installable: true },
+  { path: '/one-rep-max/embed/', installable: false },
 ];
 
 /**

@@ -29,6 +29,21 @@ export interface Choice {
   readonly label: string;
   /** Optional second line: a weight range, an age band, a caveat. */
   readonly description?: string;
+  /**
+   * Available, but not one of the answers most visitors want.
+   *
+   * Drawn quieter than its neighbours and nothing else -- still a radio, still
+   * in the same group, still reachable by the same arrow keys. Order alone does
+   * not carry this: a list of five tiles reads as five equal answers whichever
+   * way round they are, and the requirement being met here is a tool naming
+   * three lifts as the expected answers while keeping two more available.
+   *
+   * Never use it to hide an option a visitor is likely to need. A quieter tile
+   * is still measured against the tap-target floor and still has to pass
+   * contrast, which is why this changes the border and the surface rather than
+   * the text colour.
+   */
+  readonly secondary?: boolean;
 }
 
 /** Fired when the visitor picks an option. Never fired for a programmatic change. */
@@ -121,6 +136,17 @@ export class PtkChoiceGroup extends LitElement {
       cursor: pointer;
     }
 
+    /*
+     * A quieter tile: a dashed border and the sunken surface, never dimmer text.
+     * Lowering the text contrast is the obvious way to say "secondary" and it is
+     * the one thing that must not happen -- the option stays fully readable and
+     * fully selectable, it just stops competing with its neighbours.
+     */
+    .option.secondary {
+      border-style: dashed;
+      background-color: var(--ptk-color-surface-sunken);
+    }
+
     /* The whole tile reacts to focus, because the radio itself is small and a
        ring around it alone is easy to lose against a wrapped row of options. */
     .option:has(input:focus-visible) {
@@ -210,7 +236,7 @@ export class PtkChoiceGroup extends LitElement {
 
   #renderChoice(choice: Choice): TemplateResult {
     return html`
-      <label class="option">
+      <label class=${choice.secondary === true ? 'option secondary' : 'option'}>
         <input
           type="radio"
           name=${this.#groupName}

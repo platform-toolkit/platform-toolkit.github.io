@@ -21,6 +21,7 @@ import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { deepText } from '../testing/deep-text.js';
 import { INVENTED_CHART_DATA, inventedChart } from './chart-fixture.js';
 import type { ChartStatus, ColumnOrder } from './session.js';
 import type { PtkConversionTable } from './ptk-conversion-table.js';
@@ -113,54 +114,16 @@ function cells(row: HTMLTableRowElement): string[] {
   return [...row.querySelectorAll('td')].map((cell) => cell.textContent.trim());
 }
 
-/**
- * Everything a visitor can read, including text inside nested shadow roots.
- *
- * `textContent` stops at a shadow boundary, and the sentence that matters most here
- * -- the summary, which is the whole of what is visible while folded -- is handed to
- * `ptk-disclosure` as an attribute and rendered inside *its* root. A host-only read
- * returns an empty string for a section that is plainly showing a sentence, so a
- * `toContain` written against it fails for the wrong reason and a `not.toContain`
- * passes without measuring anything.
- */
-function text(node: Node): string {
-  return readDeep(node).replace(/\s+/gu, ' ').trim();
-}
-
-function readDeep(node: Node): string {
-  // Lit marks every interpolation with a comment node, and a comment's
-  // `textContent` is its data -- so leaving them in puts `?lit$1234$` in the middle
-  // of every sentence an assertion is trying to match.
-  if (node.nodeType === Node.COMMENT_NODE) return '';
-  // A slot renders what was assigned to it, so following the assignment is what
-  // keeps slotted content in the order it appears rather than appended after the
-  // shadow tree it was projected into.
-  if (node instanceof HTMLSlotElement) {
-    return node.assignedNodes().map(readDeep).join('');
-  }
-  // A shadow root replaces its host's children on screen; reading both would
-  // report unslotted content nobody can see.
-  if (node instanceof Element && node.shadowRoot !== null) {
-    return readDeep(node.shadowRoot);
-  }
-  // Joined with nothing, the way `textContent` concatenates, so an interpolated
-  // sentence reads back as the sentence rather than as its fragments spaced apart.
-  if (node.hasChildNodes()) {
-    return [...node.childNodes].map(readDeep).join('');
-  }
-  return node.textContent ?? '';
-}
-
 describe('ptk-conversion-table', () => {
   it('re-renders when a property changes after first render', async () => {
     const element = await mount();
-    expect(text(element)).toContain(`${String(ROW_COUNT)} published rows`);
+    expect(deepText(element)).toContain(`${String(ROW_COUNT)} published rows`);
 
     element.chart = null;
     element.chartStatus = 'unavailable';
     await element.updateComplete;
 
-    expect(text(element)).toContain('No published chart is available.');
+    expect(deepText(element)).toContain('No published chart is available.');
   });
 
   it('says the whole of what is true while folded', async () => {
@@ -168,7 +131,7 @@ describe('ptk-conversion-table', () => {
     // carry the count and the range -- "Full conversion chart" alone gives no way
     // to know whether the weight being looked for is even in it.
     const element = await mount();
-    expect(text(element)).toContain(`${String(ROW_COUNT)} published rows, 50 kg to 150 kg.`);
+    expect(deepText(element)).toContain(`${String(ROW_COUNT)} published rows, 50 kg to 150 kg.`);
   });
 
   it('renders nothing at all inside the fold until it is opened', async () => {
@@ -206,7 +169,9 @@ describe('ptk-conversion-table', () => {
     expect(kilograms).toEqual(['50', '75', '100', '125', '150']);
     // The caption says which step is showing, because a thinned chart that looked
     // complete would read as a federation that publishes 25 kg increments.
-    expect(text(element)).toContain(`Published rows on every 25 kg, 5 of ${String(ROW_COUNT)}.`);
+    expect(deepText(element)).toContain(
+      `Published rows on every 25 kg, 5 of ${String(ROW_COUNT)}.`,
+    );
   });
 
   it('puts the requested column first, in both the heading and the cells', async () => {
@@ -228,13 +193,13 @@ describe('ptk-conversion-table', () => {
     await unfold(element);
 
     await search(element, '100');
-    expect(text(element)).toContain('Found: 100 kg = 220.5 lb');
+    expect(deepText(element)).toContain('Found: 100 kg = 220.5 lb');
 
     // 137 kg is not published. Saying "found" here is the manufactured row this
     // whole tool refuses, arriving through the search box instead of the field.
     await search(element, '137');
-    expect(text(element)).toContain('Nearest published row: 135 kg = 297.6 lb');
-    expect(text(element)).not.toContain('Found:');
+    expect(deepText(element)).toContain('Nearest published row: 135 kg = 297.6 lb');
+    expect(deepText(element)).not.toContain('Found:');
   });
 
   it('reads a bare number as the leading column and a suffix as itself', async () => {
@@ -244,12 +209,12 @@ describe('ptk-conversion-table', () => {
     // Kilograms first, so a bare 315 is a search for 315 *kilograms* -- off the
     // end of this chart, nearest 150.
     await search(element, '315');
-    expect(text(element)).toContain('Nearest published row: 150 kg = 330.7 lb');
+    expect(deepText(element)).toContain('Nearest published row: 150 kg = 330.7 lb');
 
     // The same digits with a unit are a different question, and the answer is a
     // different row.
     await search(element, '315 lb');
-    expect(text(element)).toContain('Nearest published row: 145 kg = 319.7 lb');
+    expect(deepText(element)).toContain('Nearest published row: 145 kg = 319.7 lb');
   });
 
   it('marks the found row for assistive technology, not only by colour', async () => {
@@ -273,13 +238,13 @@ describe('ptk-conversion-table', () => {
     // No row is pointed at, and the field says what is wrong with what was typed
     // rather than the table quietly picking a row.
     expect(bodyRows(element).filter((row) => row.hasAttribute('aria-current'))).toHaveLength(0);
-    expect(text(element)).not.toContain('Nearest published row');
+    expect(deepText(element)).not.toContain('Nearest published row');
   });
 
   it('cites the chart it reproduced, with its revision and the date it was checked', async () => {
     const element = await mount();
     await unfold(element);
-    const rendered = text(element);
+    const rendered = deepText(element);
 
     expect(rendered).toContain(INVENTED_CHART_DATA.source.label);
     expect(rendered).toContain(`revision ${INVENTED_CHART_DATA.source.revision}`);
@@ -293,13 +258,13 @@ describe('ptk-conversion-table', () => {
   it('tells a failed read apart from a federation that publishes none', async () => {
     const failed = await mount({ withChart: false, chartStatus: 'failed' });
     await unfold(failed);
-    expect(text(failed)).toContain('Reloading may help');
+    expect(deepText(failed)).toContain('Reloading may help');
     failed.remove();
 
     const none = await mount({ withChart: false, chartStatus: 'unavailable' });
     await unfold(none);
-    expect(text(none)).toContain('No conversion chart is published for this federation.');
-    expect(text(none)).not.toContain('Reloading may help');
+    expect(deepText(none)).toContain('No conversion chart is published for this federation.');
+    expect(deepText(none)).not.toContain('Reloading may help');
   });
 
   it('has no accessibility violations with the chart open', async () => {

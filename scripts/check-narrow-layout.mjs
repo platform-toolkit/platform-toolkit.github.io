@@ -156,6 +156,47 @@ const CONVERT_FILL = [
   { selector: 'ptk-converter ptk-number-field[data-field="weight"] input', value: '315' },
 ];
 
+/**
+ * The estimator's one fold that exists before a set has been described.
+ *
+ * Seven optional questions, including the widest radio labels the tool renders
+ * ("Experienced with singles", "New to maximal work") and a checkbox row. Folded
+ * it is one line.
+ */
+const ONE_REP_MAX_CLICK = ['ptk-disclosure[label="Improve this estimate"] summary'];
+
+/**
+ * A set that produces the estimator's densest possible screen.
+ *
+ * Five reps rather than one: a single is observed rather than estimated, so it
+ * renders no scenarios, no grade and no spread, and the check would measure the
+ * short version of every panel. A weight off a round plate keeps the rounded
+ * figures from coinciding with the entered one.
+ */
+const ONE_REP_MAX_FILL = [
+  {
+    selector: 'ptk-one-rep-max-calculator ptk-number-field[data-field="weight"] input',
+    value: '142.5',
+  },
+  { selector: 'ptk-one-rep-max-calculator ptk-number-field[data-field="reps"] input', value: '5' },
+];
+
+/**
+ * The two folds that do not exist until a set parses.
+ *
+ * Both `ptk-training-percentages` and `ptk-formula-comparison` render nothing at
+ * all without an estimate, so their summaries cannot be pressed in `click` --
+ * that list runs before `fill` and would report "nothing matched", which is a
+ * true statement about a condition the check itself created. `clickAfter` runs
+ * once the numbers exist, and these are the two densest sections on the screen:
+ * a two-column numeric table with forty rows, and twenty formula cards each
+ * carrying a name, a notation, a figure and a reason.
+ */
+const ONE_REP_MAX_CLICK_AFTER = [
+  'ptk-disclosure[label="Training percentages"] summary',
+  'ptk-disclosure[label="Every equation"] summary',
+];
+
 /** The routes, and what has to happen before each is worth measuring. */
 const ROUTES = [
   { path: '/', click: [], reveal: [], fill: [] },
@@ -206,6 +247,25 @@ const ROUTES = [
     reveal: [],
     fill: CONVERT_FILL,
     settle: 'ptk-conversion-result li',
+  },
+  {
+    path: '/one-rep-max/',
+    click: ONE_REP_MAX_CLICK,
+    reveal: [],
+    fill: ONE_REP_MAX_FILL,
+    clickAfter: ONE_REP_MAX_CLICK_AFTER,
+    // A rendered formula row, not the field just typed into: a filled field says
+    // the keystroke landed, which it did before any equation ran. A card exists
+    // only once the ensemble has been computed.
+    settle: 'ptk-formula-comparison li',
+  },
+  {
+    path: '/one-rep-max/embed/',
+    click: ONE_REP_MAX_CLICK,
+    reveal: [],
+    fill: ONE_REP_MAX_FILL,
+    clickAfter: ONE_REP_MAX_CLICK_AFTER,
+    settle: 'ptk-formula-comparison li',
   },
 ];
 
@@ -290,6 +350,31 @@ const MEASURE = `(() => {
 })()`;
 
 /**
+ * Presses a list of things, failing on anything that is not there.
+ *
+ * Shared by `click` and `clickAfter` so the two lists cannot drift into
+ * disagreeing about what a missing selector means. It means the same thing in
+ * both: a failure, never a skip.
+ *
+ * @param {import('playwright').Page} page
+ * @param {readonly string[]} selectors
+ * @param {string} where
+ * @param {string[]} failures
+ * @returns {Promise<boolean>}
+ */
+async function tap(page, selectors, where, failures) {
+  for (const selector of selectors) {
+    const control = page.locator(selector).first();
+    if ((await control.count()) === 0) {
+      failures.push(`${where}: nothing matched ${selector}`);
+      return false;
+    }
+    await control.click();
+  }
+  return true;
+}
+
+/**
  * Drives a route into the state worth measuring.
  *
  * Returns false, having recorded a failure, if any step could not be taken. A
@@ -305,14 +390,7 @@ async function reveal(page, route, width, failures) {
   // answering a question. Playwright's `check` refuses anything that is not a
   // checkbox or a radio, so a folded section could not be opened at all without
   // this list -- and a folded section is measured as the one line it shows.
-  for (const selector of route.click ?? []) {
-    const control = page.locator(selector).first();
-    if ((await control.count()) === 0) {
-      failures.push(`${where}: nothing matched ${selector}`);
-      return false;
-    }
-    await control.click();
-  }
+  if (!(await tap(page, route.click ?? [], where, failures))) return false;
 
   for (const selector of route.reveal) {
     const control = page.locator(selector).first();
@@ -331,6 +409,14 @@ async function reveal(page, route, width, failures) {
     }
     await field.fill(value);
   }
+
+  // Folds that do not exist until the fields above have been answered. The
+  // estimator's percentage table and formula comparison render nothing at all
+  // without an estimate, so pressing them in `click` would report "nothing
+  // matched" -- a true statement about a state the check itself produced, and
+  // one that would push somebody to weaken the unmatched-selector failure into
+  // a skip, which is the thing that makes this file stop checking.
+  if (!(await tap(page, route.clickAfter ?? [], where, failures))) return false;
 
   if (route.settle !== undefined && !(await settled(page, route.settle))) {
     // The derived total is the last thing to appear, so an empty one means the

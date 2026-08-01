@@ -38,4 +38,14 @@ export const TOOLS: readonly Tool[] = [
       "The exact conversion and the weight the federation's published chart actually lists, side by side.",
     embedPath: 'convert/embed/uspa/',
   },
+  {
+    id: 'one-rep-max',
+    name: 'One-Rep Max Estimator',
+    summary:
+      // No count in the sentence. The library gains and loses equations, and a
+      // numeral here is a claim on the hub that nothing recomputes -- it would
+      // keep reading "twenty" beside a tool that shows twenty-two.
+      'What a set you already did suggests about a single, from the published equations — including where they disagree.',
+    embedPath: 'one-rep-max/embed/',
+  },
 ];

@@ -241,6 +241,8 @@ export default defineConfig({
         'warm-up-embed': here('warm-up/embed/index.html'),
         convert: here('convert/index.html'),
         'convert-embed': here('convert/embed/uspa/index.html'),
+        'one-rep-max': here('one-rep-max/index.html'),
+        'one-rep-max-embed': here('one-rep-max/embed/index.html'),
       },
     },
   },

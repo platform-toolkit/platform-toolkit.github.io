@@ -45,6 +45,10 @@
 
   /* Type */
   --ptk-font-family: system-ui, -apple-system, 'Segoe UI', roboto, helvetica, arial, sans-serif;
+  /* For a printed equation, never for prose. A published formula read in a
+     proportional face is ambiguous in the one way that matters: the multiplication
+     of two variables and a two-letter word look the same. */
+  --ptk-font-family-mono: ui-monospace, sfmono-regular, 'SF Mono', menlo, consolas, monospace;
   --ptk-font-size-sm: 0.875rem;
   --ptk-font-size-md: 1rem;
   --ptk-font-size-lg: 1.25rem;

@@ -21,6 +21,7 @@ import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { deepText } from '../testing/deep-text.js';
 import { INVENTED_CHART_DATA, inventedChart } from './chart-fixture.js';
 import type { ChartStatus } from './session.js';
 import { PtkConversionResult } from './ptk-conversion-result.js';
@@ -128,41 +129,6 @@ function firstOption(element: PtkConverter): PtkButton {
   return found;
 }
 
-/**
- * Everything a visitor can read below this node, shadow boundaries included.
- *
- * `textContent` stops at the first one, and this tool is four custom elements deep
- * in places -- the table's folded summary is an attribute handed to `ptk-disclosure`
- * and rendered inside *its* root, so a host-only read reports an empty string for a
- * section that is visibly showing a sentence.
- */
-function textOf(node: Node): string {
-  return readDeep(node).replace(/\s+/gu, ' ').trim();
-}
-
-function readDeep(node: Node): string {
-  // Lit marks every interpolation with a comment node, and a comment's
-  // `textContent` is its data -- so leaving them in puts `?lit$1234$` in the middle
-  // of every sentence an assertion is trying to match.
-  if (node.nodeType === Node.COMMENT_NODE) return '';
-  // A slot renders what was assigned to it, so following the assignment keeps
-  // slotted content in the order it is read in.
-  if (node instanceof HTMLSlotElement) {
-    return node.assignedNodes().map(readDeep).join('');
-  }
-  // A shadow root replaces its host's children on screen; reading both would
-  // report unslotted content nobody can see.
-  if (node instanceof Element && node.shadowRoot !== null) {
-    return readDeep(node.shadowRoot);
-  }
-  // Joined with nothing, the way `textContent` concatenates, so an interpolated
-  // sentence reads back as the sentence rather than as its fragments spaced apart.
-  if (node.hasChildNodes()) {
-    return [...node.childNodes].map(readDeep).join('');
-  }
-  return node.textContent ?? '';
-}
-
 /** What is actually in the field, read off the native input rather than a property. */
 function fieldValue(element: PtkConverter): string {
   return nativeInput(weightField(element)).value;
@@ -171,18 +137,18 @@ function fieldValue(element: PtkConverter): string {
 describe('ptk-converter', () => {
   it('re-renders when a property changes after first render', async () => {
     const element = await mount();
-    expect(textOf(element)).toContain(CHART.label);
+    expect(deepText(element)).toContain(CHART.label);
 
     element.chart = null;
     await element.updateComplete;
 
-    expect(textOf(element)).not.toContain(CHART.label);
+    expect(deepText(element)).not.toContain(CHART.label);
   });
 
   it('starts with an empty field and an example rather than an error', async () => {
     const element = await mount();
     expect(fieldValue(element)).toBe('');
-    expect(textOf(result(element))).toContain('Enter a weight in pounds');
+    expect(deepText(result(element))).toContain('Enter a weight in pounds');
     // No Clear on an already-empty field: a control that does nothing is a
     // control somebody presses to find out what it does.
     expect(element.shadowRoot?.querySelectorAll('.actions ptk-button')).toHaveLength(1);
@@ -192,7 +158,7 @@ describe('ptk-converter', () => {
     const element = await mount();
     await type(element, '315');
 
-    const answer = textOf(result(element));
+    const answer = deepText(result(element));
     expect(answer).toContain('falls between two');
     expect(answer).toContain('140 kg');
     expect(answer).toContain('145 kg');
@@ -206,8 +172,8 @@ describe('ptk-converter', () => {
     // the tool has silently eaten -- and the result goes back to its empty state
     // rather than answering for the last thing that did parse.
     expect(fieldValue(element)).toBe('1o5');
-    expect(textOf(weightField(element))).toContain('Enter a weight using digits');
-    expect(textOf(result(element))).toContain('Enter a weight in pounds');
+    expect(deepText(weightField(element))).toContain('Enter a weight using digits');
+    expect(deepText(result(element))).toContain('Enter a weight in pounds');
   });
 
   it('converts the value on a reversal instead of rereading the same number', async () => {
@@ -218,7 +184,7 @@ describe('ptk-converter', () => {
     await press(element, actionNamed(element, 'Reverse'));
 
     expect(fieldValue(element)).toBe('142.88');
-    expect(textOf(weightField(element))).toContain('Weight in kilograms');
+    expect(deepText(weightField(element))).toContain('Weight in kilograms');
   });
 
   it('does not drift when the direction is flicked back and forth', async () => {
@@ -240,8 +206,8 @@ describe('ptk-converter', () => {
 
     // Typing `100 kg` while converting pounds is not a request to convert 100
     // pounds. The direction follows what was said.
-    expect(textOf(weightField(element))).toContain('Weight in kilograms');
-    expect(textOf(result(element))).toContain('220.5 lb');
+    expect(deepText(weightField(element))).toContain('Weight in kilograms');
+    expect(deepText(result(element))).toContain('220.5 lb');
   });
 
   it('puts a published figure in the field when one is chosen from the answer', async () => {
@@ -256,7 +222,7 @@ describe('ptk-converter', () => {
     expect(fieldValue(element)).toBe('308.6');
     // And the answer that follows is an exact match, which is the point of
     // handing back the row's own figure in the entered unit.
-    expect(textOf(result(element))).toContain('Exact Example Federation chart match');
+    expect(deepText(result(element))).toContain('Exact Example Federation chart match');
   });
 
   it('offers Clear only when there is something to clear', async () => {
@@ -272,7 +238,7 @@ describe('ptk-converter', () => {
 
   it('names the chart answering, and its revision, whenever there is one', async () => {
     const element = await mount();
-    expect(textOf(element)).toContain(
+    expect(deepText(element)).toContain(
       `Chart weights come from the ${CHART.label} conversion chart, revision ${INVENTED_CHART_DATA.source.revision}.`,
     );
   });
@@ -284,15 +250,15 @@ describe('ptk-converter', () => {
     const element = await mount({ withChart: false, chartStatus: 'failed' });
     await type(element, '315');
 
-    expect(textOf(result(element))).toContain('could not be loaded');
-    expect(textOf(requireIn(element.shadowRoot, 'ptk-milestone-chart'))).toContain(
+    expect(deepText(result(element))).toContain('could not be loaded');
+    expect(deepText(requireIn(element.shadowRoot, 'ptk-milestone-chart'))).toContain(
       'could not be loaded',
     );
-    expect(textOf(requireIn(element.shadowRoot, 'ptk-conversion-table'))).toContain(
+    expect(deepText(requireIn(element.shadowRoot, 'ptk-conversion-table'))).toContain(
       'No published chart is available.',
     );
     // And with no chart to name, no claim about one.
-    expect(textOf(element)).not.toContain('Chart weights come from');
+    expect(deepText(element)).not.toContain('Chart weights come from');
   });
 
   it('remembers the field across a reload, in the unit it is being read in', async () => {
@@ -309,7 +275,7 @@ describe('ptk-converter', () => {
     const second = await mount({ settings });
 
     expect(fieldValue(second)).toBe('142.88');
-    expect(textOf(weightField(second))).toContain('Weight in kilograms');
+    expect(deepText(weightField(second))).toContain('Weight in kilograms');
     await press(second, actionNamed(second, 'Reverse'));
     expect(fieldValue(second)).toBe('315');
   });
@@ -322,7 +288,7 @@ describe('ptk-converter', () => {
     await type(element, '315');
 
     expect(fieldValue(element)).toBe('315');
-    expect(textOf(result(element))).toContain('falls between two');
+    expect(deepText(result(element))).toContain('falls between two');
   });
 
   it('has no accessibility violations with an answer on screen', async () => {
