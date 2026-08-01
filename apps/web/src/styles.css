@@ -11,7 +11,16 @@
 .page {
   max-width: 60rem;
   margin: 0 auto;
-  padding: var(--ptk-space-xl) var(--ptk-space-md);
+  /*
+   * `max(…, env(…))` rather than an addition, so the inset only ever widens the
+   * gutter. On a notched phone held sideways the display cutout eats into the
+   * left or right edge, and a fixed padding puts the first option tile
+   * underneath it; on every other device the environment variable is zero and
+   * the normal gutter wins. The bottom does the same for the home indicator.
+   */
+  padding-block: var(--ptk-space-xl) max(var(--ptk-space-xl), env(safe-area-inset-bottom));
+  padding-inline: max(var(--ptk-space-md), env(safe-area-inset-left))
+    max(var(--ptk-space-md), env(safe-area-inset-right));
 }
 
 .page > header {
@@ -26,4 +35,73 @@
 .page .tagline {
   margin: 0;
   color: var(--ptk-color-text-muted);
+}
+
+/*
+ * The link back to the index.
+ *
+ * As plain text it was an 18-pixel-tall target, which is a miss on a phone and
+ * a miss that lands on whatever is underneath. Full-height and padded, it is
+ * the same target a thumb expects; the negative inline margin keeps the text
+ * itself aligned with the heading below it rather than indented by its own
+ * padding.
+ */
+.page .back-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--ptk-tap-target-min);
+  margin: 0 0 var(--ptk-space-xs) calc(var(--ptk-space-sm) * -1);
+  padding-inline: var(--ptk-space-sm);
+}
+
+/*
+ * The index's list of tools.
+ *
+ * A card per tool rather than a bullet list: the marker indent cost 40 pixels
+ * of a 320-pixel screen to say nothing, and the tool's name was the only part
+ * that could be tapped. The link fills the card's width and the tap-target
+ * height, so the whole top of the card is the target while the accessible name
+ * stays the tool's name and not a paragraph of prose.
+ */
+.tool-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: var(--ptk-space-md);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tool-list li {
+  padding: var(--ptk-space-sm) var(--ptk-space-md) var(--ptk-space-md);
+  border: 1px solid var(--ptk-color-border);
+  border-radius: var(--ptk-radius-md);
+  background-color: var(--ptk-color-surface-raised);
+}
+
+.tool-list a {
+  display: flex;
+  align-items: center;
+  min-height: var(--ptk-tap-target-min);
+  font-size: var(--ptk-font-size-lg);
+  font-weight: 600;
+}
+
+.tool-list p {
+  margin: 0;
+  color: var(--ptk-color-text-muted);
+}
+
+/*
+ * The embed route has no page chrome by design, but it cannot have no gutter.
+ *
+ * The focus ring is drawn two pixels outside the control, so an option tile
+ * flush against the frame's edge has its ring clipped by the iframe -- the one
+ * state a keyboard visitor needs to see is the one that disappears. Small
+ * enough that the host still controls the spacing around the widget.
+ */
+body[data-embedded='true'] > main {
+  padding-block: var(--ptk-space-sm) max(var(--ptk-space-sm), env(safe-area-inset-bottom));
+  padding-inline: max(var(--ptk-space-sm), env(safe-area-inset-left))
+    max(var(--ptk-space-sm), env(safe-area-inset-right));
 }

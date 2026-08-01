@@ -263,4 +263,27 @@ describe('ptk-target-categories', () => {
       expect(results.violations).toEqual([]);
     },
   );
+
+  it('fits a phone-width column with every question answered', async () => {
+    // The composed case, which the shared component's own tests cannot cover:
+    // four groups stacked, the longest labels the catalogue produces, and the
+    // outstanding-status line underneath. A phone is where this tool is used --
+    // at a warm-up rack, on a platform floor -- so the narrow layout is the one
+    // that has to hold, and horizontal scroll is the failure it fails with.
+    const frame = document.createElement('div');
+    frame.style.width = '320px';
+    document.body.append(frame);
+    teardown.push(() => {
+      frame.remove();
+    });
+
+    const element = document.createElement('ptk-target-categories');
+    element.catalog = CATALOG;
+    element.status = 'ready';
+    frame.append(element);
+    await element.updateComplete;
+    await choose(element, 'sex', 'female');
+
+    expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
+  });
 });

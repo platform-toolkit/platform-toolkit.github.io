@@ -115,3 +115,60 @@ export const ValueNotOffered: Story = {
 export const Disabled: Story = {
   args: { value: 'f-56', disabled: true },
 };
+
+/**
+ * The width a phone actually gives this element.
+ *
+ * Constrained by the wrapper rather than by a viewport setting, because that is
+ * the constraint the element responds to: the option grid counts columns
+ * against its own width, so a widget in a narrow sidebar on a wide page is in
+ * the same situation as one on a phone. Reviewing at desktop width is how a
+ * layout that only works there gets shipped.
+ *
+ * Twelve options because two is not a test of a wrapping grid.
+ */
+export const Narrow: Story = {
+  args: {
+    choices: [
+      ...WEIGHT_CLASSES,
+      { value: 'x-1', label: '67.5 kg', description: 'Over 60.0 to 67.5 kg' },
+      { value: 'x-2', label: '75 kg', description: 'Over 67.5 to 75.0 kg' },
+    ],
+  },
+  render: (args) => html`
+    <div style="width: 320px; outline: 1px dashed currentColor; padding: 1rem;">
+      <ptk-choice-group
+        .label=${args.label}
+        .choices=${args.choices}
+        .value=${args.value}
+        empty-message=${args.emptyMessage}
+        ?disabled=${args.disabled}
+      ></ptk-choice-group>
+    </div>
+  `,
+};
+
+/**
+ * The same width with plain options, which take a narrower track.
+ *
+ * Worth its own story: the two grids have different column counts on purpose,
+ * and a change that collapsed them to one would look right in whichever of the
+ * two was reviewed.
+ */
+export const NarrowWithoutDescriptions: Story = {
+  args: {
+    label: 'Weight class',
+    choices: WEIGHT_CLASSES.map(({ value, label }) => ({ value, label })),
+  },
+  render: (args) => html`
+    <div style="width: 320px; outline: 1px dashed currentColor; padding: 1rem;">
+      <ptk-choice-group
+        .label=${args.label}
+        .choices=${args.choices}
+        .value=${args.value}
+        empty-message=${args.emptyMessage}
+        ?disabled=${args.disabled}
+      ></ptk-choice-group>
+    </div>
+  `,
+};

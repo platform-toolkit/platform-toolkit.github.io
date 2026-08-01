@@ -10,7 +10,11 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": ["node"],
+    // `vite/client` declares the side-effect `.css` import. A browser-mode test
+    // that measures a tap target has to load the stylesheet the target's size
+    // is declared in, or it measures an element with no size rule at all and
+    // passes by proving nothing.
+    "types": ["node", "vite/client"],
 
     "noEmit": true,
     "composite": false,

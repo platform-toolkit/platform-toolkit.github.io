@@ -63,6 +63,19 @@
   --ptk-radius-md: 8px;
   --ptk-focus-ring-width: 2px;
   --ptk-focus-ring-offset: 2px;
+
+  /*
+   * The smallest anything may be that a lifter has to hit with a thumb.
+   *
+   * A token rather than a number repeated per component, because the number is
+   * a decision -- these tools are used at a warm-up rack and on a platform
+   * floor, by someone with chalk on their hands, and a control that is merely
+   * large enough to click is not large enough to tap. 44px is the figure both
+   * platform guidelines settle on.
+   *
+   * It is a minimum, not a size. Anything already taller stays taller.
+   */
+  --ptk-tap-target-min: 44px;
 }
 
 /* Dark values, applied when following the system preference. */
@@ -125,6 +138,20 @@
   box-sizing: border-box;
 }
 
+html {
+  /*
+   * Stops iOS Safari inflating text when a phone is turned to landscape.
+   *
+   * `100%` and not `none`: `none` also disables the visitor's own pinch zoom on
+   * some engines, which is an accessibility regression dressed as a layout fix.
+   * This only declines the automatic inflation, which resizes body text without
+   * resizing anything laid out around it -- the symptom is a card whose label
+   * suddenly overflows it, in landscape, on one platform.
+   */
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -134,6 +161,25 @@ body {
   font-size: var(--ptk-font-size-md);
   line-height: var(--ptk-line-height);
   -webkit-font-smoothing: antialiased;
+  /*
+   * A long unbroken token -- a federation name, a pasted identifier -- must
+   * wrap rather than widen the page. At 320px there is no room to absorb one,
+   * and the failure is the whole document scrolling sideways, not just the
+   * element that contains it.
+   */
+  overflow-wrap: break-word;
+}
+
+/*
+ * Links take the accent, in both themes.
+ *
+ * The user-agent default is a fixed blue that was chosen against a white page.
+ * `color-scheme: dark` nudges it lighter, but only by the browser's own guess,
+ * and the toolkit's dark surface is not the one it guessed against. The
+ * underline stays: colour is never the only signal that something is a link.
+ */
+a {
+  color: var(--ptk-color-accent);
 }
 
 :focus-visible {

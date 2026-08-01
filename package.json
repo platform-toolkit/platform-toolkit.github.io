@@ -37,7 +37,8 @@
     "test:watch": "vitest",
     "scan:references": "node scripts/scan-prohibited-references.mjs",
     "scan:references:strict": "node scripts/scan-prohibited-references.mjs --require-tokens",
-    "verify": "run-s format:check typecheck lint test scan:references build storybook:check"
+    "check:narrow": "node scripts/check-narrow-layout.mjs",
+    "verify": "run-s format:check typecheck lint test scan:references build check:narrow storybook:check"
   },
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "4.7.2",

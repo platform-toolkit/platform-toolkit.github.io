@@ -3,6 +3,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { CHOICE_CHANGE_EVENT, type Choice, type PtkChoiceGroup } from './ptk-choice-group.js';
 import './ptk-choice-group.js';
+// The layout assertions below measure real pixels, and the tap-target minimum
+// is a token. Without the stylesheet the custom property is undefined, the
+// declaration referencing it is dropped, and a test written to catch a tile
+// that is too small would instead measure a tile with no floor at all.
+import './tokens.css';
 
 /**
  * Real browser, real custom element, real Shadow DOM.
@@ -46,6 +51,59 @@ function radios(element: PtkChoiceGroup): HTMLInputElement[] {
     (node): node is HTMLInputElement => node instanceof HTMLInputElement,
   );
 }
+
+/**
+ * The narrowest phone still in production use.
+ *
+ * Also narrower than most third-party embed columns, which is the same
+ * constraint arriving twice: a widget that works here works framed in a
+ * sidebar, and one that only works at desktop width fails in both places.
+ */
+const NARROW_WIDTH = 320;
+
+/** The floor from `tokens.css`, repeated so a change to it fails a test here. */
+const TAP_TARGET_MIN = 44;
+
+/** Mounts a group inside a fixed-width column, the way a phone presents one. */
+async function mountAtWidth(
+  width: number,
+  properties: Partial<PtkChoiceGroup> = {},
+): Promise<{ element: PtkChoiceGroup; frame: HTMLDivElement }> {
+  const frame = document.createElement('div');
+  frame.style.width = `${String(width)}px`;
+  document.body.append(frame);
+  teardown.push(() => {
+    frame.remove();
+  });
+
+  const element = document.createElement('ptk-choice-group');
+  element.label = 'Weight class';
+  element.choices = SEXES;
+  Object.assign(element, properties);
+  frame.append(element);
+  await element.updateComplete;
+  return { element, frame };
+}
+
+function tiles(element: PtkChoiceGroup): HTMLElement[] {
+  return [...(element.shadowRoot?.querySelectorAll('.option') ?? [])].filter(
+    (node): node is HTMLElement => node instanceof HTMLElement,
+  );
+}
+
+/** How many columns the option grid settled on, read from where the tiles sit. */
+function columnCount(element: PtkChoiceGroup): number {
+  return new Set(tiles(element).map((tile) => Math.round(tile.getBoundingClientRect().left))).size;
+}
+
+/** Twelve options with a second line: the widest thing this element renders. */
+const DESCRIBED: readonly Choice[] = Array.from({ length: 12 }, (_, index) => ({
+  // Invented figures, and deliberately long enough to be awkward -- a division
+  // name is the label that actually threatens a narrow column.
+  value: `division-${String(index)}`,
+  label: `Submaster ${String(index)}`,
+  description: `${String(30 + index)} to ${String(34 + index)}`,
+}));
 
 describe('ptk-choice-group', () => {
   it('renders one radio per choice, with its label', async () => {
@@ -227,5 +285,60 @@ describe('ptk-choice-group', () => {
     const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
 
     expect(results.violations.map((violation) => violation.id)).toEqual([]);
+  });
+
+  describe('on a phone-width column', () => {
+    it('gives every option a target a thumb can hit', async () => {
+      // Measured, not asserted from the stylesheet, because the failure is a
+      // pixel count: the tiles were 42 pixels tall before this, which reads as
+      // fine in a screenshot and mis-taps at a warm-up rack.
+      const { element } = await mountAtWidth(NARROW_WIDTH, { choices: DESCRIBED });
+
+      const heights = tiles(element).map((tile) => tile.getBoundingClientRect().height);
+      expect(heights).toHaveLength(DESCRIBED.length);
+      for (const height of heights) {
+        expect(height).toBeGreaterThanOrEqual(TAP_TARGET_MIN);
+      }
+    });
+
+    it('gives plain options a target a thumb can hit too', async () => {
+      // Separately, because these are the short tiles: a description is what
+      // was pushing the described ones over the line by accident.
+      const { element } = await mountAtWidth(NARROW_WIDTH);
+
+      for (const tile of tiles(element)) {
+        expect(tile.getBoundingClientRect().height).toBeGreaterThanOrEqual(TAP_TARGET_MIN);
+      }
+    });
+
+    it('stacks described options into one column rather than overflowing', async () => {
+      const { element, frame } = await mountAtWidth(NARROW_WIDTH, { choices: DESCRIBED });
+
+      expect(columnCount(element)).toBe(1);
+      // The whole point. A wrapping row put each option at its own intrinsic
+      // width; a grid track wider than its container would push the page
+      // sideways instead, which is the failure this guards.
+      expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
+    });
+
+    it('counts columns against its own width, not the window', async () => {
+      // The same element, the same options, in a wider column. If this ever
+      // matched the narrow case, the layout has been re-pinned to the viewport
+      // -- which looks right on a phone and wrong in an embedded sidebar on a
+      // desktop page, the case nobody opens.
+      const { element } = await mountAtWidth(900, { choices: DESCRIBED });
+
+      expect(columnCount(element)).toBeGreaterThan(1);
+    });
+
+    it('wraps a label too long for its column instead of widening it', async () => {
+      const { frame } = await mountAtWidth(NARROW_WIDTH, {
+        choices: [
+          { value: 'long', label: 'Submaster and Master combined, drug tested, single ply' },
+        ],
+      });
+
+      expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
+    });
   });
 });

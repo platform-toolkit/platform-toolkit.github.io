@@ -64,17 +64,55 @@ export class PtkChoiceGroup extends LitElement {
       letter-spacing: 0.04em;
     }
 
+    /*
+     * A grid of equal columns, as many as fit, rather than a wrapping row.
+     *
+     * Wrapping put every option at its own intrinsic width, which on a phone
+     * produced a ragged left-aligned column -- seventeen age divisions each a
+     * different length, which is the hardest thing on this screen to scan and
+     * the easiest to mis-tap. Equal tracks make the list a list.
+     *
+     * auto-fit is what makes this responsive without a media query: the column
+     * count follows the element's own width, so a widget in a narrow sidebar on
+     * a desktop page behaves like one on a phone, which is exactly what a
+     * viewport query would get wrong. The min() around the track minimum is
+     * load-bearing -- without it a container narrower than that minimum
+     * overflows instead of collapsing to a single column.
+     *
+     * (No backticks in a comment inside this template: it is a tagged template
+     * literal, and one would end it.)
+     */
     .options {
-      display: flex;
-      flex-wrap: wrap;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--options-min-width)), 1fr));
       gap: var(--ptk-space-sm);
       margin-top: var(--ptk-space-sm);
+      --options-min-width: 7rem;
+    }
+
+    /*
+     * Options carrying a second line need room for it before they are worth
+     * splitting into columns. Set from the choices rather than by the caller:
+     * whether a description exists is a fact about the data this element was
+     * handed, not something a tool should have to remember to configure.
+     */
+    .options.described {
+      --options-min-width: 13rem;
     }
 
     .option {
-      display: flex;
+      /*
+       * Grid rather than flex so the row can be centred inside a tile that is
+       * taller than its contents. Baseline alignment keeps the radio on the
+       * first line of text; centred align-content centres the pair when the
+       * tap-target minimum makes the tile taller than they are.
+       */
+      display: grid;
+      grid-template-columns: auto 1fr;
       align-items: baseline;
+      align-content: center;
       gap: var(--ptk-space-sm);
+      min-height: var(--ptk-tap-target-min);
       padding: var(--ptk-space-sm) var(--ptk-space-md);
       border: 1px solid var(--ptk-color-border);
       border-radius: var(--ptk-radius-md);
@@ -107,6 +145,9 @@ export class PtkChoiceGroup extends LitElement {
     .text {
       display: flex;
       flex-direction: column;
+      /* The tile is a fixed grid track, so a long label wraps inside it rather
+         than pushing the track wider and the row off the screen. */
+      min-width: 0;
     }
 
     .description {
@@ -150,13 +191,16 @@ export class PtkChoiceGroup extends LitElement {
   readonly #groupName = 'ptk-choice';
 
   override render(): TemplateResult {
+    // Any description, not every: one option with a second line makes the whole
+    // row of tiles taller, so the width they need is set by the widest case.
+    const described = this.choices.some((choice) => choice.description !== undefined);
     return html`
       <fieldset ?disabled=${this.disabled}>
         <legend>${this.label}</legend>
         ${
           this.choices.length === 0
             ? html`<p class="empty">${this.emptyMessage}</p>`
-            : html`<div class="options">
+            : html`<div class=${described ? 'options described' : 'options'}>
                 ${this.choices.map((choice) => this.#renderChoice(choice))}
               </div>`
         }
