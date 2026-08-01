@@ -18,6 +18,16 @@ updates:
     # Every dependency is pinned to an exact version, so a lockfile-only update
     # would never appear. Both are wanted.
     versioning-strategy: increase
+    ignore:
+      # @types/node's major line tracks a Node major, so it is not an
+      # independent choice: it has to match .nvmrc and the engines range.
+      # Ahead-of-runtime types compile clean while describing APIs that are
+      # absent at runtime, which turns a version mismatch into a crash rather
+      # than a type error -- the one outcome the strict setup exists to avoid.
+      # Minor and patch updates still come through. Raise this deliberately,
+      # together with .nvmrc and engines, when moving to the next Node LTS.
+      - dependency-name: '@types/node'
+        update-types: [version-update:semver-major]
     groups:
       # One pull request per ecosystem for routine patch and minor bumps.
       # Majors stay separate because they are the ones worth reading.
