@@ -3,6 +3,8 @@ import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 
 import {
+  ARTIFACT_BUDGET_BYTES,
+  ArtifactTooLargeError,
   ArtifactValidationError,
   DATA_META_PATH,
   planPublication,
@@ -135,6 +137,41 @@ describe('planPublication', () => {
     expect(() =>
       planPublication({ generatedAt: '2026-07-31T00:00:00.000Z', sources: [], artifacts: [] }),
     ).toThrow(ArtifactValidationError);
+  });
+
+  it('refuses an artifact over the size budget', () => {
+    // The failure ADR 2 exists to catch. An artifact that quietly grew to forty
+    // megabytes is not something anyone notices in a diff.
+    const big = { widgets: Array.from({ length: 200_000 }, (_, index) => index) };
+    expect(() => plan([widgets(big)])).toThrow(ArtifactTooLargeError);
+  });
+
+  it('allows a deliberate exception at the call site', () => {
+    expect(() =>
+      planPublication({
+        generatedAt: '2026-07-31T00:00:00.000Z',
+        sources: SOURCES,
+        artifacts: [widgets({ widgets: [1] })],
+        maxArtifactBytes: 1,
+      }),
+    ).toThrow(ArtifactTooLargeError);
+    expect(ARTIFACT_BUDGET_BYTES).toBeGreaterThan(1);
+  });
+
+  it('holds the index to the same budget', () => {
+    // It grows with the shard count, and it is the one file every visitor
+    // downloads.
+    const many = Array.from({ length: 400 }, (_, index) =>
+      widgets({ widgets: [index] }, `widgets-${index}`),
+    );
+    expect(() =>
+      planPublication({
+        generatedAt: '2026-07-31T00:00:00.000Z',
+        sources: SOURCES,
+        artifacts: many,
+        maxArtifactBytes: 4096,
+      }),
+    ).toThrow(new RegExp(`"${DATA_META_PATH}"`));
   });
 
   it('rejects an identifier that would make an unsafe path', () => {

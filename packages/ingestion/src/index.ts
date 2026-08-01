@@ -17,6 +17,8 @@ export {
   assertAllowedSourceUrl,
 } from './fetch-policy.js';
 export {
+  ARTIFACT_BUDGET_BYTES,
+  ArtifactTooLargeError,
   ArtifactValidationError,
   DATA_META_PATH,
   planPublication,

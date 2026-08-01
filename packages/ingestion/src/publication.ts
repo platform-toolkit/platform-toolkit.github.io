@@ -48,6 +48,22 @@ const ARTIFACT_DIRECTORY = 'artifacts';
  */
 const FILENAME_DIGEST_LENGTH = 16;
 
+/**
+ * How large one artifact may get, uncompressed.
+ *
+ * Not a platform limit. It is a judgement, recorded in ADR 2, that a phone on a
+ * conference-centre network should not download more than this to answer one
+ * question -- so raising it should be a decision someone makes, not a threshold
+ * something drifts past. At the measured cost of a record row this is about
+ * 4,800 rows, which is why published data is sharded.
+ *
+ * A hard ceiling sits above it regardless: `canonicalJson` returns a string,
+ * and V8 caps a string at 512 MiB. Past that the build throws instead of
+ * publishing something degraded, which is the right failure but a much less
+ * informative one than this budget.
+ */
+export const ARTIFACT_BUDGET_BYTES = 2 * 1024 * 1024;
+
 /** Thrown when data does not match the contract the browser will read it with. */
 export class ArtifactValidationError extends Error {
   override readonly name = 'ArtifactValidationError';
@@ -58,6 +74,29 @@ export class ArtifactValidationError extends Error {
     readonly problems: readonly string[],
   ) {
     super(`Artifact "${artifactId}" does not match its schema: ${problems.join('; ')}`);
+  }
+}
+
+/**
+ * Thrown when an artifact exceeds the size budget.
+ *
+ * Its own type rather than a generic error because this is the failure the
+ * budget exists to catch, and a build log should name it as such. An artifact
+ * that quietly grew to forty megabytes is not something anyone notices in a
+ * diff.
+ */
+export class ArtifactTooLargeError extends Error {
+  override readonly name = 'ArtifactTooLargeError';
+
+  constructor(
+    readonly artifactId: string,
+    readonly byteLength: number,
+    readonly budgetBytes: number,
+  ) {
+    super(
+      `Artifact "${artifactId}" is ${byteLength} bytes, over the ${budgetBytes}-byte budget. ` +
+        'Shard it, or raise the budget deliberately.',
+    );
   }
 }
 
@@ -102,6 +141,15 @@ export interface PublicationRequest {
   readonly generatedAt: string;
   readonly sources: readonly SourceFreshness[];
   readonly artifacts: readonly ArtifactSource<unknown>[];
+
+  /**
+   * Largest artifact to allow, in bytes. Defaults to {@link ARTIFACT_BUDGET_BYTES}.
+   *
+   * Overridable so that a deliberate exception is possible and visible at the
+   * call site, rather than requiring the shared constant to be loosened for
+   * everyone.
+   */
+  readonly maxArtifactBytes?: number;
 }
 
 /**
@@ -110,9 +158,11 @@ export interface PublicationRequest {
  *
  * @throws {ArtifactValidationError} if an artifact or the resulting index does
  *   not match its schema.
+ * @throws {ArtifactTooLargeError} if an artifact exceeds the size budget.
  * @throws {TypeError} if two artifacts share an identifier.
  */
 export function planPublication(request: PublicationRequest): PublicationPlan {
+  const budget = request.maxArtifactBytes ?? ARTIFACT_BUDGET_BYTES;
   const files: PublishedFile[] = [];
   const index: Record<string, ArtifactReference> = {};
 
@@ -123,6 +173,9 @@ export function planPublication(request: PublicationRequest): PublicationPlan {
       throw new TypeError(`Two artifacts share the identifier "${artifact.id}".`);
     }
     const file = buildArtifact(artifact);
+    if (file.reference.byteLength > budget) {
+      throw new ArtifactTooLargeError(artifact.id, file.reference.byteLength, budget);
+    }
     files.push(file.file);
     index[artifact.id] = file.reference;
   }
@@ -135,7 +188,18 @@ export function planPublication(request: PublicationRequest): PublicationPlan {
   });
 
   // Last, deliberately. See the note at the top of this file.
-  files.push({ path: DATA_META_PATH, contents: canonicalJson(meta) });
+  const metaContents = canonicalJson(meta);
+
+  // The index is subject to the same budget as anything else, and is the one
+  // file every visitor downloads. It grows with the shard count, so this is
+  // where a corpus sharded into tens of thousands of pieces announces that the
+  // index itself now needs sharding.
+  const metaBytes = Buffer.byteLength(metaContents, 'utf8');
+  if (metaBytes > budget) {
+    throw new ArtifactTooLargeError(DATA_META_PATH, metaBytes, budget);
+  }
+
+  files.push({ path: DATA_META_PATH, contents: metaContents });
 
   return { files, meta };
 }
