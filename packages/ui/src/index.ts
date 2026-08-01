@@ -10,6 +10,17 @@
  * JavaScript. Import them at `@platform-toolkit/ui/tokens.css`.
  */
 
+// Side-effect import: defining a custom element is what makes the tag usable in
+// a template, and a consumer that imported only the type would get markup that
+// silently never upgrades.
+import './ptk-choice-group.js';
+
+export {
+  CHOICE_CHANGE_EVENT,
+  PtkChoiceGroup,
+  type Choice,
+  type ChoiceChangeDetail,
+} from './ptk-choice-group.js';
 export {
   applyThemeMode,
   currentThemeMode,
