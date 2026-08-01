@@ -46,6 +46,7 @@ apps/web/                 The deployed site. One Vite MPA, one page entry per ro
   platform-targets/         one directory per tool: standalone page and embed routes
 packages/domain/          Pure calculation. No DOM, no network, no I/O.
 packages/data-contracts/  Runtime schemas and types for every published artifact
+packages/data-access/     The port to wherever data lives, and today's static adapter
 packages/ingestion/       Source adapters and anomaly checks. CI only.
 packages/configuration/   Defaults, theme configuration, precedence resolution
 packages/ui/              Shared custom elements and design tokens. The only DOM package.
@@ -55,6 +56,21 @@ docs/                     ADRs, source notes, embedding and operations guides
 
 Data arrives from outside the program, so it is validated on read with a runtime schema, not
 assumed. A source that changes shape produces a visible status, never a silently coerced number.
+
+### Reading data
+
+Nothing reads a URL directly. Every read goes through one interface in `packages/data-access`, whose
+methods ask for what the application needs — the freshness of the published data, the records for a
+cohort — rather than for a file. Artifact paths and any eventual shard arithmetic live in the static
+adapter behind it, and one file, `apps/web/src/data-source.ts`, decides which adapter is in use.
+
+Static hosting has a ceiling: the dataset is large, a Pages site is capped at 1 GB, and athlete
+lookup is a query. A database behind an API is a plausible future, so the seam exists now, while
+there is one implementation and nothing has been written against it. `PTK_DATA_ORIGIN` moves the
+data to a separate https origin and widens `connect-src` by exactly that origin — the one directive
+that would otherwise break such a move as a browser policy violation rather than a reportable error.
+[ADR 0001](docs/adr/0001-data-access-seam.md) records the reasoning and what a migration would
+touch.
 
 ### Why one repository
 

@@ -17,17 +17,19 @@ const here = (path: string): string => fileURLToPath(new URL(path, import.meta.u
  * load-bearing, and become available unchanged if this ever moves to a host with
  * header control.
  */
-const CONTENT_SECURITY_POLICY = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self'",
-  "font-src 'self'",
-  "img-src 'self' data:",
-  "connect-src 'self'",
-  "object-src 'none'",
-  "base-uri 'none'",
-  "form-action 'self'",
-].join('; ');
+function buildContentSecurityPolicy(connectSrc: string): string {
+  return [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self'",
+    "font-src 'self'",
+    "img-src 'self' data:",
+    `connect-src ${connectSrc}`,
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+  ].join('; ');
+}
 
 /**
  * Injects the Content Security Policy into built HTML only.
@@ -38,7 +40,7 @@ const CONTENT_SECURITY_POLICY = [
  * the production output and verified there by the end-to-end tests, which run
  * against the built site.
  */
-function contentSecurityPolicy(): Plugin {
+function contentSecurityPolicy(policy: string): Plugin {
   return {
     name: 'ptk-content-security-policy',
     apply: 'build',
@@ -52,7 +54,7 @@ function contentSecurityPolicy(): Plugin {
               tag: 'meta',
               attrs: {
                 'http-equiv': 'Content-Security-Policy',
-                content: CONTENT_SECURITY_POLICY,
+                content: policy,
               },
               injectTo: 'head-prepend',
             },
@@ -78,10 +80,58 @@ function contentSecurityPolicy(): Plugin {
  */
 const base = process.env['PTK_BASE_PATH'] ?? '/';
 
+/**
+ * Where the published data lives, and therefore what `connect-src` has to allow.
+ *
+ * Unset means same-origin: JSON published beside the site, which is the whole
+ * arrangement today. Setting it to an https origin points the application at a
+ * separate host -- a data-only bucket, or eventually an API -- and widens the
+ * policy by exactly that one origin.
+ *
+ * This exists now because `connect-src 'self'` is the single directive that
+ * would silently break the move. A request to a new origin fails in the browser
+ * with a policy violation rather than an error the application can report, and
+ * finding that out during a migration is worse than spending fifteen lines on it
+ * beforehand.
+ */
+function readDataOrigin(raw: string | undefined): string | undefined {
+  if (raw === undefined || raw === '') return undefined;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error('PTK_DATA_ORIGIN must be an absolute https origin.');
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error('PTK_DATA_ORIGIN must use https.');
+  }
+  // A CSP source expression is an origin. A path would be ignored by the
+  // browser while reading as though it constrained something, so refuse it
+  // rather than accept a policy that is narrower on paper than in effect.
+  if (parsed.pathname !== '/' || parsed.search !== '' || parsed.hash !== '') {
+    throw new Error('PTK_DATA_ORIGIN must be an origin with no path, query, or fragment.');
+  }
+  return parsed.origin;
+}
+
+const dataOrigin = readDataOrigin(process.env['PTK_DATA_ORIGIN']);
+const dataBaseUrl = dataOrigin === undefined ? `${base}data/` : `${dataOrigin}/`;
+const CONTENT_SECURITY_POLICY = buildContentSecurityPolicy(
+  dataOrigin === undefined ? "'self'" : `'self' ${dataOrigin}`,
+);
+
 export default defineConfig({
   base,
   appType: 'mpa',
-  plugins: [contentSecurityPolicy()],
+  plugins: [contentSecurityPolicy(CONTENT_SECURITY_POLICY)],
+  // Named one at a time, never by prefix. Vite's `envPrefix` would inline every
+  // matching variable into the bundle, and the deploy workflow puts
+  // `PTK_PROHIBITED_TOKENS` -- a repository secret -- in the same environment as
+  // the build. An explicit list cannot publish something nobody listed.
+  define: {
+    __PTK_DATA_BASE_URL__: JSON.stringify(dataBaseUrl),
+  },
   build: {
     target: 'es2022',
     // Public source maps are off by default: they would republish readable

@@ -3,6 +3,7 @@
   "files": [],
   "references": [
     { "path": "./packages/data-contracts" },
+    { "path": "./packages/data-access" },
     { "path": "./packages/domain" },
     { "path": "./packages/configuration" },
     { "path": "./packages/ingestion" },

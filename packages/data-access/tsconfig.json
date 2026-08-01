@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    // This package ships to the browser but must not touch the DOM. Pulling in
+    // the `DOM` lib to get `fetch` would also hand it `document` and `window`,
+    // which would make the "only packages/ui touches the DOM" rule a convention
+    // rather than something the compiler enforces. `@types/node` supplies the
+    // WHATWG networking globals this needs -- fetch, Response, AbortSignal, URL
+    // -- and nothing from the document object model. ESLint additionally refuses
+    // `node:` imports here, so the types cannot become a doorway to Node APIs
+    // that would not exist in a browser.
+    "types": ["node"],
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"],
+  "references": [{ "path": "../data-contracts" }]
+}

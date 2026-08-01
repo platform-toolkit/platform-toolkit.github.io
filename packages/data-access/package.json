@@ -1,0 +1,21 @@
+{
+  "name": "@platform-toolkit/data-access",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The port between the application and wherever data is stored, plus the static-file adapter in use today.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build"
+  },
+  "dependencies": {
+    "@platform-toolkit/data-contracts": "workspace:*",
+    "valibot": "1.4.2"
+  }
+}

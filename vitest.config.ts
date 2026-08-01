@@ -41,6 +41,18 @@ export default defineConfig({
       },
       {
         test: {
+          // Node, not a browser environment, even though this package ships to
+          // the browser. Its transport is injected, so nothing here needs a real
+          // one -- and a test that passes in bare Node is a test that could not
+          // have quietly depended on the DOM.
+          name: 'data-access',
+          root: './packages/data-access',
+          environment: 'node',
+          include: ['src/**/*.test.ts'],
+        },
+      },
+      {
+        test: {
           name: 'ingestion',
           root: './packages/ingestion',
           environment: 'node',

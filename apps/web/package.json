@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@platform-toolkit/configuration": "workspace:*",
+    "@platform-toolkit/data-access": "workspace:*",
     "@platform-toolkit/data-contracts": "workspace:*",
     "@platform-toolkit/domain": "workspace:*",
     "@platform-toolkit/ui": "workspace:*",

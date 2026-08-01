@@ -22,6 +22,7 @@
     // type-check on a clean checkout before anything has been compiled.
     "paths": {
       "@platform-toolkit/configuration": ["./packages/configuration/src/index.ts"],
+      "@platform-toolkit/data-access": ["./packages/data-access/src/index.ts"],
       "@platform-toolkit/data-contracts": ["./packages/data-contracts/src/index.ts"],
       "@platform-toolkit/domain": ["./packages/domain/src/index.ts"],
       "@platform-toolkit/ingestion": ["./packages/ingestion/src/index.ts"],

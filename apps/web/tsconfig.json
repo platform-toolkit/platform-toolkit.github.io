@@ -15,6 +15,7 @@
   "exclude": ["src/**/*.test.ts"],
   "references": [
     { "path": "../../packages/configuration" },
+    { "path": "../../packages/data-access" },
     { "path": "../../packages/data-contracts" },
     { "path": "../../packages/domain" },
     { "path": "../../packages/ui" }
