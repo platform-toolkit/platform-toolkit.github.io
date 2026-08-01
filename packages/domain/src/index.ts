@@ -25,6 +25,13 @@ export {
   type PlainDate,
 } from './plain-date.js';
 export {
+  findRecord,
+  standingAgainstRecord,
+  type RecordLookup,
+  type RecordQuery,
+  type RecordStanding,
+} from './records.js';
+export {
   USPA_POUNDS_PER_KILOGRAM,
   kilogramsToUspaDisplayPounds,
   parseKilograms,

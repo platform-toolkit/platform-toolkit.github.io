@@ -28,3 +28,13 @@ export {
   type DataMeta,
   type SourceFreshness,
 } from './freshness.js';
+export {
+  FederationRecordSchema,
+  LiftSchema,
+  RecordBookSchema,
+  RecordScopeSchema,
+  type FederationRecord,
+  type Lift,
+  type RecordBook,
+  type RecordScope,
+} from './records.js';
