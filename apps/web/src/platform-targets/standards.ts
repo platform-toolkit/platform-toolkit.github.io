@@ -18,11 +18,17 @@
  *
  * WHY THE MESSAGES ARE HERE
  *
- * `parseKilograms` in `packages/domain` reports failures for whoever maintains a
- * data feed -- its reasons quote the offending input, which is right for a CI log
- * and wrong for a person who just mistyped. The user-facing sentences are layered
- * over it here, and they are in this module rather than in the component so they
- * can be asserted without a browser.
+ * `parseWeightInput` in `packages/domain` reports failures as codes, which is
+ * what a caller needs and not what a person needs. The user-facing sentences are
+ * layered over it here, and they are in this module rather than in the component
+ * so they can be asserted without a browser.
+ *
+ * TWO UNITS, ONE SET OF STANDARDS
+ *
+ * The standards are published in kilograms and are only ever compared in
+ * kilograms. What the lifter types may be in either unit, and the difference is
+ * kept in {@link LiftField} rather than resolved on the way in, so that switching
+ * units is a change of view and never a change of value.
  */
 import type {
   ClassificationBook,
@@ -32,10 +38,18 @@ import type {
 } from '@platform-toolkit/data-contracts';
 import {
   ClassificationLadder,
-  parseKilograms,
+  enterWeight,
+  entryAmount,
+  parseWeightInput,
+  roundToPlaces,
   selectClassificationTable,
+  showEntryIn,
+  weightIn,
   type Classification,
   type ClassificationLadderProblem,
+  type EnteredWeight,
+  type ParsedWeightInput,
+  type WeightUnit,
 } from '@platform-toolkit/domain';
 
 import { testedFlag, type CategorySelection } from './selection.js';
@@ -60,10 +74,85 @@ export const LIFT_LABELS: Readonly<Record<Lift, string>> = {
   total: 'Total',
 };
 
-/** What is in each field, exactly as typed. */
-export type LiftEntries = Readonly<Record<Lift, string>>;
+/**
+ * One field: exactly what was typed, and the figure behind it.
+ *
+ * `weight` is the drift-free origin -- the number in the unit it was typed in --
+ * and it is `null` whenever the text is empty or does not read as a weight. It
+ * exists so that switching units repeatedly returns the lifter to the number they
+ * typed rather than to that number plus a rounding per toggle: 130 kg shown in
+ * pounds is 286.6, and 286.6 pounds read back as kilograms is 129.99, which after
+ * a few flicks is a different squat.
+ */
+export interface LiftField {
+  readonly text: string;
+  readonly weight: EnteredWeight | null;
+}
 
-export const NO_ENTRIES: LiftEntries = { squat: '', bench: '', deadlift: '', total: '' };
+const EMPTY_FIELD: LiftField = { text: '', weight: null };
+
+/** What is in the four fields, and the unit they are being entered in. */
+export interface LiftEntries {
+  readonly unit: WeightUnit;
+  readonly fields: Readonly<Record<Lift, LiftField>>;
+}
+
+export const NO_ENTRIES: LiftEntries = {
+  unit: 'kg',
+  fields: { squat: EMPTY_FIELD, bench: EMPTY_FIELD, deadlift: EMPTY_FIELD, total: EMPTY_FIELD },
+};
+
+/** Accepts a keystroke. What it means is decided on the way out, not here. */
+export function typeLift(entries: LiftEntries, lift: Lift, text: string): LiftEntries {
+  const parsed = parseWeightInput(text);
+  return {
+    ...entries,
+    fields: { ...entries.fields, [lift]: { text, weight: originOf(parsed, entries.unit) } },
+  };
+}
+
+/**
+ * The figure behind a field, in the unit it was actually written in.
+ *
+ * A typed suffix wins over the panel's unit. Somebody who pastes `183.7 kg` into
+ * a field currently showing pounds has said which unit they mean, and reading it
+ * as 183.7 lb because of where the radio happens to sit discards the one piece of
+ * information that resolves the ambiguity.
+ */
+function originOf(parsed: ParsedWeightInput, fieldUnit: WeightUnit): EnteredWeight | null {
+  if (!parsed.ok || parsed.amount <= 0) {
+    return null;
+  }
+  return enterWeight(parsed.amount, parsed.unit ?? fieldUnit);
+}
+
+/**
+ * Switches the unit, converting every figure rather than rereading it.
+ *
+ * The same rule tool 3 states outright, and it matters more here than there. A
+ * lift entered on this screen is a fact about a meet that already happened, so
+ * "405" does not become 405 kg because the lifter tapped a different radio -- it
+ * stays the 405 lb they lifted. Reinterpreting instead would turn a 405 lb squat
+ * into a 405 kg squat, which is not a plausible mistake to notice on screen: it
+ * is simply reported back as Elite.
+ */
+export function setEntryUnit(entries: LiftEntries, unit: WeightUnit): LiftEntries {
+  if (unit === entries.unit) {
+    return entries;
+  }
+  const fields = { ...entries.fields };
+  for (const lift of LIFTS) {
+    const field = entries.fields[lift];
+    // Text that never read as a weight has nothing to convert, and rewriting it
+    // would delete what the lifter typed in the middle of correcting it.
+    if (field.weight === null) {
+      continue;
+    }
+    const shown = showEntryIn(field.weight, unit);
+    fields[lift] = { text: String(entryAmount(shown)), weight: shown };
+  }
+  return { unit, fields };
+}
 
 /** What the field contains, once read as a weight. */
 export type LiftEntry =
@@ -72,6 +161,7 @@ export type LiftEntry =
   | { readonly kind: 'invalid'; readonly message: string }
   | {
       readonly kind: 'weight';
+      /** Always kilograms: the published standards are in kilograms and nothing else compares. */
       readonly kilograms: number;
       /** True when it was added up from the three lifts rather than typed. */
       readonly derived: boolean;
@@ -100,6 +190,15 @@ export interface LiftStanding {
   readonly standards: LiftStandards;
   /** Where the entry sits in the ladder. `null` unless there is both an entry and a ladder. */
   readonly classification: Classification | null;
+  /**
+   * The unit every figure in this standing should be written in.
+   *
+   * Carried on the standing rather than passed alongside it, so that
+   * {@link standingSummary} cannot be called with the entries' unit and a standing
+   * resolved under the other one -- which would read as a lifter twice as strong,
+   * or half.
+   */
+  readonly unit: WeightUnit;
 }
 
 /** A lifter, as far as choosing tables of standards is concerned. */
@@ -156,7 +255,9 @@ export function resolveStandards(
   category: LifterCategory | null,
   entries: LiftEntries,
 ): readonly LiftStanding[] {
-  const typed = new Map<Lift, LiftEntry>(LIFTS.map((lift) => [lift, readEntry(entries[lift])]));
+  const typed = new Map<Lift, LiftEntry>(
+    LIFTS.map((lift) => [lift, readEntry(entries.fields[lift], entries.unit)]),
+  );
   const derivedTotal = deriveTotal(typed);
 
   return LIFTS.map((lift) => {
@@ -171,6 +272,7 @@ export function resolveStandards(
         entry.kind === 'weight' && standards.kind === 'ladder'
           ? standards.ladder.classify(entry.kilograms)
           : null,
+      unit: entries.unit,
     };
   });
 }
@@ -212,24 +314,49 @@ function deriveTotal(typed: ReadonlyMap<Lift, LiftEntry>): LiftEntry | null {
  * screen, and colouring it red the moment the page loads is the single easiest
  * way to make a tool feel broken.
  */
-function readEntry(raw: string): LiftEntry {
-  if (raw.trim() === '') {
+function readEntry(field: LiftField, unit: WeightUnit): LiftEntry {
+  if (field.text.trim() === '') {
     return { kind: 'empty' };
   }
-  const parsed = parseKilograms(raw);
-  if (!parsed.ok) {
-    // The domain reason is not reused. It quotes the input back, which is right
-    // for a CI log reading a data feed and wrong on a screen where the input is
-    // already visible one line above.
-    return { kind: 'invalid', message: 'Enter a weight in kilograms, for example 142.5.' };
+  if (field.weight !== null) {
+    // Read from the origin rather than from what is displayed. After a unit change
+    // the two differ by the rounding in the text -- 130 kg shows as 286.6 lb, which
+    // is 129.99 kg back again -- and it is the number the lifter actually typed
+    // that should decide their class, not the number the panel had room to print.
+    return { kind: 'weight', kilograms: weightIn(field.weight.origin, 'kg'), derived: false };
   }
-  if (parsed.kilograms <= 0) {
-    // Its own message, and a real case: `0` parses. Classifying it would throw,
-    // and the standards are floors above zero, so there is nothing to say about
-    // it beyond this.
-    return { kind: 'invalid', message: 'Enter a weight above zero.' };
+  return { kind: 'invalid', message: refusalMessage(parseWeightInput(field.text), unit) };
+}
+
+/**
+ * Why a field did not read as a weight, in a sentence for the lifter.
+ *
+ * The domain codes are not shown. They exist so a caller can branch; what a person
+ * needs is the correction, and in the unit their own panel is set to -- telling
+ * somebody entering pounds to write "142.5" is an instruction to enter a figure
+ * that will be read as a different lift entirely.
+ */
+function refusalMessage(parsed: ParsedWeightInput, unit: WeightUnit): string {
+  if (parsed.ok || parsed.code === 'negative') {
+    // A successful parse reaches here only for a figure at or below zero, which
+    // `originOf` declines. Classifying it would throw, and every standard is a
+    // floor above zero, so there is nothing further to say about it.
+    return 'Enter a weight above zero.';
   }
-  return { kind: 'weight', kilograms: parsed.kilograms, derived: false };
+  switch (parsed.code) {
+    case 'too-large':
+      return 'That is heavier than this tool can read.';
+    case 'unknown-unit':
+      // Worth its own sentence: the figure was fine and only the suffix was not,
+      // so repeating the example would look like the number was rejected.
+      return 'Write the unit as kg or lb, or leave it off.';
+    case 'empty':
+    case 'not-a-number':
+      break;
+  }
+  return unit === 'kg'
+    ? 'Enter a weight in kilograms, for example 142.5.'
+    : 'Enter a weight in pounds, for example 315.';
 }
 
 function standardsFor(
@@ -297,13 +424,17 @@ export function standingSummary(standing: LiftStanding): string {
     if (first === undefined || last === undefined) {
       return 'No standards are published for this lift in your category.';
     }
-    return `${first.label} at ${formatKilograms(first.requiredKilograms)} kg, up to ${last.label} at ${formatKilograms(last.requiredKilograms)} kg.`;
+    return `${first.label} at ${formatAsUnit(first.requiredKilograms, standing.unit)}, up to ${last.label} at ${formatAsUnit(last.requiredKilograms, standing.unit)}.`;
   }
 
-  return placementSummary(standing.classification, standing.entry.derived);
+  return placementSummary(standing.classification, standing.entry.derived, standing.unit);
 }
 
-function placementSummary(classification: Classification | null, derived: boolean): string {
+function placementSummary(
+  classification: Classification | null,
+  derived: boolean,
+  unit: WeightUnit,
+): string {
   if (classification === null) {
     // Only reachable if a caller built a standing by hand with an entry and a
     // ladder and no placement. Saying so plainly beats an empty line.
@@ -319,7 +450,7 @@ function placementSummary(classification: Classification | null, derived: boolea
   if (classification.next === null || classification.kilogramsToNext === null) {
     return `${prefix}${reached} This is the highest published standard.`;
   }
-  return `${prefix}${reached} ${formatKilograms(classification.kilogramsToNext)} kg to ${classification.next.label}.`;
+  return `${prefix}${reached} ${formatAsUnit(classification.kilogramsToNext, unit)} to ${classification.next.label}.`;
 }
 
 /**
@@ -330,6 +461,33 @@ function placementSummary(classification: Classification | null, derived: boolea
  */
 export function formatKilograms(kilograms: number): string {
   return String(roundToHundredths(kilograms));
+}
+
+/**
+ * A published figure, written in the unit the lifter is working in.
+ *
+ * Pounds get one decimal place where kilograms get two. Not a style choice: every
+ * standard is published to the half kilogram, so the hundredths of a converted
+ * pound figure are an artifact of 0.45359237 rather than anything the federation
+ * wrote down. "10.47 lb to Class I" claims a precision that does not exist and
+ * that no bar could be loaded to; "10.5 lb" says the same thing honestly.
+ */
+export function formatAsUnit(kilograms: number, unit: WeightUnit): string {
+  return `${amountAsUnit(kilograms, unit)} ${unit}`;
+}
+
+/**
+ * The same figure without its unit, for a field that already names one.
+ *
+ * Separate from {@link formatAsUnit} rather than trimmed off it, because the
+ * rounding is the part worth sharing and a caller that re-derived it would drift
+ * from the sentence underneath the field it is filling.
+ */
+export function amountAsUnit(kilograms: number, unit: WeightUnit): string {
+  if (unit === 'kg') {
+    return formatKilograms(kilograms);
+  }
+  return String(roundToPlaces(weightIn({ amount: kilograms, unit: 'kg' }, 'lb'), 1));
 }
 
 function roundToHundredths(value: number): number {

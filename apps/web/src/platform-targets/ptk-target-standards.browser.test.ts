@@ -88,11 +88,22 @@ async function mount(
   return element;
 }
 
-function input(element: PtkTargetStandards, lift: Lift): HTMLInputElement {
-  const field = element.shadowRoot?.querySelector(`ptk-number-field[data-lift="${lift}"]`);
-  const found = field?.shadowRoot?.querySelector('input');
-  if (!(found instanceof HTMLInputElement)) {
+function field(element: PtkTargetStandards, lift: Lift): Element {
+  const found = element.shadowRoot?.querySelector(`ptk-number-field[data-lift="${lift}"]`);
+  if (found === null || found === undefined) {
     throw new Error(`No field rendered for "${lift}".`);
+  }
+  return found;
+}
+
+function input(element: PtkTargetStandards, lift: Lift): HTMLInputElement {
+  // Reached through the field's own root. `closest` from the input would not get
+  // back out -- it stops at the shadow boundary -- so a test written that way
+  // reads `null` and asserts against `undefined` rather than failing on the
+  // attribute it was about.
+  const found = field(element, lift).shadowRoot?.querySelector('input');
+  if (!(found instanceof HTMLInputElement)) {
+    throw new Error(`No input rendered for "${lift}".`);
   }
   return found;
 }
@@ -102,6 +113,24 @@ async function type(element: PtkTargetStandards, lift: Lift, text: string): Prom
   const field = input(element, lift);
   field.value = text;
   field.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+  await element.updateComplete;
+}
+
+/**
+ * Picks a unit the way a thumb does.
+ *
+ * By `.value` rather than by an attribute selector: the group sets the value as a
+ * property, so `input[value="lb"]` matches nothing and a test written that way
+ * throws on the click instead of failing on the assertion it was about.
+ */
+async function chooseUnit(element: PtkTargetStandards, unit: 'kg' | 'lb'): Promise<void> {
+  const group = element.shadowRoot?.querySelector('ptk-choice-group.unit');
+  const radios = [...(group?.shadowRoot?.querySelectorAll('input[type="radio"]') ?? [])];
+  const found = radios.find((radio) => radio instanceof HTMLInputElement && radio.value === unit);
+  if (!(found instanceof HTMLInputElement)) {
+    throw new Error(`No radio offered for "${unit}".`);
+  }
+  found.click();
   await element.updateComplete;
 }
 
@@ -201,6 +230,73 @@ describe('ptk-target-standards', () => {
 
     expect(input(element, 'deadlift').value).toBe('17');
     expect(input(element, 'squat').value).toBe('');
+  });
+
+  it('converts what is already typed when the unit changes', async () => {
+    // The failure worth a browser test rather than a unit one: the panel owns the
+    // entries and the fields own their own values, so a conversion that never
+    // reached the field would leave "130" on screen under a sentence about a
+    // number twice the size, and nothing in the pure module would notice.
+    const element = await mount();
+    await type(element, 'squat', '130');
+    await chooseUnit(element, 'lb');
+
+    expect(input(element, 'squat').value).toBe('286.6');
+    // Still the same squat. Rereading 130 as pounds would put it at 59 kg --
+    // below the first standard -- with nothing on screen to say why it moved.
+    expect(summary(element, 'squat')).toContain('Class II');
+  });
+
+  it('labels the fields in the unit that was chosen', async () => {
+    const element = await mount();
+    await chooseUnit(element, 'lb');
+
+    expect(field(element, 'squat').getAttribute('unit')).toBe('lb');
+  });
+
+  it('places a weight typed in pounds against the published kilograms', async () => {
+    const element = await mount();
+    await chooseUnit(element, 'lb');
+    await type(element, 'squat', '300');
+
+    // 300 lb is 136.1 kg, which clears the 120 kg standard. Read as 300 kg it
+    // would clear it too, which is why the empty-field sentence is asserted below
+    // rather than the placement alone.
+    expect(summary(element, 'squat')).toContain('Class II');
+    expect(summary(element, 'bench')).toBe('Class III at 220.5 lb, up to Class II at 264.6 lb.');
+  });
+
+  it('says once that the standards it converted were published in kilograms', async () => {
+    const element = await mount();
+    await chooseUnit(element, 'lb');
+
+    // Whitespace collapsed: the sentence is wrapped in the template, so the line
+    // break lands mid-phrase and a raw `toContain` fails on the formatting.
+    const notice = (element.shadowRoot?.querySelector('ptk-notice')?.textContent ?? '')
+      .replaceAll(/\s+/gu, ' ')
+      .trim();
+    expect(notice).toContain('publishes its standards in kilograms');
+  });
+
+  it('asks for pounds when correcting a field on a pound panel', async () => {
+    // Telling somebody entering pounds to write "142.5" is an instruction to
+    // enter a different lift.
+    const element = await mount();
+    await chooseUnit(element, 'lb');
+    await type(element, 'squat', '3o0');
+
+    expect(summary(element, 'squat')).toContain('in pounds');
+  });
+
+  it('derives the total in the unit the lifter is working in', async () => {
+    const element = await mount();
+    await chooseUnit(element, 'lb');
+    await type(element, 'squat', '300');
+    await type(element, 'bench', '200');
+    await type(element, 'deadlift', '400');
+
+    expect(input(element, 'total').value).toBe('900');
+    expect(summary(element, 'total')).toContain('From your three lifts');
   });
 
   it.each(['ready', 'loading', 'failed'] as const)(

@@ -14,17 +14,26 @@
  * a working page with nothing to say.
  */
 import type { ClassificationBook, Lift } from '@platform-toolkit/data-contracts';
-import { NUMBER_FIELD_CHANGE_EVENT, type NumberFieldChangeDetail } from '@platform-toolkit/ui';
+import type { WeightUnit } from '@platform-toolkit/domain';
+import {
+  CHOICE_CHANGE_EVENT,
+  NUMBER_FIELD_CHANGE_EVENT,
+  type Choice,
+  type ChoiceChangeDetail,
+  type NumberFieldChangeDetail,
+} from '@platform-toolkit/ui';
 import { LitElement, css, html, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
 import {
   LIFTS,
   NO_ENTRIES,
-  formatKilograms,
+  amountAsUnit,
   lifterCategoryFrom,
   resolveStandards,
+  setEntryUnit,
   standingSummary,
+  typeLift,
   type LiftEntries,
   type LiftStanding,
 } from './standards.js';
@@ -32,6 +41,23 @@ import { NO_SELECTION, type CategorySelection } from './selection.js';
 
 /** Where the read of this category's standards has got to. */
 export type StandardsStatus = 'idle' | 'loading' | 'ready' | 'failed';
+
+/**
+ * The two units, as options rather than as a toggle.
+ *
+ * A radio pair and not `ptk-toggle-group`: these are two answers to one question,
+ * and a checkbox group would admit both at once and neither. The same shape tool 4
+ * uses for its direction control, so the two screens are answered the same way.
+ */
+const UNIT_CHOICES: readonly Choice[] = [
+  { value: 'kg', label: 'Kilograms' },
+  { value: 'lb', label: 'Pounds' },
+];
+
+/** Narrowed rather than cast: a radio reports a string, and a typo is a string. */
+function unitFrom(value: string): WeightUnit | null {
+  return value === 'kg' || value === 'lb' ? value : null;
+}
 
 @customElement('ptk-target-standards')
 export class PtkTargetStandards extends LitElement {
@@ -46,6 +72,10 @@ export class PtkTargetStandards extends LitElement {
     }
 
     ptk-notice {
+      margin-block-end: var(--ptk-space-lg);
+    }
+
+    .unit {
       margin-block-end: var(--ptk-space-lg);
     }
 
@@ -111,8 +141,14 @@ export class PtkTargetStandards extends LitElement {
    */
   protected override async getUpdateComplete(): Promise<boolean> {
     const complete = await super.getUpdateComplete();
-    const fields = this.shadowRoot?.querySelectorAll('ptk-number-field') ?? [];
-    await Promise.all([...fields].map((field) => field.updateComplete));
+    // Comma-separated, so the result types as `Element` and the filter is what
+    // makes `updateComplete` reachable -- the selector alone does not narrow.
+    const children = this.shadowRoot?.querySelectorAll('ptk-number-field, ptk-choice-group') ?? [];
+    await Promise.all(
+      [...children]
+        .filter((child) => child instanceof LitElement)
+        .map((child) => child.updateComplete),
+    );
     return complete;
   }
 
@@ -122,10 +158,12 @@ export class PtkTargetStandards extends LitElement {
     // so it reaches this host from any field, and a single listener cannot fall
     // out of step with the list of lifts.
     this.addEventListener(NUMBER_FIELD_CHANGE_EVENT, this.#onNumberChange);
+    this.addEventListener(CHOICE_CHANGE_EVENT, this.#onUnitChange);
   }
 
   override disconnectedCallback(): void {
     this.removeEventListener(NUMBER_FIELD_CHANGE_EVENT, this.#onNumberChange);
+    this.removeEventListener(CHOICE_CHANGE_EVENT, this.#onUnitChange);
     super.disconnectedCallback();
   }
 
@@ -135,6 +173,12 @@ export class PtkTargetStandards extends LitElement {
     return html`
       <h2>Your lifts</h2>
       ${this.#renderNotice()}
+      <ptk-choice-group
+        class="unit"
+        label="Enter weights in"
+        .choices=${UNIT_CHOICES}
+        value=${this.entries.unit}
+      ></ptk-choice-group>
       <div class="lifts">${standings.map((standing) => this.#renderLift(standing))}</div>
     `;
   }
@@ -155,6 +199,17 @@ export class PtkTargetStandards extends LitElement {
         The published standards could not be loaded. Reload the page to try again.
       </ptk-notice>`;
     }
+    if (this.entries.unit === 'lb') {
+      // Said once, here, rather than repeated in every status line. The
+      // federation publishes kilograms and a lifter working in pounds is entitled
+      // to know that the figures below were converted for them -- but four
+      // reminders under four fields is the arithmetic reminder this tool exists to
+      // remove, spelled as prose.
+      return html`<ptk-notice>
+        Enter what you have lifted, in pounds, to see where it places. This federation publishes its
+        standards in kilograms; the figures here are converted.
+      </ptk-notice>`;
+    }
     return html`<ptk-notice>
       Enter what you have lifted, in kilograms, to see where it places.
     </ptk-notice>`;
@@ -162,13 +217,14 @@ export class PtkTargetStandards extends LitElement {
 
   #renderLift(standing: LiftStanding): TemplateResult {
     const { entry } = standing;
+    const { unit } = this.entries;
     // A derived total is shown in the field so the number a lifter reads is the
     // number the status line is about. Leaving the field blank under a sentence
     // about 250 kg is the kind of gap that gets read as a bug.
     const value =
       entry.kind === 'weight' && entry.derived
-        ? formatKilograms(entry.kilograms)
-        : this.entries[standing.lift];
+        ? amountAsUnit(entry.kilograms, unit)
+        : this.entries.fields[standing.lift].text;
 
     return html`
       <div class="lift">
@@ -176,8 +232,8 @@ export class PtkTargetStandards extends LitElement {
           data-lift=${standing.lift}
           .label=${standing.label}
           .value=${value}
-          unit="kg"
-          placeholder="0"
+          unit=${unit}
+          placeholder=${unit === 'lb' ? '315' : '142.5'}
           .error=${entry.kind === 'invalid' ? entry.message : ''}
         ></ptk-number-field>
         <p class=${standing.classification === null ? 'summary' : 'summary placed'}>
@@ -197,7 +253,24 @@ export class PtkTargetStandards extends LitElement {
     if (lift === null) {
       return;
     }
-    this.entries = { ...this.entries, [lift]: event.detail.value };
+    this.entries = typeLift(this.entries, lift, event.detail.value);
+  };
+
+  /**
+   * A unit change converts every figure; it never rereads them.
+   *
+   * Tool 2 asks which was meant, because a rack setup is configuration somebody
+   * might genuinely be re-stating. A competition best is not: it is a fact about a
+   * meet that already happened, so 405 stays the 405 lb that was lifted. Rereading
+   * it as 405 kg is the failure worth designing against, because there is nothing
+   * on the screen to catch it -- it is simply reported back as Elite.
+   */
+  readonly #onUnitChange = (event: CustomEvent<ChoiceChangeDetail>): void => {
+    const unit = unitFrom(event.detail.value);
+    if (unit === null) {
+      return;
+    }
+    this.entries = setEntryUnit(this.entries, unit);
   };
 }
 

@@ -3,6 +3,7 @@ import type {
   ClassificationTable,
   Lift,
 } from '@platform-toolkit/data-contracts';
+import type { WeightUnit } from '@platform-toolkit/domain';
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 import { ref } from 'lit/directives/ref.js';
@@ -80,24 +81,50 @@ const ANSWERED: CategorySelection = {
  * field's own guard makes that harmless, but a stable identity means it simply
  * does not happen.
  */
-function typist(entries: Partial<Record<Lift, string>>): (element: Element | undefined) => void {
+function typist(
+  entries: Partial<Record<Lift, string>>,
+  unit?: WeightUnit,
+): (element: Element | undefined) => void {
   return (element) => {
     if (!(element instanceof PtkTargetStandards)) {
       return;
     }
     const host = element;
-    void host.updateComplete.then(() => {
-      for (const [lift, value] of Object.entries(entries)) {
-        const input = host.shadowRoot
-          ?.querySelector(`ptk-number-field[data-lift="${lift}"]`)
-          ?.shadowRoot?.querySelector('input');
-        if (input instanceof HTMLInputElement) {
-          input.value = value;
-          input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    void host.updateComplete
+      .then(async () => {
+        if (unit !== undefined) {
+          chooseUnit(host, unit);
         }
-      }
-    });
+        // Awaited before typing, not after: choosing a unit re-renders the four
+        // fields, and a value written into the ones from the previous render is
+        // written into elements the next one replaces.
+        await host.updateComplete;
+      })
+      .then(() => {
+        for (const [lift, value] of Object.entries(entries)) {
+          const input = host.shadowRoot
+            ?.querySelector(`ptk-number-field[data-lift="${lift}"]`)
+            ?.shadowRoot?.querySelector('input');
+          if (input instanceof HTMLInputElement) {
+            input.value = value;
+            input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+          }
+        }
+      });
   };
+}
+
+/** Presses a unit radio. By `.value`, which is a property here and not an attribute. */
+function chooseUnit(host: PtkTargetStandards, unit: WeightUnit): void {
+  const radios =
+    host.shadowRoot
+      ?.querySelector('ptk-choice-group.unit')
+      ?.shadowRoot?.querySelectorAll('input[type="radio"]') ?? [];
+  for (const radio of radios) {
+    if (radio instanceof HTMLInputElement && radio.value === unit) {
+      radio.click();
+    }
+  }
 }
 
 const TYPE_NOTHING = typist({});
@@ -105,6 +132,7 @@ const TYPE_A_FULL_MEET = typist({ squat: '130', bench: '72.5', deadlift: '160', 
 const TYPE_THREE_LIFTS = typist({ squat: '130', bench: '72.5', deadlift: '160' });
 const TYPE_A_TYPO = typist({ squat: '1o5' });
 const TYPE_UNDER_THE_LADDER = typist({ bench: '40' });
+const TYPE_POUNDS = typist({ squat: '285', bench: '160', deadlift: '355' }, 'lb');
 
 interface Args {
   readonly book: ClassificationBook | null;
@@ -176,6 +204,20 @@ export const BelowTheLadder: Story = {
  */
 export const Invalid: Story = {
   args: { typing: TYPE_A_TYPO },
+};
+
+/**
+ * The same screen answered in pounds.
+ *
+ * The federation publishes kilograms, so every figure here is converted -- which
+ * the notice says once rather than four status lines saying it each. Worth a
+ * story because the conversion is the part that has to be seen to be checked: a
+ * 285 lb squat is 129.3 kg, and a screen reading Class II under it is the tool
+ * working. Reading the same 285 as kilograms would clear the top of the ladder
+ * outright, and nothing on the screen would look wrong.
+ */
+export const InPounds: Story = {
+  args: { typing: TYPE_POUNDS },
 };
 
 /**

@@ -3,15 +3,21 @@ import type {
   ClassificationTable,
   Lift,
 } from '@platform-toolkit/data-contracts';
+import type { WeightUnit } from '@platform-toolkit/domain';
 import { describe, expect, it } from 'vitest';
 
 import { NO_SELECTION, type CategorySelection } from './selection.js';
 import {
+  LIFTS,
   NO_ENTRIES,
+  formatAsUnit,
   formatKilograms,
   lifterCategoryFrom,
   resolveStandards,
+  setEntryUnit,
   standingSummary,
+  typeLift,
+  type LiftEntries,
   type LifterCategory,
   type LiftStanding,
 } from './standards.js';
@@ -68,12 +74,40 @@ const ANSWERED: CategorySelection = {
   tested: 'tested',
 };
 
+/**
+ * Entries as though somebody typed them, rather than assembled as a literal.
+ *
+ * Routed through `typeLift` on purpose. A field carries both the text and the
+ * figure behind it, and a hand-written literal is free to make the two disagree --
+ * which is the one state the tool itself can never produce, and so the one no test
+ * should be pinning behaviour against.
+ */
+function entriesOf(typed: Partial<Record<Lift, string>>, unit: WeightUnit = 'kg'): LiftEntries {
+  let entries = setEntryUnit(NO_ENTRIES, unit);
+  for (const lift of LIFTS) {
+    const text = typed[lift];
+    if (text !== undefined) {
+      entries = typeLift(entries, lift, text);
+    }
+  }
+  return entries;
+}
+
 function standing(standings: readonly LiftStanding[], lift: Lift): LiftStanding {
   const found = standings.find((candidate) => candidate.lift === lift);
   if (found === undefined) {
     throw new Error(`No standing for "${lift}".`);
   }
   return found;
+}
+
+/** The one standing a test is about, read straight out of a set of typed fields. */
+function standingFor(
+  typed: Partial<Record<Lift, string>>,
+  lift: Lift = 'squat',
+  unit: WeightUnit = 'kg',
+): LiftStanding {
+  return standing(resolveStandards(BOOK, CATEGORY, entriesOf(typed, unit)), lift);
 }
 
 describe('lifterCategoryFrom', () => {
@@ -102,6 +136,73 @@ describe('lifterCategoryFrom', () => {
   });
 });
 
+describe('typeLift', () => {
+  it('records the figure in the unit the panel is currently in', () => {
+    const pounds = typeLift(setEntryUnit(NO_ENTRIES, 'lb'), 'squat', '315');
+    expect(pounds.fields.squat.weight?.origin).toEqual({ amount: 315, unit: 'lb' });
+    // Kept as typed, not normalised. Rewriting the text under the caret is how a
+    // field fights someone halfway through correcting a number.
+    expect(pounds.fields.squat.text).toBe('315');
+  });
+
+  it('honours a unit written into the field over the unit of the field', () => {
+    // A coach messages "183.7 kg" and it is pasted into a panel set to pounds.
+    // Reading it as 183.7 lb because of where the radio sits discards the one
+    // thing in the string that settles the question.
+    const entries = typeLift(setEntryUnit(NO_ENTRIES, 'lb'), 'squat', '183.7 kg');
+    expect(entries.fields.squat.weight?.origin).toEqual({ amount: 183.7, unit: 'kg' });
+  });
+
+  it('leaves nothing behind the text when it does not read as a weight', () => {
+    const entries = typeLift(NO_ENTRIES, 'squat', '1o5');
+    expect(entries.fields.squat).toEqual({ text: '1o5', weight: null });
+  });
+
+  it('treats zero as nothing to place rather than as a weight', () => {
+    // Every standard is a floor above zero, so there is no ladder position for it
+    // and classifying it would throw.
+    expect(typeLift(NO_ENTRIES, 'squat', '0').fields.squat.weight).toBeNull();
+  });
+});
+
+describe('setEntryUnit', () => {
+  it('converts what was typed instead of rereading it', () => {
+    // The rule tool 3 states outright, and it matters more here. A lift on this
+    // screen is a fact about a meet that already happened: 405 does not become
+    // 405 kg because the lifter tapped a different radio. Rereading would report a
+    // 405 lb squat back as Elite with nothing on screen to question.
+    const pounds = entriesOf({ squat: '405' }, 'lb');
+    const kilograms = setEntryUnit(pounds, 'kg');
+    expect(kilograms.unit).toBe('kg');
+    expect(kilograms.fields.squat.text).toBe('183.7');
+  });
+
+  it('does not drift over repeated toggles', () => {
+    // The acceptance test tool 2 wrote for the converter, arriving here. Each
+    // toggle displays a rounded figure, so a version that reread its own output
+    // would lose a hundredth per flick -- and after a few, a different squat.
+    let entries = entriesOf({ squat: '130' });
+    for (let flick = 0; flick < 8; flick += 1) {
+      entries = setEntryUnit(entries, entries.unit === 'kg' ? 'lb' : 'kg');
+    }
+    expect(entries.unit).toBe('kg');
+    expect(entries.fields.squat.text).toBe('130');
+    expect(entries.fields.squat.weight?.origin).toEqual({ amount: 130, unit: 'kg' });
+  });
+
+  it('leaves text that is not a weight exactly as it was', () => {
+    // There is nothing to convert, and rewriting it would delete what somebody
+    // typed in the middle of correcting it.
+    const switched = setEntryUnit(entriesOf({ squat: '1o5' }), 'lb');
+    expect(switched.fields.squat).toEqual({ text: '1o5', weight: null });
+  });
+
+  it('is a no-op for the unit already selected', () => {
+    const entries = entriesOf({ squat: '130' });
+    expect(setEntryUnit(entries, 'kg')).toBe(entries);
+  });
+});
+
 describe('resolveStandards', () => {
   it('reads every lift, in platform order', () => {
     const standings = resolveStandards(BOOK, CATEGORY, NO_ENTRIES);
@@ -109,23 +210,36 @@ describe('resolveStandards', () => {
   });
 
   it('places a typed weight in the ladder', () => {
-    const standings = resolveStandards(BOOK, CATEGORY, { ...NO_ENTRIES, squat: '130' });
-    const squat = standing(standings, 'squat');
+    const squat = standingFor({ squat: '130' });
 
     expect(squat.classification?.achieved?.label).toBe('Class II');
     expect(squat.classification?.next?.label).toBe('Class I');
     expect(squat.classification?.kilogramsToNext).toBe(20);
   });
 
+  it('places a weight typed in pounds against the published kilogram ladder', () => {
+    // 300 lb is 136.08 kg, which is Class II on this table. Comparing the pound
+    // figure directly would read 300 against a 150 kg standard and report Class I.
+    const squat = standingFor({ squat: '300' }, 'squat', 'lb');
+    expect(squat.entry).toEqual({ kind: 'weight', kilograms: 136.077711, derived: false });
+    expect(squat.classification?.achieved?.label).toBe('Class II');
+  });
+
+  it('classifies from the number that was typed, not from the number on display', () => {
+    // 120 kg is exactly Class II. Shown in pounds it rounds to 264.55, which is
+    // 119.9979 kg -- so a resolver reading the displayed text would drop the lifter
+    // a class for tapping a radio and tapping it back.
+    const shown = setEntryUnit(entriesOf({ squat: '120' }), 'lb');
+    const squat = standing(resolveStandards(BOOK, CATEGORY, shown), 'squat');
+    expect(squat.classification?.achieved?.label).toBe('Class II');
+  });
+
   it('treats a standard as a floor, not as a target to approach', () => {
     // Exactly the required weight earns it; a hundredth under does not. The
     // whole reason `>=` is used in the domain, asserted here because this is the
     // layer a lifter reads.
-    const at = resolveStandards(BOOK, CATEGORY, { ...NO_ENTRIES, squat: '120' });
-    expect(standing(at, 'squat').classification?.achieved?.label).toBe('Class II');
-
-    const under = resolveStandards(BOOK, CATEGORY, { ...NO_ENTRIES, squat: '119.99' });
-    expect(standing(under, 'squat').classification?.achieved?.label).toBe('Class III');
+    expect(standingFor({ squat: '120' }).classification?.achieved?.label).toBe('Class II');
+    expect(standingFor({ squat: '119.99' }).classification?.achieved?.label).toBe('Class III');
   });
 
   it('reads each lift against its own table', () => {
@@ -138,11 +252,7 @@ describe('resolveStandards', () => {
         table('total', {}, [{ id: 'elite', label: 'Elite', rank: 0, requiredKilograms: 400 }]),
       ],
     };
-    const standings = resolveStandards(book, CATEGORY, {
-      ...NO_ENTRIES,
-      squat: '150',
-      total: '150',
-    });
+    const standings = resolveStandards(book, CATEGORY, entriesOf({ squat: '150', total: '150' }));
 
     expect(standing(standings, 'squat').classification?.achieved?.label).toBe('Class I');
     expect(standing(standings, 'total').classification?.achieved).toBeNull();
@@ -158,7 +268,7 @@ describe('resolveStandards', () => {
         ]),
       ],
     };
-    const standings = resolveStandards(book, CATEGORY, { ...NO_ENTRIES, squat: '95' });
+    const standings = resolveStandards(book, CATEGORY, entriesOf({ squat: '95' }));
 
     expect(standing(standings, 'squat').classification?.achieved?.label).toBe('Open Elite');
   });
@@ -218,6 +328,13 @@ describe('resolveStandards', () => {
     );
   });
 
+  it('carries the entry unit onto every standing', () => {
+    // So that a summary cannot be written for one unit and rendered under the
+    // other, which reads as a lifter twice as strong or half.
+    const standings = resolveStandards(BOOK, CATEGORY, entriesOf({}, 'lb'));
+    expect(standings.map((entry) => entry.unit)).toEqual(['lb', 'lb', 'lb', 'lb']);
+  });
+
   it('leaves an empty field alone', () => {
     // An unanswered field is a normal state of this screen, not an error. Marking
     // it the moment the page loads is the easiest way to make a tool feel broken.
@@ -228,44 +345,48 @@ describe('resolveStandards', () => {
 
   it.each([
     ['1o5', 'Enter a weight in kilograms, for example 142.5.'],
-    ['-100', 'Enter a weight in kilograms, for example 142.5.'],
     ['1e3', 'Enter a weight in kilograms, for example 142.5.'],
+    ['-100', 'Enter a weight above zero.'],
     ['0', 'Enter a weight above zero.'],
     ['0.0', 'Enter a weight above zero.'],
+    ['100 stone', 'Write the unit as kg or lb, or leave it off.'],
+    ['200000', 'That is heavier than this tool can read.'],
   ])('rejects %s without quoting it back', (typed, message) => {
-    const squat = standing(
-      resolveStandards(BOOK, CATEGORY, { ...NO_ENTRIES, squat: typed }),
-      'squat',
-    );
-
-    expect(squat.entry).toEqual({ kind: 'invalid', message });
+    expect(standingFor({ squat: typed }).entry).toEqual({ kind: 'invalid', message });
     // The domain's own reason quotes the input, which belongs in a CI log rather
     // than under a field where the input is already visible.
     expect(message).not.toContain(typed);
   });
 
+  it('offers a pound example to somebody entering pounds', () => {
+    // Telling a lifter working in pounds to "enter 142.5" is an instruction to
+    // type a figure that will be read as a different lift entirely.
+    expect(standingFor({ squat: '1o5' }, 'squat', 'lb').entry).toEqual({
+      kind: 'invalid',
+      message: 'Enter a weight in pounds, for example 315.',
+    });
+  });
+
   it('accepts a weight with surrounding whitespace', () => {
-    const squat = standing(
-      resolveStandards(BOOK, CATEGORY, { ...NO_ENTRIES, squat: ' 130 ' }),
-      'squat',
-    );
-    expect(squat.entry).toEqual({ kind: 'weight', kilograms: 130, derived: false });
+    expect(standingFor({ squat: ' 130 ' }).entry).toEqual({
+      kind: 'weight',
+      kilograms: 130,
+      derived: false,
+    });
   });
 
   it('adds up the total when all three lifts are entered and it is not', () => {
     // The arithmetic a lifter would otherwise do on a phone between attempts.
-    const standings = resolveStandards(BOOK, CATEGORY, {
-      ...NO_ENTRIES,
-      squat: '62.5',
-      bench: '42.5',
-      deadlift: '145',
-    });
+    const total = standingFor({ squat: '62.5', bench: '42.5', deadlift: '145' }, 'total');
+    expect(total.entry).toEqual({ kind: 'weight', kilograms: 250, derived: true });
+  });
 
-    expect(standing(standings, 'total').entry).toEqual({
-      kind: 'weight',
-      kilograms: 250,
-      derived: true,
-    });
+  it('adds up three pound entries as one kilogram total', () => {
+    // 315 + 225 + 405 lb. Summed in pounds and converted once it is 428.64 kg;
+    // converted individually and summed it is the same figure, which is the point
+    // -- the three fields must not each carry their own rounding into the total.
+    const total = standingFor({ squat: '315', bench: '225', deadlift: '405' }, 'total', 'lb');
+    expect(total.entry).toEqual({ kind: 'weight', kilograms: 428.64, derived: true });
   });
 
   it('does not let floating point show through the derived total', () => {
@@ -273,14 +394,8 @@ describe('resolveStandards', () => {
     // and a total displayed like that is a bug report. Asserted on the number
     // rather than the formatted string, because the value is what a later
     // comparison against a record uses.
-    const standings = resolveStandards(BOOK, CATEGORY, {
-      ...NO_ENTRIES,
-      squat: '100',
-      bench: '40.1',
-      deadlift: '128.2',
-    });
     expect(100 + 40.1 + 128.2).not.toBe(268.3);
-    expect(standing(standings, 'total').entry).toEqual({
+    expect(standingFor({ squat: '100', bench: '40.1', deadlift: '128.2' }, 'total').entry).toEqual({
       kind: 'weight',
       kilograms: 268.3,
       derived: true,
@@ -290,55 +405,48 @@ describe('resolveStandards', () => {
   it('leaves a typed total alone', () => {
     // A lifter entering a total directly is saying something the three fields
     // cannot: their best total came from a different day.
-    const standings = resolveStandards(BOOK, CATEGORY, {
-      squat: '60',
-      bench: '40',
-      deadlift: '140',
-      total: '260',
-    });
-
-    expect(standing(standings, 'total').entry).toEqual({
-      kind: 'weight',
-      kilograms: 260,
-      derived: false,
-    });
+    const total = standingFor({ squat: '60', bench: '40', deadlift: '140', total: '260' }, 'total');
+    expect(total.entry).toEqual({ kind: 'weight', kilograms: 260, derived: false });
   });
 
   it('does not add up a partial set of lifts', () => {
-    const standings = resolveStandards(BOOK, CATEGORY, {
-      ...NO_ENTRIES,
-      squat: '60',
-      bench: '40',
-    });
-    expect(standing(standings, 'total').entry).toEqual({ kind: 'empty' });
+    expect(standingFor({ squat: '60', bench: '40' }, 'total').entry).toEqual({ kind: 'empty' });
   });
 
   it('does not add up around a lift that will not parse', () => {
     // Otherwise a mistyped bench press silently becomes a total two hundred
     // kilograms light, presented with the same confidence as a correct one.
-    const standings = resolveStandards(BOOK, CATEGORY, {
-      ...NO_ENTRIES,
-      squat: '60',
-      bench: '4o',
-      deadlift: '140',
-    });
-    expect(standing(standings, 'total').entry).toEqual({ kind: 'empty' });
+    const total = standingFor({ squat: '60', bench: '4o', deadlift: '140' }, 'total');
+    expect(total.entry).toEqual({ kind: 'empty' });
   });
 });
 
 describe('standingSummary', () => {
-  function summaryFor(entries: Partial<Record<Lift, string>>, lift: Lift = 'squat'): string {
-    return standingSummary(
-      standing(resolveStandards(BOOK, CATEGORY, { ...NO_ENTRIES, ...entries }), lift),
-    );
+  function summaryFor(
+    typed: Partial<Record<Lift, string>>,
+    lift: Lift = 'squat',
+    unit: WeightUnit = 'kg',
+  ): string {
+    return standingSummary(standingFor(typed, lift, unit));
   }
 
   it('names the range of the ladder before anything is entered', () => {
     expect(summaryFor({})).toBe('Class III at 100 kg, up to Class I at 150 kg.');
   });
 
+  it('names the range in pounds for a lifter entering pounds', () => {
+    // The standards are published in kilograms and the panel says so once, in its
+    // own notice. Repeating kilograms in every status line would leave a lifter
+    // working in pounds doing the arithmetic this tool exists to remove.
+    expect(summaryFor({}, 'squat', 'lb')).toBe('Class III at 220.5 lb, up to Class I at 330.7 lb.');
+  });
+
   it('names the standard reached and the work left to the next one', () => {
     expect(summaryFor({ squat: '130' })).toBe('Class II. 20 kg to Class I.');
+  });
+
+  it('says the work left in pounds when that is what the lifter is entering', () => {
+    expect(summaryFor({ squat: '286.6' }, 'squat', 'lb')).toBe('Class II. 44.1 lb to Class I.');
   });
 
   it('says plainly when the weight is below the first standard', () => {
@@ -425,5 +533,20 @@ describe('formatKilograms', () => {
     [250.00000000000003, '250'],
   ])('writes %s the way a person would', (value, expected) => {
     expect(formatKilograms(value)).toBe(expected);
+  });
+});
+
+describe('formatAsUnit', () => {
+  it('writes kilograms to a hundredth and pounds to a tenth', () => {
+    // Every standard is published to the half kilogram, so the hundredths of a
+    // converted pound figure come from 0.45359237 and not from the federation.
+    // "10.47 lb to Class I" claims a precision that does not exist.
+    expect(formatAsUnit(142.5, 'kg')).toBe('142.5 kg');
+    expect(formatAsUnit(4.75, 'lb')).toBe('10.5 lb');
+  });
+
+  it('drops a trailing zero rather than printing false precision', () => {
+    expect(formatAsUnit(100, 'kg')).toBe('100 kg');
+    expect(formatAsUnit(45.359237, 'lb')).toBe('100 lb');
   });
 });
