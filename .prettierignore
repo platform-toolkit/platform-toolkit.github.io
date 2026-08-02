@@ -11,6 +11,14 @@ tmp/
 # Generated data artifacts: hundreds of megabytes of machine-written JSON.
 apps/web/public/data/
 
+# The record crawl's output, whose line breaks carry meaning. It is written one
+# record to a line so that a weekly refresh diffs as the handful of records that
+# changed; Prettier would give every field of every record its own line and turn
+# a hundred and thirty thousand records into several million lines, which is a
+# diff nobody can review and the reason the writer is hand-rolled. Only the
+# snapshots -- the curated mapping beside them is ordinary JSON and stays formatted.
+data/sources/records/snapshots/
+
 *.min.js
 *.min.css
 pnpm-lock.yaml

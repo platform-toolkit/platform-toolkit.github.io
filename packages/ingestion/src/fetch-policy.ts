@@ -18,8 +18,22 @@ export const ALLOWED_SOURCE_HOSTS: readonly string[] = [
   // Classification standards and the events REST API.
   'uspa.net',
   'www.uspa.net',
-  // Record tables (rendered headlessly; see the records adapter).
+  // The record index. Its pages carry no records themselves -- each one names a
+  // table held by the three hosts below, which is why reading records means
+  // fetching from a vendor rather than from the federation. See `record-crawl`.
   'records.uspa.net',
+  // Resolves a record table's identifiers to the document that holds it. Answers
+  // with a redirect, so the host it redirects to has to be permitted as well.
+  'app.infoweave.io',
+  // Serves the one-line loader that names the document. The subdomain is a
+  // generated deployment name and will change if the vendor redeploys; when it
+  // does, the crawl fails loudly here rather than following a redirect somewhere
+  // nobody chose.
+  'embedloader-n2swltlhwq-uc.a.run.app',
+  // The vendor's public database, where a record table actually lives. Read
+  // anonymously, exactly as the embed reads it; no credential is involved and
+  // none would be accepted.
+  'firestore.googleapis.com',
   // Technical rulebook PDF behind the IPF meet rule profile, re-digested by
   // `check:upstream`. The edition pinned there takes effect on a date, so an
   // unwatched copy goes wrong on a day nobody set a reminder for.

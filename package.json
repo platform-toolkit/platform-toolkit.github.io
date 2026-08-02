@@ -19,6 +19,8 @@
     "data:emit": "node packages/ingestion/dist/bin/publish-data.js",
     "data:check": "node packages/ingestion/dist/bin/publish-data.js --dry-run",
     "data:upstream": "node packages/ingestion/dist/bin/check-upstream.js",
+    "data:crawl:records": "run-s build:libraries \"data:crawl:records:run {@}\" --",
+    "data:crawl:records:run": "node packages/ingestion/dist/bin/crawl-records.js",
     "dev": "pnpm --filter @platform-toolkit/web run dev",
     "storybook": "run-s build:libraries storybook:dev",
     "storybook:dev": "storybook dev -p 6006 --no-open",
