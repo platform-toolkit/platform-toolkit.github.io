@@ -21,6 +21,14 @@
       No federation segment, unlike the Platform Targets embed: this tool applies
       no federation's rules and reads no published data.
     -->
+    <!--
+      A tab icon and nothing else. No manifest and no apple-touch-icon here, on
+      purpose and enforced by `scripts/check-pwa.mjs`: framing a widget must not
+      offer to install anything on the embedder's visitor. A favicon offers
+      nothing -- it is what a browser shows when somebody opens this URL directly
+      to see what they are about to frame.
+    -->
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
     <script src="/theme-boot.js"></script>
     <link rel="stylesheet" href="/src/styles.css" />
   </head>

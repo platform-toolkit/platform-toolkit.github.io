@@ -6,19 +6,43 @@
   directory would publish a second, subtly different icon that some platform
   would eventually pick. Regenerate with `node scripts/generate-icons.mjs`.
 
-  Two constraints shape the drawing, and both are about where it ends up:
+  WHAT IT DRAWS, AND WHY THAT
+
+  A loaded bar resting on the platform. The platform is half the name and the
+  whole subject -- every tool here is about a number somebody is going to attempt
+  in front of three referees -- and it is also what separates this mark from the
+  several thousand fitness applications whose icon is a bar floating in space.
+  The first version of this file was exactly that, and at launcher size it read
+  as a dumbbell.
+
+  So: the bar is long, the plates sit near its ends with bare sleeve outboard and
+  bare shaft between them, and both plates touch the platform rather than
+  hovering over it. Those three things are what make it a barbell at a glance
+  instead of a dumbbell.
+
+  TWO CONSTRAINTS SHAPE THE GEOMETRY, AND BOTH ARE ABOUT WHERE IT ENDS UP
 
   A maskable icon is cropped by the platform to whatever shape it likes -- a
   circle on one launcher, a squircle on another, a rounded square on a third.
-  What survives every crop is the centred circle of 80% diameter, so the barbell
-  sits well inside a radius of 205 on this 512 canvas and the background runs
-  full bleed to the edges. There is no padding to lose.
+  What survives every crop is the centred circle of 80% diameter, so every drawn
+  edge is inside a radius of 205 from (256, 256); the furthest is the lower
+  corner of a sleeve, at 192. The two background layers run full bleed instead,
+  because a band that stopped inside the safe circle would read as a floating
+  rectangle the moment a launcher declined to crop it.
 
-  It is also read at 48 pixels in a launcher and at 16 in a tab. That rules out
-  a thin outline or a plate count anyone has to resolve: four heavy rectangles
-  and a bar, in two colours with a contrast ratio a specification would accept.
-  The accent is the one from `tokens.css`, so the installed icon and the
-  application are demonstrably the same product.
+  It is also read at 48 pixels in a launcher and at 16 in a tab. That rules out a
+  thin outline, a plate count anybody has to resolve, and any detail thinner than
+  the bar. What is left at 16 pixels is a light band along the bottom and a white
+  barbell standing on it, which is the whole idea and still legible.
+
+  THE COLOURS
+
+  The accent, a lighter tint of it, and white. The accent is `--ptk-color-accent`
+  from `tokens.css`, so the installed icon and the application are demonstrably
+  the same product, and it is the value `manifest.webmanifest` declares as
+  `theme_color`. The tint is decorative and carries nothing the white does not:
+  the barbell is the only high-contrast element in the drawing, which is what
+  keeps the hierarchy intact at 48 pixels against an unknown wallpaper.
 -->
 <svg
   xmlns="http://www.w3.org/2000/svg"
@@ -30,14 +54,23 @@
 >
   <title>Platform Toolkit</title>
   <rect width="512" height="512" fill="#1f5fa8" />
+  <!--
+    The platform: full bleed to the bottom and both sides, so a crop takes its
+    corners rather than revealing that it ended, with a lighter strip along the
+    top for the lip. That strip is the only shading here, and it survives being
+    resized because it is a whole edge rather than a detail.
+  -->
+  <rect y="402" width="512" height="110" fill="#17497f" />
+  <path d="M96 336 H416 L512 402 H0 Z" fill="#4d88cc" />
   <g fill="#ffffff">
     <!-- The bar, sleeve to sleeve. -->
-    <rect x="106" y="242" width="300" height="28" rx="10" />
-    <!-- Inner plates, the tall pair. -->
-    <rect x="176" y="176" width="36" height="160" rx="10" />
-    <rect x="300" y="176" width="36" height="160" rx="10" />
-    <!-- Outer plates, shorter, so the silhouette still reads at 16 pixels. -->
-    <rect x="130" y="201" width="30" height="110" rx="9" />
-    <rect x="352" y="201" width="30" height="110" rx="9" />
+    <rect x="68" y="274" width="376" height="24" rx="12" />
+    <!-- The competition plates, bottom edge on the platform at y = 368. -->
+    <rect x="150" y="204" width="44" height="164" rx="14" />
+    <rect x="318" y="204" width="44" height="164" rx="14" />
+    <!-- The change plates outboard of them: same centre line, smaller diameter,
+         so they hang clear of the floor the way they do on a loaded bar. -->
+    <rect x="92" y="232" width="34" height="108" rx="11" />
+    <rect x="386" y="232" width="34" height="108" rx="11" />
   </g>
 </svg>
