@@ -893,43 +893,51 @@
     "",
     "Listed rather than left to fail, and listed by rule rather than by row: the whole",
     "column is refused, so a meet that adds a record to one of them next month does",
-    "not break the unattended refresh. 343 rows of 129,908."
+    "not break the unattended refresh. 343 rows of 129,908 when curated.",
+    "",
+    "That count, and the per-column counts below, are what the tables held on the day",
+    "and are deliberately not in the `reason` strings. A reason is printed once per",
+    "withheld row and read by whoever is looking at a build, so a figure inside one",
+    "goes stale the first weekend somebody sets a record -- and it reads as a",
+    "contradiction long before anybody thinks to check it, because the build prints",
+    "the real count beside it. Per column when curated: 125kg/275lb 14, 140kg/308.5lb",
+    "14, 140+kg/SHW 255, 44kg/97lb 14, 48kg/105.7lb 14, 110+kg 16, 90+kg/UNL 16."
   ],
   "unmappedWeightClasses": [
     {
       "sex": "female",
       "column": "125kg/275lb",
-      "reason": "A men's class printed under the women's ladder. IPL world tables only, 14 rows."
+      "reason": "A men's class printed under the women's ladder. IPL world tables only."
     },
     {
       "sex": "female",
       "column": "140kg/308.5lb",
-      "reason": "A men's class printed under the women's ladder. IPL world tables only, 14 rows."
+      "reason": "A men's class printed under the women's ladder. IPL world tables only."
     },
     {
       "sex": "female",
       "column": "140+kg/SHW",
-      "reason": "The men's unlimited class printed under the women's ladder. IPL world tables only, 255 rows, of which 111 duplicate the women's 110+ row exactly and 144 carry men's figures."
+      "reason": "The men's unlimited class printed under the women's ladder, where most rows duplicate the women's 110+ row exactly and the rest carry men's figures. IPL world tables only."
     },
     {
       "sex": "male",
       "column": "44kg/97lb",
-      "reason": "A women's class printed under the men's ladder; the men's ladder starts at 52 kg. IPL world tables only, 14 rows."
+      "reason": "A women's class printed under the men's ladder; the men's ladder starts at 52 kg. IPL world tables only."
     },
     {
       "sex": "male",
       "column": "48kg/105.7lb",
-      "reason": "A women's class printed under the men's ladder; the men's ladder starts at 52 kg. IPL world tables only, 14 rows."
+      "reason": "A women's class printed under the men's ladder; the men's ladder starts at 52 kg. IPL world tables only."
     },
     {
       "sex": "male",
       "column": "110+kg",
-      "reason": "The women's unlimited class printed under the men's ladder, which continues to 125 and 140. IPL world tables only, 16 rows."
+      "reason": "The women's unlimited class printed under the men's ladder, which continues to 125 and 140. IPL world tables only."
     },
     {
       "sex": "male",
       "column": "90+kg/UNL",
-      "reason": "An unlimited class neither ladder has; both continue above 90 kg. IPL world tables only, 16 rows."
+      "reason": "An unlimited class neither ladder has; both continue above 90 kg. IPL world tables only."
     }
   ],
   "$comment:absentLocations": [

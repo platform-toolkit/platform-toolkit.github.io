@@ -41,6 +41,7 @@ import {
 
 import { planPublication, type ArtifactSource } from '../publication.js';
 import { shardClassificationBook } from '../shard-classifications.js';
+import { shardRecordBook } from '../shard-records.js';
 import { buildCategoryCatalog } from '../sources/category-catalog.js';
 import {
   buildClassificationTables,
@@ -48,6 +49,7 @@ import {
 } from '../sources/classification-standards.js';
 import { buildConversionChart } from '../sources/conversion-chart.js';
 import { buildMeetRuleBook } from '../sources/meet-rules.js';
+import { buildRecordBook, readRecordSourceReferences } from '../sources/records.js';
 import { writePublication } from '../write-publication.js';
 
 /**
@@ -63,6 +65,7 @@ const CATEGORY_SOURCES = join(SOURCE_ROOT, 'categories');
 const CLASSIFICATION_SOURCES = join(SOURCE_ROOT, 'classifications');
 const CONVERSION_SOURCES = join(SOURCE_ROOT, 'conversions');
 const MEET_RULE_SOURCES = join(SOURCE_ROOT, 'meet-rules');
+const RECORD_SOURCES = join(SOURCE_ROOT, 'records');
 
 /**
  * Where a classification mapping's committed upstream dataset lives.
@@ -162,6 +165,54 @@ async function main(): Promise<void> {
         `${document.path}: withheld ${String(withheld.length)} published rows:\n  ` +
           withheld.map((entry) => `${entry.row} -- ${entry.reason}`).join('\n  '),
       );
+    }
+  }
+
+  for (const document of await readSourceDocuments(RECORD_SOURCES)) {
+    const { federationId, snapshotFile } = readRecordSourceReferences(document.value);
+    const catalog = catalogs.get(federationId);
+    if (catalog === undefined) {
+      throw new Error(
+        `${document.path}: no category catalogue is published for federation "${federationId}".`,
+      );
+    }
+
+    const snapshot = await readRecordSnapshot(
+      join(RECORD_SOURCES, SNAPSHOT_DIRECTORY),
+      snapshotFile,
+    );
+    const { book, freshness, withheld } = buildRecordBook(document.value, snapshot, catalog);
+
+    // One artifact per (level, region, sex, equipment). The whole corpus is
+    // hundreds of megabytes; a lifter's screen needs one of these files.
+    let published = 0;
+    let partitions = 0;
+    for (const shard of shardRecordBook(book, SCHEMA_VERSION)) {
+      artifacts.push(shard);
+      published += shard.recordCount;
+      partitions += 1;
+    }
+    sources.push(freshness);
+
+    // Counted out loud, because the two numbers that matter here are not visible
+    // in a diff: how much of the corpus survived, and how many files a deploy
+    // now carries. A refresh that halves either is the signal to look upstream.
+    console.log(
+      `${document.path}: published ${String(published)} records in ` +
+        `${String(partitions)} partitions, withheld ${String(withheld.length)} rows.`,
+    );
+
+    // Grouped rather than listed. Withheld rows here run to the hundreds and
+    // arrive in families -- a class one ladder does not have, a lift a discipline
+    // does not contest -- so a full list buries every other line of the build.
+    // Row keys name a position and never a holder (section 2.3), but they are
+    // still not what a reader needs; the count per rule is.
+    const byReason = new Map<string, number>();
+    for (const row of withheld) {
+      byReason.set(row.reason, (byReason.get(row.reason) ?? 0) + 1);
+    }
+    for (const [reason, count] of [...byReason].sort(([, left], [, right]) => right - left)) {
+      console.log(`  ${String(count)} x ${reason}`);
     }
   }
 
@@ -298,6 +349,28 @@ async function readSnapshot(
       value: JSON.parse(bytes.toString('utf8')) as unknown,
       sha256: createHash('sha256').update(bytes).digest('hex'),
     };
+  } catch (cause) {
+    throw new Error(`${path}: is not valid JSON.`, { cause });
+  }
+}
+
+/**
+ * Reads a committed crawl, with no digest taken.
+ *
+ * The omission is the point and is not an oversight: record tables change after
+ * every meet weekend and refresh with nobody watching, so a pinned digest would
+ * either be re-cut by the same job that changed the file -- which is not a
+ * review -- or stop the refresh dead. The adapter checks meaning instead, and
+ * the header of `sources/records.ts` says how.
+ *
+ * The filename came from the document, so it is joined rather than resolved and
+ * the adapter has already refused anything containing a path separator.
+ */
+async function readRecordSnapshot(directory: string, file: string): Promise<unknown> {
+  const path = join(directory, file);
+  const contents = await readFile(resolve(process.cwd(), path), 'utf8');
+  try {
+    return JSON.parse(contents) as unknown;
   } catch (cause) {
     throw new Error(`${path}: is not valid JSON.`, { cause });
   }
