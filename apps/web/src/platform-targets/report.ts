@@ -92,6 +92,27 @@ export interface RecordHolder {
   readonly meetName: string | null;
 }
 
+/**
+ * The source contradicting itself about one record, ready to print.
+ *
+ * A federation publishes each record twice on one row, in kilograms and in
+ * pounds, and on a corpus of this size the two sometimes disagree by more than
+ * rounding can explain. Kilograms govern, so the figure above is still the
+ * kilogram column and nothing here re-enters the arithmetic — this exists so the
+ * screen can say the table contradicts itself rather than print one of two
+ * irreconcilable numbers with total confidence.
+ *
+ * Both figures, not a warning. A reader shown 147.7 lb beside 670 kg can tell at
+ * a glance which cell slipped; a reader shown a caution icon cannot, and has
+ * been given a reason to distrust a figure with no way to resolve it.
+ */
+export interface RecordDisagreement {
+  /** The pound column, as the source printed it. */
+  readonly poundsText: string;
+  /** What that pound figure comes to in kilograms, by the source's own factor. */
+  readonly impliedKilogramsText: string;
+}
+
 /** Everything about a record beyond the weight that takes it. */
 export interface RecordDetail {
   /** The record as it stands, which is *not* the weight that takes it. */
@@ -105,6 +126,8 @@ export interface RecordDetail {
   readonly targets: readonly ReportTarget[];
   /** Nobody holds it: the federation seeded it as an opening standard. */
   readonly unclaimed: boolean;
+  /** `null` when the source's two columns agree, which is nearly always. */
+  readonly disagreement: RecordDisagreement | null;
   /** `null` when the source published none of the three fields. */
   readonly holder: RecordHolder | null;
   /** The federation's own table for this record's scope. Never assembled here. */
@@ -579,9 +602,33 @@ function recordRow(
       record: figuresFor(record.kilograms),
       targets,
       unclaimed: record.unclaimed,
+      disagreement: recordDisagreement(record),
       holder: recordHolder(record),
       sourceUrl: standing.sourceUrl,
     },
+  };
+}
+
+/**
+ * The source's own pound column when it contradicts the kilogram one, formatted.
+ *
+ * Both figures come straight from the publisher and neither is recomputed here.
+ * Deriving the implied kilograms in the browser would need the federation's own
+ * conversion factor, and a browser using a different one would draw a
+ * disagreement the publisher did not find — or fail to draw one it did.
+ *
+ * The pound figure is rounded to a tenth, matching every other pound figure on
+ * the screen. A published cell is not made more truthful by printing more of its
+ * digits, and the disagreements worth showing are tens of kilograms wide.
+ */
+function recordDisagreement(record: FederationRecord): RecordDisagreement | null {
+  const disagreement = record.sourceDisagreement;
+  if (disagreement === null) {
+    return null;
+  }
+  return {
+    poundsText: String(Math.round(disagreement.pounds * 10) / 10),
+    impliedKilogramsText: formatKilograms(disagreement.impliedKilograms),
   };
 }
 

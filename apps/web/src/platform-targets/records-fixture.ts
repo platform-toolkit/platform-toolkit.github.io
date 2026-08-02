@@ -129,6 +129,15 @@ interface RecordOverrides {
    */
   readonly divisionId?: string;
   readonly unclaimed?: boolean;
+  /**
+   * The pound figure the source printed, when it contradicts the kilograms.
+   *
+   * Settable because the caution the report draws for it sits beside the record
+   * it is about, and a fixture that could not produce one would leave the only
+   * state where a lifter is told not to trust a figure untested and unstoried.
+   * Defaulted to `null`, which is what almost every real row carries.
+   */
+  readonly sourceDisagreement?: FederationRecord['sourceDisagreement'];
   readonly holderName?: string | null;
   readonly achievedOn?: string | null;
   readonly meetName?: string | null;
@@ -150,6 +159,7 @@ export function record(lift: Lift, overrides: RecordOverrides): FederationRecord
     disciplineId = 'full-power',
     divisionId = 'open',
     unclaimed = false,
+    sourceDisagreement = null,
     holderName = 'Robin Vance',
     achievedOn = '2024-05-18',
     meetName = 'Example Winter Open',
@@ -172,6 +182,7 @@ export function record(lift: Lift, overrides: RecordOverrides): FederationRecord
     },
     kilograms,
     unclaimed,
+    sourceDisagreement,
     // Both dropped for a seeded record, here as well as in the publisher, so a
     // fixture cannot describe a record that is unclaimed *and* held by somebody.
     // The panel would have to decide which of the two to believe, and a test

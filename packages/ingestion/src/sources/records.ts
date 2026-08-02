@@ -207,6 +207,48 @@ const PlausibilitySchema = v.object({
 });
 
 /**
+ * Reading the pound column back as a second witness to the kilogram column.
+ *
+ * It withholds nothing and corrects nothing -- see the mapping's own header for
+ * why gating on this column would fail the build weekly over rows whose kilogram
+ * figure was never in doubt. What it produces is a field on the record, so a row
+ * the source contradicts itself on reaches the screen saying so.
+ *
+ * The factor is the federation's, not the SI one. A federation prints its pound
+ * column with whatever factor its own software uses, and measuring against the
+ * exact 2.20462262... instead puts a thousand rows over the tolerance for no
+ * reason but the fourth decimal place. Curated rather than assumed, for the same
+ * reason the margin rules are.
+ */
+const ColumnCrossCheckSchema = v.object({
+  poundsPerKilogram: v.pipe(
+    v.number(),
+    v.finite(),
+    v.check((factor) => factor > 0, 'a factor above zero'),
+  ),
+
+  /**
+   * How far the two columns may differ, in kilograms, before it counts.
+   *
+   * Set to the smallest step a competition bar can be loaded to. Below that a
+   * disagreement cannot describe a different lift, which makes this a threshold
+   * about weights rather than a tuned constant -- and stops it being nudged
+   * upward the first time a build reports more rows than somebody expected.
+   */
+  toleranceKilograms: v.pipe(v.number(), v.finite(), v.minValue(0)),
+
+  /**
+   * How many rows may disagree before the build fails.
+   *
+   * The one part of this block that can stop a release, and it is aimed at a
+   * source redesign rather than at data quality: a pound column shifted one
+   * place left makes every row disagree at once, and the result without this is
+   * a corpus where every record carries a bogus second figure.
+   */
+  maximumDisagreements: v.pipe(v.number(), v.integer(), v.minValue(0)),
+});
+
+/**
  * The curated form of one federation's record mapping.
  *
  * `$comment` keys are tolerated anywhere they appear and dropped rather than
@@ -260,6 +302,7 @@ export const RecordSourceDocumentSchema = v.object({
   absentLocations: v.array(AbsentLocationSchema),
   placeholderHolders: v.array(PlaceholderHolderSchema),
   plausibility: PlausibilitySchema,
+  columnCrossCheck: ColumnCrossCheckSchema,
 });
 export type RecordSourceDocument = v.InferOutput<typeof RecordSourceDocumentSchema>;
 
@@ -910,6 +953,10 @@ function buildRecords(
   const lost: string[] = [];
   const unreadable: string[] = [];
   const collisions: string[] = [];
+  // Not a problem list. These rows publish; the count exists so that a source
+  // redesign -- a column swapped, a unit changed -- shows up as a number nobody
+  // expected rather than as a few hundred quiet cautions on the site.
+  const disagreements: string[] = [];
   const seen = new Set<string>();
   const claimedPlaceholders = new Set<string>();
 
@@ -1038,6 +1085,11 @@ function buildRecords(
       }
       seen.add(id);
 
+      const sourceDisagreement = readSourceDisagreement(row, kilograms, source.columnCrossCheck);
+      if (sourceDisagreement !== null) {
+        disagreements.push(where);
+      }
+
       records.push({
         id,
         scope: {
@@ -1053,6 +1105,7 @@ function buildRecords(
         },
         kilograms,
         unclaimed,
+        sourceDisagreement,
         // A seeded record has no holder, and the founding date the federation
         // stamps it with is not a date any lift was made -- printing it asserts
         // one happened. The date is parsed above regardless of this, and then
@@ -1099,6 +1152,22 @@ function buildRecords(
     );
   }
 
+  if (disagreements.length > source.columnCrossCheck.maximumDisagreements) {
+    // Deliberately not phrased as "bad data". A few hundred rows where the
+    // federation's two columns disagree is the corpus as it stands and is
+    // published with the contradiction shown. A sudden jump is something else:
+    // the pound column now holding a different quantity, or the kilogram column
+    // moving one position left. Both of those are silent, and both put a wrong
+    // figure in front of every lifter rather than a few hundred.
+    problems.push(
+      `column cross-check: ${String(disagreements.length)} rows have a pound column that ` +
+        `disagrees with the kilogram column by more than ` +
+        `${String(source.columnCrossCheck.toleranceKilograms)} kg, and the mapping allows ` +
+        `${String(source.columnCrossCheck.maximumDisagreements)}. Nothing is withheld for this; ` +
+        'the budget is here to catch a column that changed meaning.',
+    );
+  }
+
   // Sorted by identifier rather than left in crawl order. Artifacts are
   // content-addressed, so a source that merely reordered its rows would
   // otherwise rewrite every filename and evict a cache that was still correct.
@@ -1140,6 +1209,52 @@ function readKilograms(
     return `figure is above ${String(ceiling)} kg for a ${lift}`;
   }
   return parsed.kilograms;
+}
+
+/**
+ * The row's pound cell, when it contradicts the kilogram cell this build is
+ * publishing, or `null` when it agrees, is blank, or cannot be read.
+ *
+ * Withholds nothing and corrects nothing -- kilograms govern, and the figure
+ * returned here never re-enters the arithmetic. It exists so that the screen can
+ * say the source contradicts itself and link to the table, instead of printing
+ * one of two irreconcilable numbers with total confidence.
+ *
+ * An unreadable pound cell is not reported as a parser problem the way an
+ * unreadable kilogram cell is. That one is the figure; this one is a second
+ * witness, and a build that refused to publish a perfectly good record because
+ * its pound cell was `--` would have made the witness into the evidence.
+ */
+function readSourceDisagreement(
+  row: SnapshotRow,
+  kilograms: number,
+  crossCheck: RecordSourceDocument['columnCrossCheck'],
+): { readonly pounds: number; readonly impliedKilograms: number } | null {
+  // Named for the usual caller. It is a plain-decimal reader, and what the
+  // decimal measures is the caller's business.
+  const parsed = parseKilograms(row[5]);
+  if (!parsed.ok) {
+    return null;
+  }
+
+  const pounds = parsed.kilograms;
+  // Five thousand rows print `0.00` here. That is a cell nobody filled in, not a
+  // record of nothing, and reading it as a contradiction would caution a tenth
+  // of the corpus over a blank.
+  if (pounds <= 0) {
+    return null;
+  }
+
+  const implied = pounds / crossCheck.poundsPerKilogram;
+  if (Math.abs(implied - kilograms) <= crossCheck.toleranceKilograms) {
+    return null;
+  }
+
+  // Rounded for the wire, not for the comparison. The comparison is made on the
+  // full quotient above; this is what a reader sees, and two decimal places is
+  // finer than any bar loads. Carrying the raw quotient would put seventeen
+  // digits of binary noise into a content-addressed artifact.
+  return { pounds, impliedKilograms: Math.round(implied * 100) / 100 };
 }
 
 /** The date the record was set, in ISO form, or `undefined` if it is unreadable. */

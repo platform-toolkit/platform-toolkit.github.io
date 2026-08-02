@@ -12,6 +12,8 @@ import {
   NATIONAL,
   NORTH,
   STATE_BOOK,
+  bookOf,
+  record,
 } from './records-fixture.js';
 import { NO_SELECTION, partitionKey } from './selection.js';
 import { NO_ENTRIES, typeLift } from './standards.js';
@@ -162,6 +164,38 @@ export const NothingPublished: Story = {
 export const WithLiftsEntered: Story = {
   args: {
     entries: typeLift(typeLift(NO_ENTRIES, 'squat', '125'), 'bench', '70'),
+  },
+};
+
+/**
+ * The federation's own two columns disagreeing about one record.
+ *
+ * Each record is published twice on one row, in kilograms and in pounds, and on
+ * a corpus of six figures the two sometimes cannot both be right. Kilograms
+ * govern -- the headline is still the weight that takes the kilogram figure, and
+ * nothing here re-enters the arithmetic -- so the row prints both numbers and
+ * says which one it used, rather than picking one silently or withholding a real
+ * record over a contradiction the lifter can settle by following the link.
+ *
+ * Storied because it is the only place in the tool where a lifter is told not to
+ * trust a figure, it appears on a few hundred rows out of a hundred and thirty
+ * thousand, and nobody will meet it by clicking around.
+ */
+export const SourceContradictsItself: Story = {
+  args: {
+    recordReads: reads({
+      partition: NATIONAL,
+      status: 'ready',
+      // A decimal point one place left in the pound cell, which is what most of
+      // the real disagreements look like. Invented figures (§5.1).
+      book: bookOf([
+        record('squat', {
+          kilograms: 145,
+          sourceDisagreement: { pounds: 32, impliedKilograms: 14.51 },
+        }),
+        record('bench', { kilograms: 82.5 }),
+      ]),
+    }),
   },
 };
 

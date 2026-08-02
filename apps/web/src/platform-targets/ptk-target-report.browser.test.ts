@@ -288,6 +288,49 @@ describe('ptk-target-report', () => {
   });
 
   /**
+   * The federation publishes each record twice on one row, in kilograms and in
+   * pounds, and on a corpus this size the two sometimes disagree by more than
+   * rounding can explain. Both figures are named, because a caution that only
+   * said "this figure may be wrong" gives a lifter a reason to distrust a record
+   * with no way to resolve it -- and the row's title is already a link to the
+   * table where the question can be settled.
+   */
+  it('says so when the source contradicts itself about a record', async () => {
+    const element = await mount({
+      // A decimal point one place left in the pound cell, which is what most of
+      // the real disagreements look like. Invented figures (§5.1).
+      reads: [
+        ready(
+          NATIONAL,
+          bookOf([
+            record('squat', {
+              kilograms: 145,
+              sourceDisagreement: { pounds: 32, impliedKilograms: 14.51 },
+            }),
+          ]),
+        ),
+      ],
+    });
+    const shown = text(element);
+    expect(shown).toContain(
+      "The federation's table also prints this record as 32 lb, which is 14.51 kg.",
+    );
+    // The kilogram column still governs, above and in the arithmetic: the
+    // headline is the weight that takes 145 kg, not anything derived from 14.51.
+    expect(shown).toContain('Record: 145 kg (319.7 lb)');
+    expect(only(columnFor(element, 'Squat'), 'li.row.record .kilograms').textContent.trim()).toBe(
+      '145.5 kg',
+    );
+  });
+
+  it('draws no caution when the source agrees with itself', async () => {
+    // Which is nearly every row. Asserted because the caution is rendered from a
+    // nullable field, and a template that drew it unconditionally would put a
+    // contradiction notice under every record in the collection.
+    expect(all(await mount(), '.caution')).toEqual([]);
+  });
+
+  /**
    * Requirement 12. The link goes to the *table* the record is published in, and
    * the note says so -- no federation this project reads publishes a per-record
    * certificate, and a link labelled as one would promise a page that does not

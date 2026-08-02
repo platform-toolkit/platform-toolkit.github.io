@@ -104,6 +104,56 @@ export const FederationRecordSchema = v.object({
   unclaimed: v.boolean(),
 
   /**
+   * The figure the source's own pound column gives, when it contradicts the
+   * kilogram column, or `null` when the two agree.
+   *
+   * Federations publish a record twice on one row -- once in kilograms and once
+   * in pounds -- and on a corpus this size the two sometimes disagree by more
+   * than any rounding can explain: a digit inserted into one cell, a decimal
+   * point moved, a weight-class figure pasted into the weight column. Measured
+   * on the real USPA corpus, 355 of 129,509 published rows.
+   *
+   * Kilograms govern, so `kilograms` is still the kilogram column and nothing
+   * here re-enters the arithmetic. What this field buys is the difference
+   * between a wrong number presented with total confidence and a wrong number a
+   * lifter can see is wrong -- the screen says the source contradicts itself and
+   * links to the table, which is the only place the question can be settled.
+   *
+   * Not a boolean, because "this may be wrong" with no figure attached is
+   * unactionable: a reader shown 147.7 lb beside 670 kg can tell at a glance
+   * which cell slipped, and a reader shown a warning icon cannot.
+   *
+   * Required rather than optional and defaulted, for the same reason
+   * {@link FederationRecord.unclaimed} is. A publisher that has not compared the
+   * two columns must not silently assert that they agree.
+   */
+  sourceDisagreement: v.nullable(
+    v.object({
+      /** The pound column, exactly as the source printed it. */
+      pounds: v.pipe(
+        v.number(),
+        v.finite(),
+        v.check((pounds) => pounds > 0, 'a figure above zero'),
+      ),
+
+      /**
+       * What that pound figure comes to in kilograms.
+       *
+       * Carried rather than derived in the browser so that the two sides of the
+       * comparison are the two the publisher actually compared. Deriving it
+       * again needs the federation's own conversion factor, and a browser using
+       * a different one would draw a disagreement the publisher did not find --
+       * or fail to draw one it did.
+       */
+      impliedKilograms: v.pipe(
+        v.number(),
+        v.finite(),
+        v.check((kilograms) => kilograms > 0, 'a weight above zero'),
+      ),
+    }),
+  ),
+
+  /**
    * Who holds it, as the source publishes it, or `null` if the source omits it
    * or nobody holds it yet.
    *

@@ -53,6 +53,7 @@ import {
   nextIn,
   reachedIn,
   type RecordDetail,
+  type RecordDisagreement,
   type RecordHolder,
   type Report,
   type ReportCell,
@@ -246,6 +247,21 @@ export class PtkTargetReport extends LitElement {
       font-size: var(--ptk-font-size-sm);
       font-weight: 600;
       color: var(--ptk-color-accent);
+    }
+
+    /*
+     * A rule down the side as well as a colour. Colour alone is discarded under
+     * forced colours and invisible to a reader who cannot separate the hues, and
+     * this is the one sentence in the row that changes what the numbers above it
+     * mean -- so it has to be distinguishable without it. Full text colour
+     * rather than the muted tone the other lines use, for the same reason.
+     */
+    .caution {
+      margin: var(--ptk-space-xs) 0 0;
+      padding-left: var(--ptk-space-xs);
+      border-left: 2px solid var(--ptk-color-accent);
+      font-size: var(--ptk-font-size-sm);
+      color: var(--ptk-color-text);
     }
 
     .empty,
@@ -508,12 +524,42 @@ function renderRecord(detail: RecordDetail): TemplateResult {
           ${target.basis}.
         </p>`,
     )}
+    ${renderDisagreement(detail.disagreement)}
     ${
       detail.unclaimed
         ? html`<p class="holder">No lifter has claimed this record yet.</p>`
         : renderHolder(detail.holder)
     }
   `;
+}
+
+/**
+ * The caution shown when the federation's own two columns disagree.
+ *
+ * Placed under the record and above the holder, so it is read as being about the
+ * figure rather than about the lifter.
+ *
+ * It names both numbers and then says which one this application used. A caution
+ * that only said "this figure may be wrong" would give a lifter a reason to
+ * distrust a record with no way to resolve it — and the row's title is already a
+ * link to the federation's table, which is the only place the question can be
+ * settled.
+ *
+ * Not a `ptk-notice`: this is a sentence inside a row, and the notice element
+ * draws a bordered panel meant to stand in for content that is absent. The
+ * content here is present; what is uncertain is one of its two spellings.
+ */
+function renderDisagreement(
+  disagreement: RecordDisagreement | null,
+): TemplateResult | typeof nothing {
+  if (disagreement === null) {
+    return nothing;
+  }
+  return html`<p class="caution">
+    The federation's table also prints this record as ${disagreement.poundsText} lb, which is
+    ${disagreement.impliedKilogramsText} kg. Records are set in kilograms, so the kilogram figure is
+    the one shown above — check the table before planning against either.
+  </p>`;
 }
 
 /**

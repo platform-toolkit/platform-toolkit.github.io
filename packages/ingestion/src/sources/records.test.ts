@@ -161,6 +161,16 @@ function document(overrides: Record<string, unknown> = {}): Record<string, unkno
       maximumTotalKilograms: 1600,
       maximumExcludedRows: 10,
     },
+    // The factor the fixture's own pound cells were written against, so an
+    // unmodified build finds no disagreement and every case below that wants one
+    // has to state it. The budget is one, which is the smallest figure that lets
+    // a single contradicting row publish and a second one trip the check --
+    // testing both halves without either needing an override.
+    columnCrossCheck: {
+      poundsPerKilogram: 2.2046226,
+      toleranceKilograms: 0.5,
+      maximumDisagreements: 1,
+    },
     ...overrides,
   };
 }
@@ -817,6 +827,93 @@ describe('buildRecordBook', () => {
     expect(problems).toEqual([
       'exclusions: 12 rows were excluded, and the mapping allows 10. Either the tables changed ' +
         'shape or the budget needs revisiting; do not raise it without reading the reasons.',
+    ]);
+  });
+
+  it('publishes a row whose pound column contradicts its kilogram column, and says so', () => {
+    const { book } = buildRecordBook(
+      document(),
+      snapshot({
+        tables: [
+          table('north', 'tested', 'powerlifting', 'State/Tested Records/North/Raw/Full Power', [
+            // A decimal point moved. The kilogram cell is a plausible squat and
+            // the pound cell is a tenth of one; arithmetic cannot say which cell
+            // is the corrupt one, so the row publishes and shows both.
+            ['OPEN WOMEN', '40kg', 'Squat', 'Robin Vance', '100.00', '22.05', '05/18/2024'],
+            ['OPEN MEN', '60kg', 'TOTAL', 'Sam Ortiz', '400.00', '881.85', '2024-05-18'],
+          ]),
+          ...baseTables().slice(1),
+        ],
+      }),
+      catalog,
+    );
+
+    const squat = recordById(
+      book.records,
+      'example/state/north/female/raw/full-power/f-40/open/tested/squat',
+    );
+    // Kilograms govern. The contradiction is recorded beside the figure, never
+    // instead of it and never folded into it.
+    expect(squat?.kilograms).toBe(100);
+    expect(squat?.sourceDisagreement).toEqual({ pounds: 22.05, impliedKilograms: 10 });
+
+    // Everything else is untouched: this withholds nothing and corrects nothing.
+    expect(book.records).toHaveLength(BUILT_RECORDS);
+    expect(
+      recordById(book.records, 'example/state/north/male/raw/full-power/m-60/open/tested/total')
+        ?.sourceDisagreement,
+    ).toBeNull();
+  });
+
+  it('reads a blank pound cell as a missing figure rather than as a contradiction', () => {
+    const { book } = buildRecordBook(
+      document(),
+      snapshot({
+        tables: [
+          table('north', 'tested', 'powerlifting', 'State/Tested Records/North/Raw/Full Power', [
+            // Thousands of real rows print exactly this. Read as a figure it
+            // contradicts every weight there is, and the caution would land on a
+            // tenth of the corpus over a cell nobody filled in.
+            ['OPEN WOMEN', '40kg', 'Squat', 'Robin Vance', '100.00', '0.00', '05/18/2024'],
+            // Unreadable rather than empty, and equally not evidence of
+            // anything: the pound column is a second witness, and a build that
+            // refused a good kilogram figure over it would have made the witness
+            // into the evidence.
+            ['OPEN MEN', '60kg', 'TOTAL', 'Sam Ortiz', '400.00', '--', '2024-05-18'],
+          ]),
+          ...baseTables().slice(1),
+        ],
+      }),
+      catalog,
+    );
+
+    expect(book.records).toHaveLength(BUILT_RECORDS);
+    for (const record of book.records) {
+      expect(record.sourceDisagreement).toBeNull();
+    }
+  });
+
+  it('fails when more columns disagree than the mapping budgets for', () => {
+    const problems = problemsFrom(
+      document(),
+      snapshot({
+        tables: [
+          table('north', 'tested', 'powerlifting', 'State/Tested Records/North/Raw/Full Power', [
+            ['OPEN WOMEN', '40kg', 'Squat', 'Robin Vance', '100.00', '22.05', '05/18/2024'],
+            ['OPEN MEN', '60kg', 'TOTAL', 'Sam Ortiz', '400.00', '88.19', '2024-05-18'],
+          ]),
+          ...baseTables().slice(1),
+        ],
+      }),
+    );
+
+    // The budget is not a data-quality bar -- these rows would have published.
+    // It is what notices the pound column starting to hold a different quantity,
+    // which is silent and puts a wrong figure in front of every lifter.
+    expect(problems).toEqual([
+      'column cross-check: 2 rows have a pound column that disagrees with the kilogram column ' +
+        'by more than 0.5 kg, and the mapping allows 1. Nothing is withheld for this; the budget ' +
+        'is here to catch a column that changed meaning.',
     ]);
   });
 
