@@ -255,13 +255,10 @@ export function resolveStandards(
   category: LifterCategory | null,
   entries: LiftEntries,
 ): readonly LiftStanding[] {
-  const typed = new Map<Lift, LiftEntry>(
-    LIFTS.map((lift) => [lift, readEntry(entries.fields[lift], entries.unit)]),
-  );
-  const derivedTotal = deriveTotal(typed);
+  const read = readLiftEntries(entries);
 
   return LIFTS.map((lift) => {
-    const entry = lift === 'total' && derivedTotal !== null ? derivedTotal : entryOf(typed, lift);
+    const entry = read[lift];
     const standards = standardsFor(book, category, lift);
     return {
       lift,
@@ -275,6 +272,31 @@ export function resolveStandards(
       unit: entries.unit,
     };
   });
+}
+
+/**
+ * Every field read once, with the total added up when it was left blank.
+ *
+ * Exported because the records panel measures the same four numbers against a
+ * different published thing, and deriving the total twice is how the two panels
+ * come to disagree about a lifter's total -- one of them rounding a sum the other
+ * did not, in a category where nothing on screen says which is which.
+ *
+ * Written out lift by lift rather than built from `LIFTS` into an accumulator: a
+ * `Record<Lift, …>` assembled in a loop needs a cast to start empty, and the cast
+ * keeps compiling on the day a fifth lift is added and left unfilled.
+ */
+export function readLiftEntries(entries: LiftEntries): Readonly<Record<Lift, LiftEntry>> {
+  const typed = new Map<Lift, LiftEntry>(
+    LIFTS.map((lift) => [lift, readEntry(entries.fields[lift], entries.unit)]),
+  );
+  const derived = deriveTotal(typed);
+  return {
+    squat: entryOf(typed, 'squat'),
+    bench: entryOf(typed, 'bench'),
+    deadlift: entryOf(typed, 'deadlift'),
+    total: derived ?? entryOf(typed, 'total'),
+  };
 }
 
 /** `Map.get` is `| undefined`, and every lift was just put in. */

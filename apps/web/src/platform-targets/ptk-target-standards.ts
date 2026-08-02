@@ -42,6 +42,14 @@ import { NO_SELECTION, type CategorySelection } from './selection.js';
 /** Where the read of this category's standards has got to. */
 export type StandardsStatus = 'idle' | 'loading' | 'ready' | 'failed';
 
+/** Fired whenever one of the four fields, or the unit they are read in, changes. */
+export interface EntriesChangeDetail {
+  readonly entries: LiftEntries;
+}
+
+/** Event name, exported so a listener cannot misspell it. */
+export const ENTRIES_CHANGE_EVENT = 'ptk-entries-change';
+
 /**
  * The two units, as options rather than as a toggle.
  *
@@ -124,13 +132,24 @@ export class PtkTargetStandards extends LitElement {
   /**
    * What is in the four fields.
    *
-   * Owned here rather than by the page, because these are the only values on
-   * the screen that nothing outside the element reads. Deliberately **not**
-   * persisted: §2.3 forbids storing imported athlete data by default, and a
-   * lifter's competition results are exactly that whether they were imported or
-   * typed. A field that survived a reload would be a quiet exception to it.
+   * Still owned here, and deliberately not lifted into a property. The records
+   * panel needs the same four numbers, but it needs to *read* them -- so this
+   * element keeps the state and announces every change, rather than becoming a
+   * controlled element whose fields go inert when it is mounted on its own. A
+   * story or a test that mounts this alone still types into a working panel,
+   * which is the whole reason every state here is reachable without a page.
+   *
+   * Deliberately **not** persisted: §2.3 forbids storing imported athlete data by
+   * default, and a lifter's competition results are exactly that whether they
+   * were imported or typed. A field that survived a reload would be a quiet
+   * exception to it.
    */
   @state() private entries: LiftEntries = NO_ENTRIES;
+
+  /** What the four fields currently hold. Read-only; set by typing. */
+  get currentEntries(): LiftEntries {
+    return this.entries;
+  }
 
   /**
    * Resolves once the fields have rendered too.
@@ -253,7 +272,7 @@ export class PtkTargetStandards extends LitElement {
     if (lift === null) {
       return;
     }
-    this.entries = typeLift(this.entries, lift, event.detail.value);
+    this.#setEntries(typeLift(this.entries, lift, event.detail.value));
   };
 
   /**
@@ -270,8 +289,32 @@ export class PtkTargetStandards extends LitElement {
     if (unit === null) {
       return;
     }
-    this.entries = setEntryUnit(this.entries, unit);
+    this.#setEntries(setEntryUnit(this.entries, unit));
   };
+
+  /**
+   * Records the change and tells anyone outside about it.
+   *
+   * Announced rather than delegated. The records panel measures the same four
+   * numbers against a different published thing, and a lifter must not have to
+   * type their meet twice for the two halves of one screen -- but the unit radio
+   * and the four fields belong to this panel, so this is where a keystroke turns
+   * into a value. The event is `composed`, so the page can hear it from outside
+   * this element's shadow root without a callback threaded down.
+   *
+   * Fired only from the two handlers above, never from a property write, for the
+   * usual reason: a listener that set state on the event would loop.
+   */
+  #setEntries(entries: LiftEntries): void {
+    this.entries = entries;
+    this.dispatchEvent(
+      new CustomEvent<EntriesChangeDetail>(ENTRIES_CHANGE_EVENT, {
+        detail: { entries },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
 }
 
 /**
@@ -303,5 +346,9 @@ function liftOf(event: Event): Lift | null {
 declare global {
   interface HTMLElementTagNameMap {
     'ptk-target-standards': PtkTargetStandards;
+  }
+
+  interface HTMLElementEventMap {
+    [ENTRIES_CHANGE_EVENT]: CustomEvent<EntriesChangeDetail>;
   }
 }

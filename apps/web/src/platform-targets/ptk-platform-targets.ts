@@ -13,11 +13,16 @@
  * needing a callback property threaded through -- and it keeps this file free of
  * any knowledge that a data source exists.
  */
-import type { CategoryCatalog, ClassificationBook } from '@platform-toolkit/data-contracts';
+import type {
+  CategoryCatalog,
+  ClassificationBook,
+  RecordBook,
+} from '@platform-toolkit/data-contracts';
 import { LitElement, css, html, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
 import './ptk-target-categories.js';
+import './ptk-target-records.js';
 import './ptk-target-standards.js';
 import {
   SELECTION_CHANGE_EVENT,
@@ -25,7 +30,13 @@ import {
   type SelectionChangeDetail,
 } from './ptk-target-categories.js';
 import { NO_SELECTION, type CategorySelection } from './selection.js';
-import type { StandardsStatus } from './ptk-target-standards.js';
+import {
+  ENTRIES_CHANGE_EVENT,
+  type EntriesChangeDetail,
+  type StandardsStatus,
+} from './ptk-target-standards.js';
+import type { RecordsStatus } from './ptk-target-records.js';
+import { NO_ENTRIES, type LiftEntries } from './standards.js';
 
 @customElement('ptk-platform-targets')
 export class PtkPlatformTargets extends LitElement {
@@ -49,6 +60,11 @@ export class PtkPlatformTargets extends LitElement {
 
   @property({ type: String }) standardsStatus: StandardsStatus = 'idle';
 
+  /** This partition's records, or `null` if the federation publishes none for it. */
+  @property({ attribute: false }) records: RecordBook | null = null;
+
+  @property({ type: String }) recordsStatus: RecordsStatus = 'idle';
+
   /**
    * The answered category, as the questions last reported it.
    *
@@ -57,6 +73,17 @@ export class PtkPlatformTargets extends LitElement {
    * each other in a way neither could detect.
    */
   @state() private selection: CategorySelection = NO_SELECTION;
+
+  /**
+   * The four weights, as the standards panel last reported them.
+   *
+   * Held here so the records panel can read the same numbers the classification
+   * panel is reading. Mirrored downward into the records panel only, never back
+   * into the panel that owns the fields -- a round trip would make a keystroke
+   * depend on this element being present, and the standards panel is mounted on
+   * its own in half its tests.
+   */
+  @state() private entries: LiftEntries = NO_ENTRIES;
 
   /** What the questions currently say the category is. */
   get currentSelection(): CategorySelection {
@@ -67,17 +94,25 @@ export class PtkPlatformTargets extends LitElement {
     const complete = await super.getUpdateComplete();
     const categories = this.shadowRoot?.querySelector('ptk-target-categories');
     const standards = this.shadowRoot?.querySelector('ptk-target-standards');
+    const records = this.shadowRoot?.querySelector('ptk-target-records');
     await Promise.all([categories?.updateComplete, standards?.updateComplete]);
+    // Awaited after the other two rather than alongside them. The records panel
+    // renders from the entries this element mirrors out of the standards panel,
+    // so its update is queued by the standards panel settling -- awaiting all
+    // three at once resolves before that second render has been committed.
+    await records?.updateComplete;
     return complete;
   }
 
   override connectedCallback(): void {
     super.connectedCallback();
     this.addEventListener(SELECTION_CHANGE_EVENT, this.#onSelectionChange);
+    this.addEventListener(ENTRIES_CHANGE_EVENT, this.#onEntriesChange);
   }
 
   override disconnectedCallback(): void {
     this.removeEventListener(SELECTION_CHANGE_EVENT, this.#onSelectionChange);
+    this.removeEventListener(ENTRIES_CHANGE_EVENT, this.#onEntriesChange);
     super.disconnectedCallback();
   }
 
@@ -96,6 +131,15 @@ export class PtkPlatformTargets extends LitElement {
           .selection=${this.selection}
         ></ptk-target-standards>
       </section>
+      <section>
+        <ptk-target-records
+          .catalog=${this.catalog}
+          .book=${this.records}
+          .status=${this.recordsStatus}
+          .selection=${this.selection}
+          .entries=${this.entries}
+        ></ptk-target-records>
+      </section>
     `;
   }
 
@@ -108,6 +152,11 @@ export class PtkPlatformTargets extends LitElement {
    */
   readonly #onSelectionChange = (event: CustomEvent<SelectionChangeDetail>): void => {
     this.selection = event.detail.selection;
+  };
+
+  /** Same discipline: mirrored for the records panel, and left to keep travelling. */
+  readonly #onEntriesChange = (event: CustomEvent<EntriesChangeDetail>): void => {
+    this.entries = event.detail.entries;
   };
 }
 

@@ -68,6 +68,14 @@ const WIDTHS = [320, 390];
  * and four status lines, and it is inert until a category is complete, so
  * stopping after the first answer would measure roughly a third of the page --
  * which is what this list used to do, and why it is a list now.
+ *
+ * The last three are the records panel's own questions, and the region one is
+ * the densest thing on this screen by a wide margin: fifty state names, several
+ * of which are two words long. It is reachable only because the catalogue lists
+ * the subdivided level first, so `.first()` on the level group lands on the
+ * level that asks it -- if a federation ever publishes an unsubdivided level
+ * ahead of a subdivided one, this stops matching and fails loudly, which is the
+ * correct outcome rather than a quiet skip of fifty tiles.
  */
 const PLATFORM_TARGETS_REVEAL = [
   'ptk-choice-group[data-field="sex"] input',
@@ -75,6 +83,9 @@ const PLATFORM_TARGETS_REVEAL = [
   'ptk-choice-group[data-field="weightClass"] input',
   'ptk-choice-group[data-field="division"] input',
   'ptk-choice-group[data-field="tested"] input',
+  'ptk-choice-group[data-record-field="level"] input',
+  'ptk-choice-group[data-record-field="region"] input',
+  'ptk-choice-group[data-record-field="discipline"] input',
 ];
 
 /**
@@ -197,6 +208,29 @@ const ONE_REP_MAX_CLICK_AFTER = [
   'ptk-disclosure[label="Every equation"] summary',
 ];
 
+/**
+ * The two last things to appear on the Platform Targets screen.
+ *
+ * Two rather than one, because the screen has two panels that finish at
+ * different moments and neither implies the other. The derived total fills in
+ * once the three lifts above it parse; the record cards exist only once the
+ * event has been chosen and the panel has rendered them. Settling on the total
+ * alone would measure a records panel still showing its "choose a level" notice,
+ * which is a third of the height of the one with cards on it.
+ *
+ * A card, not a figure. `.figure` renders only where a record actually stands in
+ * the chosen category, and the category this list reveals -- the first option in
+ * every group -- is a real one the federation happens to publish nothing for.
+ * Waiting for a figure would be waiting for something correct data does not
+ * produce. What that costs is the holder line, the widest string on a card; it is
+ * measured at 320 px in `ptk-target-records.browser.test.ts` instead, where the
+ * book is a fixture and the record is guaranteed to be there.
+ */
+const PLATFORM_TARGETS_SETTLE = [
+  'ptk-number-field[data-lift="total"] input',
+  'ptk-target-records .record',
+];
+
 /** The routes, and what has to happen before each is worth measuring. */
 const ROUTES = [
   { path: '/', click: [], reveal: [], fill: [] },
@@ -205,14 +239,14 @@ const ROUTES = [
     click: [],
     reveal: PLATFORM_TARGETS_REVEAL,
     fill: PLATFORM_TARGETS_FILL,
-    settle: 'ptk-number-field[data-lift="total"] input',
+    settle: PLATFORM_TARGETS_SETTLE,
   },
   {
     path: '/platform-targets/embed/uspa/',
     click: [],
     reveal: PLATFORM_TARGETS_REVEAL,
     fill: PLATFORM_TARGETS_FILL,
-    settle: 'ptk-number-field[data-lift="total"] input',
+    settle: PLATFORM_TARGETS_SETTLE,
   },
   {
     path: '/warm-up/',
@@ -222,14 +256,14 @@ const ROUTES = [
     // The checklist rows, not the field just typed into: a filled field says the
     // keystroke landed, which it did before the plan was computed. A row exists
     // only once the ramp has been worked out and rendered.
-    settle: 'ptk-lift-card li',
+    settle: ['ptk-lift-card li'],
   },
   {
     path: '/warm-up/embed/',
     click: WARM_UP_CLICK,
     reveal: [],
     fill: WARM_UP_FILL,
-    settle: 'ptk-lift-card li',
+    settle: ['ptk-lift-card li'],
   },
   {
     path: '/convert/',
@@ -239,14 +273,14 @@ const ROUTES = [
     // An option card, not the field just typed into: a filled field says the
     // keystroke landed, which it did before the chart was consulted. A card
     // exists only once a published row has been found to offer.
-    settle: 'ptk-conversion-result li',
+    settle: ['ptk-conversion-result li'],
   },
   {
     path: '/convert/embed/uspa/',
     click: CONVERT_CLICK,
     reveal: [],
     fill: CONVERT_FILL,
-    settle: 'ptk-conversion-result li',
+    settle: ['ptk-conversion-result li'],
   },
   {
     path: '/one-rep-max/',
@@ -257,7 +291,7 @@ const ROUTES = [
     // A rendered formula row, not the field just typed into: a filled field says
     // the keystroke landed, which it did before any equation ran. A card exists
     // only once the ensemble has been computed.
-    settle: 'ptk-formula-comparison li',
+    settle: ['ptk-formula-comparison li'],
   },
   {
     path: '/one-rep-max/embed/',
@@ -265,7 +299,7 @@ const ROUTES = [
     reveal: [],
     fill: ONE_REP_MAX_FILL,
     clickAfter: ONE_REP_MAX_CLICK_AFTER,
-    settle: 'ptk-formula-comparison li',
+    settle: ['ptk-formula-comparison li'],
   },
 ];
 
@@ -418,12 +452,15 @@ async function reveal(page, route, width, failures) {
   // a skip, which is the thing that makes this file stop checking.
   if (!(await tap(page, route.clickAfter ?? [], where, failures))) return false;
 
-  if (route.settle !== undefined && !(await settled(page, route.settle))) {
-    // The derived total is the last thing to appear, so an empty one means the
-    // panel never re-rendered -- and a panel that never re-rendered is showing
-    // placeholder-width text, which is not the layout at risk of overflowing.
-    failures.push(`${where}: ${route.settle} never took a value`);
-    return false;
+  // A list, because a screen can have more than one panel that finishes at its
+  // own moment and neither one implies the other. Waiting on the earlier of two
+  // measures the later one mid-render -- placeholder-width text, which is not
+  // the layout at risk of overflowing.
+  for (const selector of route.settle ?? []) {
+    if (!(await settled(page, selector))) {
+      failures.push(`${where}: ${selector} never took a value`);
+      return false;
+    }
   }
 
   return true;

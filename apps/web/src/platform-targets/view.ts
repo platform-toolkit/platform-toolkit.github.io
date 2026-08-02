@@ -1,11 +1,17 @@
-import { DataSourceError, type DataSource } from '@platform-toolkit/data-access';
+import {
+  DataSourceError,
+  type DataSource,
+  type RecordSetQuery,
+} from '@platform-toolkit/data-access';
 import type { SexCategory } from '@platform-toolkit/data-contracts';
 
 import { dataSource } from '../data-source.js';
 import './ptk-platform-targets.js';
 import type { PtkPlatformTargets } from './ptk-platform-targets.js';
 import { SELECTION_CHANGE_EVENT } from './ptk-target-categories.js';
-import type { CategorySelection } from './selection.js';
+import { RECORD_SCOPE_CHANGE_EVENT } from './ptk-target-records.js';
+import type { RecordPartition } from './record-scope.js';
+import { NO_SELECTION, type CategorySelection } from './selection.js';
 
 /** Identifier for this tool, and what it calls itself in a height message. */
 export const TOOL_ID = 'platform-targets';
@@ -41,6 +47,7 @@ export function createPlatformTargetsView(options: PlatformTargetsViewOptions): 
 
   void loadCatalog(element, source, options.federationId);
   watchForStandards(element, source, options.federationId);
+  watchForRecords(element, source, options.federationId);
   return element;
 }
 
@@ -161,6 +168,123 @@ async function loadStandards(
     }
     element.standardsStatus = 'failed';
     reportFailure('classification standards', caught);
+  }
+}
+
+/**
+ * Loads a partition of records whenever any of its four axes changes.
+ *
+ * Records are partitioned on (level, region, sex, equipment) -- two axes more
+ * than classifications, because the whole corpus is 76 MB and level and region
+ * alone leave four partitions over the 2 MiB budget (ADR 2, amended). Within
+ * those four the screen still moves freely: every discipline, class, division
+ * and lift for that partition is in the one file, so choosing a different event
+ * costs no request.
+ *
+ * TWO EVENTS, AND NEITHER MAY BE READ OFF THE ELEMENT
+ *
+ * The four axes arrive on two different events -- sex and equipment from the
+ * category questions, level and region from the record questions -- so this
+ * keeps its own copy of each. It must *not* reach for `element.currentSelection`
+ * instead: `createPlatformTargetsView` registers these listeners before the
+ * element is appended, so they run before the element's own
+ * `connectedCallback` listener has recorded anything, and the value read back
+ * would be the one from before this event. The symptom would be a records panel
+ * one answer behind the questions above it, which on a screen whose entire job
+ * is matching a category exactly is the worst possible way to be wrong.
+ */
+function watchForRecords(
+  element: PtkPlatformTargets,
+  source: DataSource,
+  federationId: string,
+): void {
+  let selection: CategorySelection = NO_SELECTION;
+  let scope: RecordPartition | null = null;
+  let loaded: string | null = null;
+  let inFlight: AbortController | null = null;
+
+  const reconsider = (): void => {
+    const lifter = partitionOf(selection);
+    if (lifter === null || scope === null) {
+      // Part way through the questions. The panel says so itself, and clearing
+      // anything here would flicker a book the lifter may be about to come back
+      // to -- switching level from national to state and back is two clicks.
+      return;
+    }
+
+    // Newline-separated, and the reason it is safe is worth stating: a level or
+    // region identifier could contain a slash, and `sex` could not, so a single
+    // separator that appears in the data would let two partitions share a key
+    // and the second read would never be issued. A newline cannot appear in any
+    // of the four -- they are all identifiers from a validated catalogue.
+    const key = [scope.levelId, scope.regionId ?? '', lifter.sex, lifter.equipmentId].join('\n');
+    if (key === loaded) {
+      return;
+    }
+    loaded = key;
+
+    // Same discipline as the standards read: the previous one is abandoned, not
+    // awaited. Two partitions in flight can settle out of order, and the loser
+    // would paint the records of the category the lifter just left -- plausible
+    // figures for the wrong state, with nothing on screen to say so.
+    inFlight?.abort();
+    const controller = new AbortController();
+    inFlight = controller;
+
+    element.recordsStatus = 'loading';
+    void loadRecords(
+      element,
+      source,
+      {
+        // The federation and its record book share an identifier by
+        // construction: the source document's `id` is the federation's, and it
+        // is what the publisher names the book with. Written out here rather
+        // than passed as one value so the day a federation publishes two books
+        // -- a masters set, an equipped set kept apart -- this is the line that
+        // needs a catalogue entry rather than a silently wrong lookup.
+        bookId: federationId,
+        levelId: scope.levelId,
+        regionId: scope.regionId,
+        sex: lifter.sex,
+        equipmentId: lifter.equipmentId,
+      },
+      controller.signal,
+    );
+  };
+
+  element.addEventListener(SELECTION_CHANGE_EVENT, (event) => {
+    selection = event.detail.selection;
+    reconsider();
+  });
+
+  element.addEventListener(RECORD_SCOPE_CHANGE_EVENT, (event) => {
+    scope = event.detail.partition;
+    reconsider();
+  });
+}
+
+async function loadRecords(
+  element: PtkPlatformTargets,
+  source: DataSource,
+  query: RecordSetQuery,
+  signal: AbortSignal,
+): Promise<void> {
+  try {
+    const book = await source.getRecords(query, { signal });
+    if (signal.aborted) {
+      return;
+    }
+    element.records = book;
+    // `null` is an answer again: the federation keeps no records for this
+    // partition. The panel says exactly that, per lift, and says what it would
+    // take to set one.
+    element.recordsStatus = 'ready';
+  } catch (caught) {
+    if (signal.aborted) {
+      return;
+    }
+    element.recordsStatus = 'failed';
+    reportFailure('records', caught);
   }
 }
 
