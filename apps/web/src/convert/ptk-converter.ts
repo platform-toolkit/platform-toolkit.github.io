@@ -20,6 +20,7 @@
  */
 import {
   directionInputUnit,
+  directionOutputUnit,
   entryWeight,
   convertAgainstChart,
   type ConversionAnswer,
@@ -173,6 +174,20 @@ export class PtkConverter extends LitElement {
 
   override render(): TemplateResult {
     const unit = directionInputUnit(this.entry.direction);
+    /*
+     * The landmarks are listed in the unit being converted *to*, which is the
+     * opposite of everything else on the screen and is the point of them.
+     *
+     * Somebody on "pounds to kilograms" is on their way to a kilogram platform.
+     * The list they need there is the kilogram loadings -- what a 20 kg bar with
+     * collars and a pair of 25s actually comes to -- with the pound reading
+     * beside each one, because the pound reading is the thing they already have
+     * a feel for. Listing the pound sequence instead answers a question they did
+     * not ask: it tells a lifter what three plates a side is in kilograms, which
+     * is the *other* radio button, and draws a rack of 45s for a meet that has
+     * none. The mirror holds going the other way.
+     */
+    const landmarkUnit = directionOutputUnit(this.entry.direction);
     const answer = this.#answer();
     return html`
       <section class="entry">
@@ -249,7 +264,7 @@ export class PtkConverter extends LitElement {
 
       <section>
         <ptk-milestone-chart
-          unit=${unit}
+          unit=${landmarkUnit}
           .chart=${this.chart}
           chart-status=${this.chartStatus}
           chart-label=${this.chart?.label ?? ''}

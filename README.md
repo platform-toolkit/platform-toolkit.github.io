@@ -64,8 +64,10 @@ and says which is nearer — measured in the column the weight was stated in, si
 pound figures are the federation's own and not conversions of the kilogram column. An exact midpoint
 is shown as equally close to both and resolves nothing.
 
-Barbell milestones are listed for both units, with their loading assumptions stated: the pound
-sequence excludes collars, the kilogram sequence includes 5 kg of competition collars.
+Barbell milestones are listed in the unit being converted **to** — converting pounds to kilograms
+lists the kilogram loadings, because that is the platform you are headed for — with the reading in
+the other unit beside each. Their loading assumptions are stated: the pound sequence excludes
+collars, the kilogram sequence includes 5 kg of competition collars.
 
 ### One-Rep Max Estimator
 

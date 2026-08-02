@@ -13,6 +13,16 @@
  * a chart weight. The exact arithmetic is present, small, and labelled as
  * arithmetic.
  *
+ * WHICH SEQUENCE, AND WHY IT IS THE ONE IT IS
+ *
+ * There are two lists and they are not conversions of each other -- they are the
+ * weights a bar actually comes to in each unit, off two different bars. `unit`
+ * picks the list, and the converter sets it to the unit being converted *to*: a
+ * lifter typing pounds is on their way to a kilogram platform, and the loadings
+ * they need to recognise there are the kilogram ones. The heading names the unit
+ * for that reason, because a section of unlabelled weights on a screen that has
+ * two units on it is a section that can be read the wrong way round.
+ *
  * THE TWO BARS ARE NOT THE SAME BAR
  *
  * A 45 lb bar takes spring clips that weigh nothing worth counting. A 20 kg
@@ -124,7 +134,13 @@ export class PtkMilestoneChart extends LitElement {
     }
   `;
 
-  /** Which sequence to show. The unit the visitor is entering weights in. */
+  /**
+   * Which sequence to show, and the unit every total in it is stated in.
+   *
+   * Not the unit being typed into the field. See the note at the top of the file:
+   * the converter passes the unit it is converting *to*, and the other unit is
+   * what each row is then read against.
+   */
   @property({ type: String }) unit: WeightUnit = 'lb';
 
   /** The federation's published chart, or `null` when there is none in hand. */
@@ -149,7 +165,7 @@ export class PtkMilestoneChart extends LitElement {
     const sequence = milestonesFor(this.unit);
     const rows = convertMilestones(sequence, this.chart);
     return html`
-      <h3>Common barbell weights</h3>
+      <h3>Common barbell weights in ${this.unit === 'kg' ? 'kilograms' : 'pounds'}</h3>
       <p class="assumptions">
         ${sequence.barDescription}. Every total below includes the
         bar${this.unit === 'kg' ? ' and 5 kg of competition collars' : ''}. Plates shown are per

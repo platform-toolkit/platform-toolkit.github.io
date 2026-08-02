@@ -81,6 +81,18 @@ describe('ptk-milestone-chart', () => {
     expect(rows(element)).toHaveLength(KILOGRAM_MILESTONES.milestones.length);
   });
 
+  it('names the unit its totals are in, in the heading', async () => {
+    // Two units are on the screen at once and this section is the one that is not
+    // in the unit being typed, so an unlabelled "Common barbell weights" above a
+    // column of figures can be read exactly the wrong way round.
+    const pounds = await mount({ unit: 'lb' });
+    expect(text(pounds)).toContain('Common barbell weights in pounds');
+    pounds.remove();
+
+    const kilograms = await mount({ unit: 'kg' });
+    expect(text(kilograms)).toContain('Common barbell weights in kilograms');
+  });
+
   it('states the bar it is assuming, and states a different one for kilograms', async () => {
     // The five kilograms of collars is the single most common reason a lifter's
     // own arithmetic is out, so it is printed rather than implied by the totals.

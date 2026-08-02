@@ -261,6 +261,27 @@ describe('ptk-converter', () => {
     expect(deepText(element)).not.toContain('Chart weights come from');
   });
 
+  it('lists the landmarks of the unit being converted to, not the one being typed', async () => {
+    // Reported as "the common barbell weights feel backwards", and they were. A
+    // lifter converting pounds to kilograms is on their way to a kilogram
+    // platform: the loadings worth recognising there are the kilogram ones, with
+    // the pound reading beside each. The pound sequence is what the other radio
+    // is for.
+    const element = await mount();
+    const landmarks = (): string => deepText(requireIn(element.shadowRoot, 'ptk-milestone-chart'));
+
+    expect(landmarks()).toContain('Common barbell weights in kilograms');
+    // The bar assumption, because it is the cheapest proof that the sequence
+    // itself changed and not only the heading -- the two lists come off two
+    // different bars.
+    expect(landmarks()).toContain('20 kg bar with 2.5 kg collars');
+
+    await press(element, actionNamed(element, 'Reverse'));
+
+    expect(landmarks()).toContain('Common barbell weights in pounds');
+    expect(landmarks()).toContain('45 lb bar, no collars');
+  });
+
   it('remembers the field across a reload, in the unit it is being read in', async () => {
     const settings = createPreferenceStore(memoryPreferenceStorage());
     const first = await mount({ settings });

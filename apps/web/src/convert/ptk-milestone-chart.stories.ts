@@ -15,6 +15,12 @@ import './ptk-milestone-chart.js';
  * lifter's own arithmetic is out — the pound sequence excludes them and the
  * kilogram sequence includes five kilograms of them.
  *
+ * `unit` picks the list, and it is the unit being converted *to* rather than the
+ * one being typed in: somebody entering pounds is headed for a kilogram platform,
+ * so the loadings worth recognising are the kilogram ones. The heading names the
+ * unit, because two units are on screen at once and an unlabelled column of
+ * weights can be read the wrong way round.
+ *
  * The invented chart stops at 150 kg on purpose: it puts the heavier landmarks off
  * the end, and "off the end" is the state that is easiest to render wrongly and
  * hardest to notice, because a computed figure there looks entirely plausible.
@@ -31,7 +37,7 @@ const meta: Meta<PtkMilestoneChart> = {
       control: 'inline-radio',
       options: ['lb', 'kg'],
       description:
-        'Which landmark sequence to show. The two are different lists, not a conversion.',
+        'Which landmark sequence to show, and the unit its totals are in. The two are different lists off two different bars, not a conversion of one another. The converter sets this to the unit being converted to.',
     },
     chart: { control: false, description: 'The published chart, or null when there is none.' },
     chartStatus: {
@@ -62,14 +68,17 @@ type Story = StoryObj<PtkMilestoneChart>;
 
 /**
  * The pound sequence: a 45 lb bar with no collars, every landmark a plate change.
- * Most of them land between two published rows, and both rows are named.
+ * Most of them land between two published rows, and both rows are named. This is
+ * what the converter shows on "kilograms to pounds".
  */
 export const PoundLandmarks: Story = {};
 
 /**
  * The kilogram sequence, which starts at 25 kg because the bar comes with collars
  * on it. These land on published rows, so each row has one figure rather than two
- * — which is what the two-figure rows above are being compared against.
+ * — which is what the two-figure rows above are being compared against. This is
+ * what the converter shows on "pounds to kilograms", and it is the default
+ * direction.
  */
 export const KilogramLandmarks: Story = {
   args: { unit: 'kg' },
