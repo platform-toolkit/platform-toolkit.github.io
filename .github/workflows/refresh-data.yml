@@ -29,9 +29,14 @@ name: Check upstream data
 # The push is made with GITHUB_TOKEN, which by design does not trigger other
 # workflows, so this does not redeploy the site. That is correct: the report is
 # not an input to the build, so a rebuild would publish byte-identical files.
-# When a source lands that can be refreshed unattended -- one with no curated
-# mapping to revisit, and so nothing to pin -- the deploy belongs here, as a job
-# that needs `check` and runs only when that source actually moved.
+#
+# A source that can be refreshed unattended -- one with no curated mapping to
+# revisit, and so nothing to pin -- does need a deploy, and the record corpus is
+# the first. It lives in `refresh-records.yml` rather than as a job here: it
+# neither reads nor writes the report, its crawl is minutes where this is
+# seconds, and a failed crawl must not be able to cost the repository its weekly
+# pulse. What the two share is the shape -- a job that reaches the network and
+# holds no write token, and a job that holds one and installs nothing.
 
 on:
   schedule:

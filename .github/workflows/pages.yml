@@ -4,6 +4,26 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # Callable, so that a scheduled refresh can deploy what it just committed.
+  # A push made with GITHUB_TOKEN does not trigger a workflow -- the rule exists
+  # to stop a job from starting itself forever -- so a refresh that only pushed
+  # would leave the new data committed and unpublished until somebody happened to
+  # land something else. Calling this workflow is how that gap is closed without
+  # a personal access token standing in for the rule, and without a second copy
+  # of the build steps drifting away from this one.
+  workflow_call:
+    inputs:
+      ref:
+        description: >-
+          The commit to build. Required, and required for a reason that is
+          invisible until it bites: `github.sha` inside a called workflow is the
+          caller's *triggering* commit, not whatever the caller has done since.
+          A scheduled refresh is triggered by the clock, so its `github.sha` is
+          the head of main before the crawl -- and a deploy that took the default
+          would rebuild the previous corpus and report success. Empty on the push
+          and dispatch paths, where the event's own commit is the right one.
+        type: string
+        required: true
 
 # Read-only by default. The job that needs to publish asks for more, and only
 # that job gets it.
@@ -27,6 +47,10 @@ jobs:
           # of the history it is meant to check.
           fetch-depth: 0
           persist-credentials: false
+          # Empty on the push and dispatch paths, where checkout's own default --
+          # the commit that triggered the event -- is exactly right. See the
+          # input's description for why a caller must not be allowed that default.
+          ref: ${{ inputs.ref }}
 
       # Must precede setup-node: the `cache: pnpm` option below shells out to
       # pnpm to locate the store directory, so pnpm has to exist by then.

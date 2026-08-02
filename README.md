@@ -357,6 +357,16 @@ found nothing changed. A source with no recorded download URL is reported as `ma
 omitted — "nobody is watching this" and "this has not changed" are different facts, and a report
 that renders them identically is worse than no report.
 
+Records are the exception, and refresh themselves. They change after every meet, so a digest that
+had to be re-cut weekly would stop being a decision anybody made; instead the mapping beside the
+corpus describes the federation's _vocabulary_ rather than its rows, and the build refuses when the
+two stop agreeing. A second weekly workflow crawls the record tables, runs the whole corpus through
+those checks and a dry run of the publisher before it is allowed near the repository, commits only
+when the figures actually moved, and then redeploys the site. A meet weekend passes the checks; a
+site redesign does not, and the run fails having committed nothing. The retrieval date the app shows
+for records moves with the data rather than with the crawl, so it can be older than the last check
+but never newer than the figures.
+
 ## Contributing
 
 Run `pnpm verify` before opening a pull request. Commit under your own name and email — the project

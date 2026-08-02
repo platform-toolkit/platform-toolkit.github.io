@@ -85,6 +85,7 @@ export {
   shardRecordBook,
   type RecordShardArtifact,
 } from './shard-records.js';
+export { RetrievalStampError, stampRetrievedAt } from './stamp-retrieval.js';
 export {
   checkUpstream,
   type UpstreamFinding,

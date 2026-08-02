@@ -1,0 +1,261 @@
+name: Refresh record corpus
+
+# Weekly, on a Tuesday, and off the hour for the reason given in
+# `refresh-data.yml`. Tuesday because records are made at meets, meets are held
+# at weekends, and the federation's site takes a day or two to catch up -- a
+# Monday crawl would mostly re-read Friday's figures.
+#
+# WHY THIS ONE ADOPTS A CHANGE WHEN `refresh-data.yml` REFUSES TO
+#
+# That workflow checks the curated sources and opens an issue, deliberately
+# never re-pinning: each of those is a transcription of a document somebody read,
+# and a federation can add a weight class or renumber a grade in a way that still
+# parses. Adopting silently would delete the only safeguard there is.
+#
+# The record corpus is the first source with no pin, and it has none on purpose:
+# records change after every meet, so a digest that had to be re-cut weekly would
+# stop being a decision anybody made and start being a step in a script. What
+# replaces the pin is that the mapping does not describe the rows -- it describes
+# the federation's *vocabulary*, and the adapter refuses to build when the two
+# stop agreeing. Between the crawl and the commit below, every one of these has
+# to pass on the new corpus: the table-heading cross-check, the level, region,
+# division, weight-class and discipline vocabularies, the plausibility band, the
+# exclusion budget, the duplicate-identifier and shard-filename-collision
+# refusals, and the one-way check that every mapped placeholder holder still
+# appears in some row. A meet weekend passes all of them. A site redesign does
+# not, and the run goes red with nothing committed.
+#
+# So the deploy belongs here, as the header of `refresh-data.yml` says it will
+# when such a source lands.
+#
+# WHAT IT COSTS THE REPOSITORY
+#
+# The snapshot is around fourteen megabytes, about 1.8 of them compressed, and
+# this commits a new one most weeks. That would be untenable if git stored each
+# copy whole, and it does not: the crawler writes one record to a line precisely
+# so a week's change is a few hundred lines rather than a reformatted file, and
+# consecutive versions of one path are what delta compression is best at. The
+# figure to watch is the packed repository size, not the file size.
+#
+# WHEN IT BREAKS
+#
+# It goes red and commits nothing, which is the only outcome worth designing for.
+# GitHub emails the last person to edit a scheduled workflow when a run fails, so
+# there is no issue-opening job here; the failure has an audience already.
+
+on:
+  schedule:
+    - cron: '43 11 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One at a time, and never cancelled. Two crawls would double the load on a
+# federation's small site for no benefit, and a cancelled one can leave a
+# half-written snapshot in a job that was about to reject it anyway.
+concurrency:
+  group: refresh-records
+  cancel-in-progress: false
+
+jobs:
+  # Reaches the network and runs project code. Read-only, and holds no credential
+  # that could write anything -- the same split as `refresh-data.yml`, and for the
+  # same reason: `pnpm install` runs third-party lifecycle scripts, and a job that
+  # does that should not also be able to push.
+  crawl:
+    runs-on: ubuntu-latest
+    # The crawl is roughly three thousand requests at four in flight, which is
+    # minutes rather than tens of minutes. The ceiling is generous because the
+    # cost of a slow federation site is a job that finishes late, and the cost of
+    # a tight limit is a fortnight-old corpus nobody notices.
+    timeout-minutes: 90
+    outputs:
+      changed: ${{ steps.crawl.outputs.changed }}
+      retrieved-at: ${{ steps.crawl.outputs.retrieved-at }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The crawler, the adapter and the stamp are all TypeScript in workspace
+      # packages. Libraries only -- the site is not built here, it is built by
+      # the deploy below from the committed result.
+      - run: pnpm run build:libraries
+
+      - id: crawl
+        run: |
+          set -euo pipefail
+
+          # Recorded before the crawl rather than after, so the date never claims
+          # a moment later than the one the figures were read at.
+          retrieved_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+          echo "retrieved-at=$retrieved_at" >> "$GITHUB_OUTPUT"
+
+          pnpm run data:crawl:records:run
+
+          if git diff --quiet -- data/sources/records/snapshots; then
+            # The common outcome in a quiet week, and not a failure. Nothing is
+            # committed and nothing is deployed: the site is already serving
+            # exactly these figures.
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            echo 'The corpus is unchanged. Nothing to publish.'
+            exit 0
+          fi
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
+
+          git --no-pager diff --stat -- data/sources/records/snapshots
+
+      # Everything after here is the gate. Each step runs only on a changed
+      # corpus, and each has to pass before a single byte is handed to the job
+      # that can write.
+
+      # The adapter's own guards, against the corpus that was just downloaded.
+      # `records.data.test.ts` builds the whole book, so reaching the end of this
+      # means the vocabularies, the heading cross-check, the plausibility band and
+      # the exclusion budget all still hold. It pins no record count, deliberately
+      # -- see that file's header -- because a refresh that fails for being right
+      # would fail here, at two in the morning, with nobody to tell it so.
+      - if: steps.crawl.outputs.changed == 'true'
+        run: pnpm exec vitest run --project ingestion
+
+      # A dry run of the real publisher: sharding, canonical serialisation, schema
+      # validation and the 2 MiB per-artifact budget. A federation adding a state
+      # is the case this catches -- a new partition is fine, a partition that has
+      # grown past the budget is a site that cannot be built, and finding that out
+      # here costs a red run instead of a failed deploy on a corpus already
+      # committed.
+      - if: steps.crawl.outputs.changed == 'true'
+        run: pnpm run data:check
+
+      # Only now, and only on a change. The date the site prints is the date the
+      # figures last moved rather than the date they were last looked at, which
+      # understates freshness and never overstates it. "Checked and unchanged" is
+      # what `data/upstream-check.json` is for.
+      - if: steps.crawl.outputs.changed == 'true'
+        env:
+          # Through the environment rather than interpolated into the script.
+          # `${{ }}` in a run block is textual substitution, and a value that
+          # stopped being a timestamp would start being shell.
+          RETRIEVED_AT: ${{ steps.crawl.outputs.retrieved-at }}
+        run: pnpm run data:stamp data/sources/records/uspa.json "$RETRIEVED_AT"
+
+      # The mapping and the snapshot travel together, as the directory that holds
+      # them: the two have to land in one commit, because a stamped mapping
+      # without its corpus dates figures that did not change. Handed over as an
+      # artifact rather than a job output -- outputs are for a few kilobytes, and
+      # this is fourteen megabytes.
+      - if: steps.crawl.outputs.changed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: record-corpus
+          path: data/sources/records
+          if-no-files-found: error
+          # Long enough to read a failed run's input, short enough that a
+          # fortnight of refreshes is not sitting in storage.
+          retention-days: 7
+
+  # Holds the write token. Runs no project code and installs nothing: it writes
+  # files it was handed, commits, and pushes.
+  commit:
+    needs: crawl
+    if: needs.crawl.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      # Credentials are persisted here, unlike every other checkout in this
+      # repository, because this job exists to push. Nothing third-party runs
+      # between this step and the push.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: record-corpus
+          path: data/sources/records
+
+      - id: commit
+        env:
+          RETRIEVED_AT: ${{ needs.crawl.outputs.retrieved-at }}
+        run: |
+          set -euo pipefail
+
+          # The artifact is the whole directory, so a truncated download would
+          # otherwise be committed as a deletion.
+          test -s data/sources/records/uspa.json
+          test -s data/sources/records/snapshots/uspa-records.json
+
+          if git diff --quiet -- data/sources/records; then
+            # Only reachable if main already carries this corpus, which means
+            # another run landed it. Not an error, and not something to deploy.
+            echo '::warning::main already holds this corpus. Nothing was committed.'
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # The bot, because the bot did it. Attributing an automated crawl to a
+          # person makes the history lie about who read what.
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          # Only this directory, by name. A `git add -A` here would sweep up
+          # anything else the runner happened to leave in the tree.
+          git add data/sources/records
+
+          # Built with printf and piped in, so the body's own line breaks are the
+          # ones written here rather than whatever indentation this file has.
+          printf '%s\n' \
+            'Refresh the USPA record corpus' \
+            '' \
+            "Crawled $RETRIEVED_AT." \
+            '' \
+            'Adopted without a person reading it, unlike every other source here. This one' \
+            'carries no digest to re-cut -- records change after every meet, so a weekly pin' \
+            'would stop being a decision anybody made -- and the mapping beside it describes' \
+            "the federation's vocabulary rather than its rows. The adapter's coverage checks" \
+            'are therefore what a person would be re-reading, and they passed against this' \
+            'corpus before it was committed.' \
+            | git commit -F -
+
+          # A rebase rather than a merge, and a deliberate one: an unrelated
+          # commit replays cleanly, while another change to these same two files
+          # conflicts and stops the run. That is the right outcome -- a crawl that
+          # started twenty minutes ago must not overwrite a mapping somebody
+          # edited since.
+          git push || {
+            git pull --rebase origin main
+            git push
+          }
+
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  # The push above was made with GITHUB_TOKEN, which by design does not trigger
+  # another workflow, so the deploy is called rather than left to happen. The
+  # commit is named explicitly: a called workflow's `github.sha` is the caller's
+  # triggering commit, and this one was triggered by a clock.
+  deploy:
+    needs: commit
+    uses: ./.github/workflows/pages.yml
+    with:
+      ref: ${{ needs.commit.outputs.sha }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    # For `PTK_PROHIBITED_TOKENS`. The deploy runs the reference scan in its
+    # fail-closed mode, and without the secret it would refuse to publish.
+    secrets: inherit
