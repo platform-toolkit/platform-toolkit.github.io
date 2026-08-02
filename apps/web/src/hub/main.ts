@@ -32,7 +32,9 @@ for (const tool of TOOLS) {
   list.append(item);
 }
 
-// Built even where installation is not offered: it stays hidden until a browser
-// says it is willing, and constructing it up front is what lets the listener
-// inside be registered before the event fires.
+// Built even where installation cannot be offered in one tap: the fold inside
+// explains the manual route, which is all Safari has, and the button appears
+// only if a browser hands over an event. Constructed up front rather than on
+// demand, because the event fires early and once -- a listener registered after
+// it never hears about it.
 app.replaceChildren(list, createInstallPrompt());

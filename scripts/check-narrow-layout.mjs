@@ -231,9 +231,18 @@ const PLATFORM_TARGETS_SETTLE = [
   'ptk-target-records .record',
 ];
 
+/**
+ * The hub's one fold: how to install the toolkit.
+ *
+ * Shut it is a single row and measures nothing. Open it is two sentences naming
+ * four separate menu items, which is the longest unbroken prose the hub renders
+ * and the only thing on it with a real chance of overflowing a 320px column.
+ */
+const HUB_CLICK = ['ptk-disclosure[label="Install the toolkit"] summary'];
+
 /** The routes, and what has to happen before each is worth measuring. */
 const ROUTES = [
-  { path: '/', click: [], reveal: [], fill: [] },
+  { path: '/', click: HUB_CLICK, reveal: [], fill: [] },
   {
     path: '/platform-targets/',
     click: [],
@@ -358,7 +367,22 @@ const MEASURE = `(() => {
   for (const element of controls) {
     const box = element.getBoundingClientRect();
     const style = getComputedStyle(element);
-    if (style.display === 'none' || style.visibility === 'hidden') continue;
+
+    // Not rendered, so there is nothing to measure and a 0x0 box would be
+    // reported as a tap target too small to hit.
+    //
+    // Asked as "does it generate a box" rather than "is its own display none",
+    // which is what this used to ask and which only ever looked at the element
+    // itself. An element inside a hidden ancestor still computes its own
+    // display -- a hidden \`ptk-button\` renders a real \`<button>\` inside a host
+    // the page has hidden, and that button computes \`inline-flex\`, measures
+    // 0x0, and failed the check for existing. Crossing a shadow boundary makes
+    // no difference here: boxes are generated over the flat tree.
+    //
+    // \`visibility\` stays a separate question. A visibility-hidden element does
+    // generate a box, and it inherits, so this catches a hidden ancestor too.
+    if (element.getClientRects().length === 0) continue;
+    if (style.visibility === 'hidden') continue;
 
     const name =
       element.tagName.toLowerCase() +

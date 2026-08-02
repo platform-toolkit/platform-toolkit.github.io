@@ -142,6 +142,26 @@
   box-sizing: border-box;
 }
 
+/*
+ * `hidden` means hidden, whatever else a rule says.
+ *
+ * The user agent hides a `[hidden]` element with `display: none`, and that
+ * declaration loses to any page rule with a class in it -- an author sheet beats
+ * a UA sheet, and `.card` outranks `[hidden]` on specificity regardless. So a
+ * component that sets `element.hidden = true` and a stylesheet that says
+ * `.card { display: grid }` disagree silently, the element stays on screen, and
+ * a test asserting the `hidden` property passes while the page is wrong. That is
+ * exactly how the hub shipped an install card that was permanently visible and
+ * did nothing when tapped.
+ *
+ * `!important` because the whole point is to win. Anything that genuinely needs
+ * to draw a hidden element -- nothing here does -- should not be using the
+ * attribute that means "not relevant to this document".
+ */
+[hidden] {
+  display: none !important;
+}
+
 html {
   /*
    * Stops iOS Safari inflating text when a phone is turned to landscape.

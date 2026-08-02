@@ -93,49 +93,43 @@
 }
 
 /*
- * The offer to install, shown only where a browser has said it would.
+ * How to install the toolkit: a fold that is always there, and above it a real
+ * button on the browsers that offer one.
  *
- * Below the tools rather than above them: somebody who arrived to look up a
- * record should reach the record first. Sized as a card so that appearing does
- * not shove the list -- it is added at the end, where growth pushes nothing.
+ * Below the tools rather than above them -- somebody who arrived to look up a
+ * record should reach the record first -- and last in the document, where the
+ * button appearing pushes nothing down.
+ *
+ * No card chrome here, deliberately. The fold draws its own border and raised
+ * surface, and wrapping it in a second bordered box is two frames around one
+ * thing. The layout is a gap and a top margin; everything visible belongs to the
+ * components inside.
  */
 .install-prompt {
   display: grid;
   gap: var(--ptk-space-sm);
-  justify-items: start;
   margin-block-start: var(--ptk-space-lg);
-  padding: var(--ptk-space-md);
-  border: 1px solid var(--ptk-color-border);
-  border-radius: var(--ptk-radius-md);
-  background-color: var(--ptk-color-surface-sunken);
 }
 
+/*
+ * The button is sized by its label, not by the column.
+ *
+ * A grid item stretches by default, which would run "Install" the full width of
+ * the hub -- a stripe of accent colour above the fold that reads as a banner
+ * rather than as something to press.
+ */
+.install-prompt ptk-button {
+  justify-self: start;
+}
+
+/*
+ * The instructions, slotted into the fold's light DOM -- which is why a rule in
+ * this sheet reaches them at all, and why they are not styled inside the
+ * component.
+ */
 .install-prompt p {
   margin: 0;
   color: var(--ptk-color-text-muted);
-}
-
-.install-prompt button {
-  min-height: var(--ptk-tap-target-min);
-  padding-inline: var(--ptk-space-lg);
-  border: 1px solid transparent;
-  border-radius: var(--ptk-radius-sm);
-  background-color: var(--ptk-color-accent);
-  color: var(--ptk-color-accent-text);
-  /*
-   * Buttons do not inherit the page font, and 16px is the floor an input needs
-   * on iOS. Matching it here keeps the whole card at one size rather than
-   * shrinking the only thing anybody taps.
-   */
-  font: inherit;
-  font-size: var(--ptk-font-size-md);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.install-prompt button:focus-visible {
-  outline: var(--ptk-focus-ring-width) solid var(--ptk-color-focus-ring);
-  outline-offset: var(--ptk-focus-ring-offset);
 }
 
 /*
