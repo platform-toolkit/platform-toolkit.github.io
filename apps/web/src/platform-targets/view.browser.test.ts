@@ -8,6 +8,11 @@ import type {
   ClassificationBook,
   RecordBook,
 } from '@platform-toolkit/data-contracts';
+import {
+  createPreferenceStore,
+  memoryPreferenceStorage,
+  type PreferenceStore,
+} from '@platform-toolkit/preferences';
 import type { PtkChoiceGroup, PtkSegmented, PtkSelect } from '@platform-toolkit/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -109,8 +114,19 @@ function sourceThat(stubs: Stubs = {}): DataSource & Asked {
   };
 }
 
-function mount(source: DataSource): PtkPlatformTargets {
-  const element = createPlatformTargetsView({ source, federationId: FEDERATION_ID });
+/**
+ * The view, with somewhere to remember a context that is not this device.
+ *
+ * Memory rather than the default: every test in this file shares one page, and a
+ * store that outlived one of them would make the next test's first visit a
+ * returning one -- a suite that passes or fails on the order it happens to run
+ * in. The one test that cares what the *default* is says so, and cleans up.
+ */
+function mount(
+  source: DataSource,
+  settings: PreferenceStore = createPreferenceStore(memoryPreferenceStorage()),
+): PtkPlatformTargets {
+  const element = createPlatformTargetsView({ source, settings, federationId: FEDERATION_ID });
   document.body.append(element);
   teardown.push(() => {
     element.remove();
@@ -380,6 +396,41 @@ describe('createPlatformTargetsView', () => {
 
     await showTargets(element);
     expect(deepText(report(element))).toContain('Targets');
+  });
+
+  /**
+   * The remembered context has to survive the page, which means the store has to
+   * come from *here*.
+   *
+   * Every other test of the restore injects a store, so all of them held while
+   * the composition root passed none and the element kept its
+   * `createPreferenceStore(null)` default -- the supported no-storage mode, which
+   * reads fallbacks and reports `unavailable` on every write. The tool was
+   * correct, the storage was correct, and the deployed site forgot everything.
+   * This is the one assertion in the tool that a wire is connected rather than
+   * that either end works, so it deliberately mounts with no store and looks at
+   * the device.
+   */
+  it('remembers an applied context on the device, with no store handed to it', async () => {
+    const before = new Set(Object.keys(globalThis.localStorage));
+    teardown.push(() => {
+      for (const key of Object.keys(globalThis.localStorage)) {
+        if (!before.has(key)) globalThis.localStorage.removeItem(key);
+      }
+    });
+
+    const element = createPlatformTargetsView({
+      source: sourceThat(),
+      federationId: FEDERATION_ID,
+    });
+    document.body.append(element);
+    teardown.push(() => {
+      element.remove();
+    });
+    await answerAndShow(element);
+
+    const written = Object.keys(globalThis.localStorage).filter((key) => !before.has(key));
+    expect(written).toContain('ptk.platform-targets.context');
   });
 
   it('asks for the federation the page declared, and no other', () => {

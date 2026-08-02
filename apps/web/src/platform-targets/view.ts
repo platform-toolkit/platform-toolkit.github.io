@@ -4,6 +4,11 @@ import {
   type RecordSetQuery,
 } from '@platform-toolkit/data-access';
 import type { RecordBook, SexCategory } from '@platform-toolkit/data-contracts';
+import {
+  browserPreferenceStorage,
+  createPreferenceStore,
+  type PreferenceStore,
+} from '@platform-toolkit/preferences';
 
 import { dataSource } from '../data-source.js';
 import './ptk-platform-targets.js';
@@ -26,6 +31,9 @@ export interface PlatformTargetsViewOptions {
 
   /** Defaults to the site's configured source. Injected in tests. */
   readonly source?: DataSource;
+
+  /** Defaults to this device's ordinary storage. Injected in tests. */
+  readonly settings?: PreferenceStore;
 }
 
 /**
@@ -39,10 +47,26 @@ export interface PlatformTargetsViewOptions {
  * This is the only file in the tool that knows a transport exists. Everything
  * below it takes what it renders as properties, which is what lets the whole
  * interface be exercised without one.
+ *
+ * The storage the tool remembers a context in is reached from here for the same
+ * reason: `browserPreferenceStorage` touches `localStorage`, and an origin that
+ * refuses access throws on the property getter -- so a module-scope store would
+ * take the whole tool down at import time in exactly the third-party iframe this
+ * collection is built to be embedded in. Read here it needs no branch either,
+ * because it answers `null` when there is no storage to be had and
+ * `createPreferenceStore(null)` reads fallbacks and reports `unavailable` on
+ * every write.
+ *
+ * The embed route gets the same store deliberately. A framed copy sees storage
+ * partitioned to the embedding site, so a lifter's remembered context there is
+ * that site's and not this one's -- which is the behaviour to want, and better
+ * than a framed copy that asks the seven questions again on every visit. Nothing
+ * stored is sent to the parent; the only message that leaves is a height.
  */
 export function createPlatformTargetsView(options: PlatformTargetsViewOptions): PtkPlatformTargets {
   const element = document.createElement('ptk-platform-targets');
   const source = options.source ?? dataSource;
+  element.settings = options.settings ?? createPreferenceStore(browserPreferenceStorage());
 
   void loadCatalog(element, source, options.federationId);
   watchForStandards(element, source, options.federationId);
