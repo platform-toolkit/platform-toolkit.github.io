@@ -245,9 +245,8 @@ async function questionsDrawn(element: PtkPlatformTargets): Promise<void> {
  * The four required answers and nothing optional.
  *
  * Sex first, because the weight-class picker has no options until it is
- * answered, and equipment second, because those two together are what choose
- * both published artifacts -- so this order is also the one that makes "read
- * nothing until both are answered" observable.
+ * answered. Answering is not applying: nothing is read until {@link showTargets}
+ * commits the context, which is the whole of what the batch buys.
  */
 async function answerRequired(element: PtkPlatformTargets): Promise<void> {
   await questionsDrawn(element);
@@ -255,6 +254,58 @@ async function answerRequired(element: PtkPlatformTargets): Promise<void> {
   await choose(element, 'equipment', 'raw');
   await choose(element, 'tested', 'tested');
   await pick(element, 'weightClass', 'f-56');
+}
+
+/**
+ * Presses the action that commits the answered context.
+ *
+ * The native button inside the shared control, because that is where a press
+ * actually lands and the questions element reads the pressed target out of
+ * `composedPath()`.
+ */
+async function showTargets(element: PtkPlatformTargets): Promise<void> {
+  const button = categories(element)
+    .querySelector('ptk-button[data-action="apply"]')
+    ?.shadowRoot?.querySelector('button');
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error('No action to show the targets with.');
+  }
+  if (button.disabled) {
+    throw new Error('The action is still disabled: something required is unanswered.');
+  }
+  button.click();
+  await element.updateComplete;
+}
+
+/** Answers the four required questions and commits them, which most tests want. */
+async function answerAndShow(element: PtkPlatformTargets): Promise<void> {
+  await answerRequired(element);
+  await showTargets(element);
+}
+
+/**
+ * Changes the committed context the way a lifter does after the first visit.
+ *
+ * Through the summary and the editor rather than by reaching into the element,
+ * because the transport's whole contract is with the *applied* event and the
+ * editor is the only thing that fires it twice. A test that set a property
+ * instead would leave the second-visit path -- the one where a lifter switches
+ * to single-ply and every partition has to be re-read -- unexercised.
+ */
+async function reviseContext(
+  element: PtkPlatformTargets,
+  change: () => Promise<void>,
+): Promise<void> {
+  const summary = element.shadowRoot
+    ?.querySelector('ptk-target-context')
+    ?.shadowRoot?.querySelector('button');
+  if (!(summary instanceof HTMLButtonElement)) {
+    throw new Error('No context summary to open the editor from.');
+  }
+  summary.click();
+  await element.updateComplete;
+  await change();
+  await showTargets(element);
 }
 
 /** How the report names each partition it is holding, in the order it shows them. */
@@ -305,17 +356,30 @@ describe('createPlatformTargetsView', () => {
 
   it('shows a field for every lift, folded out of the way', async () => {
     const element = mount(sourceThat());
+    await answerAndShow(element);
 
     await vi.waitFor(() => {
       expect(lifts(element).querySelectorAll('ptk-number-field').length).toBe(4);
     });
   });
 
-  it('waits for the required answers before drawing a report', async () => {
+  /**
+   * The first visit is the questions and nothing else.
+   *
+   * Not a report with a placeholder in it: an empty panel under an unanswered
+   * form gives a lifter two things to read before either says anything, and the
+   * report's own reason for existing is that it does not reflow while the
+   * context is being edited (§14.4 stage 2). Asserted as the element being
+   * absent rather than as text, because a hidden report still costs the layout.
+   */
+  it('draws no report at all until the context is applied', async () => {
     const element = mount(sourceThat());
-    await questionsDrawn(element);
+    await answerRequired(element);
 
-    expect(deepText(report(element))).toContain('and your targets appear here');
+    expect(element.shadowRoot?.querySelector('ptk-target-report')).toBeNull();
+
+    await showTargets(element);
+    expect(deepText(report(element))).toContain('Targets');
   });
 
   it('asks for the federation the page declared, and no other', () => {
@@ -374,29 +438,32 @@ describe('createPlatformTargetsView', () => {
 });
 
 describe('loading the standards for a category', () => {
-  it('reads nothing until the lifter has named a sex and an equipment category', async () => {
-    // Those two choose the artifact. Reading before both are answered would
-    // fetch a partition for a category the lifter has not identified.
+  it('reads nothing until the context is applied', async () => {
+    // Sex and equipment choose the artifact, but answering them is not asking
+    // for it. Reading on each tap is what the batched editor exists to stop:
+    // seven questions answered one at a time would issue a request per keystroke
+    // for a category the lifter is still in the middle of describing.
     const source = sourceThat();
     const element = mount(source);
-    await questionsDrawn(element);
+    await answerRequired(element);
 
-    await choose(element, 'sex', 'female');
     expect(source.classificationPartitions).toEqual([]);
 
-    await choose(element, 'equipment', 'raw');
+    await showTargets(element);
     expect(source.classificationPartitions).toEqual([`${FEDERATION_ID} female raw`]);
   });
 
   it('does not read again for an answer that cannot change the partition', async () => {
     // One shard holds every lift, weight class and division for a sex and
-    // equipment category. Re-reading on each answer would issue a request per
-    // click for a file already in hand.
+    // equipment category. Re-reading for an answer inside it would issue a
+    // request for a file already in hand.
     const source = sourceThat();
     const element = mount(source);
-    await answerRequired(element);
-    await pick(element, 'division', 'masters-1');
-    await pick(element, 'comparisonWeightClass', 'f-52');
+    await answerAndShow(element);
+    await reviseContext(element, async () => {
+      await pick(element, 'division', 'masters-1');
+      await pick(element, 'comparisonWeightClass', 'f-52');
+    });
 
     expect(source.classificationPartitions).toEqual([`${FEDERATION_ID} female raw`]);
   });
@@ -404,9 +471,9 @@ describe('loading the standards for a category', () => {
   it('reads the other partition when the equipment category changes', async () => {
     const source = sourceThat();
     const element = mount(source);
-    await answerRequired(element);
+    await answerAndShow(element);
 
-    await choose(element, 'equipment', 'single-ply');
+    await reviseContext(element, () => choose(element, 'equipment', 'single-ply'));
 
     expect(source.classificationPartitions).toEqual([
       `${FEDERATION_ID} female raw`,
@@ -417,9 +484,15 @@ describe('loading the standards for a category', () => {
   it('reads the other partition when the sex category changes', async () => {
     const source = sourceThat();
     const element = mount(source);
-    await answerRequired(element);
+    await answerAndShow(element);
 
-    await choose(element, 'sex', 'male');
+    await reviseContext(element, async () => {
+      await choose(element, 'sex', 'male');
+      // And a class off the other ladder, because the one answered above is not
+      // on it. The editor refuses to apply an incomplete context, which is the
+      // same guard that keeps a lifter off a report drawn for half a category.
+      await pick(element, 'weightClass', 'm-83');
+    });
 
     expect(source.classificationPartitions).toEqual([
       `${FEDERATION_ID} female raw`,
@@ -429,7 +502,7 @@ describe('loading the standards for a category', () => {
 
   it('draws the classification ladder once the standards have arrived', async () => {
     const element = mount(sourceThat());
-    await answerRequired(element);
+    await answerAndShow(element);
 
     await vi.waitFor(() => {
       expect(deepText(report(element))).toContain('Class I');
@@ -441,7 +514,7 @@ describe('loading the standards for a category', () => {
     // handed the figures by the composition root. Nothing else in the tool
     // proves those two are wired to each other.
     const element = mount(sourceThat());
-    await answerRequired(element);
+    await answerAndShow(element);
     await vi.waitFor(() => {
       expect(deepText(report(element))).toContain('Class III');
     });
@@ -461,7 +534,7 @@ describe('loading the standards for a category', () => {
           Promise.reject(new DataSourceError('classifications-example-female-raw', 'http', 404)),
       }),
     );
-    await answerRequired(element);
+    await answerAndShow(element);
 
     await vi.waitFor(() => {
       expect(deepText(report(element))).toContain(
@@ -479,7 +552,7 @@ describe('loading the standards for a category', () => {
     // so the report simply has no classification rungs to draw and says nothing
     // about it.
     const element = mount(sourceThat({ classifications: () => Promise.resolve(null) }));
-    await answerRequired(element);
+    await answerAndShow(element);
 
     await vi.waitFor(() => {
       expect(element.standardsStatus).toBe('ready');
@@ -500,8 +573,8 @@ describe('loading the standards for a category', () => {
           }),
       }),
     );
-    await answerRequired(element);
-    await choose(element, 'equipment', 'single-ply');
+    await answerAndShow(element);
+    await reviseContext(element, () => choose(element, 'equipment', 'single-ply'));
 
     const [first, second] = settle;
     if (first === undefined || second === undefined) {
@@ -522,12 +595,11 @@ describe('loading the records for a report', () => {
   it('reads every level the report always shows, and asks for the federation book', async () => {
     const source = sourceThat();
     const element = mount(source);
-    await questionsDrawn(element);
+    await answerRequired(element);
 
-    await choose(element, 'sex', 'female');
     expect(source.recordPartitions).toEqual([]);
 
-    await choose(element, 'equipment', 'raw');
+    await showTargets(element);
     // National only. The state level is subdivided, and a subdivided level
     // produces no partition until a region is chosen -- asking for its records
     // without one would read an artifact nobody publishes.
@@ -539,9 +611,9 @@ describe('loading the records for a report', () => {
     // Requirement 3: picking a state adds its records, it does not swap them in.
     const source = sourceThat();
     const element = mount(source);
-    await answerRequired(element);
+    await answerAndShow(element);
 
-    await pick(element, 'region', 'north-example');
+    await reviseContext(element, () => pick(element, 'region', 'north-example'));
 
     expect(source.recordPartitions).toEqual([
       `${FEDERATION_ID} national - female raw`,
@@ -557,8 +629,9 @@ describe('loading the records for a report', () => {
     const element = mount(source);
     await answerRequired(element);
     await pick(element, 'region', 'north-example');
+    await showTargets(element);
 
-    await pick(element, 'region', null);
+    await reviseContext(element, () => pick(element, 'region', null));
 
     expect(partitionLabels(element)).toEqual(['National']);
     // And it is not re-read on the way back, because clearing a state does not
@@ -573,10 +646,10 @@ describe('loading the records for a report', () => {
     // an unchanged heading.
     const source = sourceThat();
     const element = mount(source);
-    await answerRequired(element);
-    await pick(element, 'region', 'north-example');
+    await answerAndShow(element);
+    await reviseContext(element, () => pick(element, 'region', 'north-example'));
 
-    await choose(element, 'equipment', 'single-ply');
+    await reviseContext(element, () => choose(element, 'equipment', 'single-ply'));
 
     expect(source.recordPartitions).toEqual([
       `${FEDERATION_ID} national - female raw`,
@@ -596,9 +669,9 @@ describe('loading the records for a report', () => {
           }),
       }),
     );
-    await answerRequired(element);
-    await pick(element, 'region', 'north-example');
-    await pick(element, 'region', null);
+    await answerAndShow(element);
+    await reviseContext(element, () => pick(element, 'region', 'north-example'));
+    await reviseContext(element, () => pick(element, 'region', null));
 
     const [national, north] = settle;
     if (national === undefined || north === undefined) {
@@ -628,6 +701,7 @@ describe('loading the records for a report', () => {
     const element = mount(source);
     await answerRequired(element);
     await pick(element, 'region', 'north-example');
+    await showTargets(element);
 
     await vi.waitFor(() => {
       expect(readFor(element, 'North Example State').status).toBe('failed');
@@ -651,7 +725,7 @@ describe('loading the records for a report', () => {
    */
   it('draws a record the lifter could take, from the partition it arrived in', async () => {
     const element = mount(sourceThat({ records: () => Promise.resolve(BOOK) }));
-    await answerRequired(element);
+    await answerAndShow(element);
 
     await vi.waitFor(() => {
       expect(readFor(element, 'National').status).toBe('ready');

@@ -35,6 +35,28 @@ export interface QuantityBounds {
   readonly max: number;
 }
 
+/**
+ * The shape of an identifier {@link PreferenceValue.publishedId} will hold.
+ *
+ * Dots as well as hyphens, because a weight-class identifier carries the class
+ * in it and half of them are fractional -- a ladder runs `f-60`, `f-67.5`,
+ * `f-75`, and a pattern without the dot silently refuses to remember the
+ * lifters in every other class.
+ *
+ * The empty alternative is "not answered". It is spelled as its own branch
+ * rather than reached by making the whole expression optional, because a
+ * stored `''` and a missing key mean different things to the store: a missing
+ * key fails the shape and resets the whole preference, and an unanswered
+ * optional question must not do that to the four answers beside it.
+ */
+const PUBLISHED_ID_PATTERN = /^$|^[a-z0-9]+(?:[.-][a-z0-9]+)*$/;
+
+/**
+ * Long enough for any identifier a federation has published and short enough
+ * that a corrupted entry cannot become a payload.
+ */
+const PUBLISHED_ID_MAX_LENGTH = 64;
+
 /** Maps a record of value shapes to the object type they describe together. */
 type ShapeOf<Fields> = {
   readonly [Key in keyof Fields]: Fields[Key] extends PreferenceValue<infer Value> ? Value : never;
@@ -67,6 +89,26 @@ export class PreferenceValue<Stored> {
   }
 
   /**
+   * Whether a candidate would be accepted, asked without attempting a write.
+   *
+   * `PreferenceStore.write` throws on a value that violates its definition, and
+   * that is right: it is a caller bug, and the alternative is a setting that
+   * silently never sticks. But some values are not the caller's to guarantee.
+   * An identifier out of published data is the case this was added for -- a
+   * federation could rename a weight class to something this shape refuses, and
+   * a tool must not take the screen down over it when the honest response is to
+   * store the six answers beside it and forget the seventh.
+   *
+   * A method here rather than a copy of each pattern at each call site: two
+   * copies is how a widened shape leaves a caller still refusing values the
+   * store would now take, and the symptom is a setting that stops being
+   * remembered with nothing to explain why.
+   */
+  accepts(candidate: unknown): candidate is Stored {
+    return v.is(this.schema, candidate);
+  }
+
+  /**
    * One value out of a fixed list.
    *
    * The list is the point. `choice(['kg', 'lb'])` can hold a unit and cannot
@@ -82,6 +124,49 @@ export class PreferenceValue<Stored> {
   /** A yes or no: a checkbox the visitor ticked. */
   static flag(): PreferenceValue<boolean> {
     return new PreferenceValue(v.boolean());
+  }
+
+  /**
+   * An identifier the visitor picked out of published data, or `''` for "not
+   * picked".
+   *
+   * WHY THIS EXISTS AT ALL
+   *
+   * {@link choice} needs its options at module load and these do not exist
+   * then: a weight class, an equipment category, an age division and a state
+   * are all named by the federation, in an artifact fetched at runtime. A tool
+   * that cannot remember which weight class somebody is in is a tool that asks
+   * again at every rack, which is the difference the whole package exists to
+   * make.
+   *
+   * WHY IT IS NOT THE `text()` BUILDER THIS FILE FORBIDS
+   *
+   * Two things, and the second is the load-bearing one.
+   *
+   * The charset is the weaker of the two. Lowercase, digits, and single dots or
+   * hyphens between them, capped at 64 characters: no whitespace, no capitals,
+   * no `@`, no `/`, no `:`. That excludes a URL, an email address, and a name
+   * as anybody would actually write one. It does not exclude a name somebody
+   * deliberately slugified, and it does not exclude a date of birth -- stating
+   * that plainly is better than a claim this pattern cannot support.
+   *
+   * What does the real work is the rule on the reading side: **a value stored
+   * here must be resolved against published data before it is used, and
+   * discarded if the source does not offer it.** The Platform Targets resolver
+   * already works this way for its own reasons -- an answer the catalogue does
+   * not offer is not an answer, or a lifter who corrects their sex category
+   * keeps a class from the other ladder -- and any caller of this builder
+   * inherits the obligation. So a smuggled name is not merely discouraged: it
+   * matches nothing in the catalogue, is dropped on the next read, and has no
+   * path to a screen, a log, or a report. There is nothing for it to *do*.
+   *
+   * That is the difference from a general text builder, which would store
+   * whatever it was given and hand it straight back.
+   */
+  static publishedId(): PreferenceValue<string> {
+    return new PreferenceValue(
+      v.pipe(v.string(), v.maxLength(PUBLISHED_ID_MAX_LENGTH), v.regex(PUBLISHED_ID_PATTERN)),
+    );
   }
 
   /**

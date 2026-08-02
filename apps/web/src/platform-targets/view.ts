@@ -8,7 +8,7 @@ import type { RecordBook, SexCategory } from '@platform-toolkit/data-contracts';
 import { dataSource } from '../data-source.js';
 import './ptk-platform-targets.js';
 import type { PtkPlatformTargets } from './ptk-platform-targets.js';
-import { SELECTION_CHANGE_EVENT } from './ptk-target-categories.js';
+import { SELECTION_APPLIED_EVENT } from './ptk-target-categories.js';
 import type { PartitionRead } from './ptk-target-report.js';
 import { partitionKey, type CategorySelection, type RecordPartition } from './selection.js';
 
@@ -77,6 +77,11 @@ async function loadCatalog(
  * cutting to another class is already looking at data they have. Re-reading on
  * every answer would issue a request per click for a file already in hand.
  *
+ * It listens for the *applied* context, not the draft. The draft fires on every
+ * tap, and a lifter changing their sex category on the way to changing their
+ * equipment would fetch a shard for a combination they never asked to see --
+ * one bar of signal at a rack is where that difference is felt.
+ *
  * The listener sits on the element rather than inside it. Composed events cross
  * the shadow boundary, and keeping the transport out here is what keeps the
  * components mountable with none.
@@ -89,11 +94,13 @@ function watchForStandards(
   let loaded: string | null = null;
   let inFlight: AbortController | null = null;
 
-  element.addEventListener(SELECTION_CHANGE_EVENT, (event) => {
+  element.addEventListener(SELECTION_APPLIED_EVENT, (event) => {
     const partition = partitionOf(event.detail.selection);
     if (partition === null) {
-      // Not an error and not worth clearing anything over: the lifter is part
-      // way through the questions, and the report says so itself.
+      // Unreachable through the action, which is disabled until the required
+      // answers are in -- kept because "unreachable" is a claim about a file
+      // this one does not own, and the cost of being wrong is a read issued for
+      // a category with a missing axis.
       return;
     }
     // A slash cannot make two partitions share a key: the first segment comes
@@ -257,12 +264,12 @@ function watchForRecords(
     publish();
   };
 
-  element.addEventListener(SELECTION_CHANGE_EVENT, (event) => {
+  element.addEventListener(SELECTION_APPLIED_EVENT, (event) => {
     const lifter = partitionOf(event.detail.selection);
     if (lifter === null) {
-      // Part way through the questions. The report says so itself, and clearing
-      // anything here would flicker a book the lifter may be about to come back
-      // to -- switching sex category and back is two taps.
+      // Same guard as the standards watcher, for the same reason: the action
+      // cannot fire without the required answers, and clearing anything here
+      // would drop a book that is still the right one.
       return;
     }
 

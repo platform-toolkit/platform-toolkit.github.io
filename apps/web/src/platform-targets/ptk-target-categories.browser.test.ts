@@ -4,6 +4,8 @@ import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  SELECTION_APPLIED_EVENT,
+  SELECTION_CANCEL_EVENT,
   SELECTION_CHANGE_EVENT,
   type PtkTargetCategories,
   type SelectionChangeDetail,
@@ -199,6 +201,74 @@ function fieldsOf(element: PtkTargetCategories, selector: string): (string | und
 
 function statusText(element: PtkTargetCategories): string {
   return element.shadowRoot?.querySelector('[role="status"]')?.textContent ?? '';
+}
+
+/**
+ * The native button inside one of the two actions.
+ *
+ * Not the `ptk-button` host: a click on the host is not the click a visitor
+ * makes, and the delegated listener reads the composed path of the press that
+ * originates on the real control inside the shared element's shadow root. It
+ * also means a disabled action is genuinely unclickable here, the same way it is
+ * on the page, rather than being a property this test agrees to respect.
+ */
+function action(element: PtkTargetCategories, name: 'apply' | 'cancel'): HTMLButtonElement {
+  const host = element.shadowRoot?.querySelector(`ptk-button[data-action="${name}"]`);
+  if (host === null || host === undefined) {
+    throw new Error(`No "${name}" action rendered.`);
+  }
+  const button = host.shadowRoot?.querySelector('button');
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error(`The "${name}" action rendered no button.`);
+  }
+  return button;
+}
+
+async function press(element: PtkTargetCategories, name: 'apply' | 'cancel'): Promise<void> {
+  action(element, name).click();
+  await element.updateComplete;
+}
+
+/**
+ * Records every committed category.
+ *
+ * On the body, like the draft watcher above and for the same reason: the event
+ * has to cross this element's shadow boundary to reach the tool that swaps the
+ * screen, and a listener on the element itself would hold either way. Typed
+ * through the augmented `HTMLElementEventMap` rather than by casting the detail
+ * -- a cast keeps compiling the day the detail changes shape.
+ */
+function watchApplied(): SelectionChangeDetail[] {
+  const seen: SelectionChangeDetail[] = [];
+  const listener = (event: CustomEvent<SelectionChangeDetail>): void => {
+    seen.push(event.detail);
+  };
+  document.body.addEventListener(SELECTION_APPLIED_EVENT, listener);
+  teardown.push(() => {
+    document.body.removeEventListener(SELECTION_APPLIED_EVENT, listener);
+  });
+  return seen;
+}
+
+/** Records every abandoned edit, as whole events: the claim is that they carry nothing. */
+function watchCancelled(): CustomEvent<void>[] {
+  const seen: CustomEvent<void>[] = [];
+  const listener = (event: CustomEvent<void>): void => {
+    seen.push(event);
+  };
+  document.body.addEventListener(SELECTION_CANCEL_EVENT, listener);
+  teardown.push(() => {
+    document.body.removeEventListener(SELECTION_CANCEL_EVENT, listener);
+  });
+  return seen;
+}
+
+/** The four answers that make the action pressable, and nothing optional. */
+async function answerRequired(element: PtkTargetCategories): Promise<void> {
+  await choose(element, 'sex', 'female');
+  await choose(element, 'equipment', 'raw');
+  await choose(element, 'tested', 'tested');
+  await pick(element, 'weightClass', 'f-56');
 }
 
 describe('ptk-target-categories', () => {
@@ -461,7 +531,7 @@ describe('ptk-target-categories', () => {
     await pick(element, 'weightClass', 'f-56');
     await choose(element, 'tested', 'untested');
 
-    expect(statusText(element)).toContain('Showing your report below');
+    expect(statusText(element)).toContain('Ready. Choose Show targets.');
   });
 
   it('says nothing is missing while an optional answer is still unanswered', async () => {
@@ -493,6 +563,110 @@ describe('ptk-target-categories', () => {
       expect(results.violations).toEqual([]);
     },
   );
+
+  /**
+   * THE BATCH, WHICH IS THE WHOLE OF WHAT STAGE 2 ADDED
+   *
+   * Answering is a draft and pressing is a commitment, and everything below is
+   * about keeping those two apart. The review's finding was that a long report
+   * must not reflow after every tap in the context editor; the implementation of
+   * that is a second event, and the failure it prevents -- a report redrawn from
+   * a category the lifter is half way through changing -- looks exactly like a
+   * working screen while it is happening.
+   */
+  it('keeps the action out of reach until every required answer is given', async () => {
+    const element = await mount();
+    expect(action(element, 'apply').disabled).toBe(true);
+
+    await choose(element, 'sex', 'female');
+    await choose(element, 'equipment', 'raw');
+    await pick(element, 'weightClass', 'f-56');
+    // Three of four. The optional pickers are deliberately not answered, because
+    // requirement 9 is that they cannot hold the report back.
+    expect(action(element, 'apply').disabled).toBe(true);
+
+    await choose(element, 'tested', 'tested');
+    expect(action(element, 'apply').disabled).toBe(false);
+  });
+
+  it('commits nothing while the answers are being given', async () => {
+    const applied = watchApplied();
+    const element = await mount();
+    await answerRequired(element);
+    await pick(element, 'division', 'masters-1');
+
+    expect(applied).toEqual([]);
+  });
+
+  it('reports the applied category outside its shadow root, once', async () => {
+    const applied = watchApplied();
+    const element = await mount();
+    await answerRequired(element);
+    await press(element, 'apply');
+
+    expect(applied).toHaveLength(1);
+    // The same shape the draft event carries, so a listener that wants the
+    // committed context reads one thing rather than reconciling two.
+    expect(applied[0]?.ready).toBe(true);
+    expect(applied[0]?.selection.weightClass).toBe('f-56');
+    expect(applied[0]?.selection.division).toBeNull();
+    expect(applied[0]?.partitions).toEqual([
+      { levelId: 'national', regionId: null, label: 'National' },
+    ]);
+  });
+
+  it('offers no way out of a first run', async () => {
+    // There is nothing behind the setup screen to go back to, and a Cancel that
+    // returns to nothing is a button whose only effect is to make a lifter press
+    // it and find out.
+    const element = await mount();
+    expect(element.shadowRoot?.querySelector('ptk-button[data-action="cancel"]')).toBeNull();
+    expect(() => action(element, 'cancel')).toThrow();
+  });
+
+  it('offers a way out once there is something to go back to', async () => {
+    const cancelled = watchCancelled();
+    const element = await mount({ allowCancel: true });
+    await press(element, 'cancel');
+
+    expect(cancelled).toHaveLength(1);
+    // No detail on purpose: the draft is abandoned, and handing it out would
+    // invite a caller to keep it and reopen the editor on it.
+    expect(cancelled[0]?.detail).toBeNull();
+  });
+
+  it('does not commit a draft it was asked to abandon', async () => {
+    const applied = watchApplied();
+    const element = await mount({ allowCancel: true });
+    await answerRequired(element);
+    await press(element, 'cancel');
+
+    expect(applied).toEqual([]);
+  });
+
+  /**
+   * The seed a returning visit arrives on. Read once in `willUpdate`, so the
+   * first paint is already filled in -- assigning after the first render draws
+   * an empty form and then replaces it, which on a slow phone is a visible flash
+   * of a screen the lifter already completed.
+   */
+  it('opens on the answers it was handed, ready to apply', async () => {
+    const element = await mount({
+      initialSelection: {
+        sex: 'female',
+        equipment: 'raw',
+        tested: 'tested',
+        weightClass: 'f-56',
+        comparisonWeightClass: null,
+        division: 'masters-1',
+        region: null,
+      },
+    });
+
+    expect(group(element, 'sex').value).toBe('female');
+    expect(picker(element, 'division').value).toBe('masters-1');
+    expect(action(element, 'apply').disabled).toBe(false);
+  });
 
   it('has no accessibility violations with every question answered', async () => {
     // The state the a11y pass above cannot reach: three selects carrying options

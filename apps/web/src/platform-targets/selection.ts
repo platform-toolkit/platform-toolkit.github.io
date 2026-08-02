@@ -110,6 +110,17 @@ export function testedFlag(selection: CategorySelection): boolean | null {
 }
 
 /**
+ * What the age-division picker says when nothing is chosen.
+ *
+ * A constant because two places say it: the picker itself, and the context
+ * summary that reports the answer back. Two copies is how the summary comes to
+ * read "Open" over a control offering "Open only" -- close enough that nobody
+ * notices, and different enough that a lifter checking one against the other has
+ * to decide which is right.
+ */
+const OPEN_ONLY_PLACEHOLDER = 'Open only';
+
+/**
  * A question with few enough answers to show them all at once.
  *
  * Rendered as a group of radio tiles. Three of them survive: sex, equipment and
@@ -356,7 +367,7 @@ export function resolveSelection(
     // job the old label was trying to do, and does it without renaming the data.
     label: 'Age division',
     options: divisionOptions(catalog.ageDivisions.divisions, open.ok ? open.division : null),
-    placeholder: 'Open only',
+    placeholder: OPEN_ONLY_PLACEHOLDER,
     hint: 'Optional. Open stays visible because many lifters cross-enter.',
     emptyMessage: 'No age divisions are published.',
   });
@@ -652,4 +663,111 @@ function partitionsFor(
     }
   }
   return partitions;
+}
+
+/**
+ * The answered context, as two short lines.
+ *
+ * WHY TWO AND NOT ONE
+ *
+ * The 2026-08-02 review replaces the always-expanded question panel with a
+ * tappable summary, and a summary has to be readable at a glance or it is just a
+ * button. Seven answers on one line wrap to three on a phone and read as a
+ * sentence nobody parses. Split by what the two halves *are*: the first line is
+ * who is competing and never changes within a season, the second is what the
+ * report is drawn across and is the half a lifter actually edits.
+ *
+ * Derived here rather than in the element for the reason the rest of this file
+ * exists: which answers a catalogue offers, and what they are called, is a
+ * decision with a resolver behind it, and a second copy in a template is how a
+ * summary comes to name a class the report is not drawn for.
+ */
+export interface ContextSummary {
+  /** Sex category, equipment, tested status. */
+  readonly competition: string;
+  /** Weight classes, divisions, region. */
+  readonly scope: string;
+}
+
+/**
+ * Fields whose answers are labelled by a tile question rather than a picker.
+ *
+ * In the order they are asked, which is also the order they are shown: a lifter
+ * checking the summary against what they answered is reading down the same list
+ * twice.
+ */
+const SUMMARY_QUESTION_FIELDS: readonly SelectionField[] = ['sex', 'equipment', 'tested'];
+
+/** How the two lines separate their parts. */
+const SUMMARY_SEPARATOR = ' · ';
+
+export function contextSummary(resolved: ResolvedSelection): ContextSummary {
+  const competition = SUMMARY_QUESTION_FIELDS.map((field) =>
+    questionAnswer(resolved, field),
+  ).filter((label): label is string => label !== null);
+
+  const scope: string[] = [];
+  if (resolved.weightClasses.length > 0) {
+    // "and", not a comma: two classes are being compared, not listed, and the
+    // report puts them side by side under exactly this pairing.
+    scope.push(resolved.weightClasses.map((weightClass) => weightClass.label).join(' and '));
+  }
+  const divisions = summaryDivisions(resolved);
+  if (divisions !== null) {
+    scope.push(divisions);
+  }
+  const region = pickerAnswer(resolved, 'region');
+  if (region !== null) {
+    scope.push(region);
+  }
+
+  return {
+    competition: competition.join(SUMMARY_SEPARATOR),
+    scope: scope.join(SUMMARY_SEPARATOR),
+  };
+}
+
+/**
+ * The divisions half of the second line.
+ *
+ * Chosen division first and Open second, matching the row order the matrices
+ * use -- a summary that names them the other way round is a summary a reader has
+ * to re-map against the table below it.
+ *
+ * One division is written as the picker's own placeholder ("Open only") rather
+ * than as the division's label. The matrices deliberately do not name a lone
+ * division (naming it claims the federation singled it out), so echoing a bare
+ * "Open" here would be the summary asserting something the report declines to.
+ */
+function summaryDivisions(resolved: ResolvedSelection): string | null {
+  const chosenId = resolved.selection.division;
+  if (chosenId === null) {
+    return resolved.divisions.length > 0 ? OPEN_ONLY_PLACEHOLDER : null;
+  }
+  const chosen = resolved.divisions.find((division) => division.id === chosenId);
+  if (chosen === undefined) {
+    return resolved.divisions.length > 0 ? OPEN_ONLY_PLACEHOLDER : null;
+  }
+  const rest = resolved.divisions.filter((division) => division.id !== chosenId);
+  return [chosen.label, ...rest.map((division) => division.label)].join(' and ');
+}
+
+/** The label of a tile question's answer, or `null` when it is unanswered. */
+function questionAnswer(resolved: ResolvedSelection, field: SelectionField): string | null {
+  const question = resolved.questions.find((candidate) => candidate.field === field);
+  if (question?.value == null) {
+    return null;
+  }
+  const chosen = question.choices.find((choice) => choice.value === question.value);
+  return chosen?.label ?? null;
+}
+
+/** The label of a picker's answer, or `null` when it is unanswered. */
+function pickerAnswer(resolved: ResolvedSelection, field: SelectionField): string | null {
+  const picker = resolved.pickers.find((candidate) => candidate.field === field);
+  if (picker?.value == null) {
+    return null;
+  }
+  const chosen = picker.options.find((option) => option.value === picker.value);
+  return chosen?.label ?? null;
 }

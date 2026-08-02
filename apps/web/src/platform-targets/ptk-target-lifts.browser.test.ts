@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   ENTRIES_CHANGE_EVENT,
+  LIFTS_FOLD_LABEL,
   type EntriesChangeDetail,
   type PtkTargetLifts,
 } from './ptk-target-lifts.js';
@@ -128,7 +129,11 @@ describe('ptk-target-lifts', () => {
   it('starts folded and out of the way', async () => {
     const element = await mount();
     expect(fold(element).open).toBe(false);
-    expect(fold(element).getAttribute('label')).toBe('Your lifts (optional)');
+    expect(fold(element).getAttribute('label')).toBe(LIFTS_FOLD_LABEL);
+    // Pinned as a literal as well as against the constant. The constant alone
+    // would let a rename pass silently, and this string is copy the review
+    // chose deliberately: an action a lifter can take, not a section heading.
+    expect(LIFTS_FOLD_LABEL).toBe('Add current lifts');
   });
 
   /**

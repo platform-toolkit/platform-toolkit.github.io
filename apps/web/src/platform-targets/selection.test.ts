@@ -3,10 +3,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   NO_SELECTION,
+  contextSummary,
   partitionKey,
   resolveSelection,
   testedFlag,
   type CategorySelection,
+  type ContextSummary,
   type SelectionField,
   type SelectionPicker,
   type SelectionQuestion,
@@ -573,5 +575,89 @@ describe('testedFlag', () => {
     // The value originates as a string from the DOM. A conversion written as
     // `value !== 'untested'` would turn a typo into a confident `true`.
     expect(testedFlag({ ...CHOSEN, tested: 'Tested' })).toBeNull();
+  });
+});
+
+describe('contextSummary', () => {
+  function summarise(selection: CategorySelection): ContextSummary {
+    return contextSummary(resolveSelection(CATALOG, selection));
+  }
+
+  it('puts who is competing on the first line and what is compared on the second', () => {
+    // The split is the whole reason there are two lines: the first half does not
+    // change within a season, the second is the half a lifter opens the editor
+    // for. Reading them as one string is how a summary becomes a paragraph.
+    expect(summarise(CHOSEN)).toEqual({
+      competition: 'Female · Raw · Tested',
+      scope: '56 kg · Open only',
+    });
+  });
+
+  it('joins two weight classes with "and", not with the separator', () => {
+    // They are being compared, not listed, and the report puts them in adjacent
+    // columns under exactly this pairing. A middle dot would read as a third
+    // answer alongside the divisions.
+    expect(summarise({ ...CHOSEN, comparisonWeightClass: 'f-52' }).scope).toContain(
+      '52 kg and 56 kg',
+    );
+  });
+
+  it('names the chosen division before Open, in the order the matrix rows use', () => {
+    // A summary that named them the other way round is one a reader has to
+    // re-map against the table underneath it.
+    expect(summarise({ ...CHOSEN, division: 'masters-1' }).scope).toContain('Masters 1 and Open');
+  });
+
+  it('says "Open only" rather than "Open" when no division was chosen', () => {
+    // The matrices deliberately decline to name a lone division -- naming it
+    // claims the federation singled that division out. Echoing a bare "Open"
+    // here would be the summary asserting what the report will not.
+    const scope = summarise(CHOSEN).scope;
+    expect(scope).toContain('Open only');
+    expect(scope).not.toMatch(/(^|·\s)Open($|\s·)/u);
+  });
+
+  it('adds the region once one is chosen and omits it otherwise', () => {
+    expect(summarise(CHOSEN).scope).not.toContain('North Example');
+    expect(summarise({ ...CHOSEN, region: 'north-example' }).scope).toContain('North Example');
+  });
+
+  it('summarises a half-answered context without inventing the missing parts', () => {
+    // Reachable: the editor is open on a context a lifter is midway through
+    // changing, and this is what the button behind it says. A placeholder for an
+    // unanswered question would be a summary claiming an answer.
+    expect(summarise({ ...NO_SELECTION, sex: 'female' })).toEqual({
+      competition: 'Female',
+      scope: 'Open only',
+    });
+  });
+
+  it('leaves the competition line empty when nothing has been answered', () => {
+    // The scope line still says "Open only", because that is true of an
+    // unanswered division picker and is not derived from anything the lifter
+    // has to have said -- the divisions a catalogue publishes do not depend on
+    // the sex category. The competition line has nothing to state and states
+    // nothing; the element leads its accessible name with "Edit context" so a
+    // reader is not handed a bare "Open only" as the name of the control.
+    expect(summarise(NO_SELECTION)).toEqual({ competition: '', scope: 'Open only' });
+  });
+
+  it('says nothing about divisions when the catalogue publishes none', () => {
+    // Not "Open only". That sentence claims a federation drew a distinction it
+    // did not draw, which is the same mistake the matrices avoid by declining
+    // to label a lone division row.
+    const noDivisions: CategoryCatalog = {
+      ...CATALOG,
+      ageDivisions: { ...CATALOG.ageDivisions, divisions: [] },
+    };
+    expect(contextSummary(resolveSelection(noDivisions, CHOSEN)).scope).toBe('56 kg');
+  });
+
+  it('drops an answer the catalogue does not offer instead of echoing it', () => {
+    // It resolves rather than reading the request, which is the reason it lives
+    // here and not in the element. A summary naming the class the report was
+    // *asked* for, while the report is drawn for the class the resolver kept, is
+    // worse than no summary at all.
+    expect(summarise({ ...CHOSEN, weightClass: 'm-75' }).scope).not.toContain('75 kg');
   });
 });

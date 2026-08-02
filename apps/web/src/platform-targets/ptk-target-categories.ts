@@ -33,7 +33,7 @@ import {
   type ChoiceChangeDetail,
   type SelectChangeDetail,
 } from '@platform-toolkit/ui';
-import { LitElement, css, html, type TemplateResult } from 'lit';
+import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
 import {
@@ -80,6 +80,57 @@ export interface SelectionChangeDetail {
 /** Event name, exported so a listener cannot misspell it. */
 export const SELECTION_CHANGE_EVENT = 'ptk-selection-change';
 
+/**
+ * Fired when the lifter presses the action, not when they answer a question.
+ *
+ * TWO EVENTS BECAUSE THERE ARE TWO MOMENTS
+ *
+ * {@link SELECTION_CHANGE_EVENT} is a draft. It fires on every tap, it is what
+ * keeps the dependent pickers and the action's enabled state honest, and it is
+ * exactly what a screen must *not* redraw a report from: the 2026-08-02 review
+ * is explicit that a long report must not reflow after every tap in the context
+ * sheet, and a lifter half way through changing their weight class has a
+ * category that is briefly nonsense.
+ *
+ * This one is the commitment. It carries the same detail, so a listener that
+ * wants the applied context reads one shape rather than reconciling two, and it
+ * is what the transport keys its reads to -- a request per tap on a phone at a
+ * rack is the difference between a tool that works on one bar of signal and one
+ * that does not.
+ */
+export const SELECTION_APPLIED_EVENT = 'ptk-selection-applied';
+
+/**
+ * Fired when an edit is abandoned.
+ *
+ * Only reachable while {@link PtkTargetCategories.allowCancel} is set, which is
+ * the editing case: a first visit has nothing to go back to. It carries no
+ * detail on purpose -- the draft is discarded, and handing it out would invite a
+ * caller to keep it.
+ */
+export const SELECTION_CANCEL_EVENT = 'ptk-selection-cancel';
+
+/**
+ * Marks the two buttons apart for the one delegated listener below.
+ *
+ * `data-action` rather than the accessible name, because the name is copy: the
+ * review rewrites the wording of half this screen, and a listener keyed to
+ * "Show targets" is a listener that stops firing the day somebody improves the
+ * label. Not position either -- Cancel is conditional, so position is not
+ * stable.
+ *
+ * Read through `dataset` rather than as a selector on the light DOM: the button
+ * is a `ptk-button`, the click originates on the native `<button>` inside its
+ * shadow root, and only the composed path crosses that boundary.
+ */
+const ACTION_ATTRIBUTE = 'action';
+
+/** Commit the draft. */
+const APPLY_ACTION = 'apply';
+
+/** Abandon it. */
+const CANCEL_ACTION = 'cancel';
+
 @customElement('ptk-target-categories')
 export class PtkTargetCategories extends LitElement {
   static override styles = css`
@@ -110,15 +161,80 @@ export class PtkTargetCategories extends LitElement {
     }
 
     .outstanding {
-      margin: var(--ptk-space-md) 0 0;
+      margin: 0;
       color: var(--ptk-color-text-muted);
       font-size: var(--ptk-font-size-sm);
+    }
+
+    /*
+     * The action stays reachable while the questions scroll under it.
+     *
+     * Sticky, not fixed. (No backticks anywhere in this comment: they would end
+     * the css template -- see the gotcha in CLAUDE.md 5.8.)
+     *
+     * A fixed bar is positioned against the viewport,
+     * and these tools are embedded in other people's pages as often as they are
+     * visited directly -- a bar pinned to the viewport from inside a 400px
+     * iframe column lands over the host's content, or over nothing at all once
+     * the frame is auto-sized to its content and never scrolls. Sticky is
+     * positioned against the scroll container that actually exists, so it
+     * behaves in both places and degrades to an ordinary block where neither
+     * scrolls.
+     *
+     * The safe-area inset is the iPhone home indicator: without it the button
+     * sits under the gesture bar, which swallows the tap.
+     */
+    .actions {
+      position: sticky;
+      inset-block-end: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--ptk-space-sm);
+      align-items: center;
+      margin-block-start: var(--ptk-space-lg);
+      padding-block: var(--ptk-space-md);
+      padding-block-end: calc(var(--ptk-space-md) + env(safe-area-inset-bottom, 0px));
+      /* Opaque, or the questions scroll through the bar and the label sitting
+         over a weight class is unreadable at exactly the moment it is needed. */
+      background-color: var(--ptk-color-surface);
+      border-block-start: 1px solid var(--ptk-color-border);
+    }
+
+    /* The status line takes the leftover width so the buttons keep theirs, and
+       wraps to its own row rather than squeezing them at 320px. */
+    .actions .outstanding {
+      flex: 1 1 12rem;
     }
   `;
 
   @property({ attribute: false }) catalog: CategoryCatalog | null = null;
 
   @property({ type: String }) status: CatalogStatus = 'loading';
+
+  /**
+   * The answers to open with, read once.
+   *
+   * A returning visit restores what the lifter answered last time, and an edit
+   * opens on the context the report is currently drawn for. Both are the same
+   * thing from here: a starting request.
+   *
+   * Read once, under `!hasUpdated`, and never again. Following it afterwards
+   * would make the parent's copy authoritative and quietly undo an answer the
+   * lifter gave between the parent's renders -- the parent re-renders for its
+   * own reasons, and the tap that lands in that window is the one that
+   * disappears. Re-seeding is done by rendering a fresh element instead, which
+   * is honest about being a fresh edit.
+   */
+  @property({ attribute: false }) initialSelection: CategorySelection = NO_SELECTION;
+
+  /**
+   * Whether abandoning is offered.
+   *
+   * Off by default because the first visit is the default: there is no earlier
+   * context to go back to, and a Cancel that returns to an empty screen is a
+   * button that can only do harm. The editing case sets it.
+   */
+  @property({ type: Boolean, attribute: 'allow-cancel' }) allowCancel = false;
 
   /**
    * What the lifter asked for, before the catalogue is consulted.
@@ -138,12 +254,28 @@ export class PtkTargetCategories extends LitElement {
     // out of step with the list of questions.
     this.addEventListener(CHOICE_CHANGE_EVENT, this.#onChoiceChange);
     this.addEventListener(SELECT_CHANGE_EVENT, this.#onSelectChange);
+    this.addEventListener('click', this.#onClick);
   }
 
   override disconnectedCallback(): void {
     this.removeEventListener(CHOICE_CHANGE_EVENT, this.#onChoiceChange);
     this.removeEventListener(SELECT_CHANGE_EVENT, this.#onSelectChange);
+    this.removeEventListener('click', this.#onClick);
     super.disconnectedCallback();
+  }
+
+  /**
+   * Takes the opening answers, once.
+   *
+   * In `willUpdate` rather than `firstUpdated` for the reason the report's two
+   * seeds record: assigning after the first render paints the empty screen and
+   * then replaces it, which on a slow phone is a visible flash of a form the
+   * lifter already filled in.
+   */
+  protected override willUpdate(): void {
+    if (!this.hasUpdated) {
+      this.requested = this.initialSelection;
+    }
   }
 
   /**
@@ -196,7 +328,17 @@ export class PtkTargetCategories extends LitElement {
         ${resolved.questions.map((question) => this.#renderQuestion(question))}
       </div>
       <div class="pickers">${resolved.pickers.map((picker) => this.#renderPicker(picker))}</div>
-      <p class="outstanding" role="status">${outstandingMessage(resolved.outstanding)}</p>
+      <div class="actions">
+        <p class="outstanding" role="status">${outstandingMessage(resolved.outstanding)}</p>
+        ${
+          this.allowCancel
+            ? html`<ptk-button data-action=${CANCEL_ACTION}>Cancel</ptk-button>`
+            : nothing
+        }
+        <ptk-button data-action=${APPLY_ACTION} variant="primary" ?disabled=${!resolved.ready}>
+          Show targets
+        </ptk-button>
+      </div>
     `;
   }
 
@@ -247,6 +389,63 @@ export class PtkTargetCategories extends LitElement {
   readonly #onSelectChange = (event: CustomEvent<SelectChangeDetail>): void => {
     this.#answer(event, event.detail.value);
   };
+
+  /**
+   * The two buttons, through one listener.
+   *
+   * One rather than two bound handlers for the reason the two segmented bars in
+   * the report share one: two listeners on one host is how the second control
+   * comes to react to the first control's event, and the delegated form cannot
+   * fall out of step with a button that is only sometimes rendered.
+   */
+  readonly #onClick = (event: MouseEvent): void => {
+    for (const node of event.composedPath()) {
+      if (!(node instanceof HTMLElement)) {
+        continue;
+      }
+      const action = node.dataset[ACTION_ATTRIBUTE];
+      if (action === APPLY_ACTION) {
+        this.#apply();
+        return;
+      }
+      if (action === CANCEL_ACTION) {
+        this.dispatchEvent(
+          new CustomEvent(SELECTION_CANCEL_EVENT, { bubbles: true, composed: true }),
+        );
+        return;
+      }
+    }
+  };
+
+  /**
+   * Commits the draft.
+   *
+   * Resolves once more rather than trusting the enabled state of the button
+   * that was pressed. A disabled `ptk-button` renders a disabled native button
+   * and cannot be clicked, but the guard costs nothing and the failure it
+   * prevents is a report drawn for a category missing an axis -- which the
+   * report renders as "no published target", a real answer nobody investigates.
+   */
+  #apply(): void {
+    if (this.catalog === null) {
+      return;
+    }
+    const resolved = resolveSelection(this.catalog, this.requested);
+    if (!resolved.ready) {
+      return;
+    }
+    this.dispatchEvent(
+      new CustomEvent<SelectionChangeDetail>(SELECTION_APPLIED_EVENT, {
+        detail: {
+          selection: resolved.selection,
+          ready: resolved.ready,
+          partitions: resolved.partitions,
+        },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
 
   /** Records one answer and reports the whole selection. Shared by both controls. */
   #answer(event: Event, value: string | null): void {
@@ -336,7 +535,11 @@ function fieldOf(event: Event): SelectionField | null {
  */
 function outstandingMessage(outstanding: readonly string[]): string {
   if (outstanding.length === 0) {
-    return 'Showing your report below.';
+    // Not "showing your report below": since the batch landed there is no
+    // report below, and a line that says there is sends a lifter scrolling past
+    // the action they still have to press. "Your report" is also on the review's
+    // avoid list -- the tool calls them targets.
+    return 'Ready. Choose Show targets.';
   }
   const labels = outstanding.map((label) => label.toLowerCase());
   // `join` rather than an index: `noUncheckedIndexedAccess` would otherwise make
@@ -355,5 +558,7 @@ declare global {
 
   interface HTMLElementEventMap {
     [SELECTION_CHANGE_EVENT]: CustomEvent<SelectionChangeDetail>;
+    [SELECTION_APPLIED_EVENT]: CustomEvent<SelectionChangeDetail>;
+    [SELECTION_CANCEL_EVENT]: CustomEvent<void>;
   }
 }

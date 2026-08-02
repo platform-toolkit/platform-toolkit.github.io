@@ -38,6 +38,62 @@ describe('flag', () => {
   });
 });
 
+describe('publishedId', () => {
+  const id = PreferenceValue.publishedId();
+
+  it('accepts the identifier shapes federations actually publish', () => {
+    // Every one of these is lifted from a live catalogue rather than invented:
+    // a plain word, a hyphenated one, a sex-prefixed weight class, and the
+    // fractional classes that are the reason a dot is in the pattern at all.
+    for (const candidate of [
+      'raw',
+      'single-ply',
+      'f-75',
+      'f-67.5',
+      'master-50-54',
+      'ipl-world',
+      'alabama',
+    ]) {
+      expect(accepts(id, candidate), candidate).toBe(true);
+    }
+  });
+
+  it('accepts the empty string, which is how an unanswered question is stored', () => {
+    // Not a near miss to be tightened later. A `shape` refuses a missing key
+    // outright, so the four optional answers on the Platform Targets context
+    // need a value that means "not picked" -- and without one, clearing the age
+    // division would reset the required answers beside it.
+    expect(accepts(id, '')).toBe(true);
+  });
+
+  it('rejects the things a free-text builder would have let through', () => {
+    // The charset is the weaker of the two guarantees this builder makes -- the
+    // stronger one is that a caller must resolve the value against published
+    // data and discard what the source does not offer -- but it is the one that
+    // can be asserted here, and it does exclude an address, an account and a
+    // name as anybody would write one.
+    for (const candidate of [
+      'https://example.test/lifter/1',
+      'lifter@example.test',
+      'Jason Smathers',
+      'Raw',
+      'f 75',
+      'a/b',
+      'a_b',
+      'a--b',
+      '-raw',
+      'raw-',
+      'raw..classic',
+      'x'.repeat(65),
+      42,
+      null,
+      ['raw'],
+    ]) {
+      expect(accepts(id, candidate), JSON.stringify(candidate)).toBe(false);
+    }
+  });
+});
+
 describe('quantity', () => {
   const barWeight = PreferenceValue.quantity({ min: 5, max: 40 });
 

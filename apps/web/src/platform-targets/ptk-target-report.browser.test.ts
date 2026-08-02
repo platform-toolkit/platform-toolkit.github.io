@@ -9,7 +9,12 @@ import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { deepText } from '../testing/deep-text.js';
-import type { PartitionRead, PtkTargetReport } from './ptk-target-report.js';
+import {
+  VIEW_CHANGE_EVENT,
+  type PartitionRead,
+  type PtkTargetReport,
+  type ViewChangeDetail,
+} from './ptk-target-report.js';
 import './ptk-target-report.js';
 import {
   ANSWERED,
@@ -441,6 +446,87 @@ describe('ptk-target-report', () => {
     element.entries = typed({ squat: '125' });
     await element.updateComplete;
     expect(panelHeading(element)).toBe('Total');
+  });
+
+  /**
+   * Where the bars stand is said out loud, so a returning visit can open there.
+   *
+   * Both bars report, and both report the *pair*: the composition root writes one
+   * remembered setting holding both, and a detail carrying only what moved would
+   * make it read the other half off a stale render.
+   */
+  it('says where both bars stand whenever either one moves', async () => {
+    const element = await mount();
+    const seen: ViewChangeDetail[] = [];
+    const listener = (event: CustomEvent<ViewChangeDetail>): void => {
+      seen.push(event.detail);
+    };
+    // On the body, outside the element: the claim is that the event left the
+    // shadow root on its way to the root that persists it.
+    document.body.addEventListener(VIEW_CHANGE_EVENT, listener);
+    teardown.push(() => {
+      document.body.removeEventListener(VIEW_CHANGE_EVENT, listener);
+    });
+
+    await chooseSegment(element, 'lift', 'Bench press');
+    expect(seen.at(-1)).toEqual({ lift: 'bench', targetType: 'classifications' });
+
+    await showRecords(element);
+    expect(seen.at(-1)).toEqual({ lift: 'bench', targetType: 'records' });
+    expect(seen).toHaveLength(2);
+  });
+
+  /**
+   * And says nothing for a seed.
+   *
+   * A root writing the first render to storage would record a default as a
+   * decision -- "opens on the squat because that is where I left it" against
+   * "opens on the squat because everything does" -- and the second one is a
+   * setting that can never be got rid of.
+   */
+  it('says nothing about the bars until a lifter moves one', async () => {
+    const seen: Event[] = [];
+    const listener = (event: Event): void => {
+      seen.push(event);
+    };
+    document.body.addEventListener(VIEW_CHANGE_EVENT, listener);
+    teardown.push(() => {
+      document.body.removeEventListener(VIEW_CHANGE_EVENT, listener);
+    });
+
+    const element = await mount({ initialLift: 'bench', initialTargetType: 'records' });
+    element.entries = typed({ squat: '125' });
+    await element.updateComplete;
+    expect(seen).toEqual([]);
+  });
+
+  /**
+   * The heading takes focus on request, and only on request.
+   *
+   * Called by the composition root after "Show targets" replaces the whole
+   * screen: the button that was pressed no longer exists, so focus falls to the
+   * body and a keyboard user's next Tab starts again from the top of the page.
+   * `tabindex="-1"` is what lets it be focused without joining the tab order,
+   * and asserting on it is the difference between a heading that can be landed
+   * on and one a lifter has to Tab past on every pass.
+   */
+  it('puts focus on the result heading when asked, without joining the tab order', async () => {
+    const element = await mount();
+    const heading = only(root(element), 'h2');
+    expect(heading.getAttribute('tabindex')).toBe('-1');
+
+    element.focusHeading();
+    expect(root(element).activeElement).toBe(heading);
+  });
+
+  it('is silent about focus when there is no heading to move it to', async () => {
+    // The catalogue can still be in flight when the root asks. A root that had
+    // to know which branch of this template rendered would be a root that knows
+    // this element's template.
+    const element = await mount({ catalog: null });
+    expect(() => {
+      element.focusHeading();
+    }).not.toThrow();
   });
 
   /**

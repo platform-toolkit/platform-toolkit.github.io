@@ -55,16 +55,6 @@ const OUTPUT_DIRECTORY = fileURLToPath(new URL('../apps/web/dist', import.meta.u
 const WIDTHS = [320, 390];
 
 /**
- * The lift entry, which arrives folded.
- *
- * Requirement 11 put it out of the way, and a folded section measures the one
- * line it shows -- so without this the four fields and the unit control are
- * never looked at, and `fill` below could not reach them either, because
- * Playwright refuses to type into something that is not visible.
- */
-const PLATFORM_TARGETS_CLICK = ['ptk-disclosure[label="Your lifts (optional)"] summary'];
-
-/**
  * The three tile questions, which are the only ones that gate the report.
  *
  * Requirement 9: sex, equipment, one weight class and drug-tested status are
@@ -118,7 +108,30 @@ const PLATFORM_TARGETS_CHOOSE = [
 ];
 
 /**
- * Weights typed into the lift fields once the category is answered.
+ * The setup screen is finished when its action has stopped being disabled.
+ *
+ * Which is the only observable that says all four required answers registered.
+ * Every other candidate is true too early: the pickers exist before they are
+ * answered, and the action itself exists from the first paint -- disabled, and
+ * carrying a different set of styles from the one a lifter presses. Measuring
+ * then would report on a bar in a state the screen only passes through.
+ *
+ * `:not([disabled])` works because `ptk-button` reflects the property, which is
+ * a fact about that element rather than about Lit -- a non-reflecting property
+ * would leave this selector matching from the start and the wait would measure
+ * nothing.
+ */
+const PLATFORM_TARGETS_SETUP_SETTLE = [
+  'ptk-target-categories ptk-button[data-action="apply"]:not([disabled])',
+];
+
+/**
+ * Weights typed into the lift fields, which exist only after "Show targets".
+ *
+ * In `fillAfter` rather than `fill` for the same reason the record cell is in
+ * `clickAfter`: the setup screen has no lift entry on it at all, so a `fill`
+ * entry naming one would report "nothing matched" -- a true statement about a
+ * state the check itself created.
  *
  * Three component lifts and no total, so the fourth field fills itself and the
  * derived-total sentence -- the longest string the panel ever renders -- is on
@@ -127,7 +140,7 @@ const PLATFORM_TARGETS_CHOOSE = [
  *
  * The figures are invented. Nothing here compares them against anything.
  */
-const PLATFORM_TARGETS_FILL = [
+const PLATFORM_TARGETS_FILL_AFTER = [
   { selector: 'ptk-number-field[data-lift="squat"] input', value: '142.5' },
   { selector: 'ptk-number-field[data-lift="bench"] input', value: '82.5' },
   { selector: 'ptk-number-field[data-lift="deadlift"] input', value: '175' },
@@ -249,6 +262,12 @@ const ONE_REP_MAX_CLICK_AFTER = [
  *
  * What each reaches, in order:
  *
+ * - **"Show targets"**, which is what replaces the setup screen with the report.
+ *   Since the three-phase rebuild there is no report on the page until this is
+ *   pressed, so every selector below it names something that does not exist yet.
+ *   It is a press rather than a step of its own because that is what it is: the
+ *   lifter's own commitment, and the check should reach the report the way they
+ *   do rather than through a back door the product does not have.
  * - The **records** half. Classifications open by default and are the narrower
  *   of the two: a record cell carries a disclosure caret beside its figures, and
  *   a record matrix carries the note and the fold above it.
@@ -259,6 +278,11 @@ const ONE_REP_MAX_CLICK_AFTER = [
  *   -- two attempt weights each with a label, a condition and a basis, then the
  *   responsibility note, the holder line and the source link, all inside the
  *   width of one matrix.
+ * - The **lift entry**, which arrives folded and measures the one line it shows.
+ *   Last, so the record detail above it is still open when the page is measured,
+ *   and after everything else because `fillAfter` has to be able to type into
+ *   the four fields inside it -- Playwright refuses to type into something that
+ *   is not visible.
  *
  * A segment is named by the text a lifter reads, because its value is bound as a
  * property and there is no attribute to select on. Playwright's CSS engine
@@ -275,9 +299,15 @@ const ONE_REP_MAX_CLICK_AFTER = [
  * whichever the template happened to render first.
  */
 const PLATFORM_TARGETS_CLICK_AFTER = [
+  'ptk-target-categories ptk-button[data-action="apply"]',
   'ptk-target-report ptk-segmented[data-control="target-type"] label.segment:has(span:text-is("Records"))',
   'ptk-target-report ptk-disclosure[label="How record attempts work"] summary',
   'ptk-target-report td button.cell-button',
+  // Hand-kept in step with `LIFTS_FOLD_LABEL` in `ptk-target-lifts.ts`. This
+  // file is plain Node and cannot import a TypeScript module, so a rename there
+  // arrives here as "nothing matched" -- loudly, which is the whole reason an
+  // unmatched selector is a failure rather than a skip.
+  'ptk-disclosure[label="Add current lifts"] summary',
 ];
 
 /**
@@ -320,25 +350,58 @@ const PLATFORM_TARGETS_SETTLE = [
  */
 const HUB_CLICK = ['ptk-disclosure[label="Install the toolkit"] summary'];
 
-/** The routes, and what has to happen before each is worth measuring. */
+/**
+ * The routes, and what has to happen before each is worth measuring.
+ *
+ * A path may appear more than once. Platform Targets shows one of two whole
+ * screens and the first one *stops existing* when the lifter presses the action
+ * on it, so a single entry that walked through to the report would measure the
+ * report and never the setup form -- seven controls and a sticky action bar,
+ * unmeasured at every width, which is precisely the silent coverage loss this
+ * file exists to prevent. Two entries over one path is the honest shape: two
+ * screens, two measurements. The `label` is what keeps their failures apart in
+ * the report, since the path no longer identifies one.
+ */
 const ROUTES = [
   { path: '/', click: HUB_CLICK, reveal: [], fill: [] },
   {
     path: '/platform-targets/',
-    click: PLATFORM_TARGETS_CLICK,
+    label: '/platform-targets/ (setup)',
+    click: [],
     reveal: PLATFORM_TARGETS_REVEAL,
     choose: PLATFORM_TARGETS_CHOOSE,
-    fill: PLATFORM_TARGETS_FILL,
+    fill: [],
+    settle: PLATFORM_TARGETS_SETUP_SETTLE,
+  },
+  {
+    path: '/platform-targets/',
+    label: '/platform-targets/ (targets)',
+    click: [],
+    reveal: PLATFORM_TARGETS_REVEAL,
+    choose: PLATFORM_TARGETS_CHOOSE,
+    fill: [],
     clickAfter: PLATFORM_TARGETS_CLICK_AFTER,
+    fillAfter: PLATFORM_TARGETS_FILL_AFTER,
     settle: PLATFORM_TARGETS_SETTLE,
   },
   {
     path: '/platform-targets/embed/uspa/',
-    click: PLATFORM_TARGETS_CLICK,
+    label: '/platform-targets/embed/uspa/ (setup)',
+    click: [],
     reveal: PLATFORM_TARGETS_REVEAL,
     choose: PLATFORM_TARGETS_CHOOSE,
-    fill: PLATFORM_TARGETS_FILL,
+    fill: [],
+    settle: PLATFORM_TARGETS_SETUP_SETTLE,
+  },
+  {
+    path: '/platform-targets/embed/uspa/',
+    label: '/platform-targets/embed/uspa/ (targets)',
+    click: [],
+    reveal: PLATFORM_TARGETS_REVEAL,
+    choose: PLATFORM_TARGETS_CHOOSE,
+    fill: [],
     clickAfter: PLATFORM_TARGETS_CLICK_AFTER,
+    fillAfter: PLATFORM_TARGETS_FILL_AFTER,
     settle: PLATFORM_TARGETS_SETTLE,
   },
   {
@@ -479,10 +542,27 @@ const MEASURE = `(() => {
     if (element.getClientRects().length === 0) continue;
     if (style.visibility === 'hidden') continue;
 
+    // The label a person reading the failure can act on. Four sources in order,
+    // because a control inside a shared component usually has no text of its
+    // own: the \`<button>\` inside \`ptk-button\` holds a \`<slot>\`, and a slot has
+    // no text, so every one of them reported as \`button ""\` -- four on one
+    // screen, none distinguishable from the others; a \`ptk-number-field\` input
+    // reported the same, and there are four of those side by side. A field's
+    // \`labels\` resolves inside the shadow root, and the host's text is what a
+    // slot is showing. \`aria-label\` comes before both because a glyph button has
+    // a visible label that is not a name, which is the whole reason
+    // \`ptk-button\` carries \`accessible-name\` at all.
+    const flatten = (text) => (text || '').replace(/\\s+/g, ' ').trim();
+    const host = element.getRootNode().host;
+    const label =
+      flatten(element.textContent) ||
+      flatten(element.getAttribute('aria-label')) ||
+      flatten(element.labels && element.labels[0] ? element.labels[0].textContent : '') ||
+      (host ? flatten(host.textContent) : '');
     const name =
       element.tagName.toLowerCase() +
       (element.className ? '.' + element.className : '') +
-      ' "' + (element.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 32) + '"';
+      ' "' + label.slice(0, 32) + '"';
 
     const isGlyphInTile = element.tagName === 'INPUT' && element.closest('label:has(input)') !== null;
     if (!isGlyphInTile && (box.height < limits.tap || box.width < limits.tap)) {
@@ -579,6 +659,50 @@ async function pick(page, pickers, where, failures) {
 }
 
 /**
+ * Types into a list of fields, failing on anything that is not there.
+ *
+ * Shared by `fill` and `fillAfter` for the reason `tap` is shared by `click`
+ * and `clickAfter`: two copies of this loop is two places to decide what a
+ * missing selector means, and the copy that decides "skip" is the one that
+ * makes this file stop checking while still printing a pass.
+ *
+ * @param {import('playwright').Page} page
+ * @param {readonly {selector: string, value: string}[]} fields
+ * @param {string} where
+ * @param {string[]} failures
+ * @returns {Promise<boolean>}
+ */
+async function enter(page, fields, where, failures) {
+  for (const { selector, value } of fields) {
+    const field = page.locator(selector).first();
+    if ((await field.count()) === 0) {
+      failures.push(`${where}: nothing matched ${selector}`);
+      return false;
+    }
+    await field.fill(value);
+  }
+  return true;
+}
+
+/**
+ * How a failure names the screen it came from.
+ *
+ * The path is not enough on its own any more: two entries share
+ * `/platform-targets/` and measure different screens of it, so a report keyed
+ * to the path alone would print the same prefix for both and leave somebody
+ * reading it to guess which screen has the overflowing row. Falling back to the
+ * path keeps every other route's message exactly as it was, which matters
+ * because those strings are what a person greps for.
+ *
+ * @param {{path: string, label?: string}} route
+ * @param {number} width
+ * @returns {string}
+ */
+function whereOf(route, width) {
+  return `${String(width)}px ${route.label ?? route.path}`;
+}
+
+/**
  * Drives a route into the state worth measuring.
  *
  * Returns false, having recorded a failure, if any step could not be taken. A
@@ -587,7 +711,7 @@ async function pick(page, pickers, where, failures) {
  * quietly stops checking the state it exists for while still reporting a pass.
  */
 async function reveal(page, route, width, failures) {
-  const where = `${String(width)}px ${route.path}`;
+  const where = whereOf(route, width);
 
   // Taps come first and are separate from the checks below because they are a
   // different kind of act: opening a fold or pressing a button, rather than
@@ -610,14 +734,7 @@ async function reveal(page, route, width, failures) {
   // driven first would be a select with one placeholder in it.
   if (!(await pick(page, route.choose ?? [], where, failures))) return false;
 
-  for (const { selector, value } of route.fill) {
-    const field = page.locator(selector).first();
-    if ((await field.count()) === 0) {
-      failures.push(`${where}: nothing matched ${selector}`);
-      return false;
-    }
-    await field.fill(value);
-  }
+  if (!(await enter(page, route.fill, where, failures))) return false;
 
   // Folds that do not exist until the fields above have been answered. The
   // estimator's percentage table and formula comparison render nothing at all
@@ -626,6 +743,17 @@ async function reveal(page, route, width, failures) {
   // one that would push somebody to weaken the unmatched-selector failure into
   // a skip, which is the thing that makes this file stop checking.
   if (!(await tap(page, route.clickAfter ?? [], where, failures))) return false;
+
+  // Fields that do not exist until something above was pressed. Platform
+  // Targets' lift entry is the case: since the three-phase rebuild the setup
+  // screen carries no lift fields at all, so they cannot be typed into until
+  // "Show targets" has replaced it -- and the fold they sit in has to be opened
+  // after that, because Playwright refuses to type into something invisible.
+  //
+  // The same function as `fill`, deliberately, so the two cannot drift into
+  // disagreeing about what a missing selector means. It means the same in both:
+  // a failure, never a skip.
+  if (!(await enter(page, route.fillAfter ?? [], where, failures))) return false;
 
   // A list, because a screen can have more than one panel that finishes at its
   // own moment and neither one implies the other. Waiting on the earlier of two
@@ -696,6 +824,12 @@ async function main() {
         // already on the list". Which is a genuine failure report about a
         // condition the check itself created.
         //
+        // Per *entry*, not per path, which is what makes two entries over one
+        // path independent: Platform Targets remembers an applied context, so
+        // the targets entry running in the setup entry's context would open
+        // straight into the report and its `reveal` list would find no
+        // questions to answer.
+        //
         // Touch and a device pixel ratio, not just a narrow window: a phone is
         // what is being stood in for, and `isMobile` is what makes the viewport
         // behave like one rather than like a very small desktop.
@@ -711,7 +845,7 @@ async function main() {
         const reached = await reveal(page, route, width, failures);
         if (reached) {
           for (const problem of await page.evaluate(MEASURE)) {
-            failures.push(`${String(width)}px ${route.path}: ${problem}`);
+            failures.push(`${whereOf(route, width)}: ${problem}`);
           }
           measured += 1;
         }

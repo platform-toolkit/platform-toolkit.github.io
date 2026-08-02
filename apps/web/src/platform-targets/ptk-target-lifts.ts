@@ -54,6 +54,25 @@ import {
   type LiftEntry,
 } from './standards.js';
 
+/**
+ * What the fold is called, and the name a test or a layout check finds it by.
+ *
+ * A verb, not a possessive. "Your lifts (optional)" describes a *section* and
+ * says nothing about what pressing it does, and the parenthesis was carrying the
+ * whole of the message -- the 2026-08-02 review replaces both with an action
+ * ("Add current lifts") on the grounds that a lifter scanning a screen of
+ * targets reads labels as things they can do. The word "optional" moves into the
+ * first sentence inside the fold, where there is room to say what it means.
+ *
+ * Exported so the tests assert against the same string the template renders.
+ * `scripts/check-narrow-layout.mjs` also names this fold by its `label`
+ * attribute and cannot import a TypeScript module, so that one copy stays
+ * hand-kept -- it fails loudly when it goes stale ("nothing matched") rather
+ * than skipping the panel it was written to measure, which is the whole reason
+ * an unmatched selector is an error in that file.
+ */
+export const LIFTS_FOLD_LABEL = 'Add current lifts';
+
 /** Fired whenever one of the four fields, or the unit they are read in, changes. */
 export interface EntriesChangeDetail {
   readonly entries: LiftEntries;
@@ -172,10 +191,10 @@ export class PtkTargetLifts extends LitElement {
     const read = readLiftEntries(this.entries);
 
     return html`
-      <ptk-disclosure label="Your lifts (optional)" summary=${enteredSummary(this.entries)}>
+      <ptk-disclosure label=${LIFTS_FOLD_LABEL} summary=${enteredSummary(this.entries)}>
         <p>
           Optional. Entering what you have lifted marks the targets you have already passed and
-          points at the next one. The report above is complete without it.
+          points at the next one. The targets above are complete without it.
         </p>
         <ptk-choice-group
           class="unit"

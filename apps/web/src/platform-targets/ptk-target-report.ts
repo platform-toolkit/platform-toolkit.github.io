@@ -135,6 +135,30 @@ export interface PartitionRead {
 export type TargetType = 'classifications' | 'records';
 
 /**
+ * Where the two navigation bars now stand.
+ *
+ * Both, on either bar's move, rather than only the one that moved. A listener
+ * remembering this for the next visit wants the pair -- and a listener that had
+ * to keep its own copy of the other half would be a second place for the answer
+ * to live, out of step with this element the moment a seed changes.
+ */
+export interface ViewChangeDetail {
+  readonly lift: Lift;
+  readonly targetType: TargetType;
+}
+
+/**
+ * Fired when the lifter moves either bar.
+ *
+ * The element still owns the answer -- the bars are `@state` here and the
+ * incoming ones are seeds (see {@link PtkTargetReport.initialLift}). This is a
+ * notification, not a handover: nothing above is expected to send the value
+ * back, and a parent that did would put a bar back where the lifter moved it
+ * away from.
+ */
+export const VIEW_CHANGE_EVENT = 'ptk-view-change';
+
+/**
  * The two families, as the bar's options.
  *
  * Two and not three: qualification totals are a real target type and this tool
@@ -186,6 +210,23 @@ export class PtkTargetReport extends LitElement {
     h2 {
       margin: 0 0 var(--ptk-space-xs);
       font-size: var(--ptk-font-size-xl);
+    }
+
+    /*
+     * Spelled out here because the document rule in tokens.css cannot reach
+     * into a shadow root, and the heading is focusable (see focusHeading).
+     *
+     * (No backticks in this comment: they would end the css template -- see the
+     * gotcha in CLAUDE.md 5.8.)
+     *
+     * The selector is :focus-visible and not :focus, which is the whole reason the heading
+     * can be focused at all without looking wrong: a lifter who tapped "Show
+     * targets" with a thumb gets no ring, and a lifter who pressed it with a
+     * keyboard gets one and can see where they landed.
+     */
+    h2:focus-visible {
+      outline: var(--ptk-focus-ring-width) solid var(--ptk-color-focus-ring);
+      outline-offset: var(--ptk-focus-ring-offset);
     }
 
     .context {
@@ -587,6 +628,29 @@ export class PtkTargetReport extends LitElement {
     }
   }
 
+  /**
+   * Puts focus on the result heading.
+   *
+   * Called by the composition root after a lifter presses "Show targets", which
+   * replaces the whole screen: the button they pressed no longer exists, and
+   * focus left on a removed element falls back to the document body, so a
+   * keyboard user's next Tab starts again from the top of the page and a screen
+   * reader is told nothing at all about the thing they just asked for.
+   *
+   * The heading rather than the first control, because the heading is the
+   * announcement -- "Targets" and then the context under it -- and landing on a
+   * control skips straight past what changed. It carries `tabindex="-1"` so it
+   * can be focused without joining the tab order; a heading a lifter has to Tab
+   * through on the way to the bars is a heading in the way.
+   *
+   * Silent when there is no heading. The catalogue can still be in flight, and
+   * a root that had to know which of this element's branches rendered would be
+   * a root that knows this element's template.
+   */
+  focusHeading(): void {
+    this.shadowRoot?.querySelector<HTMLElement>('h2')?.focus();
+  }
+
   override render(): TemplateResult {
     if (this.catalog === null) {
       // The categories panel above already says why -- loading, unpublished, or
@@ -598,7 +662,7 @@ export class PtkTargetReport extends LitElement {
     const resolved = resolveSelection(this.catalog, this.selection);
     if (!resolved.ready) {
       return html`
-        <h2>Targets</h2>
+        <h2 tabindex="-1">Targets</h2>
         <ptk-notice>
           Choose ${listed(resolved.outstanding)} above and your targets appear here.
         </ptk-notice>
@@ -615,7 +679,7 @@ export class PtkTargetReport extends LitElement {
     const lift = report.lifts.find((entry) => entry.lift === this.selectedLift) ?? report.lifts[0];
 
     return html`
-      <h2>Targets</h2>
+      <h2 tabindex="-1">Targets</h2>
       <p class="context">${contextLine(report)}</p>
       ${this.#renderNotices(report)}
       <div class="controls">
@@ -877,13 +941,34 @@ export class PtkTargetReport extends LitElement {
       // A detail belongs to a record in the lift that was on screen. Leaving it
       // open would draw somebody else's record under a table it is not in.
       this.openCellId = null;
+      this.#announceView();
       return;
     }
     if (control.getAttribute(CONTROL_ATTRIBUTE) === 'target-type' && isTargetType(value)) {
       this.targetType = value;
       this.openCellId = null;
+      this.#announceView();
     }
   };
+
+  /**
+   * Says where the bars now stand.
+   *
+   * Dispatched from the handler rather than from `updated()`, so it fires only
+   * when a lifter moved something. In `updated()` it would also fire for the
+   * seeds on first render, and a parent writing that to storage would record a
+   * default as a decision -- the difference between "opens on the squat because
+   * that is where I left it" and "opens on the squat because everything does".
+   */
+  #announceView(): void {
+    this.dispatchEvent(
+      new CustomEvent<ViewChangeDetail>(VIEW_CHANGE_EVENT, {
+        detail: { lift: this.selectedLift, targetType: this.targetType },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
 
   /** What the lifter entered for one lift, in kilograms, or `null`. */
   #liftedKilograms(lift: Lift): number | null {
@@ -1105,5 +1190,9 @@ function listed(items: readonly string[]): string {
 declare global {
   interface HTMLElementTagNameMap {
     'ptk-target-report': PtkTargetReport;
+  }
+
+  interface HTMLElementEventMap {
+    [VIEW_CHANGE_EVENT]: CustomEvent<ViewChangeDetail>;
   }
 }
