@@ -6,6 +6,7 @@ import {
 import type {
   CategoryCatalog,
   ClassificationBook,
+  DataMeta,
   RecordBook,
 } from '@platform-toolkit/data-contracts';
 import {
@@ -17,8 +18,9 @@ import type { PtkChoiceGroup, PtkSegmented, PtkSelect } from '@platform-toolkit/
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { deepText } from '../testing/deep-text.js';
+import type { Connection } from './freshness.js';
 import type { PtkPlatformTargets } from './ptk-platform-targets.js';
-import { BOOK, CATALOG, CLASSIFICATIONS, STATE_BOOK } from './records-fixture.js';
+import { BOOK, CATALOG, CLASSIFICATIONS, DATA_META, STATE_BOOK } from './records-fixture.js';
 import type { SelectionField } from './selection.js';
 import { createPlatformTargetsView } from './view.js';
 
@@ -59,6 +61,7 @@ interface Stubs {
   readonly catalog?: () => Promise<CategoryCatalog | null>;
   readonly classifications?: () => Promise<ClassificationBook | null>;
   readonly records?: (query: RecordSetQuery) => Promise<RecordBook | null>;
+  readonly meta?: () => Promise<DataMeta>;
 }
 
 /** What a source was asked for, in the order it was asked. */
@@ -84,6 +87,7 @@ function sourceThat(stubs: Stubs = {}): DataSource & Asked {
     catalog = () => Promise.resolve(CATALOG),
     classifications = () => Promise.resolve(CLASSIFICATIONS),
     records = () => Promise.resolve(null),
+    meta = () => Promise.resolve(DATA_META),
   } = stubs;
 
   return {
@@ -91,7 +95,7 @@ function sourceThat(stubs: Stubs = {}): DataSource & Asked {
     federations,
     classificationPartitions,
     recordPartitions,
-    getDataMeta: () => Promise.reject(new Error('not used by this view')),
+    getDataMeta: () => meta(),
     getCategoryCatalog: (federationId: string) => {
       federations.push(federationId);
       return catalog();
@@ -347,6 +351,55 @@ function readFor(
     }
   }
   throw new Error(`The report is holding no read for "${label}".`);
+}
+
+/** The whole of what the footer is saying, however deeply it is nested. */
+function footerLine(element: PtkPlatformTargets): string {
+  return deepText(panel(element, 'ptk-target-freshness')).trim();
+}
+
+/**
+ * What the tool's persistent live region is holding.
+ *
+ * Read off the node rather than off a property, because the thing being tested
+ * is that the sentence reached the region -- a `#announcement()` that computed
+ * the right string and rendered it somewhere else would satisfy any assertion
+ * made against the element.
+ */
+function announced(element: PtkPlatformTargets): string {
+  return element.shadowRoot?.querySelector('.announcer')?.textContent.trim() ?? '';
+}
+
+/**
+ * The device gained or lost its network.
+ *
+ * Dispatched on `window`, not on the element: the transport listens there,
+ * because a tool being moved around in the DOM must not stop noticing the
+ * network, and host pages really do move a frame's contents. The two event
+ * names are the two `Connection` values, which is a coincidence worth leaning
+ * on only because both lists are closed and both live in `freshness.ts`.
+ */
+async function connectionBecomes(element: PtkPlatformTargets, state: Connection): Promise<void> {
+  window.dispatchEvent(new Event(state));
+  await element.updateComplete;
+}
+
+/**
+ * Presses the footer's own retry.
+ *
+ * The native button inside the shared control, for the same reason
+ * {@link showTargets} reaches for one: that is where the press lands, and the
+ * event it raises is composed on its way out to the transport.
+ */
+async function retryFromFooter(element: PtkPlatformTargets): Promise<void> {
+  const button = panel(element, 'ptk-target-freshness')
+    .querySelector('ptk-button.retry')
+    ?.shadowRoot?.querySelector('button');
+  if (!(button instanceof HTMLButtonElement)) {
+    throw new Error('The footer is offering no way to try again.');
+  }
+  button.click();
+  await element.updateComplete;
 }
 
 describe('createPlatformTargetsView', () => {
@@ -789,5 +842,221 @@ describe('loading the records for a report', () => {
     // The cell holds the record. The weights that take it are behind it, so a
     // reader who has not opened one cannot mistake an attempt for the record.
     expect(shown).not.toContain('147.5 kg');
+  });
+});
+
+/**
+ * How old the figures are, and what happens when the network is not there.
+ *
+ * The state this tool is most often read in is the one hardest to arrange: a
+ * phone at a rack with one bar, showing a copy the service worker saved on
+ * Friday for a record that moved on Saturday. Nothing on the screen can tell
+ * those apart, which is why the footer exists -- and why every assertion here is
+ * on the sentence a lifter reads rather than on the state behind it.
+ *
+ * The three states divide on two questions and not one: whether the device has a
+ * network, and whether anything was ever saved. Offline with a copy is a caution;
+ * offline with none is the whole answer the screen has.
+ */
+describe('saying how current the figures are', () => {
+  it('says when the figures on screen were last verified', async () => {
+    const element = mount(sourceThat());
+    await answerAndShow(element);
+
+    await vi.waitFor(() => {
+      expect(footerLine(element)).toContain('Last verified July 28, 2026.');
+    });
+    // The *oldest* retrieval across the index's sources. The records in this
+    // fixture were retrieved two days later, and printing that date would let
+    // the fastest source vouch for the slowest -- the exact misreading the
+    // per-source shape exists to prevent.
+    expect(footerLine(element)).not.toContain('July 30');
+    // Said on screen and not out loud. It is true on every visit and changes
+    // nothing a reader would do, and a region that speaks on every load is one
+    // they have learned to ignore before the visit where it matters.
+    expect(announced(element)).toBe('');
+  });
+
+  it('labels the report as a saved copy when the device goes offline', async () => {
+    const element = mount(sourceThat());
+    await answerAndShow(element);
+    await vi.waitFor(() => {
+      expect(footerLine(element)).toContain('Last verified');
+    });
+
+    await connectionBecomes(element, 'offline');
+
+    expect(element.connection).toBe('offline');
+    const line = 'Offline · Showing data last verified July 28, 2026.';
+    expect(footerLine(element)).toContain(line);
+    // And announced, because this is one of the two things a lifter cannot see
+    // happening. The sentence is the same one on screen, from the same function,
+    // so the two cannot come to disagree.
+    expect(announced(element)).toBe(line);
+  });
+
+  it('says nothing has been saved yet when the index has never been read', async () => {
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const element = mount(
+      sourceThat({ meta: () => Promise.reject(new DataSourceError('data-meta', 'network')) }),
+    );
+    await vi.waitFor(() => {
+      expect(element.dataMetaStatus).toBe('failed');
+    });
+
+    await connectionBecomes(element, 'offline');
+
+    // The catalogue and the index are separate reads, so the federation's name
+    // arrives on its own schedule -- and the sentence has to be right before it
+    // does, which is why `categoryPhrase` has a form without one.
+    await vi.waitFor(() => {
+      expect(footerLine(element)).toContain('Example Federation');
+    });
+    expect(footerLine(element)).toContain(
+      'Targets have not been saved on this device yet. Reconnect once to load this Example Federation category.',
+    );
+    // The reason code and nothing else. A `DataSourceError` has nowhere to put a
+    // URL, but its cause is whatever the transport threw and a console expands a
+    // cause chain -- which is where a request URL would otherwise surface.
+    expect(reported).toHaveBeenCalledWith(
+      'Platform Targets could not load the published index: network.',
+    );
+  });
+
+  it('reads the index again when the footer is pressed, and only once at a time', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const pending: (() => void)[] = [];
+    let attempts = 0;
+    const element = mount(
+      sourceThat({
+        meta: () => {
+          attempts += 1;
+          if (attempts === 1) {
+            return Promise.reject(new DataSourceError('data-meta', 'network'));
+          }
+          return new Promise<DataMeta>((resolve) => {
+            pending.push(() => {
+              resolve(DATA_META);
+            });
+          });
+        },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(element.dataMetaStatus).toBe('failed');
+    });
+    await connectionBecomes(element, 'offline');
+    await vi.waitFor(() => {
+      expect(footerLine(element)).toContain('Try again');
+    });
+
+    await retryFromFooter(element);
+    expect(attempts).toBe(2);
+
+    // A second press while that read is still in flight must issue nothing --
+    // and the guard cannot be the status, because the status deliberately stays
+    // `failed` for the length of the retry. The failed sentence is the only
+    // thing on the screen in this state, and clearing it for a read that will
+    // usually fail again in milliseconds is a line that flashes rather than a
+    // state that changed. So the button is still there to press, and the
+    // in-flight guard has to be its own.
+    await retryFromFooter(element);
+    expect(attempts).toBe(2);
+
+    const finish = pending[0];
+    if (finish === undefined) {
+      throw new Error('Expected the second read to be in flight.');
+    }
+    finish();
+    await vi.waitFor(() => {
+      expect(element.dataMetaStatus).toBe('ready');
+    });
+  });
+
+  it('re-reads only the partition that failed when the network comes back', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let stateFails = true;
+    const source = sourceThat({
+      records: (query) => {
+        if (query.levelId !== 'state') {
+          return Promise.resolve(BOOK);
+        }
+        return stateFails
+          ? Promise.reject(new DataSourceError('records-example-state', 'network'))
+          : Promise.resolve(STATE_BOOK);
+      },
+    });
+    const element = mount(source);
+    await answerRequired(element);
+    await pick(element, 'region', 'north-example');
+    await showTargets(element);
+    await vi.waitFor(() => {
+      expect(readFor(element, 'North Example State').status).toBe('failed');
+    });
+
+    stateFails = false;
+    await connectionBecomes(element, 'offline');
+    await connectionBecomes(element, 'online');
+
+    await vi.waitFor(() => {
+      expect(readFor(element, 'North Example State').status).toBe('ready');
+    });
+    expect(readFor(element, 'North Example State').records).toBe(STATE_BOOK.records.length);
+    // And the level that already answered was left alone. The published index is
+    // held for the lifetime of the source so that one screen shows one build, so
+    // re-reading a healthy partition can only return the same content-addressed
+    // artifact -- at the cost of replacing figures a lifter is reading with
+    // "Updating…" on the connection that made them want the button.
+    expect(source.recordPartitions.filter((asked) => asked.includes(' national '))).toHaveLength(1);
+  });
+
+  it('leaves a partition failed, and holding nothing, when the retry fails too', async () => {
+    // The guard against reintroducing a "this book may have been superseded"
+    // state. There is no such outcome and there is nowhere for one to come from:
+    // a read is only ever issued for a partition holding no book, so a second
+    // failure has nothing to keep. Whether what is on screen is the newest
+    // publication is a question about the whole of `meta.json`, and the footer
+    // above is where it is asked.
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const source = sourceThat({
+      records: (query) =>
+        query.levelId === 'state'
+          ? Promise.reject(new DataSourceError('records-example-state', 'network'))
+          : Promise.resolve(BOOK),
+    });
+    const element = mount(source);
+    await answerRequired(element);
+    await pick(element, 'region', 'north-example');
+    await showTargets(element);
+    await vi.waitFor(() => {
+      expect(readFor(element, 'North Example State').status).toBe('failed');
+    });
+    const asked = source.recordPartitions.length;
+
+    await connectionBecomes(element, 'offline');
+    await connectionBecomes(element, 'online');
+
+    await vi.waitFor(() => {
+      expect(source.recordPartitions.length).toBe(asked + 1);
+    });
+    await vi.waitFor(() => {
+      expect(readFor(element, 'North Example State').status).toBe('failed');
+    });
+    expect(readFor(element, 'North Example State').records).toBeNull();
+    // The one that worked is still drawn, which is the whole reason the reads
+    // are separate.
+    expect(readFor(element, 'National').records).toBe(BOOK.records.length);
+  });
+
+  it('seeds the connection from the browser rather than assuming online', async () => {
+    // A tool opened from the home screen in a basement has never had a network,
+    // so there is no `offline` event to hear -- the seed is the only thing that
+    // makes that visit say anything true. Restored by `vi.restoreAllMocks`.
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+
+    const element = mount(sourceThat());
+
+    expect(element.connection).toBe('offline');
+    await element.updateComplete;
   });
 });

@@ -1,3 +1,4 @@
+import type { DataMeta } from '@platform-toolkit/data-contracts';
 import { createPreferenceStore, memoryPreferenceStorage } from '@platform-toolkit/preferences';
 import { PtkChoiceGroup, PtkSelect } from '@platform-toolkit/ui';
 // The tap-target and 320 px measurements at the bottom read spacing tokens, and
@@ -7,6 +8,7 @@ import '@platform-toolkit/ui/tokens.css';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { deepText } from '../testing/deep-text.js';
+import type { Connection, DataMetaStatus } from './freshness.js';
 import type { PtkPlatformTargets } from './ptk-platform-targets.js';
 import './ptk-platform-targets.js';
 import {
@@ -15,9 +17,10 @@ import {
   type SelectionChangeDetail,
 } from './ptk-target-categories.js';
 import type { PtkTargetContext } from './ptk-target-context.js';
+import type { PtkTargetFreshness } from './ptk-target-freshness.js';
 import type { PtkTargetGoals } from './ptk-target-goals.js';
 import type { PtkTargetReport } from './ptk-target-report.js';
-import { ANSWERED, CATALOG, CLASSIFICATIONS } from './records-fixture.js';
+import { ANSWERED, CATALOG, CLASSIFICATIONS, DATA_META } from './records-fixture.js';
 import type { CategorySelection, SelectionField } from './selection.js';
 import { saveContext, saveView } from './session.js';
 
@@ -189,6 +192,23 @@ async function press(element: PtkPlatformTargets, name: 'apply' | 'cancel'): Pro
   await element.updateComplete;
 }
 
+/** The summary, which is both the way into the editor and the way back out. */
+function summaryButton(element: PtkPlatformTargets): HTMLButtonElement {
+  const found = summary(element).shadowRoot?.querySelector('button');
+  // Thrown rather than chained past: this is the control every editor test
+  // presses, and a missing one would otherwise leave each of them asserting
+  // that a screen nobody opened is still the screen it was.
+  if (!(found instanceof HTMLButtonElement)) {
+    throw new Error('The context summary rendered no button.');
+  }
+  return found;
+}
+
+async function openEditor(element: PtkPlatformTargets): Promise<void> {
+  summaryButton(element).click();
+  await element.updateComplete;
+}
+
 /** The four required answers, entered the way a first visit enters them. */
 async function answerEverythingRequired(element: PtkPlatformTargets): Promise<void> {
   await choose(element, 'sex', 'female');
@@ -336,6 +356,70 @@ async function typeSquat(element: PtkPlatformTargets, text: string): Promise<voi
   await element.updateComplete;
 }
 
+/** The provenance footer, which is outside the phase switch and so always mounted. */
+function footer(element: PtkPlatformTargets): PtkTargetFreshness {
+  const found = root(element).querySelector('ptk-target-freshness');
+  if (found === null) throw new Error('The freshness footer is not mounted.');
+  return found;
+}
+
+/** What the footer says, or `''` when it has decided there is nothing true to say. */
+function footerLine(element: PtkPlatformTargets): string {
+  return footer(element).shadowRoot?.querySelector('.line')?.textContent.trim() ?? '';
+}
+
+function announcer(element: PtkPlatformTargets): Element {
+  const found = root(element).querySelector('.announcer');
+  if (found === null) throw new Error('The tool has no live region.');
+  return found;
+}
+
+function announced(element: PtkPlatformTargets): string {
+  return announcer(element).textContent.trim();
+}
+
+/**
+ * The tool's own children in document order.
+ *
+ * Only the two ends are ever asserted on. The review fixes both -- the live
+ * region first so it exists before anything it will announce, the provenance
+ * footnote last because it answers a question a reader asks after reading a
+ * number -- and everything between them is the phase switch, which the tests
+ * above already own.
+ */
+function order(element: PtkPlatformTargets): string[] {
+  return [...root(element).children].map((child) =>
+    child.classList.contains('announcer') ? 'announcer' : child.localName,
+  );
+}
+
+interface TransportState {
+  readonly connection?: Connection;
+  readonly meta?: DataMeta | null;
+  readonly metaStatus?: DataMetaStatus;
+}
+
+/**
+ * Sets what the transport knows, which {@link mount} deliberately leaves alone.
+ *
+ * `mount` seeds a catalogue and a book because every test above needs them; it
+ * seeds none of these, so those tests all run with no index, a loading status and
+ * an assumed connection -- the state in which the footer says nothing at all.
+ * That is why adding a footer to every screen broke none of them.
+ */
+async function transport(element: PtkPlatformTargets, state: TransportState): Promise<void> {
+  if (state.connection !== undefined) {
+    element.connection = state.connection;
+  }
+  if (state.meta !== undefined) {
+    element.dataMeta = state.meta;
+  }
+  if (state.metaStatus !== undefined) {
+    element.dataMetaStatus = state.metaStatus;
+  }
+  await element.updateComplete;
+}
+
 describe('ptk-platform-targets', () => {
   /**
    * A first visit is the setup screen and nothing else.
@@ -354,7 +438,10 @@ describe('ptk-platform-targets', () => {
     const element = await mount({ settings: emptyStore() });
     const lead = root(element).querySelector('.lead')?.textContent.trim() ?? '';
     expect(lead).toBe(
-      'Choose sex category, equipment, tested status, and a weight class to show USPA targets.',
+      // The federation's own name, from the catalogue. Never a literal in code
+      // (§5.1) -- and this assertion is what proves that, since the fixture's
+      // label is deliberately not the federation the site actually publishes.
+      'Choose sex category, equipment, tested status, and a weight class to show Example Federation targets.',
     );
   });
 
@@ -419,11 +506,29 @@ describe('ptk-platform-targets', () => {
    */
   it('takes the report off the screen while the context is being edited', async () => {
     const element = await mount({ settings: returningStore() });
-    summary(element).shadowRoot?.querySelector('button')?.click();
-    await element.updateComplete;
+    await openEditor(element);
 
     expect(heading(element)).toBe('Edit context');
     expect(showing(element)).toEqual({ questions: true, context: false, report: false });
+  });
+
+  /**
+   * The same hazard as the apply press, on the transition nobody thinks about:
+   * opening the editor removes the summary that was pressed to open it, so focus
+   * falls to the document body and a keyboard user's next Tab starts at the top
+   * of the page -- with nothing announced to say the screen changed under them.
+   */
+  it('moves focus to the editor heading when the context is opened', async () => {
+    const element = await mount({ settings: returningStore() });
+    await openEditor(element);
+
+    const target = root(element).querySelector('section h2');
+    // Asserted to exist before it is compared against. Both sides of the
+    // comparison below are nullable, so a renamed heading would make the whole
+    // claim `null === null` -- a test that passes by measuring neither the
+    // heading nor where focus went.
+    expect(target).not.toBeNull();
+    expect(root(element).activeElement).toBe(target);
   });
 
   it('offers a way out of the editor that the first run does not', async () => {
@@ -432,8 +537,7 @@ describe('ptk-platform-targets', () => {
     expect(() => action(first, 'cancel')).toThrow();
 
     const returning = await mount({ settings: returningStore() });
-    summary(returning).shadowRoot?.querySelector('button')?.click();
-    await returning.updateComplete;
+    await openEditor(returning);
     expect(action(returning, 'cancel').isConnected).toBe(true);
   });
 
@@ -445,23 +549,39 @@ describe('ptk-platform-targets', () => {
    */
   it('discards an abandoned edit, and does not reopen on it', async () => {
     const element = await mount({ settings: returningStore() });
-    summary(element).shadowRoot?.querySelector('button')?.click();
-    await element.updateComplete;
+    await openEditor(element);
 
     await pick(element, 'weightClass', 'f-52');
     await press(element, 'cancel');
     expect(showing(element).report).toBe(true);
     expect(report(element).selection.weightClass).toBe('f-56');
 
-    summary(element).shadowRoot?.querySelector('button')?.click();
-    await element.updateComplete;
+    await openEditor(element);
     expect(picker(element, 'weightClass').value).toBe('f-56');
+  });
+
+  /**
+   * And an abandoned edit returns focus to the control it was started from,
+   * which is the one transition of the three that does *not* go to the report.
+   * Nothing changed, so the report heading would announce a fresh result for an
+   * edit the lifter backed out of; the invoker is the only landing place that
+   * says "you are where you were".
+   */
+  it('returns focus to the summary when the edit is abandoned', async () => {
+    const element = await mount({ settings: returningStore() });
+    await openEditor(element);
+    await press(element, 'cancel');
+
+    // Two assertions because focus inside a shadow tree is reported at every
+    // level: the root points at the host, and only the host's own root says
+    // which of its controls has it.
+    expect(root(element).activeElement).toBe(summary(element));
+    expect(summary(element).shadowRoot?.activeElement).toBe(summaryButton(element));
   });
 
   it('redraws the report for an applied edit', async () => {
     const element = await mount({ settings: returningStore() });
-    summary(element).shadowRoot?.querySelector('button')?.click();
-    await element.updateComplete;
+    await openEditor(element);
 
     await pick(element, 'division', 'masters-1');
     await press(element, 'apply');
@@ -703,6 +823,144 @@ describe('ptk-platform-targets', () => {
 
     await typeSquat(element, '120');
     expect(deepText(tray(element))).toContain('Current best 120 kg');
+  });
+
+  /*
+   * How current the figures are, and how that is said.
+   *
+   * Two surfaces, both deliberately outside the phase switch, and everything
+   * below is a claim that only exists at this level. `freshness.ts` decides the
+   * words and is tested alone; `ptk-target-freshness` draws them and is tested
+   * alone; `view.browser.test.ts` owns the wire from the network to these
+   * properties. What is left over -- and it is the part a reader actually
+   * experiences -- is *where on the page* each of them is, and on which screens.
+   */
+
+  /**
+   * The state the footer exists for is only reachable on the setup screen.
+   *
+   * A lifter who installed the tool from a hotel lobby and then walked into a
+   * basement gym never gets past the questions: nothing is cached, so no report
+   * can be drawn, so a footer rendered only with the report would be silent in
+   * precisely the one situation where this line is the entire answer. Asserted
+   * here rather than in the footer's own tests because the footer cannot know
+   * which screen it is under.
+   */
+  it('explains an empty cache on the setup screen, where that state lives', async () => {
+    const element = await mount({ settings: emptyStore() });
+    await transport(element, { connection: 'offline', metaStatus: 'failed' });
+
+    expect(showing(element)).toEqual({ questions: true, context: false, report: false });
+    expect(footerLine(element)).toBe(
+      // The federation's own name again, from the catalogue and never a literal
+      // (§5.1) -- and the sentence has to survive the catalogue being unread,
+      // which is the case `categoryPhrase` exists for.
+      'Targets have not been saved on this device yet. Reconnect once to load this Example Federation category.',
+    );
+  });
+
+  /**
+   * On the setup screen there are no figures, so there is no date to put on them.
+   *
+   * This is the assertion behind `showingData`, and it is worth making with the
+   * index read *successfully* and the device offline -- the one combination where
+   * a careless implementation has everything it needs to print a reassuring
+   * "showing your saved copy" over a screen that is showing nothing.
+   */
+  it('does not date a screen that has no figures on it yet', async () => {
+    const element = await mount({ settings: emptyStore() });
+    await transport(element, { connection: 'offline', meta: DATA_META, metaStatus: 'ready' });
+    expect(footerLine(element)).toBe('');
+
+    await answerEverythingRequired(element);
+    await press(element, 'apply');
+    expect(footerLine(element)).toBe('Offline · Showing data last verified July 28, 2026.');
+  });
+
+  /**
+   * The editor is the same case seen from the other side: a returning lifter who
+   * opens it has read a dated report a second ago, and the report is gone while
+   * they edit. The line goes with it rather than hanging under a form, because a
+   * date under a form is a date on the answers being typed.
+   */
+  it('goes quiet while the context is being edited, without leaving the page', async () => {
+    const element = await mount({ settings: returningStore() });
+    await transport(element, { meta: DATA_META, metaStatus: 'ready' });
+    expect(footerLine(element)).toBe('Last verified July 28, 2026.');
+
+    const before = footer(element);
+    await openEditor(element);
+
+    expect(heading(element)).toBe('Edit context');
+    expect(footerLine(element)).toBe('');
+    expect(footer(element)).toBe(before);
+  });
+
+  /** First and last on every screen, which is the order the review fixes. */
+  it('puts the live region first and the provenance line last, on both screens', async () => {
+    const element = await mount({ settings: emptyStore() });
+    expect(order(element).at(0)).toBe('announcer');
+    expect(order(element).at(-1)).toBe('ptk-target-freshness');
+
+    await answerEverythingRequired(element);
+    await press(element, 'apply');
+    expect(order(element).at(0)).toBe('announcer');
+    // Below the goal tray *and* below the optional lift entry: a provenance
+    // footnote with a data-entry fold under it is a page that visibly continues
+    // past its own end the moment somebody opens the fold.
+    expect(order(element).at(-1)).toBe('ptk-target-freshness');
+  });
+
+  /**
+   * One region for the life of the page, not one per phase.
+   *
+   * A live region is announced by comparing what it holds now against what it
+   * held before. A region created in the same render as its first text has
+   * nothing to be compared against and is unreliably announced -- and every phase
+   * change here replaces the whole screen, so a region rendered inside the switch
+   * would be a brand new region on every announcement it ever made.
+   */
+  it('keeps one live region across a phase change', async () => {
+    const element = await mount({ settings: emptyStore() });
+    const region = announcer(element);
+    expect(region.getAttribute('role')).toBe('status');
+
+    await answerEverythingRequired(element);
+    await press(element, 'apply');
+    expect(announcer(element)).toBe(region);
+    expect(region.isConnected).toBe(true);
+  });
+
+  /**
+   * The ordinary case says nothing.
+   *
+   * "Last verified …" is true on every visit and changes nothing about what a
+   * reader should do. A region that speaks on every load is a region a reader
+   * learns to ignore before the one time it matters -- so the footnote is
+   * written and the announcement withheld.
+   */
+  it('writes the ordinary date without announcing it', async () => {
+    const element = await mount({ settings: returningStore() });
+    await transport(element, { meta: DATA_META, metaStatus: 'ready' });
+
+    expect(footerLine(element)).toBe('Last verified July 28, 2026.');
+    expect(announced(element)).toBe('');
+  });
+
+  /**
+   * When it does speak, it speaks the words on the screen.
+   *
+   * Both come from one `readFreshness` call in this element, which is the only
+   * reason they cannot drift; a second call, or a remembered string, would let a
+   * reader hear one sentence and find another. Asserting the equality rather than
+   * the literal on both sides is what would catch that.
+   */
+  it('announces exactly what the footer says, when there is something to say', async () => {
+    const element = await mount({ settings: returningStore() });
+    await transport(element, { connection: 'offline', meta: DATA_META, metaStatus: 'ready' });
+
+    expect(footerLine(element)).toBe('Offline · Showing data last verified July 28, 2026.');
+    expect(announced(element)).toBe(footerLine(element));
   });
 
   it('holds together in a 320 pixel column, on both screens', async () => {

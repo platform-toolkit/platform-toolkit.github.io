@@ -19,15 +19,24 @@
  *
  * WHAT IT CHECKS, AND WHAT IT DELIBERATELY DOES NOT
  *
- * Three blunt properties, each one a failure a screenshot does not show:
+ * Four blunt properties, each one a failure a screenshot does not show:
  *
  *   - nothing scrolls sideways
+ *   - nothing is clipped out of existence by an ancestor that hides its overflow
  *   - everything interactive is at least the tap-target minimum in both axes
  *   - no text-entry control is under 16px, which is the size below which iOS
  *     Safari zooms the page on focus and the layout jumps under a thumb
  *
  * Anything about how a screen *reads* belongs in a story, where a person looks
  * at it. This is only for the things a person will not notice until it is live.
+ *
+ * AND AT WHAT TEXT SIZE
+ *
+ * All four again with the text at 200%, which is WCAG 1.4.4 and is not the same
+ * question as a narrow viewport. A layout can survive 320px by wrapping and then
+ * fail at 200% because one box was given a height in pixels and the words inside
+ * it were not -- and the reader who set 200% is the reader least able to notice
+ * that the sentence now stops mid-word.
  *
  * USAGE
  *
@@ -45,14 +54,41 @@ import { serveDirectory } from './lib/static-server.mjs';
 const OUTPUT_DIRECTORY = fileURLToPath(new URL('../apps/web/dist', import.meta.url));
 
 /**
- * The widths worth checking.
+ * The passes worth running, each one a viewport width and a text size.
  *
  * 320 is the narrowest phone still in service and also narrower than most
  * third-party embed columns, so it covers both. 390 is a current handset, and
  * catches the case where a rule keyed to the smallest size stops applying just
  * above it.
+ *
+ * The third pass is 320px again with the text at 200%, and it is deliberately
+ * the narrow width rather than the roomy one. A reader who has doubled their
+ * text has not bought a wider phone, so 320px at 200% is the combination they
+ * actually hold -- and running 390px at 200% instead would be measuring a
+ * screen with 70px of slack that the reader who needs this does not have.
+ *
+ * 430 is the top of the range the review asks for (320-430) and the widest
+ * current handset. It was left out of an earlier version of this list on the
+ * argument that nothing here is keyed to a viewport media query (§5.7:
+ * container queries only) so another width would measure the same layout again.
+ * That argument is wrong, and the way it is wrong is worth keeping: the house
+ * layout primitive is `repeat(auto-fit, minmax(min(100%, VAR), 1fr))`, and
+ * auto-fit resolves the column *count* from the element's own width. A grid
+ * that is one column at 390 is two at 430, which is a different arrangement
+ * with its own ways to clip -- and it is the arrangement most phones in a gym
+ * are actually showing.
+ *
+ * 320 is also, exactly, WCAG 1.4.10 reflow: 1280px at 400% zoom is 320 CSS px.
+ * Do not add a separate 400%-zoom pass to cover that. Chromium's page zoom
+ * scales the viewport as well, so it would measure a 160px layout that no
+ * reader has, and 1.4.10 is already answered by the pass above.
  */
-const WIDTHS = [320, 390];
+const PASSES = [
+  { width: 320, textScale: 1 },
+  { width: 390, textScale: 1 },
+  { width: 430, textScale: 1 },
+  { width: 320, textScale: 2 },
+];
 
 /**
  * The three tile questions, which are the only ones that gate the report.
@@ -531,15 +567,71 @@ const MEASURE = `(() => {
   }
 
   const controls = [];
+  const everything = [];
   const walk = (node) => {
     for (const element of node.querySelectorAll('*')) {
       if (element.shadowRoot) walk(element.shadowRoot);
+      everything.push(element);
       if (element.matches('a, button, input, select, textarea, [role="button"], label:has(input)')) {
         controls.push(element);
       }
     }
   };
   walk(document);
+
+  // Content clipped out of existence.
+  //
+  // The page not scrolling sideways says the *document* fits. It says nothing
+  // about a box inside it that hides its own overflow, and that box is where
+  // doubling the text size actually breaks a layout: a container given a height
+  // in pixels holds words that are not, so at 200% the last line is simply gone
+  // -- silently, with no scrollbar and no reflow, and invisibly to the reader who
+  // set 200% precisely because they cannot see small text.
+  //
+  // Only \`hidden\` and \`clip\`. \`auto\` and \`scroll\` overflow too, and that is
+  // fine: the content is still reachable, which is the whole of what 1.4.4 asks.
+  //
+  // Boxes a pixel high are skipped, because that is the visually-hidden idiom --
+  // position absolute, 1x1, clip-path, overflow hidden -- and a live region or a
+  // clipped legend is *supposed* to hold text longer than its box. Skipping them
+  // by their size rather than by a class name is what keeps this working when a
+  // component spells the idiom its own way.
+  //
+  // One pixel of tolerance on each axis, for a child rounded out past a rounded
+  // corner. A clipped sentence is never one pixel.
+  //
+  // Text-entry fields are exempt, and this is not a convenience. A field whose
+  // value is longer than its box scrolls that value under the caret -- it is how
+  // every text field on every platform has always worked, and the content is
+  // fully reachable, which is the whole of what 1.4.4 asks. Without the exemption
+  // the 200% pass reported a typed weight in a 123px-wide number field as lost
+  // content, which is a report nobody could act on except by widening a field
+  // that is already the width of the column.
+  const hides = (axis) => axis === 'hidden' || axis === 'clip';
+  const scrollsItsOwnText = (element) =>
+    element.tagName === 'INPUT' || element.tagName === 'TEXTAREA';
+  for (const element of everything) {
+    if (scrollsItsOwnText(element)) continue;
+    if (element.clientWidth <= 1 || element.clientHeight <= 1) continue;
+    const overflowed =
+      element.scrollWidth - element.clientWidth > 1 ||
+      element.scrollHeight - element.clientHeight > 1;
+    if (!overflowed) continue;
+
+    const style = getComputedStyle(element);
+    if (!hides(style.overflowX) && !hides(style.overflowY)) continue;
+
+    // \`getAttribute\` rather than \`className\`, which on an SVG element is an
+    // object and stringifies to nothing anybody can grep for.
+    const classes = element.getAttribute('class');
+    const flat = (element.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 40);
+    problems.push(
+      'clipped content in ' + element.tagName.toLowerCase() +
+        (classes ? '.' + classes : '') +
+        ': ' + element.scrollWidth + 'x' + element.scrollHeight +
+        ' inside ' + element.clientWidth + 'x' + element.clientHeight + ' "' + flat + '"',
+    );
+  }
 
   for (const element of controls) {
     const box = element.getBoundingClientRect();
@@ -704,6 +796,42 @@ async function enter(page, fields, where, failures) {
 }
 
 /**
+ * What stands in for a reader's own text-size setting.
+ *
+ * A percentage on the root, so it resolves against the browser's default rather
+ * than against a figure written here -- which is what a reader's setting does.
+ * Every size on this site is in `rem` (§5.7 and `tokens.css`), and `rem` is
+ * resolved against the document root from inside a shadow root exactly as it is
+ * outside one, so one declaration reaches every component. `important` because
+ * the site's own reset sets a root size, and a reader's setting is not something
+ * a stylesheet gets to overrule.
+ *
+ * WHY THE CSSOM AND NOT A STYLESHEET
+ *
+ * `addStyleTag` is the obvious spelling and the production CSP refuses it:
+ * `style-src 'self'` blocks an injected inline stylesheet, and the check died on
+ * the first zoom pass with a console violation rather than a layout report. That
+ * refusal is the deployed policy working, so the check bends rather than the
+ * site -- a `unsafe-inline` allowance added to make a test convenient is the kind
+ * of hole nobody remembers closing. Writing the declaration through the CSSOM is
+ * not blocked by CSP, which draws its line at markup and at parsed stylesheets.
+ *
+ * Deliberately *not* page zoom either. Chromium's zoom scales the viewport too,
+ * so a 320px window at 200% becomes a 160px layout -- a much harsher test that
+ * fails for a different reason and would report reflow bugs as text bugs. What
+ * 1.4.4 asks is what this does: the words get bigger, the column does not.
+ *
+ * Written as a string for the reason `MEASURE` is: this file is Node code, and
+ * `document` is not a binding in it.
+ *
+ * @param {number} scale
+ * @returns {string}
+ */
+function textSizeExpression(scale) {
+  return `document.documentElement.style.setProperty('font-size', '${String(scale * 100)}%', 'important')`;
+}
+
+/**
  * How a failure names the screen it came from.
  *
  * The path is not enough on its own any more: two entries share
@@ -713,12 +841,17 @@ async function enter(page, fields, where, failures) {
  * path keeps every other route's message exactly as it was, which matters
  * because those strings are what a person greps for.
  *
+ * The text size joins it for the same reason, and only when it is not the
+ * default: every existing message keeps its exact spelling, and the new pass is
+ * distinguishable from the one it shares a width with.
+ *
  * @param {{path: string, label?: string}} route
- * @param {number} width
+ * @param {{width: number, textScale: number}} pass
  * @returns {string}
  */
-function whereOf(route, width) {
-  return `${String(width)}px ${route.label ?? route.path}`;
+function whereOf(route, pass) {
+  const text = pass.textScale === 1 ? '' : ` at ${String(pass.textScale * 100)}% text`;
+  return `${String(pass.width)}px${text} ${route.label ?? route.path}`;
 }
 
 /**
@@ -729,8 +862,8 @@ function whereOf(route, width) {
  * these controls come from published data, so a silent skip is how the check
  * quietly stops checking the state it exists for while still reporting a pass.
  */
-async function reveal(page, route, width, failures) {
-  const where = whereOf(route, width);
+async function reveal(page, route, pass, failures) {
+  const where = whereOf(route, pass);
 
   // Taps come first and are separate from the checks below because they are a
   // different kind of act: opening a fold or pressing a button, rather than
@@ -833,7 +966,7 @@ async function main() {
   let measured = 0;
 
   try {
-    for (const width of WIDTHS) {
+    for (const pass of PASSES) {
       for (const route of ROUTES) {
         // A context per route, not per width, because these tools remember
         // things. Every route on this site is one origin, so one context shared
@@ -853,7 +986,7 @@ async function main() {
         // what is being stood in for, and `isMobile` is what makes the viewport
         // behave like one rather than like a very small desktop.
         const context = await browser.newContext({
-          viewport: { width, height: 720 },
+          viewport: { width: pass.width, height: 720 },
           deviceScaleFactor: 3,
           isMobile: true,
           hasTouch: true,
@@ -861,10 +994,18 @@ async function main() {
         const page = await context.newPage();
         await page.goto(origin + route.path, { waitUntil: 'networkidle' });
 
-        const reached = await reveal(page, route, width, failures);
+        // Before anything is pressed, so every fold this route opens is laid out
+        // at the size it will be measured at. Applied after `goto` rather than
+        // as an init script because a stylesheet has nowhere to go until there
+        // is a document to put it in, and nothing here measures the first paint.
+        if (pass.textScale !== 1) {
+          await page.evaluate(textSizeExpression(pass.textScale));
+        }
+
+        const reached = await reveal(page, route, pass, failures);
         if (reached) {
           for (const problem of await page.evaluate(MEASURE)) {
-            failures.push(`${whereOf(route, width)}: ${problem}`);
+            failures.push(`${whereOf(route, pass)}: ${problem}`);
           }
           measured += 1;
         }
@@ -883,7 +1024,10 @@ async function main() {
     return;
   }
   console.log(
-    `Narrow-layout check passed: ${String(measured)} screens at ${WIDTHS.map(String).join('px, ')}px.`,
+    `Narrow-layout check passed: ${String(measured)} screens at ${PASSES.map(
+      (pass) =>
+        `${String(pass.width)}px${pass.textScale === 1 ? '' : `/${String(pass.textScale * 100)}% text`}`,
+    ).join(', ')}.`,
   );
 }
 

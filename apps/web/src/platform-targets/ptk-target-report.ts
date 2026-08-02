@@ -91,6 +91,7 @@ import '@platform-toolkit/ui';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
+import { REFRESH_REQUEST_EVENT, categoryPhrase } from './freshness.js';
 import { describeGoal, goalKey, type GoalTarget } from './goals.js';
 import {
   buildReport,
@@ -124,7 +125,17 @@ import {
 /** Where the read of this category's classification standards has got to. */
 export type StandardsStatus = 'idle' | 'loading' | 'ready' | 'failed';
 
-/** Where one partition's record read has got to. */
+/**
+ * Where one partition's record read has got to.
+ *
+ * There is deliberately no per-partition "this book may have been superseded"
+ * state. It was written and removed: nothing could reach it, because a read is
+ * only ever issued for a partition holding no book (`view.ts` says why), so the
+ * notice was a screen no lifter could arrive at and a story that documented
+ * fiction. Whether what is on screen is the newest publication is a question
+ * about the whole of `meta.json` rather than about one level of records, and
+ * `ptk-target-freshness` is where it is asked and answered.
+ */
 export type RecordsStatus = 'idle' | 'loading' | 'ready' | 'failed';
 
 /**
@@ -563,10 +574,57 @@ export class PtkTargetReport extends LitElement {
     }
 
     .empty,
-    .notices {
+    .notices,
+    .updating {
       margin: 0 0 var(--ptk-space-sm);
       font-size: var(--ptk-font-size-sm);
       color: var(--ptk-color-text-muted);
+    }
+
+    /*
+     * The shape of the table that is coming, so a reader can tell "on its way"
+     * from "nothing here" without reading either sentence. Bars rather than a
+     * spinner: a spinner says only that something is happening, where the wrong
+     * conclusion available here is about what the answer will be.
+     *
+     * No animation at all. A shimmer at the foot of a report is motion a lifter
+     * cannot dismiss, and it would need its own reduced-motion branch to be
+     * honest about; a static block says the same thing and needs no exception.
+     */
+    .skeleton {
+      display: flex;
+      flex-direction: column;
+      gap: var(--ptk-space-sm);
+      margin-block-end: var(--ptk-space-lg);
+    }
+
+    .skeleton-row {
+      display: block;
+      height: var(--ptk-tap-target-comfortable);
+      border-radius: var(--ptk-radius-sm);
+      background: var(--ptk-color-surface-raised);
+      /*
+       * A border as well as a fill, because a raised surface against a plain one
+       * is a contrast a forced-colours mode discards entirely -- leaving three
+       * invisible boxes where the placeholder was.
+       */
+      border: 1px solid var(--ptk-color-border);
+    }
+
+    /*
+     * The notice and its action, kept together as one block so a second failure
+     * below cannot come between a sentence and the button that answers it.
+     */
+    .failure {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: var(--ptk-space-sm);
+      margin-block-end: var(--ptk-space-md);
+    }
+
+    .failure ptk-notice {
+      margin-block-end: 0;
     }
 
     /*
@@ -824,13 +882,15 @@ export class PtkTargetReport extends LitElement {
     const notices: TemplateResult[] = [];
 
     if (this.classificationsStatus === 'loading') {
-      notices.push(html`<ptk-notice>Loading the classification standards…</ptk-notice>`);
+      notices.push(html`<ptk-notice>Updating the classification standards…</ptk-notice>`);
     }
     if (this.classificationsStatus === 'failed') {
       notices.push(
-        html`<ptk-notice tone="error">
-          The published classification standards could not be loaded. Reload the page to try again.
-        </ptk-notice>`,
+        this.#renderFailure(
+          html`<ptk-notice tone="error">
+            The published classification standards could not be loaded.
+          </ptk-notice>`,
+        ),
       );
     }
 
@@ -838,22 +898,51 @@ export class PtkTargetReport extends LitElement {
     const loading = reads.filter((read) => read.status === 'loading' || read.status === 'idle');
     const failed = reads.filter((read) => read.status === 'failed');
     if (loading.length > 0) {
-      notices.push(html`<ptk-notice>Loading ${listed(loading.map(labelOf))} records…</ptk-notice>`);
+      notices.push(
+        html`<ptk-notice>Updating ${listed(loading.map(labelOf))} records…</ptk-notice>`,
+      );
     }
     if (failed.length > 0) {
       notices.push(
-        html`<ptk-notice tone="error">
-          The ${listed(failed.map(labelOf))} records could not be loaded. Reload the page to try
-          again.
-        </ptk-notice>`,
+        this.#renderFailure(
+          html`<ptk-notice tone="error">
+            The ${listed(failed.map(labelOf))} records could not be loaded.
+          </ptk-notice>`,
+        ),
       );
     }
+    // There is deliberately no "we could not refresh these" notice beside those
+    // two. Whether the figures on screen are the newest published ones is a
+    // question about the whole of `meta.json` rather than about one partition --
+    // a partition read is only ever issued for a partition holding no book, so a
+    // failure here always leaves the cells empty and is already the sentence
+    // above. The publication-level version of that sentence is the footer's.
 
     for (const notice of report.notices) {
       notices.push(html`<ptk-notice>${notice}</ptk-notice>`);
     }
 
     return html`${notices}`;
+  }
+
+  /**
+   * A read that did not answer, with the one thing a lifter can do about it.
+   *
+   * "Reload the page to try again" is what these notices used to say, and it was
+   * the wrong instruction twice over: a reload on gym signal costs the whole
+   * shell and every artifact that *did* arrive, and it throws away the context,
+   * the lift, the target type and the open detail -- so the price of retrying one
+   * failed partition was re-answering the report. The button re-issues the reads
+   * and nothing else. The event is composed and the transport listens on the
+   * tool's host, so nothing between here and there has to forward it.
+   */
+  #renderFailure(notice: TemplateResult): TemplateResult {
+    return html`
+      <div class="failure">
+        ${notice}
+        <ptk-button class="retry" @click=${this.#onRetry}>Try again</ptk-button>
+      </div>
+    `;
   }
 
   /** One lift, one target type: the whole of what is on screen below the bars. */
@@ -872,11 +961,61 @@ export class PtkTargetReport extends LitElement {
         ${notices.map((notice) => html`<p class="notices">${notice}</p>`)}
         ${
           groups.length === 0
-            ? html`<p class="empty">${emptyPanelSentence(records)}</p>`
+            ? this.#renderEmpty(records)
             : groups.map((group) => this.#renderGroup(group, reached, next))
         }
       </section>
     `;
+  }
+
+  /**
+   * Nothing to draw yet, or nothing to draw at all -- and never the same words.
+   *
+   * "No published target was found" is a *finding*, and printing it while the
+   * artifact that would contradict it is still on the wire is the tool asserting
+   * something it has not established. On gym signal that window is seconds long
+   * and it lands on exactly the reader least able to check: they read that their
+   * category is empty, put the phone away, and never see the figures arrive.
+   *
+   * So a read in flight gets the skeleton instead. It is matrix-shaped rather
+   * than a spinner because the shape is the promise -- a reader can see that a
+   * table is coming and roughly how much of one -- and it is `aria-hidden`
+   * because grey bars have nothing to announce; the sentence above them carries
+   * the whole meaning for anyone not looking at the layout.
+   */
+  #renderEmpty(records: boolean): TemplateResult {
+    if (this.#reading(records)) {
+      return html`
+        <p class="updating">Updating targets…</p>
+        <div class="skeleton" aria-hidden="true">
+          ${[0, 1, 2].map(() => html`<span class="skeleton-row"></span>`)}
+        </div>
+      `;
+    }
+    return html`<p class="empty">${emptyPanelSentence(records, this.catalog?.label ?? null)}</p>`;
+  }
+
+  /**
+   * Whether an artifact that could fill this panel is still on the wire.
+   *
+   * `idle` counts, and has to: it is the tick between a lifter pressing "Show
+   * targets" and the transport issuing the read, and treating it as settled makes
+   * the first paint of every visit assert that the category is empty. An empty
+   * read map is the same tick arriving a moment earlier -- a resolved selection
+   * always asks for the world and national partitions (requirement 3), so no
+   * entries at all means the watcher has not run rather than that this federation
+   * keeps no records.
+   */
+  #reading(records: boolean): boolean {
+    if (!records) {
+      return this.classificationsStatus === 'loading' || this.classificationsStatus === 'idle';
+    }
+    return (
+      this.recordReads.size === 0 ||
+      [...this.recordReads.values()].some(
+        (read) => read.status === 'loading' || read.status === 'idle',
+      )
+    );
   }
 
   /** The rule, once: a short note and a fold, above every record matrix. */
@@ -1226,6 +1365,20 @@ export class PtkTargetReport extends LitElement {
     );
   }
 
+  /**
+   * Asks the transport to attempt every read again.
+   *
+   * No detail, and deliberately not "retry this partition". This element knows
+   * which read failed and the transport knows how to issue one, and putting the
+   * partition in the event would make the element's idea of the read set
+   * authoritative over the watcher's -- which is the arrangement §5.8 keeps out
+   * of every other event here. A retry of everything costs one conditional
+   * request per artifact already in hand.
+   */
+  readonly #onRetry = (): void => {
+    this.dispatchEvent(new CustomEvent(REFRESH_REQUEST_EVENT, { bubbles: true, composed: true }));
+  };
+
   /** What the lifter entered for one lift, in kilograms, or `null`. */
   #liftedKilograms(lift: Lift): number | null {
     const entry = readLiftEntries(this.entries)[lift];
@@ -1372,10 +1525,21 @@ function domId(cellId: string): string {
   return `detail-${cellId.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
 }
 
-function emptyPanelSentence(records: boolean): string {
+/**
+ * The finding, once the reads have settled and there is nothing to show.
+ *
+ * One shape for both target types, because the review asks for one sentence and
+ * because the difference a reader needs is already on the bar above -- they chose
+ * Records or Classifications a moment ago. The records case keeps a second
+ * sentence that the classifications case has no equivalent of: an empty record
+ * category is an opening, and saying so is the difference between a dead end and
+ * the most useful thing this panel prints.
+ */
+function emptyPanelSentence(records: boolean, federationLabel: string | null): string {
+  const category = categoryPhrase(federationLabel, { exact: true });
   return records
-    ? 'No records are published for this lift in this category. The first qualifying lift sets one.'
-    : 'No classification standards are published for this lift in this category.';
+    ? `No published record was found for ${category}. The first qualifying lift sets one.`
+    : `No published target was found for ${category}.`;
 }
 
 /**

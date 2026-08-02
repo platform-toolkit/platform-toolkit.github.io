@@ -53,6 +53,19 @@ export class PtkTrainingPercentages extends LitElement {
       padding: var(--ptk-space-sm) var(--ptk-space-md);
       text-align: left;
       border-bottom: 1px solid var(--ptk-color-border);
+      /*
+       * A table sizes itself to the longest unbreakable word in each column and
+       * then ignores the 100% above, so one word decides whether this fits. At
+       * 200% text the word is the uppercase, letter-spaced "Percent" heading:
+       * 349px of table in a 223px column, scrolling sideways with no scrollbar
+       * to say so. Breaking a word is ugly; putting it off the edge of a phone
+       * belonging to a reader who doubled their text is worse.
+       *
+       * Deliberately anywhere and not break-word. Only anywhere is counted in
+       * min-content, and min-content is the number the table is sizing itself
+       * from -- break-word here would leave the overflow exactly as it is.
+       */
+      overflow-wrap: anywhere;
     }
 
     th {

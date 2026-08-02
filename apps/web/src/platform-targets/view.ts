@@ -11,6 +11,7 @@ import {
 } from '@platform-toolkit/preferences';
 
 import { dataSource } from '../data-source.js';
+import { REFRESH_REQUEST_EVENT } from './freshness.js';
 import './ptk-platform-targets.js';
 import type { PtkPlatformTargets } from './ptk-platform-targets.js';
 import { SELECTION_APPLIED_EVENT } from './ptk-target-categories.js';
@@ -68,10 +69,140 @@ export function createPlatformTargetsView(options: PlatformTargetsViewOptions): 
   const source = options.source ?? dataSource;
   element.settings = options.settings ?? createPreferenceStore(browserPreferenceStorage());
 
-  void loadCatalog(element, source, options.federationId);
-  watchForStandards(element, source, options.federationId);
-  watchForRecords(element, source, options.federationId);
+  const retries: readonly Retry[] = [
+    startMeta(element, source),
+    startCatalog(element, source, options.federationId),
+    watchForStandards(element, source, options.federationId),
+    watchForRecords(element, source, options.federationId),
+  ];
+  const refresh = (): void => {
+    for (const retry of retries) {
+      retry();
+    }
+  };
+
+  // One event, from two places -- the footer when there is nothing on screen at
+  // all, and the report's notice beside a level of records that did not answer --
+  // and it carries no detail. That is deliberate and it is what makes `refresh`
+  // right: the element that asked cannot know what else on the page is broken,
+  // and a lifter pressing either button means "try the whole thing again".
+  element.addEventListener(REFRESH_REQUEST_EVENT, () => {
+    refresh();
+  });
+  watchConnection(element, refresh);
+
   return element;
+}
+
+/**
+ * One thing this file can attempt again.
+ *
+ * Every watcher returns one, and every one of them is a no-op unless the thing it
+ * owns is *actually* in a failed state. That is what makes a single detail-less
+ * `Try again` safe to fan out to all four: the press costs one request per broken
+ * read and none for the rest. On the connection this tool is built for, a blanket
+ * refresh that re-fetched the two record partitions a lifter is already reading
+ * would be the button making the page worse.
+ */
+type Retry = () => void;
+
+/**
+ * Keeps the element told whether this device has a network, and tries again when
+ * one comes back.
+ *
+ * `navigator.onLine` is read once, for the seed, and never polled. It is only
+ * dependably *false*: a phone on a captive portal or one bar at a rack reports
+ * `true` and cannot fetch anything, which is why nothing here treats the property
+ * as evidence that a read will work. What the two events add is the *transition*,
+ * and the transition is the reason this exists at all -- a lifter who walks out of
+ * a basement warm-up room and back into signal should not have to find a button.
+ *
+ * The listeners are never removed. They hold one closure over one element for the
+ * lifetime of the page, and the alternative -- tying them to the element being
+ * connected -- would stop the tool noticing the network while it was being moved
+ * in the DOM, which host pages really do to a frame's contents, in exchange for a
+ * saving that is two closures.
+ */
+function watchConnection(element: PtkPlatformTargets, refresh: Retry): void {
+  element.connection = navigator.onLine ? 'online' : 'offline';
+  window.addEventListener('offline', () => {
+    element.connection = 'offline';
+  });
+  window.addEventListener('online', () => {
+    element.connection = 'online';
+    refresh();
+  });
+}
+
+/**
+ * Reads the published index, which is the only thing that knows how old the
+ * figures on screen are.
+ *
+ * Read out here rather than by the footer that draws it, for the reason every
+ * other read is out here: the footer takes the answer *and the state of the read*
+ * as properties, so "still fetching", "nothing has ever been saved on this device"
+ * and "the publisher itself is behind" stay three sentences instead of one blank
+ * line.
+ *
+ * It costs nothing after the first visit. The source holds the index for its own
+ * lifetime -- that is what makes one screen show one build -- so on any later call
+ * this is the same fetch the catalogue already made, answered twice.
+ *
+ * The retry leaves the status at `failed` while it runs, which is the opposite of
+ * what the catalogue below does. The failed sentence is the *only* thing on screen
+ * in the state that offers this button, and clearing it for the length of a read
+ * that will usually fail again in milliseconds is a line that flashes rather than
+ * a state that changed. The acknowledgement a lifter needs comes from the
+ * questions above, which do go back to loading.
+ */
+function startMeta(element: PtkPlatformTargets, source: DataSource): Retry {
+  let reading = false;
+
+  const load = async (): Promise<void> => {
+    reading = true;
+    try {
+      element.dataMeta = await source.getDataMeta();
+      element.dataMetaStatus = 'ready';
+    } catch (caught) {
+      element.dataMetaStatus = 'failed';
+      reportFailure('published index', caught);
+    } finally {
+      reading = false;
+    }
+  };
+
+  void load();
+
+  return () => {
+    if (reading || element.dataMetaStatus !== 'failed') {
+      return;
+    }
+    void load();
+  };
+}
+
+/**
+ * Reads the catalogue, and can be asked to read it again.
+ *
+ * Unlike the index, the retry does put the status back to `loading` -- the
+ * questions are the entire screen while the catalogue is missing, so the press has
+ * to be visibly doing something, and the loading state doubles as the guard that
+ * stops a second press issuing a second read.
+ */
+function startCatalog(
+  element: PtkPlatformTargets,
+  source: DataSource,
+  federationId: string,
+): Retry {
+  void loadCatalog(element, source, federationId);
+
+  return () => {
+    if (element.catalogStatus !== 'failed') {
+      return;
+    }
+    element.catalogStatus = 'loading';
+    void loadCatalog(element, source, federationId);
+  };
 }
 
 async function loadCatalog(
@@ -114,9 +245,24 @@ function watchForStandards(
   element: PtkPlatformTargets,
   source: DataSource,
   federationId: string,
-): void {
+): Retry {
   let loaded: string | null = null;
   let inFlight: AbortController | null = null;
+  /** The last partition asked for, so the retry knows what to ask for again. */
+  let wanted: ClassificationPartition | null = null;
+
+  const read = (partition: ClassificationPartition): void => {
+    // The previous read is abandoned rather than awaited. Two partitions in
+    // flight can settle out of order, and the loser would overwrite the report
+    // with standards for the category the lifter just left -- a plausible table
+    // for the wrong equipment, which is the failure this screen exists to stop.
+    inFlight?.abort();
+    const controller = new AbortController();
+    inFlight = controller;
+
+    element.standardsStatus = 'loading';
+    void loadStandards(element, source, federationId, partition, controller.signal);
+  };
 
   element.addEventListener(SELECTION_APPLIED_EVENT, (event) => {
     const partition = partitionOf(event.detail.selection);
@@ -135,18 +281,20 @@ function watchForStandards(
       return;
     }
     loaded = key;
-
-    // The previous read is abandoned rather than awaited. Two partitions in
-    // flight can settle out of order, and the loser would overwrite the report
-    // with standards for the category the lifter just left -- a plausible table
-    // for the wrong equipment, which is the failure this screen exists to stop.
-    inFlight?.abort();
-    const controller = new AbortController();
-    inFlight = controller;
-
-    element.standardsStatus = 'loading';
-    void loadStandards(element, source, federationId, partition, controller.signal);
+    wanted = partition;
+    read(partition);
   });
+
+  return () => {
+    const partition = wanted;
+    if (partition === null || element.standardsStatus !== 'failed') {
+      return;
+    }
+    // Deliberately not clearing `loaded`. The key still names the partition being
+    // re-read, and clearing it would make the *next* applied context re-fetch a
+    // shard this read is about to put in hand.
+    read(partition);
+  };
 }
 
 interface ClassificationPartition {
@@ -239,9 +387,15 @@ function watchForRecords(
   element: PtkPlatformTargets,
   source: DataSource,
   federationId: string,
-): void {
+): Retry {
   /** What the report is currently being shown, keyed by partition. */
   let reads: ReadonlyMap<string, PartitionRead> = new Map();
+  /**
+   * The lifter's own two axes, kept so a retry can reissue a read without an
+   * applied context to take them off. Every partition in `reads` was read for
+   * these, because a change to either rebuilds the whole map.
+   */
+  let lifterAxes: ClassificationPartition | null = null;
   /**
    * The full four-axis identity behind each key, so a sex or equipment change
    * re-reads a partition whose level and region did not move.
@@ -273,19 +427,82 @@ function watchForRecords(
    * screen to say so. The presence check covers a partition dropped entirely --
    * clearing a state puts its records out of the report, and a read still in
    * flight for it must not put them back.
+   *
+   * A failure always settles as `failed`, and there is deliberately no "kept the
+   * old book" outcome. Both paths that start a read leave nothing to keep: the
+   * applied-context path clears the book because it is reading a *different*
+   * artifact (a new category's failure must never leave the old category's numbers
+   * on screen under the new heading), and the retry path only re-reads partitions
+   * that already have no book. Whether the figures on screen might have been
+   * superseded is a question about the whole publication rather than one
+   * partition, and `ptk-target-freshness` answers it from `meta.json`.
    */
-  const settle = (key: string, controller: AbortController, read: PartitionRead): void => {
+  const settle = (
+    key: string,
+    controller: AbortController,
+    partition: RecordPartition,
+    outcome: { readonly status: 'ready' | 'failed'; readonly book: RecordBook | null },
+  ): void => {
     if (controllers.get(key) !== controller) {
       return;
     }
-    const held = reads.get(key);
-    if (held === undefined) {
+    if (!reads.has(key)) {
       return;
     }
+    const read: PartitionRead = { partition, status: outcome.status, book: outcome.book };
     const next = new Map(reads);
     next.set(key, read);
     reads = next;
     publish();
+  };
+
+  /**
+   * Issues one partition's read and files the controller that owns it.
+   *
+   * Shared by the applied-context path and the retry, which differ only in what
+   * they put in the map first -- an empty loading entry for a category the lifter
+   * just changed to, the previous book for one being refreshed. Nothing here
+   * touches `reads`, so a caller can settle the map before or after calling this:
+   * `then` runs in a microtask and the callers are synchronous.
+   */
+  const start = (key: string, partition: RecordPartition, axes: ClassificationPartition): void => {
+    controllers.get(key)?.abort();
+    const controller = new AbortController();
+    controllers.set(key, controller);
+    identities.set(key, identityOf(partition, axes));
+
+    void readRecords(
+      source,
+      {
+        // The federation and its record book share an identifier by
+        // construction: the source document's `id` is the federation's, and it
+        // is what the publisher names the book with. Written out here rather
+        // than passed as one value so the day a federation publishes two books
+        // -- a masters set, an equipped set kept apart -- this is the line that
+        // needs a catalogue entry rather than a silently wrong lookup.
+        bookId: federationId,
+        levelId: partition.levelId,
+        regionId: partition.regionId,
+        sex: axes.sex,
+        equipmentId: axes.equipmentId,
+      },
+      controller.signal,
+    ).then(
+      (outcome) => {
+        if (outcome === null) {
+          return;
+        }
+        settle(key, controller, partition, outcome);
+      },
+      (caught: unknown) => {
+        // `readRecords` handles every failure it can name, so anything landing
+        // here is a defect in this file rather than a failed request. Reported
+        // rather than swallowed (§2.4), and with the same reason-only wording,
+        // because an unexpected throw is exactly where a cause chain carrying a
+        // URL would otherwise reach the console.
+        reportFailure('records', caught);
+      },
+    );
   };
 
   element.addEventListener(SELECTION_APPLIED_EVENT, (event) => {
@@ -296,12 +513,14 @@ function watchForRecords(
       // would drop a book that is still the right one.
       return;
     }
+    lifterAxes = lifter;
 
     // Rebuilt in the resolver's order rather than patched in place, so the map's
     // iteration order is the order the report lists partitions in. Patching
     // would leave a state that was cleared and re-picked sitting after the
     // national records it is meant to precede.
     const next = new Map<string, PartitionRead>();
+    const starting: RecordPartition[] = [];
     for (const partition of event.detail.partitions) {
       const key = partitionKey(partition);
       const identity = identityOf(partition, lifter);
@@ -315,44 +534,12 @@ function watchForRecords(
         continue;
       }
 
-      controllers.get(key)?.abort();
-      const controller = new AbortController();
-      controllers.set(key, controller);
-      identities.set(key, identity);
+      // The book is cleared, unlike in a retry. This is a different artifact, so
+      // whatever is in hand belongs to the category the lifter has left, and a
+      // failure that kept it would print last category's records under this
+      // category's heading.
       next.set(key, { partition, status: 'loading', book: null });
-
-      void readRecords(
-        source,
-        {
-          // The federation and its record book share an identifier by
-          // construction: the source document's `id` is the federation's, and it
-          // is what the publisher names the book with. Written out here rather
-          // than passed as one value so the day a federation publishes two books
-          // -- a masters set, an equipped set kept apart -- this is the line that
-          // needs a catalogue entry rather than a silently wrong lookup.
-          bookId: federationId,
-          levelId: partition.levelId,
-          regionId: partition.regionId,
-          sex: lifter.sex,
-          equipmentId: lifter.equipmentId,
-        },
-        controller.signal,
-      ).then(
-        (outcome) => {
-          if (outcome === null) {
-            return;
-          }
-          settle(key, controller, { partition, status: outcome.status, book: outcome.book });
-        },
-        (caught: unknown) => {
-          // `readRecords` handles every failure it can name, so anything landing
-          // here is a defect in this file rather than a failed request. Reported
-          // rather than swallowed (§2.4), and with the same reason-only wording,
-          // because an unexpected throw is exactly where a cause chain carrying a
-          // URL would otherwise reach the console.
-          reportFailure('records', caught);
-        },
-      );
+      starting.push(partition);
     }
 
     // Anything the report no longer shows is abandoned. Without this, clearing a
@@ -368,7 +555,38 @@ function watchForRecords(
 
     reads = next;
     publish();
+    for (const partition of starting) {
+      start(partitionKey(partition), partition, lifter);
+    }
   });
+
+  return () => {
+    const axes = lifterAxes;
+    if (axes === null) {
+      return;
+    }
+    // Only the partitions that have something wrong with them, which is what lets
+    // the footer's button and the report's button be the same event. A blanket
+    // re-read would be the button making the page worse: the published index is
+    // held for the lifetime of this source so that one screen shows one build
+    // (§5.3), so re-reading a partition that already answered can only return the
+    // same artifact -- at the cost of replacing figures a lifter is reading with
+    // "Updating…" on the connection that made them press the button.
+    const again = [...reads.values()].filter((read) => read.status === 'failed');
+    if (again.length === 0) {
+      return;
+    }
+
+    const next = new Map(reads);
+    for (const read of again) {
+      next.set(partitionKey(read.partition), { ...read, status: 'loading' });
+    }
+    reads = next;
+    publish();
+    for (const read of again) {
+      start(partitionKey(read.partition), read.partition, axes);
+    }
+  };
 }
 
 /**

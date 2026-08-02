@@ -116,6 +116,19 @@ export class PtkTargetContext extends LitElement {
 
   @property({ attribute: false }) selection: CategorySelection = NO_SELECTION;
 
+  /**
+   * Puts focus back on the summary, for a caller returning from the editor.
+   *
+   * Silent when there is no button, and that is deliberate rather than an
+   * oversight -- the catalogue can be absent, in which case this element renders
+   * nothing at all and there is no invoker to return to. Throwing would make a
+   * root that wants to restore focus into a root that has to know this element's
+   * render conditions. Same contract as the report's focusHeading.
+   */
+  focusSummary(): void {
+    this.shadowRoot?.querySelector<HTMLElement>('button')?.focus();
+  }
+
   override render(): TemplateResult | typeof nothing {
     if (this.catalog === null) {
       // Nothing to summarise and nothing an editor could offer. Rendering an

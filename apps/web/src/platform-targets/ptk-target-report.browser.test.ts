@@ -9,6 +9,7 @@ import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { deepText } from '../testing/deep-text.js';
+import { REFRESH_REQUEST_EVENT } from './freshness.js';
 import {
   VIEW_CHANGE_EVENT,
   type PartitionRead,
@@ -545,7 +546,7 @@ describe('ptk-target-report', () => {
     expect(await segmentLabels(element, 'lift')).toHaveLength(4);
     expect(tables(element)).toEqual([]);
     expect(text(element)).toContain(
-      'No records are published for this lift in this category. The first qualifying lift sets one.',
+      'No published record was found for this exact Example Federation category. The first qualifying lift sets one.',
     );
   });
 
@@ -1062,7 +1063,7 @@ describe('ptk-target-report', () => {
    */
   it('distinguishes standards still loading from standards that failed', async () => {
     const loading = await mount({ classifications: null, classificationsStatus: 'loading' });
-    expect(text(loading)).toContain('Loading the classification standards…');
+    expect(text(loading)).toContain('Updating the classification standards…');
     expect(noticesIn(loading).map((notice) => notice.tone)).toEqual(['info']);
 
     const failed = await mount({ classifications: null, classificationsStatus: 'failed' });
@@ -1080,7 +1081,7 @@ describe('ptk-target-report', () => {
       selection: FULLY_ANSWERED,
       reads: [ready(NATIONAL, BOOK), { partition: NORTH, status: 'loading', book: null }],
     });
-    expect(text(element)).toContain('Loading North Example State records…');
+    expect(text(element)).toContain('Updating North Example State records…');
     // The national records that did arrive are drawn meanwhile. A report that
     // waited for the last read would be blank for the whole time a phone on gym
     // signal is doing the work.
@@ -1091,10 +1092,95 @@ describe('ptk-target-report', () => {
       selection: FULLY_ANSWERED,
       reads: [ready(NATIONAL, BOOK), { partition: NORTH, status: 'failed', book: null }],
     });
-    expect(text(broken)).toContain(
-      'The North Example State records could not be loaded. Reload the page to try again.',
-    );
+    expect(text(broken)).toContain('The North Example State records could not be loaded.');
     expect(noticesIn(broken).map((notice) => notice.tone)).toEqual(['error']);
+  });
+
+  /**
+   * A failed read is offered the one action that can change it, and the action
+   * is a retry rather than a reload.
+   *
+   * "Reload the page to try again" was the old sentence and it was the wrong
+   * instruction twice over on the device this is built for: a reload on gym
+   * signal discards the shell and every artifact that *did* arrive, and it takes
+   * the context, the lift, the target type and the open detail with it -- so
+   * retrying one failed partition cost re-answering the whole report.
+   */
+  it('offers a retry beside a failed read rather than telling a lifter to reload', async () => {
+    const element = await mount({
+      selection: FULLY_ANSWERED,
+      reads: [ready(NATIONAL, BOOK), { partition: NORTH, status: 'failed', book: null }],
+    });
+    expect(text(element)).not.toContain('Reload the page');
+
+    const seen: Event[] = [];
+    const listener = (event: Event): void => {
+      seen.push(event);
+    };
+    // On the body rather than on the element: the transport listens on the
+    // tool's host, so a listener on the element itself would hold even for an
+    // event that never left the shadow root.
+    document.body.addEventListener(REFRESH_REQUEST_EVENT, listener);
+    teardown.push(() => {
+      document.body.removeEventListener(REFRESH_REQUEST_EVENT, listener);
+    });
+
+    const retry = only(root(element), '.failure ptk-button');
+    if (!(retry instanceof HTMLElement)) {
+      throw new Error('The retry rendered as something other than an element.');
+    }
+    retry.click();
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.composed).toBe(true);
+  });
+
+  /**
+   * A failed partition is drawn in the error tone and the levels beside it are
+   * not, which is the reason the reads are kept separate at all.
+   *
+   * One status for the lot would render a failed state read as a federation that
+   * keeps no state records -- a real answer, and one nobody investigates.
+   */
+  it('names the level that failed without colouring the rest of the report', async () => {
+    const element = await mount({
+      selection: FULLY_ANSWERED,
+      reads: [ready(NATIONAL, BOOK), { partition: NORTH, status: 'failed', book: null }],
+    });
+    expect(text(element)).toContain('The North Example State records could not be loaded.');
+    expect(noticesIn(element).map((notice) => notice.tone)).toEqual(['error']);
+    // The level that did answer is still drawn in full underneath.
+    await showRecords(element);
+    expect(captions(element)).toContain('National records');
+  });
+
+  /**
+   * "No published target was found" is a *finding*, and printing it while the
+   * artifact that would contradict it is still on the wire is the tool asserting
+   * something it has not established. On gym signal that window is seconds long
+   * and it lands on the reader least able to check: they read that their
+   * category is empty, put the phone away, and never see the figures arrive.
+   */
+  it('draws a skeleton rather than claiming nothing is published while a read is in flight', async () => {
+    const element = await mount({ classifications: null, classificationsStatus: 'loading' });
+    expect(text(element)).toContain('Updating targets…');
+    expect(text(element)).not.toContain('No published target was found');
+    // Grey bars have nothing to announce; the sentence above them carries the
+    // whole meaning for anyone not looking at the layout.
+    expect(only(root(element), '.skeleton').getAttribute('aria-hidden')).toBe('true');
+  });
+
+  /**
+   * The tick between a lifter pressing Show targets and the transport issuing
+   * the reads. Treating an empty read map as settled makes the first paint of
+   * every visit assert that the category is empty -- a resolved selection always
+   * asks for the world and national partitions, so no entries at all means the
+   * watcher has not run rather than that this federation keeps no records.
+   */
+  it('does not call a category empty before the record reads have been issued', async () => {
+    const element = await mount({ reads: [] });
+    await showRecords(element);
+    expect(text(element)).toContain('Updating targets…');
+    expect(text(element)).not.toContain('No published record was found');
   });
 
   /**

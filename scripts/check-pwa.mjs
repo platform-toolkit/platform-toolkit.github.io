@@ -120,6 +120,19 @@ async function checkManifest(failures) {
     }
   }
 
+  // WCAG 1.3.4: content must not be locked to one display orientation. An
+  // installed application takes its orientation from the manifest, so a value of
+  // "portrait" here overrides the device rotation lock for everyone -- and the
+  // people it locks out are the ones who cannot rotate their phone back, which
+  // is the population the criterion is written for. It is correct today; without
+  // an assertion the only thing keeping it correct is that nobody has edited the
+  // file. "any" and "natural" both satisfy it; anything else does not.
+  if (manifest.orientation !== 'any' && manifest.orientation !== 'natural') {
+    failures.push(
+      `the manifest's orientation is ${JSON.stringify(manifest.orientation)}, which locks the installed application to one orientation`,
+    );
+  }
+
   const icons = Array.isArray(manifest.icons) ? manifest.icons : [];
   const declaredSizes = new Set(icons.map((icon) => icon.sizes));
   for (const size of REQUIRED_ICON_SIZES) {

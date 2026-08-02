@@ -72,6 +72,48 @@ export function formatPlainDate(date: PlainDate): string {
 }
 
 /**
+ * Formats a date the way a sentence says it: `July 28, 2026`.
+ *
+ * For the one place a date is read rather than compared -- "Showing data last
+ * verified …", where the ISO spelling reads as a machine talking. Everywhere a
+ * date is *evidence* (when a record was set, when a source was retrieved) keeps
+ * `formatPlainDate` and the ISO form, because a reader checking a certificate is
+ * matching a string, not reading a phrase.
+ *
+ * Not `toLocaleDateString`. Two reasons, and the second is the one that decides
+ * it: the numeric locale forms are the ambiguity this module exists to avoid --
+ * `03/04/2026` is two different days depending on who is holding the phone --
+ * and the long forms vary between browsers and between an installed ICU and a
+ * trimmed one, so a test asserting a sentence would pass here and fail on a CI
+ * image with a smaller data set. The month names are English because every other
+ * word in the sentence is.
+ */
+export function formatPlainDateLong(date: PlainDate): string {
+  // Bounded by `parsePlainDate`, and defensive anyway: a hand-built PlainDate
+  // with a month of 13 should print a date that is merely odd rather than
+  // "undefined 28, 2026".
+  const month = MONTH_NAMES[date.month - 1];
+  return month === undefined
+    ? formatPlainDate(date)
+    : `${month} ${String(date.day)}, ${String(date.year)}`;
+}
+
+const MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+] as const;
+
+/**
  * Completed years between two dates.
  *
  * A birthday counts on the day it falls. Someone born on 29 February has their

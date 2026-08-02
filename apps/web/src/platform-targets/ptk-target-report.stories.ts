@@ -178,6 +178,13 @@ export const NotEnoughAnswered: Story = {
  * standards have not landed. The records that *have* landed are drawn anyway --
  * a report that waited for the last read would be blank for the whole time a
  * phone on gym signal is doing the work.
+ *
+ * The panel draws matrix-shaped bars rather than the empty-category sentence,
+ * and the difference is not cosmetic: "no published target was found" is a
+ * finding, and asserting it while the artifact that would contradict it is on
+ * the wire lands on exactly the reader least able to check. Bars rather than a
+ * spinner because the shape is the promise, and static rather than shimmering
+ * because motion at the foot of a report is something a lifter cannot dismiss.
  */
 export const StandardsStillLoading: Story = {
   args: { classifications: null, classificationsStatus: 'loading' },
@@ -202,6 +209,11 @@ export const RecordsStillLoading: Story = {
  * read look like a federation that keeps no state records, which is a real
  * answer nobody investigates -- so the failure is named, by level, above a
  * report that is otherwise complete.
+ *
+ * The action beside it is a retry, not a reload. A reload on gym signal discards
+ * the shell and every artifact that *did* arrive, along with the context, the
+ * lift and the target type -- so the price of retrying one partition was
+ * re-answering the report.
  */
 export const OnePartitionFailed: Story = {
   args: {

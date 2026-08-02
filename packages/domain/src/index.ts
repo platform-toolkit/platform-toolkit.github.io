@@ -244,6 +244,7 @@ export {
   comparePlainDates,
   completedYearsBetween,
   formatPlainDate,
+  formatPlainDateLong,
   parsePlainDate,
   type ParsedPlainDate,
   type PlainDate,

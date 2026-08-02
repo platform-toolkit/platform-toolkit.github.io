@@ -12,7 +12,14 @@
     "recognisably this product in either scheme. background_color is the light surface: it",
     "paints the splash before any CSS loads, a manifest has exactly one of them, and a",
     "manifest cannot vary by prefers-color-scheme. The per-scheme values live in the",
-    "documents as meta theme-color, which browsers do honour."
+    "documents as meta theme-color, which browsers do honour.",
+    "",
+    "orientation is \"any\" deliberately, and scripts/check-pwa.mjs fails the build if it",
+    "stops being. An installed application takes its orientation from here, so \"portrait\"",
+    "would override the device rotation lock for every visitor -- and the people that locks",
+    "out are the ones who cannot rotate the phone back, which is exactly who WCAG 1.3.4 is",
+    "written for. A lifter with the phone clamped to a rack is the same case arriving from",
+    "the other side."
   ],
   "name": "Platform Toolkit",
   "short_name": "Toolkit",

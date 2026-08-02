@@ -4,6 +4,7 @@ import {
   comparePlainDates,
   completedYearsBetween,
   formatPlainDate,
+  formatPlainDateLong,
   parsePlainDate,
   type PlainDate,
 } from './plain-date.js';
@@ -79,6 +80,22 @@ describe('formatPlainDate', () => {
 
   it('round-trips a parsed date', () => {
     expect(formatPlainDate(parsed('2024-02-29'))).toBe('2024-02-29');
+  });
+});
+
+describe('formatPlainDateLong', () => {
+  it('writes the month as a word, so no reader has to guess the order', () => {
+    expect(formatPlainDateLong(parsed('2026-07-28'))).toBe('July 28, 2026');
+    // The pair that is two different days in numeric form, and unambiguous here.
+    expect(formatPlainDateLong(parsed('2026-03-04'))).toBe('March 4, 2026');
+  });
+
+  it('does not pad the day, because a sentence does not', () => {
+    expect(formatPlainDateLong(parsed('2026-01-01'))).toBe('January 1, 2026');
+  });
+
+  it('falls back to the ISO spelling rather than printing an undefined month', () => {
+    expect(formatPlainDateLong({ year: 2026, month: 13, day: 1 })).toBe('2026-13-01');
   });
 });
 

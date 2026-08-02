@@ -18,12 +18,41 @@ import type {
   CategoryCatalog,
   ClassificationBook,
   ClassificationTable,
+  DataMeta,
   FederationRecord,
   Lift,
   RecordBook,
 } from '@platform-toolkit/data-contracts';
 
 import type { CategorySelection, RecordPartition } from './selection.js';
+
+/**
+ * The published index, as the freshness line reads it.
+ *
+ * Two sources retrieved on different days, because the line prints the *oldest*
+ * and a single-source fixture cannot tell a correct implementation from one that
+ * prints whichever it saw last. The dates are invented like everything else here
+ * and are far enough apart to read as a mistake if the wrong one appears.
+ */
+export const DATA_META: DataMeta = {
+  schemaVersion: 1,
+  generatedAt: '2026-07-31T06:00:00.000Z',
+  sources: [
+    {
+      id: 'example-classifications',
+      label: 'Example classification standards',
+      retrievedAt: '2026-07-28T04:15:00.000Z',
+      status: 'ok',
+    },
+    {
+      id: 'example-records',
+      label: 'Example records',
+      retrievedAt: '2026-07-30T04:15:00.000Z',
+      status: 'ok',
+    },
+  ],
+  artifacts: {},
+};
 
 export const CATALOG: CategoryCatalog = {
   id: 'example',

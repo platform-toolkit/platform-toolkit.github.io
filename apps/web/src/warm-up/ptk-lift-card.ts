@@ -89,12 +89,18 @@ export class PtkLiftCard extends LitElement {
       align-items: center;
       gap: var(--ptk-space-sm);
       margin-bottom: var(--ptk-space-md);
+      /* The last resort, and only reached when shrinking the two items below
+         has run out: the controls drop to a line of their own rather than off
+         the side of the screen. */
+      flex-wrap: wrap;
     }
 
     h3 {
       flex: 1;
       /* So a long name wraps rather than pushing the controls off a 320px
-         screen. A flex item will not shrink below its content without this. */
+         screen. A flex item will not shrink below its content without this.
+         Shrinking the name stops being enough once the controls themselves
+         outgrow the column -- see .controls. */
       min-width: 0;
       margin: 0;
       font-size: var(--ptk-font-size-lg);
@@ -103,7 +109,20 @@ export class PtkLiftCard extends LitElement {
     .controls {
       display: flex;
       gap: var(--ptk-space-xs);
-      flex: none;
+      /*
+       * Not flex: none. A tap target is sized in px and does not scale with the
+       * text (§5.7), but the glyph inside it does -- so at 200% text these three
+       * buttons are 90px each, 291px of row inside 192px of card, and flex: none
+       * forbade the row from giving any of it back. Allowing the row to wrap
+       * internally, and to shrink to the width one button needs, is what lets
+       * the header above wrap it onto its own line instead of overflowing.
+       *
+       * Never let it shrink past a single button: these buttons are already at
+       * the 44px floor, and a squeezed one is a target a chalked thumb misses.
+       */
+      flex: 0 1 auto;
+      flex-wrap: wrap;
+      min-width: var(--ptk-tap-target-min);
     }
 
     .fields {

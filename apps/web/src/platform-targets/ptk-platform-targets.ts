@@ -38,16 +38,23 @@
  * callback property threaded through -- and it keeps this file free of any
  * knowledge that a data source exists.
  */
-import type { CategoryCatalog, ClassificationBook, Lift } from '@platform-toolkit/data-contracts';
+import type {
+  CategoryCatalog,
+  ClassificationBook,
+  DataMeta,
+  Lift,
+} from '@platform-toolkit/data-contracts';
 import { createPreferenceStore, type PreferenceStore } from '@platform-toolkit/preferences';
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
 import './ptk-target-categories.js';
 import './ptk-target-context.js';
+import './ptk-target-freshness.js';
 import './ptk-target-goals.js';
 import './ptk-target-lifts.js';
 import './ptk-target-report.js';
+import { readFreshness, type Connection, type DataMetaStatus } from './freshness.js';
 import {
   addGoal,
   describeGoal,
@@ -90,6 +97,9 @@ import { NO_ENTRIES, type LiftEntries } from './standards.js';
 /** Which of the three screens is showing. */
 type Phase = 'setup' | 'targets' | 'editing';
 
+/** Where focus goes after a phase change. See the pendingFocus field. */
+type FocusTarget = 'report' | 'questions' | 'context';
+
 @customElement('ptk-platform-targets')
 export class PtkPlatformTargets extends LitElement {
   static override styles = css`
@@ -108,6 +118,17 @@ export class PtkPlatformTargets extends LitElement {
     h2 {
       margin: 0 0 var(--ptk-space-sm);
       font-size: var(--ptk-font-size-lg);
+    }
+
+    /*
+     * :focus-visible and not :focus, which is what lets the heading be focused
+     * at all without looking wrong: a lifter who tapped "Edit" with a thumb gets
+     * no ring, and one who pressed it with a keyboard gets one and can see where
+     * they landed. Same rule as the report heading.
+     */
+    h2:focus-visible {
+      outline: var(--ptk-focus-ring-width) solid var(--ptk-color-focus-ring);
+      outline-offset: var(--ptk-focus-ring-offset);
     }
 
     .lead {
@@ -134,6 +155,30 @@ export class PtkPlatformTargets extends LitElement {
       padding-block-start: var(--ptk-space-xl);
       border-block-start: 1px solid var(--ptk-color-border);
     }
+
+    .freshness {
+      display: block;
+      margin-block-start: var(--ptk-space-lg);
+    }
+
+    /*
+     * The persistent live region. Visually hidden rather than absent, because a
+     * region has to be in the accessibility tree before the text arrives in it.
+     * Clipped rather than display:none or visibility:hidden -- both of those
+     * remove it from the tree entirely, so the announcement never happens and
+     * the only symptom is silence.
+     */
+    .announcer {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border: 0;
+    }
   `;
 
   @property({ attribute: false }) catalog: CategoryCatalog | null = null;
@@ -155,6 +200,28 @@ export class PtkPlatformTargets extends LitElement {
    * already succeeded.
    */
   @property({ attribute: false }) recordReads: ReadonlyMap<string, PartitionRead> = new Map();
+
+  /**
+   * The published index, for the freshness line at the foot of the tool.
+   *
+   * Read by the transport rather than by the footer element, for the same reason
+   * every other read is: the footer takes its data and the *state* of the read as
+   * properties, so "still fetching", "nothing saved on this device" and "the
+   * publisher is behind" are three reachable states rather than one blank line.
+   */
+  @property({ attribute: false }) dataMeta: DataMeta | null = null;
+
+  @property({ type: String }) dataMetaStatus: DataMetaStatus = 'loading';
+
+  /**
+   * Whether this device currently has a network.
+   *
+   * A property rather than a read of `navigator.onLine` here, because this
+   * element must stay mountable with no browser globals and because the whole
+   * point of the value is that it *changes* -- the transport owns the `online`
+   * and `offline` listeners and hands the answer down.
+   */
+  @property({ type: String }) connection: Connection = 'online';
 
   /**
    * Where remembered answers are read from and written to.
@@ -206,16 +273,27 @@ export class PtkPlatformTargets extends LitElement {
   @state() private targetType: TargetType = 'classifications';
 
   /**
-   * Set when the phase changes to `targets` by an action rather than by a
-   * restore, and cleared once the heading has been focused.
+   * Where focus is owed after this update, or `null` when it is owed nowhere.
    *
-   * Moving focus is right after a lifter presses "Show targets" -- the thing
-   * they asked for is now elsewhere on the page and a keyboard or screen-reader
-   * user is otherwise left on a button that no longer exists. It is wrong on a
-   * page that simply loaded: focus belongs at the top of the document, and
-   * stealing it is how a reader misses the heading and the context above it.
+   * Every phase change here replaces the whole screen, including the control
+   * that was pressed to cause it. So focus lands on nothing and the browser
+   * drops it to the document body: a keyboard or screen-reader user is returned
+   * to the top of the page, with no announcement that anything happened, on
+   * every one of the three transitions. Each one therefore names where the
+   * lifter should land, and the answer is different each time:
+   *
+   * - `report`, after "Show targets" -- the thing they asked for.
+   * - `questions`, after "Edit context" -- the screen they opened.
+   * - `context`, after "Cancel" -- the summary button they opened it *from*,
+   *   because nothing changed and returning focus to the invoker is the only
+   *   move that says so. Sending them to the report heading instead would read
+   *   as a fresh result for an edit they abandoned.
+   *
+   * It stays `null` on a page that simply loaded, including a returning visit
+   * that restores a context: focus belongs at the top of a document nobody has
+   * interacted with, and stealing it is how a reader misses the heading.
    */
-  #focusResult = false;
+  #pendingFocus: FocusTarget | null = null;
 
   /**
    * The pending focus move, or `null` when none is owed.
@@ -281,12 +359,14 @@ export class PtkPlatformTargets extends LitElement {
     const context = this.shadowRoot?.querySelector('ptk-target-context');
     const lifts = this.shadowRoot?.querySelector('ptk-target-lifts');
     const goals = this.shadowRoot?.querySelector('ptk-target-goals');
+    const freshness = this.shadowRoot?.querySelector('ptk-target-freshness');
     const report = this.shadowRoot?.querySelector('ptk-target-report');
     await Promise.all([
       categories?.updateComplete,
       context?.updateComplete,
       lifts?.updateComplete,
       goals?.updateComplete,
+      freshness?.updateComplete,
     ]);
     // Awaited after the other two rather than alongside them. The report renders
     // from state this element mirrors out of both of them, so its update is
@@ -295,7 +375,7 @@ export class PtkPlatformTargets extends LitElement {
     // for the answer before last.
     await report?.updateComplete;
     // And any focus move this update asked for, which waits on that same
-    // render. See #focusReport.
+    // render. See #moveFocus.
     await this.#focusing;
     return complete;
   }
@@ -384,34 +464,135 @@ export class PtkPlatformTargets extends LitElement {
       this.#announcedRestore = true;
       this.#announce(this.selection);
     }
-    if (this.#focusResult) {
-      this.#focusResult = false;
-      this.#focusing = this.#focusReport();
+    if (this.#pendingFocus !== null) {
+      const target = this.#pendingFocus;
+      // Cleared before the move rather than after it, because the move awaits a
+      // child's render and this method runs again in the meantime -- leaving it
+      // set would start a second move, and the second one would win.
+      this.#pendingFocus = null;
+      this.#focusing = this.#moveFocus(target);
     }
   }
 
   /**
-   * Moves focus to the report's heading, once the report has one.
+   * What to say out loud about the state of the data -- the two things a lifter
+   * cannot see happening: that they are reading a saved copy, and that the
+   * publisher could not be refreshed.
    *
-   * The wait is the whole of this method and it is not optional. A press of
-   * "Show targets" is the render that *creates* the report element: this
-   * element's own update commits the tag and its properties, and the report's
-   * first render is queued behind it, so at the moment `updated()` runs there is
-   * no heading in that shadow root yet. Focusing there hits nothing, and
-   * `focusHeading` is deliberately silent about it (a root that had to know
-   * which branch of the report's template rendered would be a root that knows
-   * the report's template) -- so the failure is not an error, it is focus
-   * quietly staying on a button that has just been removed from the page.
+   * Read from the same function the footer renders, rather than decided a second
+   * time here, so the sentence announced and the sentence on screen cannot
+   * disagree -- and so nothing is announced that is not also visible, which is
+   * what stops this being a region telling screen-reader users about a state
+   * everybody else has to guess at.
+   *
+   * Computed per render rather than kept in a field, and that is what makes the
+   * repeat-announcement problem go away rather than needing a guard: lit-html
+   * only writes a text binding whose value actually changed, so a lifter
+   * scrolling an offline report does not hear "Offline" on every tap. A field
+   * assigned in `updated()` would do the same job and schedule a second render
+   * for every one of the first, which is a caller awaiting `updateComplete` and
+   * reading the previous sentence.
+   *
+   * The ordinary case announces nothing (`announce` is `null`), which is also
+   * what empties the region when signal comes back.
    */
-  async #focusReport(): Promise<void> {
-    const report = this.shadowRoot?.querySelector('ptk-target-report');
-    await report?.updateComplete;
-    report?.focusHeading();
+  #announcement(): string {
+    return (
+      readFreshness({
+        connection: this.connection,
+        meta: this.dataMeta,
+        metaStatus: this.dataMetaStatus,
+        showingData: this.#showingData(),
+        federationLabel: this.catalog?.label ?? null,
+      }).announce ?? ''
+    );
+  }
+
+  /**
+   * Whether a published figure is on screen right now.
+   *
+   * Asked of the reads rather than of the phase: a returning visit paints the
+   * report before either read settles, and a footer told that data is showing at
+   * that moment says "Showing data last verified …" over a skeleton. A record
+   * partition counts even when the classifications failed, and the other way
+   * round -- either one is a real figure a lifter is reading.
+   */
+  #showingData(): boolean {
+    if (this.phase !== 'targets') {
+      return false;
+    }
+    if (this.book !== null) {
+      return true;
+    }
+    return [...this.recordReads.values()].some((read) => read.book !== null);
+  }
+
+  /**
+   * Moves focus to where the last phase change owes it.
+   *
+   * The wait before each child move is the whole of this method and it is not
+   * optional. A press of "Show targets" is the render that *creates* the report
+   * element: this element's own update commits the tag and its properties, and
+   * the report's first render is queued behind it, so at the moment `updated()`
+   * runs there is no heading in that shadow root yet. Focusing there hits
+   * nothing, and `focusHeading` is deliberately silent about it (a root that had
+   * to know which branch of the report's template rendered would be a root that
+   * knows the report's template) -- so the failure is not an error, it is focus
+   * quietly staying on a button that has just been removed from the page.
+   *
+   * The questions branch awaits nothing, and that asymmetry is the point rather
+   * than an oversight: that heading is in *this* element's shadow root, so the
+   * update that scheduled the move is the update that rendered it.
+   */
+  async #moveFocus(target: FocusTarget): Promise<void> {
+    if (target === 'questions') {
+      this.shadowRoot?.querySelector<HTMLElement>('section h2')?.focus();
+    } else if (target === 'context') {
+      const context = this.shadowRoot?.querySelector('ptk-target-context');
+      await context?.updateComplete;
+      context?.focusSummary();
+    } else {
+      const report = this.shadowRoot?.querySelector('ptk-target-report');
+      await report?.updateComplete;
+      report?.focusHeading();
+    }
     this.#focusing = null;
   }
 
   override render(): TemplateResult {
-    return this.phase === 'targets' ? this.#renderTargets() : this.#renderQuestions();
+    return html`
+      <!--
+        Outside the phase switch, and first, so that it is in the accessibility
+        tree from the first paint and stays the same node forever. A live region
+        created in the same render as the text inside it is not reliably
+        announced -- the assistive technology has nothing to compare against --
+        and every phase change here replaces the entire screen, so a region
+        rendered inside one would be a fresh region on every announcement.
+      -->
+      <p class="announcer" role="status">${this.#announcement()}</p>
+      ${this.phase === 'targets' ? this.#renderTargets() : this.#renderQuestions()}
+      <!--
+        Also outside the switch, and last on every screen.
+
+        Outside because the state it exists for is unreachable from the report:
+        a lifter who installed the tool and then lost signal before any category
+        was read never gets past the setup screen, so a footer rendered only with
+        the report would be silent in precisely the one situation where the line
+        is the whole answer. Last because the review puts the data date and
+        source at the foot of the canonical order -- below the goal tray there,
+        and here below the optional lift entry too, since a provenance footnote
+        with a data-entry fold under it is a page that visibly continues past its
+        own end the moment somebody opens the fold.
+      -->
+      <ptk-target-freshness
+        class="freshness"
+        .connection=${this.connection}
+        .meta=${this.dataMeta}
+        .metaStatus=${this.dataMetaStatus}
+        .showingData=${this.#showingData()}
+        .federationLabel=${this.catalog?.label ?? null}
+      ></ptk-target-freshness>
+    `;
   }
 
   /**
@@ -424,14 +605,29 @@ export class PtkPlatformTargets extends LitElement {
    */
   #renderQuestions(): TemplateResult {
     const editing = this.phase === 'editing';
+    // The federation's name comes from the catalogue and never from a literal
+    // here (§5.1). It was hard-coded until the review asked for the setup
+    // screen to name the federation whose targets these are -- which would have
+    // shipped the second federation's screen headed with the first one's name,
+    // in the one sentence a first-time visitor reads before answering anything.
+    // Absent until the catalogue lands: the questions are drawn before the read
+    // settles, and "show targets" is true with or without the name.
+    const label = this.catalog?.label;
+    const named = label === undefined ? 'targets' : `${label} targets`;
     return html`
       <section>
-        <h2>${editing ? 'Edit context' : 'Set up your targets'}</h2>
+        <!--
+          tabindex="-1" so the editor can be focused when it opens. Only the
+          editor needs it, but it is unconditional: a heading that is sometimes
+          focusable is a heading whose tab order changes as the screen does,
+          and -1 keeps it out of the tab sequence either way.
+        -->
+        <h2 tabindex="-1">${editing ? 'Edit context' : 'Set up your targets'}</h2>
         <p class="lead">
           ${
             editing
               ? 'Change any answer, then show your targets again.'
-              : 'Choose sex category, equipment, tested status, and a weight class to show USPA targets.'
+              : `Choose sex category, equipment, tested status, and a weight class to show ${named}.`
           }
         </p>
         <ptk-target-categories
@@ -497,7 +693,7 @@ export class PtkPlatformTargets extends LitElement {
     this.draftSeed = event.detail.selection;
     this.phase = 'targets';
     this.#announcedRestore = true;
-    this.#focusResult = true;
+    this.#pendingFocus = 'report';
     saveContext(this.settings, event.detail.selection);
   };
 
@@ -505,6 +701,7 @@ export class PtkPlatformTargets extends LitElement {
   readonly #onSelectionCancel = (): void => {
     if (this.phase === 'editing') {
       this.phase = 'targets';
+      this.#pendingFocus = 'context';
     }
   };
 
@@ -518,6 +715,7 @@ export class PtkPlatformTargets extends LitElement {
   readonly #onContextEdit = (): void => {
     this.draftSeed = this.selection;
     this.phase = 'editing';
+    this.#pendingFocus = 'questions';
   };
 
   /** A navigation bar moved. Remembered so the next visit opens where this one left. */
