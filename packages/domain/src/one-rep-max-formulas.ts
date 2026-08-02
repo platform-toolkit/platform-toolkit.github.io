@@ -33,6 +33,24 @@
  * lift it was never validated for. That is a real answer and the interface shows
  * it as one, because "Brzycki has nothing to say about a set of fifteen" is
  * information and a quietly missing row is not.
+ *
+ * NO EQUATION HERE TAKES BODY WEIGHT, AND THAT IS THE WHOLE INPUT SET
+ *
+ * `FormulaInput` is the load, the effective repetitions and the lift. There is
+ * no body-weight field and adding one would have nothing to read it. This is
+ * worth stating because the notations do not say it: every one of them writes
+ * the lifted load as `w`, and a reader scanning `1RM = 7.24 + 1.05w` has no way
+ * to tell from the page which weight is meant. Reported as "some formulas use
+ * body weight, but you do not ask for that", which is exactly what the notation
+ * looks like it says.
+ *
+ * The published equations that *do* take body weight predict a maximum from
+ * repetitions performed at one fixed test load -- the 225-pound bench-press
+ * repetition test is the common one -- rather than from a set at a weight the
+ * lifter chose. They answer a different question, on a population of collegiate
+ * football players, so importing one to give body weight something to do would
+ * trade a validated answer for an unvalidated one. Anything added here must
+ * still be an equation about the set that was performed.
  */
 
 /**
@@ -432,9 +450,24 @@ export const FORMULAS: readonly FormulaDefinition[] = [
     },
   },
 
+  /*
+   * Named for its author like every other row, and it used to be named
+   * "Weight-dependent (2026 preprint)" for its shape. That was the one card in
+   * the table whose *name* invited the reading the notations already invite: in
+   * a barbell tool "weight" is a lifter's own weight about as often as it is a
+   * load, so a card headed "Weight-dependent" over an equation containing `ln w`
+   * reads as the equation that wants a body weight. It is dependent on the
+   * magnitude of the *bar*, which is a property of the arithmetic and not a
+   * distinguishing name.
+   *
+   * `id` and `family` deliberately keep the old spelling. `findFormula` takes a
+   * `string` precisely because identifiers arrive from outside this build -- a
+   * result stored under an earlier methodology version, say -- and renaming one
+   * turns a stored row into an equation this build claims not to have.
+   */
   {
     id: 'weight-dependent-2026',
-    name: 'Weight-dependent (2026 preprint)',
+    name: 'Marzagão (2026 preprint)',
     tier: 'experimental',
     family: 'weight-dependent-2026',
     notation: '1RM = w × (1 + (r - 1)^0.85 / (-2.55 + 4.58 ln w))   (kilograms)',

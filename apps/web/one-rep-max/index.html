@@ -6,7 +6,7 @@
     <title>One-Rep Max Estimator — Platform Toolkit</title>
     <meta
       name="description"
-      content="Estimate a one-rep max from a set you actually did, using twenty published equations and showing where they disagree."
+      content="Estimate a one-rep max from a set you actually did, using the published equations and showing where they disagree."
     />
     <!--
       Runs before first paint to apply a theme an embedder forced. Must stay an
@@ -37,8 +37,15 @@
         <!-- Relative, so it resolves under a subpath deploy too. See tools.ts. -->
         <a class="back-link" href="../">Platform Toolkit</a>
         <h1>One-Rep Max Estimator</h1>
+        <!--
+          No count in either sentence above or here. This is static markup and
+          cannot read `FORMULAS.length`, so a written-out number is a claim that
+          goes stale the day an equation is added -- and it had: the page said
+          twenty over a library of twenty-two, contradicting the fold below it,
+          which does read the count. `tools.ts` words the hub entry the same way.
+        -->
         <p class="tagline">
-          What a set you already did suggests about a single, from twenty published equations —
+          What a set you already did suggests about a single, from the published equations —
           including where they disagree.
         </p>
       </header>

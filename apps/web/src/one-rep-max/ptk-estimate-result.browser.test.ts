@@ -217,6 +217,21 @@ describe('ptk-estimate-result', () => {
     expect(effects(capped)).toContain('Caps the grade');
   });
 
+  it('says where the sex question is, in the only place it mentions sex unfolded', async () => {
+    // Reported as "mentions sex, but doesn't ask for it". It does ask, under
+    // "Improve this estimate" -- but this note was the only mention outside that
+    // fold, and a note about a setting with no route to the setting is
+    // indistinguishable from a note about something the reader cannot change.
+    const element = await mount({ estimate: estimateFor() });
+    const rendered = deepText(element);
+
+    expect(rendered).toContain('Sex-specific weighting is off');
+    expect(rendered).toContain('Improve this estimate');
+    // Optional, and said so: the grade effect is a note rather than a lowering,
+    // and the sentence has to agree with the label beside it.
+    expect(rendered).toContain('answering it is not required');
+  });
+
   it('never claims a probability, an interval, or an attempt', async () => {
     // §7.5, §11, §14 and §17 are product constraints, not tone preferences. A
     // reader who takes the spread for a probability plans a third attempt out

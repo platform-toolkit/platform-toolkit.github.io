@@ -157,8 +157,15 @@ export class PtkSetRefinements extends LitElement {
     // Always last and always said: this one stops the estimate rather than
     // adjusting it, so it may never be true and unmentioned.
     if (entry.assisted) said.push('spotter assisted');
+    // Reported sex is named here for the same reason the other three are, and it
+    // was the one left out: the tool notes in the result panel that sex-specific
+    // weighting is off, and a lifter who reads that and then reads a folded
+    // section claiming only three things are unstated has been told the question
+    // does not exist. Named in the opening sentence rather than appended to
+    // every "Added:" line, so the fold is signposted where it is emptiest and
+    // stays a glanceable sentence once it is not.
     return said.length === 0
-      ? 'Nothing added. Movement standard, fatigue and experience are all unstated.'
+      ? 'Nothing added. Movement standard, fatigue, experience and reported sex are all unstated.'
       : `Added: ${said.join(', ')}.`;
   }
 

@@ -109,6 +109,54 @@ describe('ptk-formula-comparison', () => {
     expect(deepText(element)).toContain('Epley, 1985.');
   });
 
+  it('defines the symbols the equations are written in', async () => {
+    // Twenty-two notations shipped with nothing on the page defining a letter in
+    // any of them. `w` is the load lifted and the legend has to say so in those
+    // words, because the alternative reading is the one a lifter actually
+    // reached: that `1RM = 7.24 + 1.05w` is a regression on their body weight.
+    const element = await mount();
+    const rendered = deepText(element);
+
+    expect(rendered).toContain('Reading the equations');
+    expect(rendered).toContain('what was on the bar, not what you weigh');
+    expect(rendered).toContain('the reps you completed plus any you said were left');
+    expect(rendered).toContain('The heaviest weight liftable for five repetitions.');
+  });
+
+  it('says outright that no equation here uses body weight', async () => {
+    // Not left to the legend to imply. A reader who has just worked out that one
+    // of these wants their body weight needs the impression contradicted, and
+    // needs to know the omission is a decision rather than a missing field.
+    const element = await mount();
+    const rendered = deepText(element);
+
+    expect(rendered).toContain('None of these equations uses body weight');
+    expect(rendered).toContain('one fixed test load');
+  });
+
+  it('keeps the legend when no equation voted', async () => {
+    // An observed single takes the spread section away with it, and the legend
+    // is not part of the spread: twenty-two notations are still on screen and
+    // still need their letters defined.
+    const element = await mount({ estimate: estimateFor({ repsText: '1' }) });
+    const rendered = deepText(element);
+
+    expect(rendered).not.toContain('How far apart the equations are');
+    expect(rendered).toContain('Reading the equations');
+    expect(rendered).toContain('None of these equations uses body weight');
+  });
+
+  it('names the 2026 preprint after its author, not after its shape', async () => {
+    // "Weight-dependent" was the one card whose *name* invited the reading the
+    // notations invite: in a barbell tool, weight is a lifter's own about as
+    // often as it is a load. It is dependent on the magnitude of the bar.
+    const element = await mount();
+    const rendered = deepText(element);
+
+    expect(texts(element, '.name')).toContain('Marzagão (2026 preprint)');
+    expect(rendered).not.toContain('Weight-dependent');
+  });
+
   it('marks an equation that did not count without dimming what it says', async () => {
     // The reason a formula was excluded is the most useful sentence on the card,
     // so exclusion is drawn with a border and a surface -- never by fading text

@@ -199,7 +199,12 @@ function advisorySentence(advisory: OneRepMaxAdvisory): string | null {
     case 'evidence-weighted':
       return 'Some equations count for more here, following the study that measured them against this lift for the sex you reported.';
     case 'sex-weighting-declined':
-      return 'Sex-specific weighting is off, so every eligible equation counts equally.';
+      // Says where the question is, because this note is the only place the tool
+      // mentions sex outside a fold. Reported as "mentions sex, but doesn't ask
+      // for it": it does ask, under "Improve this estimate", and a note about a
+      // setting with no route to the setting is indistinguishable from a note
+      // about something the reader cannot change.
+      return 'Sex-specific weighting is off, so every eligible equation counts equally. Reported sex is one of the optional questions under "Improve this estimate"; answering it is not required.';
     case 'estimates-agree':
       return 'The equations agree closely, so the set produced a consistent estimate.';
     case 'estimates-disagree':
@@ -263,6 +268,45 @@ export function reasonLabel(reason: OutcomeReasonCode): string {
       return 'Outside its supported repetition range';
   }
 }
+
+/** One symbol in the equations, and what it stands for. */
+export interface NotationTerm {
+  readonly symbol: string;
+  readonly meaning: string;
+}
+
+/**
+ * What the letters in the equations mean.
+ *
+ * Twenty-two notations were printed with nothing anywhere defining a single
+ * symbol in them, on the strength of `w` and `r` being obvious. They are obvious
+ * to somebody who already knows which weight is meant, and that is the whole
+ * question: `1RM = 7.24 + 1.05w` and `1RM = -24.62 + 1.12w + 5.09r` read like
+ * regressions on a person, and a lifter reading them concluded the tool was
+ * using a body weight it had never asked for. A legend is four lines and removes
+ * the reading entirely.
+ */
+export const NOTATION_LEGEND: readonly NotationTerm[] = [
+  { symbol: 'w', meaning: 'The weight you lifted — what was on the bar, not what you weigh.' },
+  {
+    symbol: 'r',
+    meaning: 'Effective repetitions: the reps you completed plus any you said were left.',
+  },
+  { symbol: '5RM', meaning: 'The heaviest weight liftable for five repetitions.' },
+  { symbol: 'e, ln', meaning: 'The natural exponential and the natural logarithm.' },
+];
+
+/**
+ * The answer to a question the equations look like they are asking (§16).
+ *
+ * Stated here rather than left to the legend to imply, because "w is the weight
+ * you lifted" tells a reader what this tool does and not why it declines to do
+ * the other thing. The equations that take a body weight predict a maximum from
+ * repetitions at one fixed test load rather than from a set at a weight the
+ * lifter chose; see the header of `one-rep-max-formulas.ts`.
+ */
+export const BODY_WEIGHT_NOTE =
+  'None of these equations uses body weight, which is why the tool never asks for it. The published equations that do take body weight predict a maximum from repetitions at one fixed test load rather than from a set at a weight you chose, so they cannot answer this question.';
 
 /** What is wrong with the input, one sentence per problem, all of them at once. */
 export function problemSentence(code: OneRepMaxProblemCode): string {

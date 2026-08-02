@@ -18,6 +18,16 @@
  * the same either way, which is what makes the stacked form usable rather than
  * merely present.
  *
+ * WHY THERE IS A LEGEND, AND WHY IT SAYS WHAT IS *NOT* AN INPUT
+ *
+ * The cards printed twenty-two notations with nothing on the page defining a
+ * symbol in any of them. `1RM = 7.24 + 1.05w` is a regression on a weight, and
+ * which weight is the entire question -- a lifter read this section and
+ * concluded the tool was using a body weight it had never asked for. So the
+ * legend names `w` as the load lifted and then says outright that no equation
+ * here uses body weight, because a reader who has just formed that impression
+ * needs it contradicted rather than merely not confirmed.
+ *
  * WHAT THE SPREAD IS NOT
  *
  * The disagreement figures are how far apart published models are on this set.
@@ -36,7 +46,7 @@ import '@platform-toolkit/ui';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 
-import { reasonLabel } from './copy.js';
+import { BODY_WEIGHT_NOTE, NOTATION_LEGEND, reasonLabel } from './copy.js';
 
 @customElement('ptk-formula-comparison')
 export class PtkFormulaComparison extends LitElement {
@@ -46,7 +56,8 @@ export class PtkFormulaComparison extends LitElement {
       container-type: inline-size;
     }
 
-    .spread {
+    .spread,
+    .legend {
       margin: 0 0 var(--ptk-space-md);
       padding: var(--ptk-space-md);
       border: 1px solid var(--ptk-color-border);
@@ -54,11 +65,38 @@ export class PtkFormulaComparison extends LitElement {
       background-color: var(--ptk-color-surface-sunken);
     }
 
-    .spread h3 {
+    .spread h3,
+    .legend h3 {
       margin: 0 0 var(--ptk-space-sm);
       font-size: var(--ptk-font-size-sm);
       text-transform: uppercase;
       letter-spacing: 0.04em;
+      color: var(--ptk-color-text-muted);
+    }
+
+    /*
+     * Wider tracks than the figures grid above, because these values are
+     * sentences rather than weights: at 12rem a definition wraps to four lines
+     * and the legend is taller than the cards it explains.
+     */
+    .terms {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+      gap: var(--ptk-space-sm);
+      margin: 0;
+    }
+
+    /* The symbol in the same face the notation is set in, or a reader has to
+       decide for themselves that the w here and the w there are the same
+       letter. (No backticks in a css comment -- they end the template.) */
+    .term dt {
+      font-family: var(--ptk-font-family-mono);
+      font-weight: 700;
+    }
+
+    .term dd {
+      margin: 0;
+      font-size: var(--ptk-font-size-sm);
       color: var(--ptk-color-text-muted);
     }
 
@@ -160,7 +198,7 @@ export class PtkFormulaComparison extends LitElement {
         label="Every equation"
         summary=${`${String(FORMULAS.length)} published equations, what each answered for this set, and why it did or did not count.`}
       >
-        ${this.#renderSpread(estimate)}
+        ${this.#renderSpread(estimate)}${this.#renderLegend()}
         <ul class="cards">
           ${estimate.outcomes.map((outcome) => this.#renderOutcome(outcome))}
         </ul>
@@ -204,6 +242,31 @@ export class PtkFormulaComparison extends LitElement {
         This is disagreement between published models on the set you described. It is not a margin
         of error and it says nothing about how likely any of these figures is.
       </p>
+    </section>`;
+  }
+
+  /**
+   * What the letters mean, above the cards that use them.
+   *
+   * Above rather than below: a reader meeting `1RM = 7.24 + 1.05w` with no
+   * legend has already decided what `w` is by the time they reach the bottom of
+   * twenty-two cards, and a definition arriving after the decision does not
+   * undo it. Rendered for every kind of estimate, including the observed single
+   * where no equation voted -- the notations are still on screen.
+   */
+  #renderLegend(): TemplateResult {
+    return html`<section class="legend">
+      <h3>Reading the equations</h3>
+      <dl class="terms">
+        ${NOTATION_LEGEND.map(
+          (term) =>
+            html`<div class="term">
+              <dt>${term.symbol}</dt>
+              <dd>${term.meaning}</dd>
+            </div>`,
+        )}
+      </dl>
+      <p class="caveat">${BODY_WEIGHT_NOTE}</p>
     </section>`;
   }
 

@@ -81,9 +81,17 @@ and the reason it did or did not contribute. Equations that are the same relatio
 names get one vote between them, not two.
 
 Optional questions — movement standard, repetitions left in reserve, freshness, form, training
-experience — change the **grade** of the estimate rather than the figure. Answering all of them does
-not produce a bigger number, and the tool opens on the answer that claims nothing rather than on the
-one that flatters the estimate.
+experience, reported sex — change the **grade** of the estimate rather than the figure. Answering
+all of them does not produce a bigger number, and the tool opens on the answer that claims nothing
+rather than on the one that flatters the estimate. Reported sex is the one that also touches the
+arithmetic, and only for the bench press and the squat: two of the studies behind the weighting
+reported men and women separately, so answering it lets those equations count for more. Declining it
+is a supported answer that still produces an estimate with every eligible equation counting equally.
+
+None of the equations uses body weight, which is why the tool never asks for it. The notation is `w`
+for the weight on the bar throughout, and there is a legend saying so above the equations — the
+published equations that _do_ take a body weight predict a maximum from repetitions at one fixed
+test load rather than from a set at a weight you chose, so they answer a different question.
 
 The spread between equations is shown as what it is: disagreement between published models. It is
 not a confidence interval, not a margin of error, and says nothing about how likely any figure is.

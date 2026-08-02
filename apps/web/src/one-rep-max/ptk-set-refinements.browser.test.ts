@@ -179,8 +179,26 @@ describe('ptk-set-refinements', () => {
     // reason to open, and the two questions behind it are the ones that cost the
     // grade most often.
     expect(summaryOf(await mount())).toBe(
-      'Nothing added. Movement standard, fatigue and experience are all unstated.',
+      'Nothing added. Movement standard, fatigue, experience and reported sex are all unstated.',
     );
+  });
+
+  it('names reported sex as unstated, because the result panel mentions it', async () => {
+    // Reported as "mentions sex, but doesn't ask for it". The result panel notes
+    // that sex-specific weighting is off; if the only other place sex appears is
+    // behind a fold whose summary lists three other questions and not this one,
+    // a lifter has been told about a setting and then told it does not exist.
+    expect(summaryOf(await mount())).toContain('reported sex');
+  });
+
+  it('stops calling it unstated once it has been answered', async () => {
+    // The complement, and the reason it is the opening sentence that names sex
+    // rather than a clause appended to every summary: answered, it is already in
+    // the list and saying both would be the fold contradicting itself.
+    const element = await mount({ entry: describedSet({ sex: 'man' }) });
+
+    expect(summaryOf(element)).toBe('Added: man.');
+    expect(summaryOf(element)).not.toContain('unstated');
   });
 
   it('names every answer that moves something, and nothing else, while folded', async () => {

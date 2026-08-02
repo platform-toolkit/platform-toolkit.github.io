@@ -20,6 +20,13 @@ import './ptk-set-refinements.js';
  *
  * Open, the thing to look at is that the standards belong to the *lift* — the
  * question is the same question for a deadlift and the answers are not.
+ *
+ * Reported sex is the fourth thing the unanswered summary names, and it was left
+ * out of that sentence for a while. The result panel says sex-specific weighting
+ * is off; if the only other place sex appears is behind a fold whose summary
+ * lists three other questions and not this one, a lifter has been told about a
+ * setting and then told it does not exist. Reported as "mentions sex, but
+ * doesn't ask for it", which is what a hidden question looks like from outside.
  */
 
 /** Presses the summary, which is how a visitor opens it. */
@@ -57,9 +64,10 @@ type Story = StoryObj<PtkSetRefinements>;
 /**
  * Folded, with nothing answered.
  *
- * The summary names the three questions that are unstated instead of saying
- * nothing — a fold that reads as empty is a fold nobody opens, and two of those
- * three are what cost the estimate its grade.
+ * The summary names the four questions that are unstated instead of saying
+ * nothing — a fold that reads as empty is a fold nobody opens, and three of
+ * those four are what cost the estimate its grade. The fourth, reported sex,
+ * costs nothing and is named because the panel above mentions it.
  */
 export const Folded: Story = {};
 

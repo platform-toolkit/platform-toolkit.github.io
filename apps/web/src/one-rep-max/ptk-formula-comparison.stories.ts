@@ -22,6 +22,14 @@ import './ptk-formula-comparison.js';
  * them says so, because a reader who takes the spread for a probability plans a
  * third attempt out of it.
  *
+ * The legend above the cards is the third thing to read. Twenty-two notations
+ * shipped with nothing on the page defining a symbol in any of them, and `1RM =
+ * 7.24 + 1.05w` is a regression on a weight — which weight being the entire
+ * question. A lifter read this section and concluded the tool was using a body
+ * weight it had never asked for. So the legend names `w` as the load lifted and
+ * then says outright that no equation here uses body weight, which is a stronger
+ * claim than defining the symbol and leaving the impression to fade.
+ *
  * Two real states are missing on purpose: an assisted set and no estimate both
  * render nothing at all, which is correct and unstoryable — `smoke-stories.mjs`
  * fails a story that renders no text. The browser suite asserts both.

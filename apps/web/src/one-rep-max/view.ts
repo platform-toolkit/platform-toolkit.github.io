@@ -8,7 +8,7 @@
  *
  * NO DATA SOURCE, AND NO FEDERATION
  *
- * Unlike tools 1 and 4 there is nothing to read. Twenty published equations, the
+ * Unlike tools 1 and 4 there is nothing to read. The published equations, the
  * evidence weights and the methodology version are all constants of the
  * literature and live in `packages/domain` beside their citations (§5.1's
  * exception, recorded in §11): a paper's coefficients were fixed the day it
