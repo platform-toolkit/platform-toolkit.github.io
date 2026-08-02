@@ -99,14 +99,20 @@ const PLATFORM_TARGETS_REVEAL = [
  * after `reveal` rather than beside it.
  *
  * All four are answered because the report widens with each: a second weight
- * class adds a column (requirement 8), a masters division adds a set of rows to
- * every cell (requirement 2), and a state adds a second level of record
+ * class adds a column to every matrix (requirement 8), an age division adds a
+ * second row to every block (requirement 2), and a state adds a level of record
  * (requirement 3). Answering only the required one would measure the narrowest
  * report the tool can draw and call the widest one covered.
+ *
+ * The comparison class is index **2**, and that is the whole point of it. Both
+ * pickers offer the same ladder, so index 1 in both names one class twice --
+ * which `chosenWeightClasses` deduplicates through a `Set`, exactly as it should
+ * for a lifter who picked their own class in both. The check then measured a
+ * one-column matrix in a list whose comment claimed it was measuring two.
  */
 const PLATFORM_TARGETS_CHOOSE = [
   { selector: 'ptk-select[data-field="weightClass"] select', index: 1 },
-  { selector: 'ptk-select[data-field="comparisonWeightClass"] select', index: 1 },
+  { selector: 'ptk-select[data-field="comparisonWeightClass"] select', index: 2 },
   { selector: 'ptk-select[data-field="division"] select', index: 1 },
   { selector: 'ptk-select[data-field="region"] select', index: 1 },
 ];
@@ -232,27 +238,77 @@ const ONE_REP_MAX_CLICK_AFTER = [
 ];
 
 /**
+ * The report shows one lift and one target type at a time, so the widest thing
+ * on it has to be navigated to before it can be measured.
+ *
+ * These run in `clickAfter` rather than `click` because none of them exists
+ * until the four required answers have been given and the reads behind them have
+ * landed -- pressing them in `click` would report "nothing matched", a true
+ * statement about a state the check itself produced, and the pressure that
+ * follows is to weaken the unmatched-selector failure into a skip.
+ *
+ * What each reaches, in order:
+ *
+ * - The **records** half. Classifications open by default and are the narrower
+ *   of the two: a record cell carries a disclosure caret beside its figures, and
+ *   a record matrix carries the note and the fold above it.
+ * - The **rule fold**, which holds the longest unbroken prose in the tool. The
+ *   whole redesign was moving those two sentences out of seventy record rows and
+ *   into one place; folded, that place measures one line.
+ * - A **record detail**, which is the widest arrangement the element ever draws
+ *   -- two attempt weights each with a label, a condition and a basis, then the
+ *   responsibility note, the holder line and the source link, all inside the
+ *   width of one matrix.
+ *
+ * A segment is named by the text a lifter reads, because its value is bound as a
+ * property and there is no attribute to select on. Playwright's CSS engine
+ * pierces open shadow roots, which is what makes a control inside `ptk-segmented`
+ * reachable at all.
+ *
+ * The spelling of that name is `:has(span:text-is(…))` and the two obvious
+ * shorter forms are both wrong. `label.segment:text-is("Records")` matches
+ * nothing: Playwright's text engine resolves to the *smallest* element holding
+ * the string, which is the `<span>` the segment wraps, so the exact-match
+ * pseudo-class asked of the label never fires. `label.segment:has-text("Records")`
+ * does match, and is a substring test -- it would silently start matching a
+ * future "Records (state)" segment as well, and `.first()` would then press
+ * whichever the template happened to render first.
+ */
+const PLATFORM_TARGETS_CLICK_AFTER = [
+  'ptk-target-report ptk-segmented[data-control="target-type"] label.segment:has(span:text-is("Records"))',
+  'ptk-target-report ptk-disclosure[label="How record attempts work"] summary',
+  'ptk-target-report td button.cell-button',
+];
+
+/**
  * The two last things to appear on the Platform Targets screen.
  *
  * Two rather than one, because the screen has two panels that finish at
  * different moments and neither implies the other. The derived total fills in
- * once the three lifts above it parse; a report row exists only once both the
- * classification standards and at least one record partition have arrived and
- * been laid out against the chosen classes. Settling on the total alone would
- * measure a report still showing its loading notice, which is a fraction of the
- * height of the one with ladders on it.
+ * once the three lifts above it parse; the record detail exists only once the
+ * classification standards and the record partitions have arrived, been laid out
+ * against the chosen classes, and had one of their cells pressed open by
+ * `clickAfter` above. Settling on the total alone would measure a report still
+ * showing its loading notice, which is a fraction of the height of the one with
+ * matrices on it.
  *
- * A row rather than a record figure. Every row -- classification rung or record
- * -- is the same `li.row`, and which of the two a given category has is a fact
- * about published data: the first option in every picker is a real category the
- * federation may publish no record for, so waiting for a record specifically
- * would be waiting for something correct data does not have to produce. The
- * widest string a record row renders, the holder line, is measured at 320 px in
- * `ptk-target-report.browser.test.ts` instead, where the book is a fixture.
+ * The detail rather than a cell or a caption, because it is the last thing to
+ * appear and it implies everything before it: there is no detail without a
+ * pressed cell, no cell without a matrix, and no matrix without a book. A
+ * `tbody td` would be satisfied by an empty cell in a table still waiting on its
+ * second partition.
+ *
+ * That this is reachable at all is a fact about published data rather than a
+ * guarantee of the code: the first option in every picker names a real category,
+ * and a category the federation publishes no record for would leave `clickAfter`
+ * with nothing to press. It is reachable today for both routes at both widths,
+ * and it fails loudly rather than silently if a refresh ever changes that --
+ * which is the right way round, because the alternative is a check that stops
+ * measuring the panel it exists for and goes on reporting a pass.
  */
 const PLATFORM_TARGETS_SETTLE = [
   'ptk-number-field[data-lift="total"] input',
-  'ptk-target-report li.row',
+  'ptk-target-report .detail .attempt-weight',
 ];
 
 /**
@@ -273,6 +329,7 @@ const ROUTES = [
     reveal: PLATFORM_TARGETS_REVEAL,
     choose: PLATFORM_TARGETS_CHOOSE,
     fill: PLATFORM_TARGETS_FILL,
+    clickAfter: PLATFORM_TARGETS_CLICK_AFTER,
     settle: PLATFORM_TARGETS_SETTLE,
   },
   {
@@ -281,6 +338,7 @@ const ROUTES = [
     reveal: PLATFORM_TARGETS_REVEAL,
     choose: PLATFORM_TARGETS_CHOOSE,
     fill: PLATFORM_TARGETS_FILL,
+    clickAfter: PLATFORM_TARGETS_CLICK_AFTER,
     settle: PLATFORM_TARGETS_SETTLE,
   },
   {
@@ -343,6 +401,17 @@ const TAP_TARGET_MIN = 44;
 
 /** Below this, iOS Safari zooms the page when a field takes focus. */
 const MINIMUM_INPUT_FONT_SIZE = 16;
+
+/**
+ * How long something fetched over the network has to appear before it counts as
+ * absent.
+ *
+ * Generous on purpose: this is a loopback server reading a directory, so the
+ * real wait is a few frames, and the only thing a short limit buys is a failure
+ * report about a slow machine. `settled` below polls to its own budget for the
+ * same reason.
+ */
+const ARRIVAL_TIMEOUT_MS = 10_000;
 
 /**
  * Measures the page, reaching into shadow roots.
@@ -440,6 +509,15 @@ const MEASURE = `(() => {
  * disagreeing about what a missing selector means. It means the same thing in
  * both: a failure, never a skip.
  *
+ * It **waits** for each one rather than counting immediately, and that is not a
+ * flake mitigation -- it is what makes `clickAfter` able to press something that
+ * arrives over the network. A record cell exists only once its partition has been
+ * fetched, parsed and laid out, so `count()` on the tick after the last keystroke
+ * is a question about the connection rather than about the page. Counting was
+ * enough while every `clickAfter` entry was a fold rendered synchronously beside
+ * a computed number. A selector that never appears still fails, with the same
+ * message, a few seconds later.
+ *
  * @param {import('playwright').Page} page
  * @param {readonly string[]} selectors
  * @param {string} where
@@ -449,7 +527,9 @@ const MEASURE = `(() => {
 async function tap(page, selectors, where, failures) {
   for (const selector of selectors) {
     const control = page.locator(selector).first();
-    if ((await control.count()) === 0) {
+    try {
+      await control.waitFor({ state: 'attached', timeout: ARRIVAL_TIMEOUT_MS });
+    } catch {
       failures.push(`${where}: nothing matched ${selector}`);
       return false;
     }

@@ -20,6 +20,7 @@ import './ptk-disclosure.js';
 import './ptk-notice.js';
 import './ptk-number-field.js';
 import './ptk-plate-stack.js';
+import './ptk-segmented.js';
 import './ptk-select.js';
 import './ptk-toggle-group.js';
 
@@ -43,6 +44,11 @@ export {
   PtkNumberField,
   type NumberFieldChangeDetail,
 } from './ptk-number-field.js';
+export {
+  SEGMENTED_CHANGE_EVENT,
+  PtkSegmented,
+  type SegmentedChangeDetail,
+} from './ptk-segmented.js';
 export {
   SELECT_CHANGE_EVENT,
   PtkSelect,

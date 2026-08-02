@@ -8,7 +8,7 @@ import type {
   ClassificationBook,
   RecordBook,
 } from '@platform-toolkit/data-contracts';
-import type { PtkChoiceGroup, PtkSelect } from '@platform-toolkit/ui';
+import type { PtkChoiceGroup, PtkSegmented, PtkSelect } from '@platform-toolkit/ui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { deepText } from '../testing/deep-text.js';
@@ -200,6 +200,38 @@ async function typeLift(element: PtkPlatformTargets, lift: string, text: string)
   }
   input.value = text;
   input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+  await element.updateComplete;
+}
+
+/**
+ * Moves one of the report's two bars, the way a thumb does.
+ *
+ * A third control family, alongside `choose` and `pick`, and it throws by name
+ * for the same reason both of those do: a helper that quietly fell back to
+ * another family is how a suite starts answering nothing and reporting a pass.
+ * A segment binds its value as a *property*, so it has to be found by the text a
+ * lifter reads rather than by an attribute selector.
+ */
+async function moveBar(element: PtkPlatformTargets, control: string, label: string): Promise<void> {
+  const bar = report(element).querySelector<PtkSegmented>(
+    `ptk-segmented[data-control="${control}"]`,
+  );
+  if (bar === null) {
+    throw new Error(`No "${control}" bar in the report.`);
+  }
+  await bar.updateComplete;
+  const segments = [...(bar.shadowRoot?.querySelectorAll('label.segment') ?? [])];
+  const found = segments.find((segment) => segment.textContent.trim() === label);
+  const input = found?.querySelector('input');
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error(
+      `No "${control}" segment labelled "${label}". Found: ${segments
+        .map((segment) => segment.textContent.trim())
+        .join(', ')}.`,
+    );
+  }
+  input.click();
+  await bar.updateComplete;
   await element.updateComplete;
 }
 
@@ -607,13 +639,30 @@ describe('loading the records for a report', () => {
     expect(reported).toHaveBeenCalledWith('Platform Targets could not load the records: network.');
   });
 
+  /**
+   * The far end of the wiring: a book read over the seam, filed under a
+   * partition key, laid out by `report.ts` and printed in a cell.
+   *
+   * Records are the second half of the report and a bar away, so the assertion
+   * has to move the bar — which is the point. Reaching into the element's state
+   * to jump there would leave the one control every visitor uses to see a record
+   * unexercised in the assembled page, and it is the control that most recently
+   * changed.
+   */
   it('draws a record the lifter could take, from the partition it arrived in', async () => {
     const element = mount(sourceThat({ records: () => Promise.resolve(BOOK) }));
     await answerRequired(element);
 
     await vi.waitFor(() => {
-      expect(deepText(report(element))).toContain('National record');
+      expect(readFor(element, 'National').status).toBe('ready');
     });
-    expect(deepText(report(element))).toContain('Record: 145 kg');
+    await moveBar(element, 'target-type', 'Records');
+
+    const shown = deepText(report(element));
+    expect(shown).toContain('National records');
+    expect(shown).toContain('145 kg');
+    // The cell holds the record. The weights that take it are behind it, so a
+    // reader who has not opened one cannot mistake an attempt for the record.
+    expect(shown).not.toContain('147.5 kg');
   });
 });

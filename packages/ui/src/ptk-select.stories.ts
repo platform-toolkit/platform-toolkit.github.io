@@ -101,10 +101,10 @@ export const Answered: Story = {
  */
 export const Grouped: Story = {
   args: {
-    label: 'Masters or Juniors division',
+    label: 'Age division',
     options: DIVISIONS,
     placeholder: 'Open only',
-    hint: 'Optional. Open records and classifications are always shown.',
+    hint: 'Optional. Open stays visible because many lifters cross-enter.',
   },
 };
 
@@ -117,11 +117,11 @@ export const Grouped: Story = {
  */
 export const AnsweredAndClearable: Story = {
   args: {
-    label: 'Masters or Juniors division',
+    label: 'Age division',
     options: DIVISIONS,
     value: 'm-2',
     placeholder: 'Open only',
-    hint: 'Optional. Open records and classifications are always shown.',
+    hint: 'Optional. Open stays visible because many lifters cross-enter.',
   },
 };
 
@@ -199,10 +199,10 @@ export const LongLabels: Story = {
  */
 export const Narrow: Story = {
   args: {
-    label: 'Masters or Juniors division',
+    label: 'Age division',
     options: DIVISIONS,
     placeholder: 'Open only',
-    hint: 'Optional. Open records and classifications are always shown.',
+    hint: 'Optional. Open stays visible because many lifters cross-enter.',
   },
   render: (args) => html`
     <div style="width: 320px; outline: 1px dashed currentColor; padding: 1rem;">

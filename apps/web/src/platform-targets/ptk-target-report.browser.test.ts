@@ -1,9 +1,9 @@
 import type { Lift } from '@platform-toolkit/data-contracts';
-import { PtkNotice } from '@platform-toolkit/ui';
+import { PtkNotice, PtkSegmented } from '@platform-toolkit/ui';
 // Every measurement at the bottom of this file reads a spacing or tap-target
 // token, and a declaration referencing an undefined custom property is dropped
 // -- so without the stylesheet the 320 px check measures a layout with no gaps
-// and the link check measures a link with no floor.
+// and the tap-target checks measure controls with no floor.
 import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -31,10 +31,16 @@ import { LIFTS, NO_ENTRIES, typeLift, type LiftEntries } from './standards.js';
  *
  * `report.ts` decides every figure and every sentence and is tested in Node, so
  * nothing here re-checks arithmetic. What only a browser can answer is whether
- * the arrangement carries it: whether a lifter can tell a record from a
- * classification, whether the weight leading a record row is the one that
- * *takes* it, whether a failed read is distinguishable from a category the
- * federation keeps nothing in, and whether any of it survives a 320 px column.
+ * the arrangement carries it -- and after the redesign the arrangement *is* the
+ * product, so most of this file is about it:
+ *
+ * - one lift and one target type on screen at a time, chosen with bars that stay
+ *   put and a choice that survives the other bar being used;
+ * - a real `<table>` with a caption, column headings and row headings, so a cell
+ *   is announced with its class and its division rather than as a naked figure;
+ * - the chosen age division and Open on adjacent rows inside one block;
+ * - the record-attempt rule explained **once** above the matrices, with the two
+ *   weights that take a record behind the record a lifter actually taps.
  *
  * Mounted alone rather than through `ptk-platform-targets`, deliberately. That
  * is the arrangement that catches an element rendering a `ptk-*` tag it never
@@ -57,6 +63,8 @@ interface MountOptions {
   readonly classificationsStatus?: PtkTargetReport['classificationsStatus'];
   readonly reads?: readonly PartitionRead[];
   readonly entries?: LiftEntries;
+  readonly initialLift?: PtkTargetReport['initialLift'];
+  readonly initialTargetType?: PtkTargetReport['initialTargetType'];
 }
 
 /** A read that arrived, which is what most of these tests want. */
@@ -75,6 +83,12 @@ async function mount(options: MountOptions = {}): Promise<PtkTargetReport> {
     (options.reads ?? [ready(NATIONAL, BOOK)]).map((read) => [partitionKey(read.partition), read]),
   );
   element.entries = options.entries ?? NO_ENTRIES;
+  if (options.initialLift !== undefined) {
+    element.initialLift = options.initialLift;
+  }
+  if (options.initialTargetType !== undefined) {
+    element.initialTargetType = options.initialTargetType;
+  }
   document.body.append(element);
   teardown.push(() => {
     element.remove();
@@ -88,8 +102,24 @@ function text(element: PtkTargetReport): string {
   return deepText(element);
 }
 
+/**
+ * The element's own shadow root, or a failure.
+ *
+ * Named rather than written out at forty call sites: `shadowRoot` is nullable,
+ * and `?? element` as a fallback would silently search the light DOM and find
+ * nothing, which reads as "the element rendered no table" rather than as a
+ * missing root.
+ */
+function root(element: PtkTargetReport): ShadowRoot {
+  const { shadowRoot } = element;
+  if (shadowRoot === null) {
+    throw new Error('The report has no shadow root.');
+  }
+  return shadowRoot;
+}
+
 function all(element: PtkTargetReport, selector: string): Element[] {
-  return [...(element.shadowRoot?.querySelectorAll(selector) ?? [])];
+  return [...root(element).querySelectorAll(selector)];
 }
 
 /**
@@ -110,56 +140,137 @@ function only(container: ParentNode, selector: string): Element {
   return found;
 }
 
-/** The section for one lift, found by its heading the way a reader finds it. */
-function sectionFor(element: PtkTargetReport, label: string): Element {
-  const found = all(element, '.section').find(
-    (section) => section.querySelector('h3')?.textContent.trim() === label,
-  );
-  if (found === undefined) {
-    throw new Error(`No section headed "${label}".`);
+/** One of the two bars, as the element it is rather than as whatever rendered. */
+function bar(element: PtkTargetReport, control: string): PtkSegmented {
+  const found = only(root(element), `ptk-segmented[data-control="${control}"]`);
+  if (!(found instanceof PtkSegmented)) {
+    // Thrown rather than skipped, for the reason the notice helper gives: an
+    // unregistered custom element still renders text, so a lenient helper would
+    // leave every assertion here passing over a bar with no radios in it.
+    throw new Error(`The "${control}" bar rendered as an unregistered element.`);
   }
   return found;
 }
 
-function sectionHeadings(element: PtkTargetReport): string[] {
-  return all(element, '.section h3').map((heading) => heading.textContent.trim());
+async function segmentLabels(element: PtkTargetReport, control: string): Promise<string[]> {
+  const control_ = bar(element, control);
+  await control_.updateComplete;
+  return [...(control_.shadowRoot?.querySelectorAll('label.segment') ?? [])].map((segment) =>
+    segment.textContent.trim(),
+  );
 }
 
-function columnsIn(section: Element): Element[] {
-  return [...section.querySelectorAll('.column')];
+/** Answer one of the bars the way a thumb does. */
+async function chooseSegment(
+  element: PtkTargetReport,
+  control: string,
+  label: string,
+): Promise<void> {
+  const control_ = bar(element, control);
+  await control_.updateComplete;
+  const segments = [...(control_.shadowRoot?.querySelectorAll('label.segment') ?? [])];
+  const found = segments.find((segment) => segment.textContent.trim() === label);
+  if (found === undefined) {
+    throw new Error(
+      `No "${control}" segment labelled "${label}". Found: ${segments
+        .map((segment) => segment.textContent.trim())
+        .join(', ')}.`,
+    );
+  }
+  const input = only(found, 'input');
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error(`The "${label}" segment holds no radio.`);
+  }
+  input.click();
+  await control_.updateComplete;
+  await element.updateComplete;
+}
+
+/** The records half of the report, which is never what a visit opens on. */
+async function showRecords(element: PtkTargetReport): Promise<void> {
+  await chooseSegment(element, 'target-type', 'Records');
+}
+
+function panelHeading(element: PtkTargetReport): string {
+  return only(root(element), '.panel h3').textContent.trim();
+}
+
+function tables(element: PtkTargetReport): Element[] {
+  return all(element, 'table');
+}
+
+function captions(element: PtkTargetReport): string[] {
+  return all(element, 'caption').map((caption) => caption.textContent.trim());
+}
+
+function groupHeadings(element: PtkTargetReport): string[] {
+  return all(element, '.group h4').map((heading) => heading.textContent.trim());
+}
+
+function columnHeadings(table: Element): string[] {
+  return [...table.querySelectorAll('thead th')].map((heading) => heading.textContent.trim());
+}
+
+function bodyRows(table: Element): Element[] {
+  return [...table.querySelectorAll('tbody tr')];
+}
+
+/** A row heading as a reader hears it: the level, then the division under it. */
+function rowLabel(row: Element): string {
+  const level = row.querySelector('.level')?.textContent.trim() ?? '';
+  const division = row.querySelector('.division')?.textContent.trim();
+  return division === undefined ? level : `${level} / ${division}`;
+}
+
+function rowLabels(table: Element): string[] {
+  return bodyRows(table).map(rowLabel);
 }
 
 /**
- * One lift's column, by the weight class heading when there is more than one.
+ * Every printed kilogram figure in a table, row by row, empties included.
  *
- * By the heading rather than by index: the report orders its columns by the
- * ladder and not by which class was answered first, so an index would silently
- * assert against the comparison class the day that ordering is what breaks.
+ * Scoped to `tbody` deliberately: the header row opens with an empty `<td>`
+ * holding the corner above the row headings, and a bare `td` selector reads it
+ * as a first cell with no figure in it.
  */
-function columnFor(element: PtkTargetReport, lift: string, weightClass?: string): Element {
-  const columns = columnsIn(sectionFor(element, lift));
-  if (weightClass === undefined) {
-    const [column, ...rest] = columns;
-    if (column === undefined || rest.length > 0) {
-      throw new Error(`Expected one "${lift}" column, found ${String(columns.length)}.`);
-    }
-    return column;
-  }
-  const found = columns.find(
-    (column) => column.querySelector('h4')?.textContent.trim() === weightClass,
+function figuresIn(table: Element): string[] {
+  return [...table.querySelectorAll('tbody td')].map((cell) => {
+    const kilograms = cell.querySelector('.kilograms');
+    return kilograms === null
+      ? (cell.querySelector('.empty-figure')?.textContent.trim() ?? '')
+      : kilograms.textContent.trim();
+  });
+}
+
+/** The one table with this caption, so a test names what a reader would read. */
+function tableCaptioned(element: PtkTargetReport, caption: string): Element {
+  const found = tables(element).find(
+    (table) => table.querySelector('caption')?.textContent.trim() === caption,
   );
   if (found === undefined) {
-    throw new Error(`No "${lift}" column headed "${weightClass}".`);
+    throw new Error(`No table captioned "${caption}". Found: ${captions(element).join(', ')}.`);
   }
   return found;
 }
 
-function rowsIn(container: Element): Element[] {
-  return [...container.querySelectorAll('li.row')];
+function recordButtons(element: PtkTargetReport): HTMLButtonElement[] {
+  return all(element, 'button.cell-button').map((button) => {
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error('A record cell rendered as something other than a button.');
+    }
+    return button;
+  });
 }
 
-function titlesIn(container: Element): string[] {
-  return [...container.querySelectorAll('.title')].map((title) => title.textContent.trim());
+/** Open the first record on screen and hand back the panel it revealed. */
+async function openFirstRecord(element: PtkTargetReport): Promise<Element> {
+  const [button] = recordButtons(element);
+  if (button === undefined) {
+    throw new Error('No record cell to open.');
+  }
+  button.click();
+  await element.updateComplete;
+  return only(root(element), '.detail');
 }
 
 function noticesIn(element: PtkTargetReport): PtkNotice[] {
@@ -173,6 +284,11 @@ function noticesIn(element: PtkTargetReport): PtkNotice[] {
     }
     return notice;
   });
+}
+
+/** How many times a sentence is on screen. The redesign is largely about this. */
+function occurrences(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1;
 }
 
 /** Entries as though somebody typed them, never as a literal. */
@@ -209,82 +325,429 @@ describe('ptk-target-report', () => {
     expect(text(element)).toContain(
       'Choose Sex category, Equipment, Drug-tested status and Weight class above and your targets appear here.',
     );
-    expect(text(element)).not.toContain('Masters');
+    expect(text(element)).not.toContain('Age division');
   });
 
   /**
-   * Requirement 9 proper. Nothing optional is answered here -- no comparison
-   * class, no division, no region -- and the whole report is on screen.
+   * Requirement 9 proper, and requirement 7 with it. Nothing optional is
+   * answered -- no comparison class, no division, no region -- and the whole
+   * classification ladder for the opening lift is on screen.
    */
   it('draws the whole report from the required answers alone', async () => {
     const element = await mount();
-    expect(sectionHeadings(element)).toEqual(['Squat', 'Bench press', 'Deadlift', 'Total']);
-    expect(titlesIn(columnFor(element, 'Squat'))).toEqual([
-      'Class III',
-      'Class II',
-      'National record',
-      'Class I',
-    ]);
+    expect(panelHeading(element)).toBe('Squat');
+    expect(captions(element)).toEqual(['Classification standards']);
+    const table = tableCaptioned(element, 'Classification standards');
+    expect(rowLabels(table)).toEqual(['Class III', 'Class II', 'Class I']);
+    expect(figuresIn(table)).toEqual(['100 kg', '120 kg', '150 kg']);
   });
 
   /**
-   * The axes every column shares, above the columns. They are answered by tiles
-   * that scroll off the top of a phone, and a screen full of figures with
-   * nothing saying whose they are is the state this line exists to prevent.
+   * The axes every matrix shares, above the matrices. They are answered by
+   * controls that scroll off the top of a phone, and a screen full of figures
+   * with nothing saying whose they are is the state this line exists to prevent.
    */
   it('states whose report it is', async () => {
     expect(text(await mount())).toContain('56 kg · Open');
+    // The chosen division leads, the way it leads the rows below.
     expect(text(await mount({ selection: FULLY_ANSWERED }))).toContain(
-      '52 kg and 56 kg · Open and Masters 1',
+      '52 kg and 56 kg · Masters 1 and Open',
     );
   });
 
   /**
-   * Requirement 5. Both units on every rung, and the pound figure is not shrunk
-   * into a footnote: a lifter who trains in pounds is reading that column.
+   * P0: one lift at a time.
+   *
+   * The previous version put all four lifts and every target type on one page --
+   * measured at 182 rows and roughly 11,900 CSS pixels on an ordinary category.
+   * Four lifts on one page is four times the scrolling to reach the one being
+   * planned, so the bar is the unit of navigation and only one panel exists.
    */
-  it('writes every rung in kilograms and in pounds', async () => {
-    const [first] = rowsIn(columnFor(await mount(), 'Squat'));
+  it('shows one lift at a time and moves to the one chosen', async () => {
+    const element = await mount();
+    expect(await segmentLabels(element, 'lift')).toEqual([
+      'Squat',
+      'Bench press',
+      'Deadlift',
+      'Total',
+    ]);
+    expect(all(element, '.panel')).toHaveLength(1);
+
+    await chooseSegment(element, 'lift', 'Bench press');
+    expect(panelHeading(element)).toBe('Bench press');
+    expect(all(element, '.panel')).toHaveLength(1);
+  });
+
+  /**
+   * P0: classifications and records are separate views, not one list sorted by
+   * weight. They answer different questions -- "where do I place" and "what
+   * would I take" -- and interleaving them makes a reader sort them mentally
+   * before they can read either.
+   */
+  it('keeps classifications and records on separate views', async () => {
+    const element = await mount();
+    expect(await segmentLabels(element, 'target-type')).toEqual(['Classifications', 'Records']);
+    expect(captions(element)).toEqual(['Classification standards']);
+
+    await showRecords(element);
+    expect(captions(element)).toEqual(['National records']);
+  });
+
+  /**
+   * The lift survives a change of target type and the target type survives a
+   * change of lift. A bar that reset the other one would send a lifter back to
+   * the squat every time they looked at records, which on a phone is most of the
+   * interaction.
+   */
+  it('keeps the chosen lift when the target type changes, and the reverse', async () => {
+    const element = await mount();
+    await chooseSegment(element, 'lift', 'Total');
+    await showRecords(element);
+    expect(panelHeading(element)).toBe('Total');
+    expect(captions(element)).toEqual(['National records']);
+
+    await chooseSegment(element, 'lift', 'Squat');
+    expect(panelHeading(element)).toBe('Squat');
+    // Still records: the lift bar answers which lift, and nothing else.
+    expect(captions(element)).toEqual(['National records']);
+  });
+
+  /**
+   * The two bars can be seeded, once.
+   *
+   * A story that wanted the records half, and later a returning visit that wants
+   * to open where the last one left off, both need a way in — and the first
+   * paint has to already be on the right lift, because assigning after the first
+   * render draws the squat's classifications and then replaces them, which on a
+   * slow phone is a visible flash of somebody else's numbers.
+   */
+  it('opens on the lift and target type it was seeded with', async () => {
+    const element = await mount({ initialLift: 'bench', initialTargetType: 'records' });
+    expect(panelHeading(element)).toBe('Bench press');
+    expect(captions(element)).toEqual(['National records']);
+  });
+
+  /**
+   * And the seed is read once, never again.
+   *
+   * The element owns where the bars are, so a live property would let the next
+   * parent render put a bar back where the lifter moved it away from — on a
+   * screen whose entire navigation is those two bars. Re-rendering here with the
+   * seed still set is exactly what a parent does on any unrelated update.
+   */
+  it('does not put a bar back after the lifter has moved it', async () => {
+    const element = await mount({ initialLift: 'bench' });
+    await chooseSegment(element, 'lift', 'Total');
+    element.entries = typed({ squat: '125' });
+    await element.updateComplete;
+    expect(panelHeading(element)).toBe('Total');
+  });
+
+  /**
+   * The tab set is fixed at four and never shortens.
+   *
+   * The old page dropped a lift it had nothing to say about, which was right for
+   * a page of stacked sections and wrong for a bar: a control whose options
+   * appear and disappear as reads settle moves under a thumb already travelling,
+   * and a lifter who cannot find the deadlift tab concludes the tool is broken
+   * rather than that the federation publishes no deadlift record here.
+   */
+  it('keeps every lift in the bar and says plainly when one has nothing published', async () => {
+    const element = await mount();
+    await showRecords(element);
+    await chooseSegment(element, 'lift', 'Deadlift');
+    expect(await segmentLabels(element, 'lift')).toHaveLength(4);
+    expect(tables(element)).toEqual([]);
+    expect(text(element)).toContain(
+      'No records are published for this lift in this category. The first qualifying lift sets one.',
+    );
+  });
+
+  /**
+   * P0: a real table.
+   *
+   * Not a purity argument. A CSS grid of `div`s announces a naked "100" with no
+   * row and no column, so the whole context of every cell would have to be
+   * duplicated into a hidden string per cell -- a second copy of the same
+   * information and a far more verbose reading than the table semantics give
+   * for free.
+   */
+  it('is a real table with a caption and both kinds of heading', async () => {
+    const table = tableCaptioned(await mount(), 'Classification standards');
+    expect(table.querySelector('caption')).not.toBeNull();
+    expect(
+      [...table.querySelectorAll('th[scope="col"]')].map((th) => th.textContent.trim()),
+    ).toEqual(['56 kg']);
+    expect(table.querySelectorAll('th[scope="row"]')).toHaveLength(3);
+  });
+
+  /**
+   * Requirement 5. Both units in every cell, and the pound figure is not shrunk
+   * into a footnote: a lifter who trains in pounds is reading that line.
+   */
+  it('writes every figure in kilograms and in pounds', async () => {
+    const table = tableCaptioned(await mount(), 'Classification standards');
+    const [first] = [...table.querySelectorAll('tbody td')];
     expect(first?.querySelector('.kilograms')?.textContent.trim()).toBe('100 kg');
     expect(first?.querySelector('.pounds')?.textContent.trim()).toBe('220.5 lb');
   });
 
   /**
-   * The single most dangerous number on the screen. The weight leading a record
-   * row is the weight that *takes* the record, not the record -- a reader who
-   * assumes otherwise opens half a kilo light -- so the record itself is stated
-   * underneath rather than left to be inferred.
+   * Requirement 8. Two classes in every matrix simultaneously, one column each,
+   * and exactly one column when only one class was asked for -- no reserved
+   * empty space and no disabled placeholder column, which would read as a
+   * comparison the federation publishes nothing for.
    */
-  it('leads a record row with the weight that takes it, and states the record under it', async () => {
-    const row = only(columnFor(await mount(), 'Squat'), 'li.row.record');
-    expect(only(row, '.kilograms').textContent.trim()).toBe('145.5 kg');
-    expect(deepText(row)).toContain('Record: 145 kg (319.7 lb)');
+  it('draws a column per weight class and nothing for a class nobody asked for', async () => {
+    const wide = await mount({ selection: FULLY_ANSWERED });
+    expect(columnHeadings(tableCaptioned(wide, 'Classification standards'))).toEqual([
+      '52 kg',
+      '56 kg',
+    ]);
+
+    const narrow = await mount();
+    expect(columnHeadings(tableCaptioned(narrow, 'Classification standards'))).toEqual(['56 kg']);
   });
 
   /**
-   * Requirement 6, on screen. Two conditions rather than one figure, because
-   * the rule turns on the level of the meet a lifter has entered, this
-   * application cannot see which meet that is, and one unconditional number is
-   * the wrong number at every meet held above the record's own level.
+   * P0, and the single change the whole matrix exists for. Requirement 2 asks
+   * for Open beside the chosen division; the previous version satisfied that by
+   * interleaving both by target weight, so a lifter comparing their own division
+   * against Open had to find the two halves before they could compare anything.
+   *
+   * Adjacent rows, chosen division first, in **one** `<tbody>` -- the block is
+   * what binds them, and a rule between blocks rather than a stripe on alternate
+   * rows is what keeps them bound (alternating colour would split exactly the
+   * pair this arrangement exists to join, and is discarded under forced colours).
    */
-  it('gives both record-taking conditions with the weight each needs', async () => {
-    const shown = text(await mount());
-    expect(shown).toContain(
-      'At a meet of this level or below: 145.5 kg (320.8 lb) — record plus the record-attempt margin.',
-    );
-    expect(shown).toContain(
-      'At a meet above this level: 147.5 kg (325.2 lb) — record plus the full loading increment.',
-    );
+  it('puts the chosen age division and Open on adjacent rows inside one block', async () => {
+    const bothDivisions = bookOf([
+      record('squat', { kilograms: 145 }),
+      record('squat', { kilograms: 120, divisionId: 'masters-1' }),
+    ]);
+    const element = await mount({
+      selection: FULLY_ANSWERED,
+      classifications: null,
+      reads: [ready(NATIONAL, bothDivisions)],
+    });
+    await showRecords(element);
+
+    const table = tableCaptioned(element, 'National records');
+    expect(rowLabels(table)).toEqual(['National record / Masters 1', 'National record / Open']);
+    const bodies = [...table.querySelectorAll('tbody')];
+    expect(bodies).toHaveLength(1);
+    expect(bodyRows(table)).toHaveLength(2);
+  });
+
+  /**
+   * The other half of requirement 2, and the one a reader depends on: a table
+   * that does not distinguish on division is *not* labelled with one. Labelling
+   * it "Open" when Open is the only division shown says the federation singled
+   * that division out, and a lifter reading it has no way to tell it from one
+   * that really was.
+   */
+  it('leaves the division off a row when only one division is shown', async () => {
+    const table = tableCaptioned(await mount(), 'Classification standards');
+    expect(table.querySelector('.division')).toBeNull();
+    expect(rowLabels(table)).toEqual(['Class III', 'Class II', 'Class I']);
+  });
+
+  /**
+   * P0: the matrix shows the record, and the two weights that take it are behind
+   * the record a lifter taps.
+   *
+   * The most dangerous number on the old screen was the one leading a record row:
+   * it was the weight that *takes* the record, and a reader who assumed it was
+   * the record opened half a kilo light. In a matrix the cell has to be the
+   * published fact -- a column of attempt weights under a heading reading
+   * "National records" is worse than either -- so the attempts move into the
+   * detail, where each is named with the condition it holds under.
+   */
+  it('shows the record in the cell and the weights that take it only once opened', async () => {
+    const element = await mount();
+    await showRecords(element);
+    const table = tableCaptioned(element, 'National records');
+    expect(figuresIn(table)).toEqual(['145 kg']);
+    expect(text(element)).not.toContain('145.5');
+
+    const detail = await openFirstRecord(element);
+    expect(deepText(detail)).toContain('Current record');
+    expect(deepText(detail)).toContain('145 kg');
+    expect(
+      [...detail.querySelectorAll('.attempt')].map((attempt) => ({
+        label: only(attempt, '.attempt-label').textContent.trim(),
+        weight: only(attempt, '.attempt-weight').textContent.trim(),
+        basis: only(attempt, '.attempt-basis').textContent.trim(),
+      })),
+    ).toEqual([
+      { label: 'Chip target', weight: '145.5 kg', basis: 'Exceeds the record by 0.5 kg' },
+      { label: 'Full increment', weight: '147.5 kg', basis: 'Exceeds the record by 2.5 kg' },
+    ]);
+  });
+
+  /**
+   * P0: the rule is explained once.
+   *
+   * The audited page repeated two long rule sentences under all seventy records.
+   * Here two records are on screen -- a state one and a national one -- and the
+   * conditions appear nowhere until one of them is opened, at which point they
+   * appear on that record and no other.
+   */
+  it('explains the record rule once above the matrices rather than on every record', async () => {
+    const element = await mount({
+      selection: FULLY_ANSWERED,
+      classifications: null,
+      reads: [ready(NATIONAL, BOOK), ready(NORTH, STATE_BOOK)],
+    });
+    await showRecords(element);
+    expect(recordButtons(element).length).toBeGreaterThan(1);
+
+    const folded = text(element);
+    expect(occurrences(folded, 'Meet level affects the attempt needed to break a record.')).toBe(1);
+    expect(text(element)).toContain('How record attempts work');
+    expect(occurrences(folded, 'At a meet of this level or below')).toBe(0);
+    expect(occurrences(folded, 'At a meet above this level')).toBe(0);
+
+    await openFirstRecord(element);
+    expect(occurrences(text(element), 'At a meet of this level or below')).toBe(1);
+  });
+
+  /**
+   * Said in the fold and again in every record detail, on purpose -- the one
+   * sentence in the tool that is deliberately repeated. A reader who opens a
+   * record without reading the fold is about to plan an attempt, and the note
+   * that this application does not adjudicate one has to be where the attempt is
+   * chosen.
+   */
+  it('says who decides, both in the fold and on the record being planned', async () => {
+    const element = await mount();
+    await showRecords(element);
+    const sentence =
+      'Meet sanction level and eligibility decide which record attempt is permitted.';
+    expect(occurrences(text(element), sentence)).toBe(1);
+
+    await openFirstRecord(element);
+    expect(occurrences(text(element), sentence)).toBe(2);
+  });
+
+  /** One at a time: several open folds push the matrices apart until the comparison is off screen. */
+  it('opens one record at a time and closes the open one on the way past', async () => {
+    const element = await mount({
+      selection: FULLY_ANSWERED,
+      classifications: null,
+      reads: [ready(NATIONAL, BOOK), ready(NORTH, STATE_BOOK)],
+    });
+    await showRecords(element);
+    const [first, second] = recordButtons(element);
+    if (first === undefined || second === undefined) {
+      throw new Error('Expected at least two records on screen.');
+    }
+
+    first.click();
+    await element.updateComplete;
+    expect(all(element, '.detail')).toHaveLength(1);
+    expect(first.getAttribute('aria-expanded')).toBe('true');
+
+    second.click();
+    await element.updateComplete;
+    expect(all(element, '.detail')).toHaveLength(1);
+    expect(recordButtons(element).map((button) => button.getAttribute('aria-expanded'))).toEqual([
+      'false',
+      'true',
+    ]);
+  });
+
+  /** Tapping the open one again closes it, which is what the caret promises. */
+  it('closes a record that is tapped a second time', async () => {
+    const element = await mount();
+    await showRecords(element);
+    await openFirstRecord(element);
+    const [button] = recordButtons(element);
+    button?.click();
+    await element.updateComplete;
+    expect(all(element, '.detail')).toEqual([]);
+  });
+
+  /**
+   * A detail belongs to a record in the lift and the target type that were on
+   * screen. Left open across either bar it would draw somebody else's record
+   * under a table it is not in.
+   */
+  it('closes an open record when the lift or the target type changes', async () => {
+    const element = await mount();
+    await showRecords(element);
+    await openFirstRecord(element);
+    await chooseSegment(element, 'lift', 'Bench press');
+    expect(all(element, '.detail')).toEqual([]);
+
+    await openFirstRecord(element);
+    await chooseSegment(element, 'target-type', 'Classifications');
+    expect(all(element, '.detail')).toEqual([]);
+  });
+
+  /**
+   * P1. A cell in a table is announced with its row and column headings, but the
+   * lift, the record scope and the division live in the caption and the bars
+   * above it -- and a reader who reaches a button from a rotor or an element
+   * list hears none of them. So a record cell carries the whole context.
+   *
+   * Classification cells deliberately carry no label: the row heading and the
+   * column heading already name them, and a label would *replace* that reading
+   * with a hand-written string.
+   *
+   * The division follows the same rule the row headings follow -- named when the
+   * report distinguishes on it, absent when it does not. Saying "Open" on a
+   * report that shows only Open claims the federation singled that division out.
+   */
+  it('names a record cell with the whole context it sits in', async () => {
+    const element = await mount();
+    await showRecords(element);
+    expect(recordButtons(element).map((button) => button.getAttribute('aria-label'))).toEqual([
+      'National record, Full power, 56 kg: 145 kilograms',
+    ]);
+
+    await chooseSegment(element, 'target-type', 'Classifications');
+    expect(all(element, 'td [aria-label]')).toEqual([]);
+  });
+
+  it('names the division in a record cell once the report distinguishes on one', async () => {
+    const bothDivisions = bookOf([
+      record('squat', { kilograms: 145 }),
+      record('squat', { kilograms: 120, divisionId: 'masters-1' }),
+    ]);
+    const element = await mount({
+      selection: FULLY_ANSWERED,
+      classifications: null,
+      reads: [ready(NATIONAL, bothDivisions)],
+    });
+    await showRecords(element);
+    expect(recordButtons(element).map((button) => button.getAttribute('aria-label'))).toEqual([
+      'National record, Full power, Masters 1, 56 kg: 120 kilograms',
+      'National record, Full power, Open, 56 kg: 145 kilograms',
+    ]);
+  });
+
+  /**
+   * The comfortable floor rather than the 44 px minimum (§5.7 and tokens.css):
+   * this is tapped repeatedly, one-handed, while reading.
+   */
+  it('gives a record cell a real tap target', async () => {
+    const element = await mount();
+    await showRecords(element);
+    const [button] = recordButtons(element);
+    expect(button?.getBoundingClientRect().height ?? 0).toBeGreaterThanOrEqual(48);
   });
 
   it('says who holds a record, with the date left unlocalised', async () => {
     const element = await mount();
-    expect(text(element)).toContain('Robin Vance · 2024-05-18 · Example Winter Open');
+    await showRecords(element);
+    const detail = await openFirstRecord(element);
+    expect(deepText(detail)).toContain('Robin Vance · 2024-05-18 · Example Winter Open');
     // `03/04/2022` is two different days depending on who is holding the phone,
     // and these tools are read wherever the federation runs meets.
-    expect(all(element, 'time').map((time) => time.getAttribute('datetime'))).toContain(
-      '2024-05-18',
-    );
+    expect(
+      [...detail.querySelectorAll('time')].map((time) => time.getAttribute('datetime')),
+    ).toEqual(['2024-05-18']);
   });
 
   /**
@@ -292,8 +755,8 @@ describe('ptk-target-report', () => {
    * pounds, and on a corpus this size the two sometimes disagree by more than
    * rounding can explain. Both figures are named, because a caution that only
    * said "this figure may be wrong" gives a lifter a reason to distrust a record
-   * with no way to resolve it -- and the row's title is already a link to the
-   * table where the question can be settled.
+   * with no way to resolve it -- and the detail already links to the table where
+   * the question can be settled.
    */
   it('says so when the source contradicts itself about a record', async () => {
     const element = await mount({
@@ -311,126 +774,88 @@ describe('ptk-target-report', () => {
         ),
       ],
     });
-    const shown = text(element);
-    expect(shown).toContain(
+    await showRecords(element);
+    // The kilogram column still governs, in the cell and in the arithmetic:
+    // nothing here is derived from 14.51.
+    expect(figuresIn(tableCaptioned(element, 'National records'))).toEqual(['145 kg']);
+
+    const detail = await openFirstRecord(element);
+    expect(deepText(detail)).toContain(
       "The federation's table also prints this record as 32 lb, which is 14.51 kg.",
     );
-    // The kilogram column still governs, above and in the arithmetic: the
-    // headline is the weight that takes 145 kg, not anything derived from 14.51.
-    expect(shown).toContain('Record: 145 kg (319.7 lb)');
-    expect(only(columnFor(element, 'Squat'), 'li.row.record .kilograms').textContent.trim()).toBe(
-      '145.5 kg',
-    );
+    expect(
+      [...detail.querySelectorAll('.attempt .attempt-weight')].map((weight) =>
+        weight.textContent.trim(),
+      ),
+    ).toEqual(['145.5 kg', '147.5 kg']);
   });
 
   it('draws no caution when the source agrees with itself', async () => {
     // Which is nearly every row. Asserted because the caution is rendered from a
     // nullable field, and a template that drew it unconditionally would put a
     // contradiction notice under every record in the collection.
-    expect(all(await mount(), '.caution')).toEqual([]);
+    const element = await mount();
+    await showRecords(element);
+    await openFirstRecord(element);
+    expect(all(element, '.caution')).toEqual([]);
   });
 
   /**
-   * Requirement 12. The link goes to the *table* the record is published in, and
-   * the note says so -- no federation this project reads publishes a per-record
-   * certificate, and a link labelled as one would promise a page that does not
-   * exist.
+   * Requirement 12, and the P1 that came with it. The link goes to the *table*
+   * the record is published in -- no federation this project reads publishes a
+   * per-record certificate -- and its accessible name carries the record's whole
+   * scope. Seventy links all named "National record" is a link list with no way
+   * to tell one from another.
    */
   it('links a record back to the table the federation publishes it in', async () => {
     const element = await mount();
-    const [link, ...rest] = all(element, '.title a');
-    expect(link?.getAttribute('href')).toBe(
+    await showRecords(element);
+    const detail = await openFirstRecord(element);
+    const link = only(detail, '.source-link');
+    expect(link.getAttribute('href')).toBe(
       'https://records.example.test/records?level=national&event=raw-full-power',
     );
-    expect(link?.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('target')).toBe('_blank');
     // The referrer would carry the page a lifter is reading, and these tools are
     // embedded on third-party sites where that is the embedder's URL.
-    expect(link?.getAttribute('rel')).toBe('noopener noreferrer');
-    // Every record in the book shares the one published table, so this is not a
-    // single row that happened to be linked.
-    expect(rest.length).toBeGreaterThan(0);
-    expect(text(element)).toContain('Each record name links to the table');
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(link.getAttribute('aria-label')).toBe(
+      'Published table for National record, Full power, 56 kg',
+    );
   });
 
   /**
    * The tap-target floor applies to a link too (§5.7). It is reachable here only
-   * because the title is its own line rather than a link inside a sentence --
+   * because the link is its own line rather than a link inside a sentence --
    * vertical padding on an inline box grows the hit area without growing the
    * line, so a thumb aiming at the prose above would open a new tab.
    */
   it('gives a record link a real tap target', async () => {
     const element = await mount();
-    const [link] = all(element, '.title a');
-    expect(link?.getBoundingClientRect().height ?? 0).toBeGreaterThanOrEqual(44);
+    await showRecords(element);
+    const detail = await openFirstRecord(element);
+    expect(only(detail, '.source-link').getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
   });
 
-  it('says nothing about links when no record carries one', async () => {
+  it('shows no link for a record the book lists no table for', async () => {
     // The state book lists no source table for its own scope, so the record is
-    // shown and the note about links is not -- there are none to explain.
+    // shown and no link is -- rather than a link assembled from the axes, which
+    // would resolve and show somebody else's category.
     const element = await mount({
       selection: FULLY_ANSWERED,
       classifications: null,
       reads: [ready(NORTH, STATE_BOOK)],
     });
-    expect(titlesIn(columnFor(element, 'Squat', '56 kg'))).toEqual(['North Example State record']);
-    expect(all(element, '.title a')).toEqual([]);
-    expect(text(element)).not.toContain('Each record name links');
+    await showRecords(element);
+    const detail = await openFirstRecord(element);
+    expect(detail.querySelector('.source-link')).toBeNull();
   });
 
   /**
-   * Requirement 8. Two classes side by side, each named -- and named only when
-   * there are two, because a single column headed with the class already stated
-   * in the context line above is a heading that says nothing.
-   */
-  it('draws a column per weight class, named only when there is more than one', async () => {
-    const wide = await mount({ selection: FULLY_ANSWERED });
-    expect(
-      columnsIn(sectionFor(wide, 'Squat')).map((column) => column.querySelector('h4')?.textContent),
-    ).toEqual(['52 kg', '56 kg']);
-
-    const narrow = await mount();
-    expect(sectionFor(narrow, 'Squat').querySelector('h4')).toBeNull();
-  });
-
-  /**
-   * Requirement 2. Open is always drawn and is never removable; the chosen
-   * division is drawn beside it. A lifter looking at Masters 1 still needs to
-   * see what the same lifts are worth in Open, because that is the division
-   * most of them enter.
-   */
-  it('shows the chosen division alongside Open rather than instead of it', async () => {
-    const bothDivisions = bookOf([
-      record('squat', { kilograms: 145 }),
-      record('squat', { kilograms: 120, divisionId: 'masters-1' }),
-    ]);
-    const element = await mount({
-      selection: FULLY_ANSWERED,
-      classifications: null,
-      reads: [ready(NATIONAL, bothDivisions)],
-    });
-    const rows = rowsIn(columnFor(element, 'Squat', '56 kg'));
-    const tags = rows.map((row) => deepText(only(row, '.tags')));
-    expect(tags.some((tag) => tag.includes('Open'))).toBe(true);
-    expect(tags.some((tag) => tag.includes('Masters 1'))).toBe(true);
-  });
-
-  /**
-   * The other half of requirement 2, and the one a reader depends on: a
-   * classification table that does not distinguish on division is *not*
-   * labelled with one. Labelling it "Open, Masters 1" would say the federation
-   * publishes two sets of standards that happen to agree, and a lifter reading
-   * that has no way to tell it from a division that really was singled out.
-   */
-  it('leaves a division off a standard that applies to every division shown', async () => {
-    const element = await mount({ selection: FULLY_ANSWERED });
-    const first = only(columnFor(element, 'Squat', '56 kg'), 'li.row:first-child .tags');
-    expect(deepText(first)).toBe('');
-  });
-
-  /**
-   * Requirement 4. Every event the federation contests, unasked. The old screen
-   * made a lifter pick one, which narrowed the report to a third of what the
-   * data can say for an answer they had no reason to have decided.
+   * Requirement 4. Every event the federation contests, unasked, each as its own
+   * heading over its own matrix. The old screen made a lifter pick one, which
+   * narrowed the report to a third of what the data can say for an answer they
+   * had no reason to have decided.
    */
   it('shows every event without asking which one', async () => {
     const everyEvent = bookOf([
@@ -442,47 +867,92 @@ describe('ptk-target-report', () => {
       classifications: null,
       reads: [ready(NATIONAL, everyEvent)],
     });
-    const shown = deepText(sectionFor(element, 'Bench press'));
-    expect(shown).toContain('Full power');
-    expect(shown).toContain('Bench only');
-    expect(shown).toContain('Push pull');
+    await showRecords(element);
+    await chooseSegment(element, 'lift', 'Bench press');
+    expect(groupHeadings(element)).toEqual(['Full power', 'Bench only', 'Push pull']);
   });
 
-  /**
-   * A lift nothing is published for is dropped whole, rather than shown as an
-   * empty heading between two sections that do have content.
-   */
-  it('drops a lift it has nothing at all to say about', async () => {
+  /** One event contesting a lift gets no heading: a heading over a lone matrix says nothing. */
+  it('drops the event heading when only one event contests the lift', async () => {
     const element = await mount({ classifications: null });
-    expect(sectionHeadings(element)).toEqual(['Squat', 'Bench press', 'Total']);
+    await showRecords(element);
+    expect(groupHeadings(element)).toEqual([]);
+    expect(captions(element)).toEqual(['National records']);
   });
 
   /**
-   * Requirement 7 and the entries together. A passed rung stays in the ladder,
-   * dimmed: removing it would shorten the list under a thumb and move the next
-   * row up into a finger already travelling, and a lifter needs to see what
-   * they already have as much as what is ahead.
+   * Requirement 3. The records above a state are always shown; a state is
+   * optional and adds a matrix rather than replacing one.
+   */
+  it('adds a state’s records to the national ones rather than swapping them', async () => {
+    const element = await mount({
+      selection: FULLY_ANSWERED,
+      reads: [ready(NATIONAL, BOOK), ready(NORTH, STATE_BOOK)],
+    });
+    await showRecords(element);
+    expect(captions(element)).toEqual(['North Example State records', 'National records']);
+  });
+
+  /**
+   * A category the federation publishes nothing for says so, in the cell, in
+   * words. Never zero, never a bare dash, and never a figure inferred from the
+   * neighbouring column -- and the two absences are different sentences, because
+   * "no standard is published" and "no record stands yet" are different facts
+   * and only one of them is an invitation.
+   */
+  it('says what an empty cell means rather than leaving it blank', async () => {
+    const element = await mount({ selection: FULLY_ANSWERED });
+    // Every classification standard is published for both classes and both
+    // divisions, so nothing in that matrix is empty -- which is what makes the
+    // records matrix below a fair test of the empty cell rather than of a
+    // fixture that happens to be sparse everywhere.
+    expect(
+      figuresIn(tableCaptioned(element, 'Classification standards')).filter(
+        (figure) => !figure.endsWith(' kg'),
+      ),
+    ).toEqual([]);
+
+    await showRecords(element);
+    // One record in the whole matrix -- 56 kg Open. The masters row and the
+    // comparison class are all empty, and each says which kind of empty it is.
+    expect(figuresIn(tableCaptioned(element, 'National records'))).toEqual([
+      'None yet',
+      'None yet',
+      'None yet',
+      '145 kg',
+    ]);
+    // "None yet" rather than "Not published": a record nobody has set is an
+    // invitation, and a standard the federation does not publish is not. The two
+    // absences look identical in a table and mean opposite things.
+    expect(text(element)).not.toContain('Not published');
+  });
+
+  /**
+   * Requirement 7 and the entries together. A passed figure stays in the matrix,
+   * dimmed: removing it would shorten the table under a thumb and move the next
+   * row up into a finger already travelling, and a lifter needs to see what they
+   * already have as much as what is ahead. The mark is a word, never a colour.
    */
   it('marks what a lifter has passed and what is next, without removing anything', async () => {
     const element = await mount({ entries: typed({ squat: '125' }) });
-    const rows = rowsIn(columnFor(element, 'Squat'));
-    expect(rows).toHaveLength(4);
-    expect(rows.map((row) => row.classList.contains('reached'))).toEqual([
-      true,
-      true,
-      false,
-      false,
-    ]);
-    // Only the first rung ahead is flagged. Flagging every unreached one would
+    const table = tableCaptioned(element, 'Classification standards');
+    expect(bodyRows(table)).toHaveLength(3);
+    expect(
+      [...table.querySelectorAll('tbody td')].map((cell) => cell.classList.contains('reached')),
+    ).toEqual([true, true, false]);
+    // Only the first figure ahead is flagged. Flagging every unreached one would
     // make "next" mean "not yet", which the undimmed rows already say.
-    expect(rows.map((row) => row.classList.contains('next'))).toEqual([false, false, true, false]);
-    expect(deepText(only(columnFor(element, 'Squat'), 'li.row.next'))).toContain('Next');
+    expect([...table.querySelectorAll('.flag')].map((flag) => flag.textContent.trim())).toEqual([
+      'Reached',
+      'Reached',
+      'Next',
+    ]);
   });
 
   it('marks nothing when nothing has been entered', async () => {
     const element = await mount();
-    expect(all(element, '.row.next')).toEqual([]);
-    expect(all(element, '.row.reached')).toEqual([]);
+    expect(all(element, '.flag')).toEqual([]);
+    expect(all(element, '.reached')).toEqual([]);
   });
 
   /**
@@ -516,7 +986,8 @@ describe('ptk-target-report', () => {
     // The national records that did arrive are drawn meanwhile. A report that
     // waited for the last read would be blank for the whole time a phone on gym
     // signal is doing the work.
-    expect(titlesIn(columnFor(element, 'Squat', '56 kg'))).toContain('National record');
+    await showRecords(element);
+    expect(captions(element)).toEqual(['National records']);
 
     const broken = await mount({
       selection: FULLY_ANSWERED,
@@ -529,45 +1000,16 @@ describe('ptk-target-report', () => {
   });
 
   /**
-   * Requirement 3. The records above a state are always shown; a state is
-   * optional and adds to them rather than replacing them.
-   */
-  it('adds a state’s records to the national ones rather than swapping them', async () => {
-    const element = await mount({
-      selection: FULLY_ANSWERED,
-      reads: [ready(NATIONAL, BOOK), ready(NORTH, STATE_BOOK)],
-    });
-    expect(titlesIn(columnFor(element, 'Squat', '56 kg'))).toEqual([
-      'Class III',
-      'Class II',
-      'North Example State record',
-      'National record',
-      'Class I',
-    ]);
-  });
-
-  /**
-   * A category the federation publishes nothing for says so, in the cell. A
-   * blank column says the same thing as a column that failed to render.
-   */
-  it('says plainly when a cell has nothing published in it', async () => {
-    const element = await mount({ selection: FULLY_ANSWERED, classifications: null });
-    // Every record in the book is published for the 56 kg class, so the
-    // comparison column is the empty one while the other is full.
-    expect(deepText(columnFor(element, 'Squat', '52 kg'))).toContain(
-      'Nothing is published for this lift in this category.',
-    );
-    expect(deepText(columnFor(element, 'Squat', '56 kg'))).not.toContain('Nothing is published');
-  });
-
-  /**
    * Reported, never resolved by document order. Two records for one category
    * cannot both be current, and showing the first is a plausible figure that is
    * wrong half the time with nothing on screen to indicate it.
+   *
+   * Reported *in the panel it arises in*, too: a conflict in the records must
+   * not blank the classifications, which are read from a different artifact and
+   * are not in doubt.
    */
   it('reports a conflict in the published data instead of choosing', async () => {
-    const conflicted = await mount({
-      classifications: null,
+    const element = await mount({
       reads: [
         ready(
           NATIONAL,
@@ -575,13 +1017,16 @@ describe('ptk-target-report', () => {
         ),
       ],
     });
-    expect(text(conflicted)).toContain(
+    expect(captions(element)).toEqual(['Classification standards']);
+
+    await showRecords(element);
+    expect(text(element)).toContain(
       'More than one National record is published for Open Full power, so none can be shown.',
     );
-    expect(all(conflicted, 'li.row.record')).toEqual([]);
+    expect(tables(element)).toEqual([]);
   });
 
-  it('has no accessibility violations', async () => {
+  it('has no accessibility violations showing classifications', async () => {
     const element = await mount({
       selection: FULLY_ANSWERED,
       reads: [ready(NATIONAL, BOOK), ready(NORTH, STATE_BOOK)],
@@ -592,15 +1037,39 @@ describe('ptk-target-report', () => {
   });
 
   /**
+   * And again with a record open, because that is where the interactive parts
+   * are: the cell buttons carry `aria-expanded` and `aria-controls`, and the
+   * panel they name has to exist and be reachable.
+   */
+  it('has no accessibility violations showing a record in full', async () => {
+    const element = await mount({
+      selection: FULLY_ANSWERED,
+      reads: [ready(NATIONAL, BOOK), ready(NORTH, STATE_BOOK)],
+    });
+    await showRecords(element);
+    const detail = await openFirstRecord(element);
+    expect(only(root(element), 'button[aria-expanded="true"]').getAttribute('aria-controls')).toBe(
+      detail.id,
+    );
+
+    const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
+    expect(results.violations).toEqual([]);
+  });
+
+  /**
    * The widest the report gets, in the narrowest column it has to fit: two
-   * classes, two divisions and two partitions at 320 px. §5.7's case, and what
-   * the intrinsic grid in `.columns` exists for.
+   * classes, two divisions, two partitions and an open record at 320 px. §5.7's
+   * case, and the reason the tables are `table-layout: fixed` with wrapping
+   * text -- the worst case has to be an ugly two-line number rather than a
+   * document that scrolls sideways.
    */
   it('fits a 320 pixel column at its widest', async () => {
     const element = await mount({
       selection: FULLY_ANSWERED,
       reads: [ready(NATIONAL, BOOK), ready(NORTH, STATE_BOOK)],
     });
+    await showRecords(element);
+    await openFirstRecord(element);
 
     const frame = document.createElement('div');
     frame.style.width = '320px';

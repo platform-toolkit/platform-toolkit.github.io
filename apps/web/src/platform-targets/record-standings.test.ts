@@ -382,15 +382,54 @@ describe('recordTargetLines', () => {
   it('gives a line for the record chipped and a line for the full increment', () => {
     expect(recordTargetLines(standingFor({}))).toEqual([
       {
+        label: 'Chip target',
         condition: 'At a meet of this level or below',
         kilograms: 145.5,
-        basis: 'record plus the record-attempt margin',
+        basis: 'Exceeds the record by 0.5 kg',
       },
       {
+        label: 'Full increment',
         condition: 'At a meet above this level',
         kilograms: 147.5,
-        basis: 'record plus the full loading increment',
+        basis: 'Exceeds the record by 2.5 kg',
       },
+    ]);
+  });
+
+  /**
+   * The basis is subtracted from the two figures already on screen rather than
+   * described in prose. A sentence naming 2.5 kg is a second copy of arithmetic
+   * that comes from the book, so a federation publishing 1 kg would be described
+   * by a line saying otherwise.
+   */
+  it('measures the basis from the book’s own margin rather than naming one', () => {
+    const wide: RecordBook = {
+      ...bookOf([record('squat', { kilograms: 145 })]),
+      minimumIncrementKilograms: 1,
+      higherSanctionIncrementKilograms: 5,
+    };
+    const standings = resolveRecordStandings(wide, CATEGORY, ['squat'], NO_ENTRIES);
+    expect(recordTargetLines(standings[0] ?? standingFor({})).map((line) => line.basis)).toEqual([
+      'Exceeds the record by 1 kg',
+      'Exceeds the record by 5 kg',
+    ]);
+  });
+
+  /**
+   * The label is short because it is the name on a tap target: a lifter chooses
+   * one of these as their goal, and a choice whose options are each a sentence is
+   * a paragraph with radio buttons in it.
+   *
+   * Deliberately not "next 2.5 kg loading interval". A record attempt is the
+   * exemption from the loading-multiple rule, so a 200.5 kg record is taken at
+   * 203 kg and not at 205 -- and a label naming a multiple would be false for
+   * every record that was itself chipped, in the direction that costs a lifter
+   * the record.
+   */
+  it('names each figure in the fewest words that stay true', () => {
+    expect(recordTargetLines(standingFor({})).map((line) => line.label)).toEqual([
+      'Chip target',
+      'Full increment',
     ]);
   });
 
@@ -404,9 +443,10 @@ describe('recordTargetLines', () => {
     const standings = resolveRecordStandings(seeded, CATEGORY, ['squat'], NO_ENTRIES);
     const lines = recordTargetLines(standings[0] ?? standingFor({}));
     expect(lines[0]).toEqual({
+      label: 'Match target',
       condition: 'At a meet of this level or below',
       kilograms: 145,
-      basis: 'matching the opening standard takes it, as nobody holds it yet',
+      basis: 'Matching the opening standard takes it, as nobody holds it yet',
     });
   });
 
@@ -423,9 +463,10 @@ describe('recordTargetLines', () => {
     const standings = resolveRecordStandings(flat, CATEGORY, ['squat'], NO_ENTRIES);
     expect(recordTargetLines(standings[0] ?? standingFor({}))).toEqual([
       {
+        label: 'Chip target',
         condition: 'At a meet of this level or below',
         kilograms: 145.5,
-        basis: 'record plus the record-attempt margin',
+        basis: 'Exceeds the record by 0.5 kg',
       },
     ]);
   });

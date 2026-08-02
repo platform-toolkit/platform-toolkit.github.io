@@ -43,6 +43,7 @@ import type { RecordPartition } from './selection.js';
 import {
   LIFT_LABELS,
   formatAsUnit,
+  formatKilograms,
   readLiftEntries,
   type LifterCategory,
   type LiftEntries,
@@ -213,6 +214,22 @@ export function resolveRecordStandings(
   });
 }
 
+/** One weight that takes a record, named, conditioned, and explained. */
+export interface RecordTargetLine {
+  /**
+   * Two or three words, for the tap target that selects it.
+   *
+   * Short because it is a choice a lifter makes, and a choice whose options are
+   * each a sentence is a paragraph with radio buttons in it.
+   */
+  readonly label: string;
+  /** When this figure is the one that counts. */
+  readonly condition: string;
+  readonly kilograms: number;
+  /** Why it is that figure and not the record itself. */
+  readonly basis: string;
+}
+
 /**
  * Every weight that takes one record, each with the condition it holds under.
  *
@@ -225,48 +242,82 @@ export function resolveRecordStandings(
  * Empty when there is no record. One entry when the book draws no distinction,
  * or when both rules land on the same weight ({@link recordTargets} collapses
  * that case rather than printing one number twice under two conditions).
+ *
+ * THE BASIS IS MEASURED, NOT NAMED
+ *
+ * "Record plus the full loading increment" was prose, and prose about arithmetic
+ * is a second copy of the arithmetic. The margin comes from the book
+ * (`minimumIncrementKilograms`, `higherSanctionIncrementKilograms`), so a
+ * federation that publishes 1 kg would have been described in a sentence saying
+ * 2.5. Subtracting the two figures the lifter can already see cannot drift.
  */
-export function recordTargetLines(
-  standing: LiftRecordStanding,
-): readonly { readonly condition: string; readonly kilograms: number; readonly basis: string }[] {
-  if (standing.targets === null) {
+export function recordTargetLines(standing: LiftRecordStanding): readonly RecordTargetLine[] {
+  if (standing.targets === null || standing.record.kind !== 'record') {
     return [];
   }
+  const recordKilograms = standing.record.record.kilograms;
   const { recordAtOrAboveMeetLevel, recordBelowMeetLevel } = standing.targets;
-  const lines = [
+  const lines: RecordTargetLine[] = [
     {
+      label: TARGET_LABELS[recordAtOrAboveMeetLevel.basis],
       // Named for the record's level relative to the meet, because that relation
       // is the whole rule and every shorter phrasing has been read backwards at
       // least once. A national record is chipped at nationals *and* at a state
       // meet sanctioned to allow the claim -- one condition, two situations.
       condition: 'At a meet of this level or below',
       kilograms: recordAtOrAboveMeetLevel.kilograms,
-      basis: BASIS_NOTES[recordAtOrAboveMeetLevel.basis],
+      basis: basisNote(
+        recordAtOrAboveMeetLevel.basis,
+        recordAtOrAboveMeetLevel.kilograms,
+        recordKilograms,
+      ),
     },
   ];
   if (recordBelowMeetLevel !== null) {
     lines.push({
+      label: TARGET_LABELS[recordBelowMeetLevel.basis],
       condition: 'At a meet above this level',
       kilograms: recordBelowMeetLevel.kilograms,
-      basis: BASIS_NOTES[recordBelowMeetLevel.basis],
+      basis: basisNote(recordBelowMeetLevel.basis, recordBelowMeetLevel.kilograms, recordKilograms),
     });
   }
   return lines;
 }
 
+type TargetBasis = RecordTargets['recordAtOrAboveMeetLevel']['basis'];
+
 /**
- * Why each figure is the figure it is, in a phrase.
+ * What each figure is called, in the fewest words that stay true.
  *
- * Written here rather than in the component so the three can be asserted without
- * a browser, and so that "match" cannot quietly acquire a margin: it is the one
- * basis where the target *equals* the record, and a reader who assumes every
- * target is record-plus-something loads a heavier bar than the rules ask for.
+ * Deliberately **not** "next 2.5 kg loading interval". A record attempt is the
+ * exemption from the loading-multiple rule, so a 200.5 kg record is taken at
+ * 203 kg and not at 205 -- and a label naming a multiple would be false for
+ * every record that was itself chipped, in the direction that costs a lifter the
+ * record. See `packages/domain/src/records.ts`.
  */
-const BASIS_NOTES: Readonly<Record<RecordTargets['recordAtOrAboveMeetLevel']['basis'], string>> = {
-  chip: 'record plus the record-attempt margin',
-  match: 'matching the opening standard takes it, as nobody holds it yet',
-  'full-increment': 'record plus the full loading increment',
+const TARGET_LABELS: Readonly<Record<TargetBasis, string>> = {
+  chip: 'Chip target',
+  match: 'Match target',
+  'full-increment': 'Full increment',
 };
+
+/**
+ * Why the figure is what it is, computed from the two weights on screen.
+ *
+ * "match" is the one basis where the target *equals* the record, and it gets a
+ * sentence rather than a delta: "exceeds the record by 0 kg" is arithmetically
+ * true and reads as a rounding error rather than as a rule.
+ */
+function basisNote(basis: TargetBasis, kilograms: number, recordKilograms: number): string {
+  if (basis === 'match') {
+    // "Opening standard" rather than "record": this branch is only reached for a
+    // figure the federation seeded and nobody has lifted, and calling that a
+    // record in the one sentence explaining why it can be *equalled* invites the
+    // reading that any record can be.
+    return 'Matching the opening standard takes it, as nobody holds it yet';
+  }
+  return `Exceeds the record by ${formatKilograms(kilograms - recordKilograms)} kg`;
+}
 
 function recordFor(
   book: RecordBook | null,

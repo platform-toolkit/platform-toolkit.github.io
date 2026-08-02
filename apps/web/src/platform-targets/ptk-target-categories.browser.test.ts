@@ -363,13 +363,17 @@ describe('ptk-target-categories', () => {
   });
 
   /**
-   * "Age division" was rejected by name: it implies the question is for
-   * everybody, so a 28-year-old reads the screen as one they are excluded from.
-   * The label is pinned exactly because a reworded one is invisible in review.
+   * The federation's own word for these, and the word the report's row headings
+   * use. The placeholder is what says the question is skippable -- "Open only"
+   * is both the default answer and the route back to it -- so the label does not
+   * have to carry that job by naming the families it offers.
+   *
+   * Both strings are pinned exactly, because a reworded label is invisible in
+   * review and this pair is the whole of requirement 2's interface.
    */
-  it('labels the division question for the lifters it is actually for', async () => {
+  it('names the division question the way the published divisions are named', async () => {
     const element = await mount();
-    expect(picker(element, 'division').label).toBe('Masters or Juniors division');
+    expect(picker(element, 'division').label).toBe('Age division');
     expect(picker(element, 'division').placeholder).toBe('Open only');
   });
 

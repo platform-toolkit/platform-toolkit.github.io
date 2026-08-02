@@ -272,7 +272,7 @@ describe('ptk-select', () => {
 
   it('files grouped options under their heading', async () => {
     const element = await mount({
-      label: 'Masters or Juniors division',
+      label: 'Age division',
       options: [
         { value: 'j-1', label: 'Juniors 20-23', group: 'Juniors' },
         { value: 'm-1', label: 'Masters 40-44', group: 'Masters' },

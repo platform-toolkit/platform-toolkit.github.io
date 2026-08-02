@@ -34,7 +34,7 @@
  * WHAT IS OPTIONAL, AND WHY THAT IS THE POINT
  *
  * Four of the seven fields are optional and every one of them only *adds* to the
- * report. A division adds the Masters or Juniors column beside Open, which is
+ * report. An age division adds its own rows beside the Open ones, which are
  * always there. A region adds that region's records to the levels that are
  * always there. A second weight class adds a column to compare against. None of
  * them can take anything away, so a lifter who answers nothing beyond the four
@@ -332,7 +332,11 @@ export function resolveSelection(
   });
   pick({
     field: 'comparisonWeightClass',
-    label: 'Compare with',
+    // Named for the thing it produces rather than for the act of comparing. The
+    // report shows two columns in every matrix, and "Comparison class" is what
+    // the second column is called there -- a control named "Compare with" leaves
+    // a reader matching a verb against a heading.
+    label: 'Comparison class',
     options: ladder.options,
     placeholder: 'One class only',
     hint: 'Optional. Adds a second class to the report, side by side.',
@@ -342,14 +346,18 @@ export function resolveSelection(
   const open = openAgeDivision(catalog.ageDivisions.divisions);
   pick({
     field: 'division',
-    // Not "Age division". That label reads as a question everybody has to
-    // answer, and a lifter of thirty concludes either that they are missing
-    // something or that the tool is not for them. Naming the two families it
-    // actually offers says who it is for and, by omission, who can skip it.
-    label: 'Masters or Juniors division',
+    // "Age division", which is what the federation calls these and what the row
+    // headings in the report say. An earlier version read "Masters or Juniors
+    // division", on the argument that a lifter of thirty would otherwise think
+    // the question was aimed at them; usability review found the opposite
+    // problem to be the real one -- a label naming two families does not match
+    // any published division name, so a lifter looking for "Master 50-54" has to
+    // work out that this is the control that offers it. The placeholder does the
+    // job the old label was trying to do, and does it without renaming the data.
+    label: 'Age division',
     options: divisionOptions(catalog.ageDivisions.divisions, open.ok ? open.division : null),
     placeholder: 'Open only',
-    hint: 'Optional. Open records and classifications are always shown.',
+    hint: 'Optional. Open stays visible because many lifters cross-enter.',
     emptyMessage: 'No age divisions are published.',
   });
 

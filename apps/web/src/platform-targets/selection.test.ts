@@ -383,11 +383,14 @@ describe('resolveSelection divisions', () => {
     expect(picker(CATALOG, CHOSEN, 'division').placeholder).toBe('Open only');
   });
 
-  it('does not call the division question an age division', () => {
-    // Reported by the user: "age division is a bad label because it implies it
-    // is for everyone and people 24-34 need not apply."
+  it('calls the division question by the name the divisions are published under', () => {
+    // The label went the other way once -- "Masters or Juniors division", to
+    // make clear a lifter of thirty could skip it -- and usability review found
+    // the cost outweighed it: no published division is named that, so somebody
+    // looking for "Master 50-54" had to deduce this was the control offering it.
+    // The placeholder carries the skippable half instead; see the test above.
     const label = picker(CATALOG, CHOSEN, 'division').label;
-    expect(label).toBe('Masters or Juniors division');
+    expect(label).toBe('Age division');
   });
 
   it('lists the divisions youngest first, whatever order they were published in', () => {

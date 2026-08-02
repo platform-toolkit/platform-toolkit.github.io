@@ -29,9 +29,20 @@
   --ptk-color-text-muted: #565d67;
   --ptk-color-text-inverse: #ffffff;
 
-  /* Lines */
+  /*
+   * Lines
+   *
+   * The two are not a light and a dark shade of the same idea. `border` is
+   * decoration -- the rule between two paragraphs, the edge of a raised panel --
+   * and nothing is lost when a reader cannot make it out. `border-strong` is the
+   * boundary of a control, which WCAG 2.2 counts as a non-text element essential
+   * to understanding, so it has to clear 3:1 against every surface it can be
+   * drawn on. It does: 3.89 on `surface`, 3.62 on `surface-raised`, 3.34 on
+   * `surface-sunken`. The previous value managed 2.55 on white, which is a
+   * control whose edge a reader in gym lighting cannot find.
+   */
   --ptk-color-border: #d3d8de;
-  --ptk-color-border-strong: #9aa3ae;
+  --ptk-color-border-strong: #7a828d;
 
   /* Interaction */
   --ptk-color-accent: #1f5fa8;
@@ -80,6 +91,21 @@
    * It is a minimum, not a size. Anything already taller stays taller.
    */
   --ptk-tap-target-min: 44px;
+
+  /*
+   * The floor for a control a lifter operates *while reading*.
+   *
+   * The 44px above is the accessibility minimum and applies everywhere. This is
+   * larger, and it is not a stricter version of the same rule: it is for the
+   * handful of controls that get hit repeatedly one-handed in a gym -- which
+   * lift is on screen, which family of targets, the value cells in a comparison
+   * table -- where a mis-tap costs a reader their place rather than a moment.
+   *
+   * Two tokens rather than one raised number, because raising the minimum would
+   * inflate every tile on every setup form and push the answer further down the
+   * phone, which is the problem these screens already have.
+   */
+  --ptk-tap-target-comfortable: 48px;
 }
 
 /* Dark values, applied when following the system preference. */
@@ -94,7 +120,7 @@
     --ptk-color-text-inverse: #14171b;
 
     --ptk-color-border: #333a43;
-    --ptk-color-border-strong: #5b6672;
+    --ptk-color-border-strong: #6b7683;
 
     --ptk-color-accent: #7fb2ee;
     --ptk-color-accent-text: #0e1013;
@@ -119,7 +145,7 @@
   --ptk-color-text-inverse: #14171b;
 
   --ptk-color-border: #333a43;
-  --ptk-color-border-strong: #5b6672;
+  --ptk-color-border-strong: #6b7683;
 
   --ptk-color-accent: #7fb2ee;
   --ptk-color-accent-text: #0e1013;

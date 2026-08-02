@@ -93,10 +93,9 @@ export type OpenAgeDivisionResult =
 /**
  * The division everybody is eligible for, whatever the federation calls it.
  *
- * A screen that always shows Open alongside whichever Masters or Juniors
- * division a lifter picked has to know which one Open *is*, and nothing in the
- * published data says so directly. Three tempting ways to find it are all
- * wrong:
+ * A screen that always shows Open alongside whichever age division a lifter
+ * picked has to know which one Open *is*, and nothing in the published data says
+ * so directly. Three tempting ways to find it are all wrong:
  *
  * - **By id.** `'open'` is this federation's spelling today. Hard-coding it
  *   makes every other federation's catalogue silently produce a report with no
