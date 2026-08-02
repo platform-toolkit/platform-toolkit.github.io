@@ -132,6 +132,19 @@ export function shardRecordBook(
         id: artifactId,
         label: book.label,
         minimumIncrementKilograms: book.minimumIncrementKilograms,
+        higherSanctionIncrementKilograms: book.higherSanctionIncrementKilograms,
+        matchTakesUnclaimedLevelIds: book.matchTakesUnclaimedLevelIds,
+        // Narrowed to the ones a record in this partition can match. Not on sex,
+        // which is a column within a table rather than an axis of one, so the
+        // filter is the three axes a shard and a table have in common. About six
+        // survive -- two drug-tested statuses by three disciplines -- which is
+        // nothing against a shard holding thousands of records.
+        sourceTables: book.sourceTables.filter(
+          (table) =>
+            table.levelId === partition.key.levelId &&
+            table.regionId === partition.key.regionId &&
+            table.equipmentId === partition.key.equipmentId,
+        ),
         // Sorted by identifier rather than left in source order. Artifacts are
         // content-addressed, so a source that reorders its rows without
         // changing any of them would otherwise rewrite every filename and evict

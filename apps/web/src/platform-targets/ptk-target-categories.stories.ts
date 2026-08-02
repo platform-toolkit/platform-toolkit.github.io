@@ -1,9 +1,9 @@
-import type { CategoryCatalog } from '@platform-toolkit/data-contracts';
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 
 import type { PtkTargetCategories } from './ptk-target-categories.js';
 import './ptk-target-categories.js';
+import { CATALOG } from './records-fixture.js';
 
 /**
  * The manual selection path, with the catalogue handed in rather than fetched.
@@ -14,55 +14,12 @@ import './ptk-target-categories.js';
  * each a different sentence on screen, and each is one property away from being
  * looked at. A component that loaded its own data would show only whichever of
  * them the network happened to produce.
+ *
+ * The catalogue is the tool's one fixture (§5.1, invented throughout). It has a
+ * subdivided level and an unsubdivided one, so the state picker is both asked
+ * and -- if the subdivided level is removed -- omitted, which is the pair of
+ * states requirement 3 turns on.
  */
-
-/** Invented figures. Real boundaries belong in published data. */
-const CATALOG: CategoryCatalog = {
-  id: 'example',
-  label: 'Example Federation',
-  equipment: [
-    { id: 'raw', label: 'Raw' },
-    { id: 'single-ply', label: 'Single-ply' },
-  ],
-  weightClassLadders: [
-    {
-      id: 'example-female',
-      label: 'Female classes',
-      sex: 'female',
-      classes: [
-        { id: 'f-52', label: '52 kg', maximumKilograms: 52 },
-        { id: 'f-56', label: '56 kg', maximumKilograms: 56 },
-        { id: 'f-plus', label: '56+ kg', maximumKilograms: null },
-      ],
-    },
-    {
-      id: 'example-male',
-      label: 'Male classes',
-      sex: 'male',
-      classes: [
-        { id: 'm-75', label: '75 kg', maximumKilograms: 75 },
-        { id: 'm-plus', label: '75+ kg', maximumKilograms: null },
-      ],
-    },
-  ],
-  ageDivisions: {
-    id: 'example-divisions',
-    label: 'Divisions',
-    basis: 'age-on-meet-date',
-    divisions: [
-      { id: 'open', label: 'Open', minimumAge: null, maximumAge: null },
-      { id: 'junior', label: 'Junior', minimumAge: null, maximumAge: 23 },
-      { id: 'masters-1', label: 'Masters 1', minimumAge: 40, maximumAge: 49 },
-      { id: 'masters-4', label: 'Masters 4', minimumAge: 70, maximumAge: null },
-    ],
-  },
-
-  // The records screen's vocabulary. This element draws neither.
-  levels: [{ id: 'national', label: 'National', regions: [] }],
-  disciplines: [
-    { id: 'full-power', label: 'Full power', lifts: ['squat', 'bench', 'deadlift', 'total'] },
-  ],
-};
 
 const meta: Meta<PtkTargetCategories> = {
   title: 'Platform Targets/Category selection',

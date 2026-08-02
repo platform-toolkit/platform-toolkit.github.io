@@ -51,7 +51,9 @@ export {
   eligibleAgeDivisions,
   findAgeDivisionProblems,
   narrowestAgeDivision,
+  openAgeDivision,
   type AgeDivisionProblem,
+  type OpenAgeDivisionResult,
 } from './age-division.js';
 export {
   KILOGRAM_MILESTONES,
@@ -248,10 +250,15 @@ export {
 } from './plain-date.js';
 export {
   findRecord,
+  recordTargets,
   standingAgainstRecord,
   type RecordLookup,
+  type RecordMarginRules,
   type RecordQuery,
   type RecordStanding,
+  type RecordTarget,
+  type RecordTargetBasis,
+  type RecordTargets,
 } from './records.js';
 export {
   USPA_POUNDS_PER_KILOGRAM,

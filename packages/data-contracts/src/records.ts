@@ -121,22 +121,166 @@ export const FederationRecordSchema = v.object({
 });
 export type FederationRecord = v.InferOutput<typeof FederationRecordSchema>;
 
-/** A published book of records, and the rule for beating one. */
+/**
+ * Where one published table of records can be read, and which records it holds.
+ *
+ * WHY A TABLE AND NOT A CERTIFICATE
+ *
+ * A lifter looking at a figure they intend to beat wants to see it in the
+ * federation's own words -- who set it, at which meet, and whether the page has
+ * moved on since this build read it. The obvious link for that is a certificate,
+ * and there isn't one: no federation this project reads publishes a per-record
+ * document, and the crawled corpus carries no per-record URL. Inventing one would
+ * be a link that either 404s or, worse, resolves to somebody else's record.
+ *
+ * What does exist is the page the row was read from, which is addressed by the
+ * axes below. So a record links to its table, and the tables are listed once per
+ * book rather than once per record: a shard holds thousands of records across
+ * about six tables, and a URL on every one of them would be most of the payload.
+ *
+ * The remaining axes -- weight class, division, lift -- are rows within a table
+ * and deliberately absent. A scope matches a table when the five it does name
+ * agree.
+ */
+export const RecordSourceTableSchema = v.object({
+  levelId: Identifier,
+  /** `null` for a level with no subdivision. Never "every region". */
+  regionId: v.nullable(Identifier),
+  tested: v.boolean(),
+  equipmentId: Identifier,
+  disciplineId: Identifier,
+
+  /**
+   * Where to read it.
+   *
+   * Checked here rather than trusted, because this is the one field in the
+   * contract that becomes an `href`. `v.url()` alone accepts `javascript:`,
+   * which is a string that validates, renders, and runs when a lifter taps it.
+   *
+   * The second check refuses embedded credentials. A URL carrying a user and
+   * password puts them in the status bar of every lifter who hovers the link and
+   * in the referrer of wherever they land -- and `https://records.example@evil`
+   * is a link whose visible prefix is the federation and whose host is not.
+   * Tested on the authority rather than by parsing, because this package targets
+   * no runtime in particular and has no `URL` to reach for.
+   */
+  url: v.pipe(
+    v.string(),
+    v.url(),
+    v.check((value) => value.startsWith('https://'), 'an https URL'),
+    v.check((value) => !authorityOf(value).includes('@'), 'a URL with no embedded credentials'),
+  ),
+});
+export type RecordSourceTable = v.InferOutput<typeof RecordSourceTableSchema>;
+
+/**
+ * The authority of an `https://` URL: everything between the scheme and the
+ * first `/`, `?` or `#`.
+ *
+ * Only ever asked whether it contains an `@`, and only about a string `v.url()`
+ * has already accepted, so it does not have to be a URL parser -- it has to
+ * agree with one about where the host ends.
+ */
+function authorityOf(url: string): string {
+  const rest = url.slice('https://'.length);
+  const end = rest.search(/[/?#]/u);
+  return end === -1 ? rest : rest.slice(0, end);
+}
+
+/** A published book of records, and the rules for taking one. */
 export const RecordBookSchema = v.object({
   id: Identifier,
   label: Label,
 
   /**
-   * How much a lift must exceed a record by to replace it.
+   * How much a lift must exceed a record by to replace it, when the record being
+   * claimed is at the meet's level or above it. The chip.
    *
    * Federations differ, and some require a margin rather than merely matching.
    * Assuming either would be wrong somewhere: a lifter told they had broken a
    * record by equalling it would find out otherwise on the platform, so the rule
    * comes from the source along with the records it governs. Zero means matching
    * is enough.
+   *
+   * This is also what makes a record attempt exempt from the ordinary rule that
+   * every weight on the bar is a multiple of the loading increment -- the margin
+   * being smaller than that increment is the whole point of the exemption. A
+   * caller that rounds this figure up to a round jump has undone it, and it is
+   * measured from the record as published rather than from the next bar multiple
+   * above it.
    */
   minimumIncrementKilograms: v.pipe(v.number(), v.finite(), v.minValue(0)),
+
+  /**
+   * The margin required instead when the record being claimed is **below** the
+   * meet's level -- a state record at a national championship -- or `null` where
+   * the federation draws no such distinction.
+   *
+   * Note the direction, because it is the half of the rule that gets written
+   * backwards: a record *above* the meet's level is chipped like one at it, on
+   * whatever terms that meet is sanctioned to allow. Only a record beneath the
+   * meet costs the full increment.
+   *
+   * A separate figure rather than a flag, because it is a different number and
+   * not merely the absence of the exemption: federations that have this rule
+   * pin it to their loading increment, which is larger than the record margin
+   * and need not equal it.
+   *
+   * Nothing here says which level is above which. It does not need to: the
+   * question is answered by the meet a lifter has entered, which this tool does
+   * not know and does not ask. Both figures are shown, each labelled with the
+   * condition it holds under, and the lifter knows which meet they are at.
+   */
+  higherSanctionIncrementKilograms: v.nullable(v.pipe(v.number(), v.finite(), v.minValue(0))),
+
+  /**
+   * The levels at which a record still standing at its opening standard may be
+   * taken by matching it exactly, rather than exceeding it.
+   *
+   * A list of levels and not a flag, because federations grant this unevenly:
+   * one may let a lifter match a seeded national or world standard and still
+   * require a margin over a seeded state one. A level absent from this list
+   * falls back to {@link minimumIncrementKilograms}, which is the safe
+   * direction -- being told to lift more than the rules demand costs a lifter an
+   * attempt, and being told to lift less costs them the record.
+   *
+   * Applies only to records whose {@link FederationRecord.unclaimed} is true. A
+   * record somebody holds is never matched into.
+   */
+  matchTakesUnclaimedLevelIds: v.array(Identifier),
+
+  /**
+   * Every table these records were read from, and where to read it.
+   *
+   * See {@link RecordSourceTableSchema}. May be empty for a source that
+   * publishes no addressable tables; a record whose scope matches none of them
+   * is shown without a link rather than with a guessed one.
+   */
+  sourceTables: v.array(RecordSourceTableSchema),
 
   records: v.array(FederationRecordSchema),
 });
 export type RecordBook = v.InferOutput<typeof RecordBookSchema>;
+
+/**
+ * The table a record is published in, or `null` if the book lists none for it.
+ *
+ * Here rather than in the domain because it is a fact about how the contract is
+ * shaped -- which five axes address a table and which three address a row within
+ * one -- and every reader of a book needs the same answer.
+ */
+export function findRecordSourceTable(
+  book: Pick<RecordBook, 'sourceTables'>,
+  scope: Pick<RecordScope, 'levelId' | 'regionId' | 'tested' | 'equipmentId' | 'disciplineId'>,
+): RecordSourceTable | null {
+  return (
+    book.sourceTables.find(
+      (table) =>
+        table.levelId === scope.levelId &&
+        table.regionId === scope.regionId &&
+        table.tested === scope.tested &&
+        table.equipmentId === scope.equipmentId &&
+        table.disciplineId === scope.disciplineId,
+    ) ?? null
+  );
+}

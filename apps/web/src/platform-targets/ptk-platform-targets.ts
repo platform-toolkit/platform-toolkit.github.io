@@ -1,41 +1,42 @@
 /**
- * The whole tool: the questions, and what the answers are measured against.
+ * The whole tool: the questions, the report, and the optional lift entry.
  *
- * Composition only. It holds no rules -- `selection.ts` and `standards.ts` have
- * those -- and it loads nothing, because loading needs a transport and this has
- * to be mountable in a test with none. What it does own is the one piece of
- * state both halves need: the answered category, which the questions produce and
- * the standards consume.
+ * Composition only. It holds no rules -- `selection.ts`, `standards.ts` and
+ * `report.ts` have those -- and it loads nothing, because loading needs a
+ * transport and this has to be mountable in a test with none. What it does own
+ * are the two pieces of state that cross between its children: the answered
+ * category, which the questions produce and the report consumes, and the four
+ * entered weights, which the lift panel produces and the report consumes.
+ *
+ * THE ORDER IS THE POINT
+ *
+ * Questions, then report, then lift entry -- and the lift entry is folded shut.
+ * It used to be questions, entry, classifications, more questions, records, so
+ * the thing a lifter came for was below two forms and could not be seen without
+ * answering both. Requirement 10 in the user's words: "make the whole focus of
+ * the tool to be the report, getting as much as possible out of the way."
  *
  * The selection event is `composed`, so it crosses this element's shadow
  * boundary on its way out. That is what lets `view.ts` listen on this element
- * directly to know when to fetch a different partition of standards, rather than
- * needing a callback property threaded through -- and it keeps this file free of
- * any knowledge that a data source exists.
+ * directly to know when to read a different partition, rather than needing a
+ * callback property threaded through -- and it keeps this file free of any
+ * knowledge that a data source exists.
  */
-import type {
-  CategoryCatalog,
-  ClassificationBook,
-  RecordBook,
-} from '@platform-toolkit/data-contracts';
+import type { CategoryCatalog, ClassificationBook } from '@platform-toolkit/data-contracts';
 import { LitElement, css, html, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
 import './ptk-target-categories.js';
-import './ptk-target-records.js';
-import './ptk-target-standards.js';
+import './ptk-target-lifts.js';
+import './ptk-target-report.js';
 import {
   SELECTION_CHANGE_EVENT,
   type CatalogStatus,
   type SelectionChangeDetail,
 } from './ptk-target-categories.js';
+import { ENTRIES_CHANGE_EVENT, type EntriesChangeDetail } from './ptk-target-lifts.js';
+import type { PartitionRead, StandardsStatus } from './ptk-target-report.js';
 import { NO_SELECTION, type CategorySelection } from './selection.js';
-import {
-  ENTRIES_CHANGE_EVENT,
-  type EntriesChangeDetail,
-  type StandardsStatus,
-} from './ptk-target-standards.js';
-import type { RecordsStatus } from './ptk-target-records.js';
 import { NO_ENTRIES, type LiftEntries } from './standards.js';
 
 @customElement('ptk-platform-targets')
@@ -60,28 +61,33 @@ export class PtkPlatformTargets extends LitElement {
 
   @property({ type: String }) standardsStatus: StandardsStatus = 'idle';
 
-  /** This partition's records, or `null` if the federation publishes none for it. */
-  @property({ attribute: false }) records: RecordBook | null = null;
-
-  @property({ type: String }) recordsStatus: RecordsStatus = 'idle';
+  /**
+   * One entry per record artifact the selection asks for, keyed by
+   * `partitionKey`.
+   *
+   * Replaced wholesale by the transport rather than mutated in place. Lit
+   * compares properties by identity, so a `Map` that is filled in as reads
+   * settle is the same `Map` every time and nothing re-renders -- the symptom is
+   * a report that stays on "Loading the state records" while every read has
+   * already succeeded.
+   */
+  @property({ attribute: false }) recordReads: ReadonlyMap<string, PartitionRead> = new Map();
 
   /**
    * The answered category, as the questions last reported it.
    *
    * Read-only from outside: it is derived from what the lifter chose, and a
-   * caller setting it would put the two halves of the screen out of step with
+   * caller setting it would put the questions and the report out of step with
    * each other in a way neither could detect.
    */
   @state() private selection: CategorySelection = NO_SELECTION;
 
   /**
-   * The four weights, as the standards panel last reported them.
+   * The four weights, as the lift panel last reported them.
    *
-   * Held here so the records panel can read the same numbers the classification
-   * panel is reading. Mirrored downward into the records panel only, never back
-   * into the panel that owns the fields -- a round trip would make a keystroke
-   * depend on this element being present, and the standards panel is mounted on
-   * its own in half its tests.
+   * Mirrored downward into the report only, never back into the panel that owns
+   * the fields -- a round trip would make a keystroke depend on this element
+   * being present, and the lift panel is mounted on its own in half its tests.
    */
   @state() private entries: LiftEntries = NO_ENTRIES;
 
@@ -93,14 +99,15 @@ export class PtkPlatformTargets extends LitElement {
   protected override async getUpdateComplete(): Promise<boolean> {
     const complete = await super.getUpdateComplete();
     const categories = this.shadowRoot?.querySelector('ptk-target-categories');
-    const standards = this.shadowRoot?.querySelector('ptk-target-standards');
-    const records = this.shadowRoot?.querySelector('ptk-target-records');
-    await Promise.all([categories?.updateComplete, standards?.updateComplete]);
-    // Awaited after the other two rather than alongside them. The records panel
-    // renders from the entries this element mirrors out of the standards panel,
-    // so its update is queued by the standards panel settling -- awaiting all
-    // three at once resolves before that second render has been committed.
-    await records?.updateComplete;
+    const lifts = this.shadowRoot?.querySelector('ptk-target-lifts');
+    const report = this.shadowRoot?.querySelector('ptk-target-report');
+    await Promise.all([categories?.updateComplete, lifts?.updateComplete]);
+    // Awaited after the other two rather than alongside them. The report renders
+    // from state this element mirrors out of both of them, so its update is
+    // queued by their settling -- awaiting all three at once resolves before that
+    // second render has been committed, and a test then reads the report drawn
+    // for the answer before last.
+    await report?.updateComplete;
     return complete;
   }
 
@@ -125,20 +132,17 @@ export class PtkPlatformTargets extends LitElement {
         ></ptk-target-categories>
       </section>
       <section>
-        <ptk-target-standards
-          .book=${this.book}
-          .status=${this.standardsStatus}
+        <ptk-target-report
+          .catalog=${this.catalog}
           .selection=${this.selection}
-        ></ptk-target-standards>
+          .classifications=${this.book}
+          .classificationsStatus=${this.standardsStatus}
+          .recordReads=${this.recordReads}
+          .entries=${this.entries}
+        ></ptk-target-report>
       </section>
       <section>
-        <ptk-target-records
-          .catalog=${this.catalog}
-          .book=${this.records}
-          .status=${this.recordsStatus}
-          .selection=${this.selection}
-          .entries=${this.entries}
-        ></ptk-target-records>
+        <ptk-target-lifts></ptk-target-lifts>
       </section>
     `;
   }
@@ -154,7 +158,7 @@ export class PtkPlatformTargets extends LitElement {
     this.selection = event.detail.selection;
   };
 
-  /** Same discipline: mirrored for the records panel, and left to keep travelling. */
+  /** Same discipline: mirrored into the report, and left to keep travelling. */
   readonly #onEntriesChange = (event: CustomEvent<EntriesChangeDetail>): void => {
     this.entries = event.detail.entries;
   };

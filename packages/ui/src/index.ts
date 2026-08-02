@@ -20,6 +20,7 @@ import './ptk-disclosure.js';
 import './ptk-notice.js';
 import './ptk-number-field.js';
 import './ptk-plate-stack.js';
+import './ptk-select.js';
 import './ptk-toggle-group.js';
 
 export { PtkButton, type ButtonVariant } from './ptk-button.js';
@@ -42,6 +43,12 @@ export {
   PtkNumberField,
   type NumberFieldChangeDetail,
 } from './ptk-number-field.js';
+export {
+  SELECT_CHANGE_EVENT,
+  PtkSelect,
+  type SelectChangeDetail,
+  type SelectOption,
+} from './ptk-select.js';
 export {
   TOGGLE_GROUP_CHANGE_EVENT,
   PtkToggleGroup,

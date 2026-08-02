@@ -1,5 +1,5 @@
 import type { CategoryCatalog, WeightClassLadderData } from '@platform-toolkit/data-contracts';
-import type { PtkChoiceGroup } from '@platform-toolkit/ui';
+import type { PtkChoiceGroup, PtkSelect } from '@platform-toolkit/ui';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -16,10 +16,19 @@ import type { SelectionField } from './selection.js';
  *
  * This is the first test of a *composed* interface rather than a single
  * component, and composition is where the emulated-DOM shortcuts stop being
- * survivable: the choice groups live in their own shadow roots inside this one,
- * and the whole selection mechanism depends on an event crossing both
- * boundaries. A simulation that got that subtly wrong would leave a green suite
- * and an inert page.
+ * survivable: the controls live in their own shadow roots inside this one, and
+ * the whole selection mechanism depends on an event crossing both boundaries. A
+ * simulation that got that subtly wrong would leave a green suite and an inert
+ * page.
+ *
+ * TWO KINDS OF CONTROL, AND THE TESTS HAVE TO KNOW WHICH
+ *
+ * Three questions are tiles and the rest are selects, decided by how much room
+ * the *answers* need rather than by what the question is about. So there are two
+ * sets of helpers here, and using the wrong one does not fail with "no such
+ * option" -- `querySelector('ptk-choice-group[data-field="division"]')` simply
+ * returns nothing and the helper throws, which is the only reason that mistake
+ * is survivable. Keep them throwing.
  */
 
 /** Invented figures. Real boundaries belong in published data. */
@@ -28,6 +37,7 @@ const FEMALE_LADDER: WeightClassLadderData = {
   label: 'Female classes',
   sex: 'female',
   classes: [
+    { id: 'f-52', label: '52 kg', maximumKilograms: 52 },
     { id: 'f-56', label: '56 kg', maximumKilograms: 56 },
     { id: 'f-plus', label: '56+ kg', maximumKilograms: null },
   ],
@@ -51,12 +61,18 @@ const CATALOG: CategoryCatalog = {
     label: 'Divisions',
     basis: 'age-on-meet-date',
     divisions: [
+      // Both ages null, so this one reaches every other division and is
+      // identified as Open structurally. The published USPA set writes Open as
+      // 13 and over instead, which the resolver's own tests cover -- what
+      // matters here is that the picker never offers whichever one it is.
       { id: 'open', label: 'Open', minimumAge: null, maximumAge: null },
       { id: 'masters-1', label: 'Masters 1', minimumAge: 40, maximumAge: 49 },
     ],
   },
 
-  // The records screen's vocabulary. This element does not draw either of them.
+  // One level, not subdivided, so no region picker is drawn at all. The
+  // subdivided case belongs in `selection.test.ts`, which can reach it without a
+  // browser.
   levels: [{ id: 'national', label: 'National', regions: [] }],
   disciplines: [
     { id: 'full-power', label: 'Full power', lifts: ['squat', 'bench', 'deadlift', 'total'] },
@@ -94,6 +110,14 @@ function group(element: PtkTargetCategories, field: SelectionField): PtkChoiceGr
   return found;
 }
 
+function picker(element: PtkTargetCategories, field: SelectionField): PtkSelect {
+  const found = element.shadowRoot?.querySelector<PtkSelect>(`ptk-select[data-field="${field}"]`);
+  if (found === null || found === undefined) {
+    throw new Error(`No select rendered for "${field}".`);
+  }
+  return found;
+}
+
 /** Clicks an option the way a visitor would: on the radio itself. */
 async function choose(
   element: PtkTargetCategories,
@@ -111,20 +135,103 @@ async function choose(
   throw new Error(`No option "${value}" in the "${field}" group.`);
 }
 
-function labels(element: PtkTargetCategories, field: SelectionField): string[] {
+/**
+ * The native control inside a picker.
+ *
+ * Absent when the picker has no options -- it renders its empty message instead
+ * of a control the visitor could open onto nothing -- so this throws rather than
+ * returning null, and a test that meant to assert emptiness reads the empty
+ * message directly.
+ */
+function control(element: PtkTargetCategories, field: SelectionField): HTMLSelectElement {
+  const found = picker(element, field).shadowRoot?.querySelector('select');
+  if (found === null || found === undefined) {
+    throw new Error(`The "${field}" select has no options to open.`);
+  }
+  return found;
+}
+
+/**
+ * Answers a picker, or clears it by passing `null`.
+ *
+ * A select cannot be "clicked" into a value: the visitor's interaction opens a
+ * platform picker this test has no access to, so the value is set and `change`
+ * is fired, which is exactly what that picker does on the way out. Firing
+ * `input` instead would pass here and miss nothing on Chromium and everything on
+ * an engine that only emits one of the two.
+ */
+async function pick(
+  element: PtkTargetCategories,
+  field: SelectionField,
+  value: string | null,
+): Promise<void> {
+  const select = control(element, field);
+  const wanted = value ?? '';
+  if (![...select.options].some((option) => option.value === wanted)) {
+    throw new Error(`No option "${wanted}" in the "${field}" select.`);
+  }
+  select.value = wanted;
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  await element.updateComplete;
+}
+
+function choiceValues(element: PtkTargetCategories, field: SelectionField): string[] {
   const options = group(element, field).shadowRoot?.querySelectorAll('input[type="radio"]') ?? [];
   return [...options]
     .filter((node): node is HTMLInputElement => node instanceof HTMLInputElement)
     .map((radio) => radio.value);
 }
 
+/** Every answer a picker offers, with the placeholder dropped. */
+function optionValues(element: PtkTargetCategories, field: SelectionField): string[] {
+  const found = picker(element, field).shadowRoot?.querySelector('select');
+  if (found === null || found === undefined) {
+    return [];
+  }
+  return [...found.options].map((option) => option.value).filter((value) => value !== '');
+}
+
+function fieldsOf(element: PtkTargetCategories, selector: string): (string | undefined)[] {
+  return [...(element.shadowRoot?.querySelectorAll<HTMLElement>(selector) ?? [])].map(
+    (node) => node.dataset['field'],
+  );
+}
+
+function statusText(element: PtkTargetCategories): string {
+  return element.shadowRoot?.querySelector('[role="status"]')?.textContent ?? '';
+}
+
 describe('ptk-target-categories', () => {
-  it('asks every question the catalogue supports', async () => {
+  /**
+   * Requirement 1, as an assertion rather than a screenshot. The two questions
+   * that ruined the screen were the age divisions (seventeen bands) and the
+   * states (fifty), and both of them are now selects -- so what this pins is
+   * *which control each question got*, which is the decision, and not how any of
+   * them looks.
+   */
+  it('asks the short questions as tiles', async () => {
     const element = await mount();
-    const fields = [...(element.shadowRoot?.querySelectorAll('ptk-choice-group') ?? [])].map(
-      (node) => node.dataset['field'],
-    );
-    expect(fields).toEqual(['sex', 'equipment', 'weightClass', 'division', 'tested']);
+    expect(fieldsOf(element, 'ptk-choice-group')).toEqual(['sex', 'equipment', 'tested']);
+  });
+
+  it('asks the long questions as selects', async () => {
+    const element = await mount();
+    expect(fieldsOf(element, 'ptk-select')).toEqual([
+      'weightClass',
+      'comparisonWeightClass',
+      'division',
+    ]);
+  });
+
+  /**
+   * Requirement 3's other half. This catalogue subdivides no level, so there is
+   * no region to ask about and the question is omitted entirely rather than
+   * rendered as a control with nothing in it -- an empty control reads as a
+   * federation with no states rather than as a question that does not apply.
+   */
+  it('omits the region question when no level is subdivided', async () => {
+    const element = await mount();
+    expect(element.shadowRoot?.querySelector('ptk-select[data-field="region"]')).toBeNull();
   });
 
   it('says it is loading before the catalogue arrives', async () => {
@@ -133,6 +240,7 @@ describe('ptk-target-categories', () => {
     const element = await mount({ status: 'loading', catalog: null });
     expect(element.shadowRoot?.textContent).toContain('Loading');
     expect(element.shadowRoot?.querySelector('ptk-choice-group')).toBeNull();
+    expect(element.shadowRoot?.querySelector('ptk-select')).toBeNull();
   });
 
   it.each([
@@ -159,13 +267,14 @@ describe('ptk-target-categories', () => {
     element.status = 'ready';
     await element.updateComplete;
 
-    expect(element.shadowRoot?.querySelectorAll('ptk-choice-group')).toHaveLength(5);
+    expect(element.shadowRoot?.querySelectorAll('ptk-choice-group')).toHaveLength(3);
+    expect(element.shadowRoot?.querySelectorAll('ptk-select')).toHaveLength(3);
   });
 
   it('offers no weight classes until a sex category is chosen', async () => {
     const element = await mount();
-    expect(labels(element, 'weightClass')).toEqual([]);
-    expect(group(element, 'weightClass').shadowRoot?.textContent).toContain(
+    expect(optionValues(element, 'weightClass')).toEqual([]);
+    expect(picker(element, 'weightClass').shadowRoot?.textContent).toContain(
       'Choose a sex category',
     );
   });
@@ -173,7 +282,20 @@ describe('ptk-target-categories', () => {
   it('fills the weight classes in from the ladder once a sex category is chosen', async () => {
     const element = await mount();
     await choose(element, 'sex', 'female');
-    expect(labels(element, 'weightClass')).toEqual(['f-56', 'f-plus']);
+    expect(optionValues(element, 'weightClass')).toEqual(['f-52', 'f-56', 'f-plus']);
+  });
+
+  /**
+   * Requirement 8. The comparison picker is offered the same ladder as the
+   * first, because the lifter comparing two classes is usually comparing the one
+   * they are in with the one they are cutting to -- both of which are theirs.
+   */
+  it('offers the same ladder for the class to compare with', async () => {
+    const element = await mount();
+    await choose(element, 'sex', 'female');
+    expect(optionValues(element, 'comparisonWeightClass')).toEqual(
+      optionValues(element, 'weightClass'),
+    );
   });
 
   it('clears a weight class that belongs to the other ladder', async () => {
@@ -182,11 +304,11 @@ describe('ptk-target-categories', () => {
     // category the lifter is not in.
     const element = await mount();
     await choose(element, 'sex', 'female');
-    await choose(element, 'weightClass', 'f-56');
-    expect(group(element, 'weightClass').value).toBe('f-56');
+    await pick(element, 'weightClass', 'f-56');
+    expect(picker(element, 'weightClass').value).toBe('f-56');
 
     await choose(element, 'sex', 'male');
-    expect(group(element, 'weightClass').value).toBeNull();
+    expect(picker(element, 'weightClass').value).toBeNull();
   });
 
   it('keeps the answers that did not depend on the one that changed', async () => {
@@ -203,14 +325,60 @@ describe('ptk-target-categories', () => {
     // other ladder and comes back has not changed their mind about their class.
     const element = await mount();
     await choose(element, 'sex', 'female');
-    await choose(element, 'weightClass', 'f-56');
+    await pick(element, 'weightClass', 'f-56');
     await choose(element, 'sex', 'male');
     await choose(element, 'sex', 'female');
 
-    expect(group(element, 'weightClass').value).toBe('f-56');
+    expect(picker(element, 'weightClass').value).toBe('f-56');
   });
 
-  it('reports the category, and whether it is complete, outside the shadow root', async () => {
+  /**
+   * Requirement 2's "a way to clear the age division if selected on accident".
+   *
+   * The placeholder is that way, and it has to be a real answer rather than a
+   * disabled first row: a lifter who taps Masters 1 by mistake and finds the
+   * control has no way back is looking at a report for somebody else's division
+   * with no idea how to leave it. No separate clear button, because it would be a
+   * second tap target beside every optional control and it would be missing from
+   * the native picker a phone actually shows.
+   */
+  it('clears an optional answer through the placeholder', async () => {
+    const element = await mount();
+    await pick(element, 'division', 'masters-1');
+    expect(picker(element, 'division').value).toBe('masters-1');
+
+    await pick(element, 'division', null);
+    expect(picker(element, 'division').value).toBeNull();
+  });
+
+  /**
+   * Requirement 2 again, and the part most easily got wrong. Open is not
+   * something a lifter picks -- it is the column the report always draws -- so
+   * offering it would let somebody "choose" the thing they already have and then
+   * wonder why clearing it changes nothing.
+   */
+  it('never offers Open as a division to choose', async () => {
+    const element = await mount();
+    expect(optionValues(element, 'division')).toEqual(['masters-1']);
+  });
+
+  /**
+   * "Age division" was rejected by name: it implies the question is for
+   * everybody, so a 28-year-old reads the screen as one they are excluded from.
+   * The label is pinned exactly because a reworded one is invisible in review.
+   */
+  it('labels the division question for the lifters it is actually for', async () => {
+    const element = await mount();
+    expect(picker(element, 'division').label).toBe('Masters or Juniors division');
+    expect(picker(element, 'division').placeholder).toBe('Open only');
+  });
+
+  it('shows the age band the catalogue published alongside the division', async () => {
+    const element = await mount();
+    expect(control(element, 'division').textContent).toContain('40 to 49');
+  });
+
+  it('reports the category, and whether it is ready, outside the shadow root', async () => {
     const element = await mount();
     const seen: SelectionChangeDetail[] = [];
     const listener = (event: CustomEvent<SelectionChangeDetail>): void => {
@@ -226,44 +394,86 @@ describe('ptk-target-categories', () => {
 
     await choose(element, 'sex', 'female');
     await choose(element, 'equipment', 'raw');
-    await choose(element, 'weightClass', 'f-56');
+    await pick(element, 'weightClass', 'f-56');
     expect(seen.at(-1)).toEqual({
       selection: {
         sex: 'female',
         equipment: 'raw',
         weightClass: 'f-56',
+        comparisonWeightClass: null,
         division: null,
         tested: null,
+        region: null,
       },
-      complete: false,
+      ready: false,
+      partitions: [{ levelId: 'national', regionId: null, label: 'National' }],
     });
 
-    await choose(element, 'division', 'open');
-    expect(seen.at(-1)?.complete).toBe(false);
-
     await choose(element, 'tested', 'tested');
-    expect(seen.at(-1)?.complete).toBe(true);
+    expect(seen.at(-1)?.ready).toBe(true);
   });
 
-  it('names what is still missing in a live region', async () => {
+  /**
+   * Requirement 9, which is the whole reason the report is worth building: the
+   * optional answers add columns, and none of them can be missing in a way that
+   * makes the rest wrong. Gating the report on them hides it behind answers that
+   * do not change what it says.
+   */
+  it('is ready with none of the optional answers given', async () => {
     const element = await mount();
-    const status = element.shadowRoot?.querySelector('[role="status"]');
-    expect(status?.textContent).toContain('sex category');
+    const seen: SelectionChangeDetail[] = [];
+    const listener = (event: CustomEvent<SelectionChangeDetail>): void => {
+      seen.push(event.detail);
+    };
+    element.addEventListener(SELECTION_CHANGE_EVENT, listener);
+    teardown.push(() => {
+      element.removeEventListener(SELECTION_CHANGE_EVENT, listener);
+    });
 
     await choose(element, 'sex', 'female');
     await choose(element, 'equipment', 'raw');
-    await choose(element, 'weightClass', 'f-56');
-    await choose(element, 'division', 'open');
     await choose(element, 'tested', 'untested');
+    await pick(element, 'weightClass', 'f-56');
 
-    expect(element.shadowRoot?.querySelector('[role="status"]')?.textContent).toContain(
-      'Category complete',
-    );
+    const last = seen.at(-1);
+    expect(last?.ready).toBe(true);
+    expect(last?.selection.comparisonWeightClass).toBeNull();
+    expect(last?.selection.division).toBeNull();
+    expect(last?.selection.region).toBeNull();
   });
 
-  it('shows the age band the catalogue published alongside the division', async () => {
+  /**
+   * The live region names only what is *required*, which is requirement 9
+   * arriving in the copy as well as in the logic. A line listing the optional
+   * pickers would tell a lifter the screen is incomplete while the report below
+   * it is already showing them everything they came for.
+   */
+  it('names what is still missing in a live region', async () => {
     const element = await mount();
-    expect(group(element, 'division').shadowRoot?.textContent).toContain('40 to 49');
+    expect(statusText(element)).toContain('sex category');
+
+    await choose(element, 'sex', 'female');
+    await choose(element, 'equipment', 'raw');
+    await pick(element, 'weightClass', 'f-56');
+    await choose(element, 'tested', 'untested');
+
+    expect(statusText(element)).toContain('Showing your report below');
+  });
+
+  it('says nothing is missing while an optional answer is still unanswered', async () => {
+    const element = await mount();
+    await choose(element, 'sex', 'female');
+    await choose(element, 'equipment', 'raw');
+    await pick(element, 'weightClass', 'f-56');
+    await choose(element, 'tested', 'tested');
+
+    expect(statusText(element)).not.toContain('division');
+    expect(statusText(element)).not.toContain('Compare');
+  });
+
+  it('still offers every equipment category the catalogue publishes', async () => {
+    const element = await mount();
+    expect(choiceValues(element, 'equipment')).toEqual(['raw']);
   });
 
   it.each(['ready', 'loading', 'unavailable'] as const)(
@@ -280,12 +490,29 @@ describe('ptk-target-categories', () => {
     },
   );
 
+  it('has no accessibility violations with every question answered', async () => {
+    // The state the a11y pass above cannot reach: three selects carrying options
+    // and a status line saying the report is showing. A select with no accessible
+    // name is the failure, and it only exists once there is a control to name.
+    const element = await mount();
+    await choose(element, 'sex', 'female');
+    await choose(element, 'equipment', 'raw');
+    await choose(element, 'tested', 'tested');
+    await pick(element, 'weightClass', 'f-56');
+    await pick(element, 'comparisonWeightClass', 'f-52');
+    await pick(element, 'division', 'masters-1');
+
+    const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
+    expect(results.violations).toEqual([]);
+  });
+
   it('fits a phone-width column with every question answered', async () => {
-    // The composed case, which the shared component's own tests cannot cover:
-    // five groups stacked, the longest labels the catalogue produces, and the
-    // outstanding-status line underneath. A phone is where this tool is used --
-    // at a warm-up rack, on a platform floor -- so the narrow layout is the one
-    // that has to hold, and horizontal scroll is the failure it fails with.
+    // The composed case, which the shared components' own tests cannot cover:
+    // three tile groups and three selects stacked, the longest labels the
+    // catalogue produces, and the outstanding-status line underneath. A phone is
+    // where this tool is used -- at a warm-up rack, on a platform floor -- so the
+    // narrow layout is the one that has to hold, and horizontal scroll is the
+    // failure it fails with.
     const frame = document.createElement('div');
     frame.style.width = '320px';
     document.body.append(frame);
@@ -299,6 +526,7 @@ describe('ptk-target-categories', () => {
     frame.append(element);
     await element.updateComplete;
     await choose(element, 'sex', 'female');
+    await pick(element, 'division', 'masters-1');
 
     expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
   });

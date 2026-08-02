@@ -78,10 +78,23 @@ const CATALOG = {
   disciplines: [{ id: 'full-power', label: 'Full power', lifts: ['squat', 'bench', 'deadlift'] }],
 };
 
+/**
+ * A published shard with no records in it.
+ *
+ * Empty because this file is about how a book is *addressed and fetched*, not
+ * about what is in one -- the margin figures and the table list are here only
+ * because the contract requires them, and are written out rather than spread
+ * from a helper so that a field added to the contract fails this file loudly
+ * instead of being filled in with a default nobody chose. Every figure is
+ * invented (§5.1).
+ */
 const RECORD_BOOK = {
   id: 'records-example-state-female-raw',
   label: 'Example state records',
   minimumIncrementKilograms: 0.5,
+  higherSanctionIncrementKilograms: 2.5,
+  matchTakesUnclaimedLevelIds: [],
+  sourceTables: [],
   records: [],
 };
 

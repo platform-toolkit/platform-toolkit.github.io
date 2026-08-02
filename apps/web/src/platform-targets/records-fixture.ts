@@ -1,5 +1,5 @@
 /**
- * The one invented federation every records test and story in this tool uses.
+ * The one invented federation every test and story in this tool uses.
  *
  * Invented throughout, and deliberately so: real record figures belong in
  * published data, where a stale one is refreshed without a release, and a test
@@ -16,12 +16,14 @@
  */
 import type {
   CategoryCatalog,
+  ClassificationBook,
+  ClassificationTable,
   FederationRecord,
   Lift,
   RecordBook,
 } from '@platform-toolkit/data-contracts';
 
-import type { CategorySelection } from './selection.js';
+import type { CategorySelection, RecordPartition } from './selection.js';
 
 export const CATALOG: CategoryCatalog = {
   id: 'example',
@@ -78,13 +80,39 @@ export const CATALOG: CategoryCatalog = {
   ],
 };
 
-/** A lifter who has answered every category question. */
+/**
+ * A lifter who has answered everything the report needs and nothing optional.
+ *
+ * `division` is `null` rather than `'open'`, and that is the shape of
+ * requirement 2 rather than an omission: Open is not something a lifter picks,
+ * it is the column the report always draws, and the picker offers only the
+ * Masters and Juniors bands. A fixture that answered `'open'` would exercise a
+ * state the interface cannot produce.
+ */
 export const ANSWERED: CategorySelection = {
   sex: 'female',
   equipment: 'raw',
   weightClass: 'f-56',
-  division: 'open',
+  comparisonWeightClass: null,
+  division: null,
   tested: 'tested',
+  region: null,
+};
+
+/**
+ * The same lifter with every optional answer given as well.
+ *
+ * A second weight class, a masters division and a state, so the report is at its
+ * widest: two columns, two divisions and both record partitions. Kept beside the
+ * minimal one because the interesting failures are all in the difference --
+ * a column that does not appear, a division that appears twice, a state read
+ * that never starts.
+ */
+export const FULLY_ANSWERED: CategorySelection = {
+  ...ANSWERED,
+  comparisonWeightClass: 'f-52',
+  division: 'masters-1',
+  region: 'north-example',
 };
 
 interface RecordOverrides {
@@ -92,6 +120,14 @@ interface RecordOverrides {
   readonly levelId?: string;
   readonly regionId?: string | null;
   readonly disciplineId?: string;
+  /**
+   * Which division holds it. Open unless a test is about requirement 2.
+   *
+   * Here rather than left to the default because Open and a masters division are
+   * drawn side by side, and without a way to say "this one is a masters record"
+   * every assertion about the pair is really an assertion about Open twice.
+   */
+  readonly divisionId?: string;
   readonly unclaimed?: boolean;
   readonly holderName?: string | null;
   readonly achievedOn?: string | null;
@@ -112,13 +148,17 @@ export function record(lift: Lift, overrides: RecordOverrides): FederationRecord
     levelId = 'national',
     regionId = null,
     disciplineId = 'full-power',
+    divisionId = 'open',
     unclaimed = false,
     holderName = 'Robin Vance',
     achievedOn = '2024-05-18',
     meetName = 'Example Winter Open',
   } = overrides;
   return {
-    id: `${levelId}-${regionId ?? 'none'}-${disciplineId}-${lift}`,
+    // Every axis the caller can vary is in the identifier, so two records that
+    // differ are two rows -- and two calls with the same axes still collide,
+    // which is how the duplicate-record fixtures are built.
+    id: `${levelId}-${regionId ?? 'none'}-${disciplineId}-${divisionId}-${lift}`,
     scope: {
       levelId,
       regionId,
@@ -126,7 +166,7 @@ export function record(lift: Lift, overrides: RecordOverrides): FederationRecord
       equipmentId: 'raw',
       disciplineId,
       weightClassId: 'f-56',
-      divisionId: 'open',
+      divisionId,
       tested: true,
       lift,
     },
@@ -158,6 +198,24 @@ export function bookOf(records: readonly FederationRecord[]): RecordBook {
     // A federation that requires a margin. Zero would let every "would replace"
     // sentence pass while the arithmetic that adds the margin was missing.
     minimumIncrementKilograms: 0.5,
+    // Larger than the margin above and different from it, so a test cannot pass
+    // by using either figure where the other belongs.
+    higherSanctionIncrementKilograms: 2.5,
+    // National only. A seeded state record still has to be beaten, which is the
+    // half of the rule that would go untested if this listed both levels.
+    matchTakesUnclaimedLevelIds: ['national'],
+    // One table, and deliberately not one per level: a record whose scope matches
+    // nothing here is shown without a link, and that path needs a fixture too.
+    sourceTables: [
+      {
+        levelId: 'national',
+        regionId: null,
+        tested: true,
+        equipmentId: 'raw',
+        disciplineId: 'full-power',
+        url: 'https://records.example.test/records?level=national&event=raw-full-power',
+      },
+    ],
     // Copied rather than passed through. The contract's array is mutable -- it
     // is the output of a valibot parse -- and handing it a `readonly` one is a
     // type error the day a caller writes the argument as a literal instead.
@@ -170,3 +228,71 @@ export const BOOK: RecordBook = bookOf([
   record('bench', { kilograms: 82.5 }),
   record('total', { kilograms: 390 }),
 ]);
+
+/**
+ * The two partitions this catalogue can settle on.
+ *
+ * One subdivided level and one that is not, so a report drawn from both has a
+ * region in one label and none in the other -- and the pair is the only shape in
+ * which "the state read failed while the national one succeeded" is reachable.
+ */
+export const NATIONAL: RecordPartition = { levelId: 'national', regionId: null, label: 'National' };
+
+export const NORTH: RecordPartition = {
+  levelId: 'state',
+  regionId: 'north-example',
+  label: 'North Example State',
+};
+
+/** A state book, so the two-partition case has something to draw in both columns. */
+export const STATE_BOOK: RecordBook = bookOf([
+  record('squat', { kilograms: 130, levelId: 'state', regionId: 'north-example' }),
+]);
+
+/**
+ * One classification table, with invented figures (§5.1) chosen to *interleave*
+ * with the record book rather than to be tidy.
+ *
+ * 100, 120 and 150 straddle the squat record's 145.5 target, which is the whole
+ * point: the report's central claim is that a classification and a record are
+ * one ladder, and a fixture whose standards all sat below every record would let
+ * a merge that simply concatenated the two lists pass.
+ */
+export function classificationTable(
+  lift: Lift,
+  overrides: Partial<ClassificationTable['scope']> = {},
+  standards: ClassificationTable['standards'] = [
+    { id: 'third', label: 'Class III', rank: 0, requiredKilograms: 100 },
+    { id: 'second', label: 'Class II', rank: 1, requiredKilograms: 120 },
+    { id: 'first', label: 'Class I', rank: 2, requiredKilograms: 150 },
+  ],
+): ClassificationTable {
+  return {
+    id: `example-${lift}-${JSON.stringify(overrides)}`,
+    label: `Example ${lift}`,
+    scope: {
+      sex: 'female',
+      lift,
+      equipmentId: 'raw',
+      // Null on every axis the report walks, which is the ordinary published
+      // shape: one table serves every class and every division. It is also the
+      // case the division-labelling rule turns on -- see the tests for it.
+      weightClassId: null,
+      divisionId: null,
+      tested: null,
+      ...overrides,
+    },
+    standards,
+  };
+}
+
+export const CLASSIFICATIONS: ClassificationBook = {
+  id: 'example',
+  label: 'Example Federation',
+  tables: [
+    classificationTable('squat'),
+    classificationTable('bench'),
+    classificationTable('deadlift'),
+    classificationTable('total'),
+  ],
+};

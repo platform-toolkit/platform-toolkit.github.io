@@ -1,4 +1,4 @@
-import type { FederationRecord, RecordScope } from '@platform-toolkit/data-contracts';
+import type { FederationRecord, RecordBook, RecordScope } from '@platform-toolkit/data-contracts';
 
 import { ceilToHundredths } from './rounding.js';
 
@@ -9,6 +9,44 @@ import { ceilToHundredths } from './rounding.js';
  * unlike a classification table there is no general record that stands in when a
  * specific one is missing -- falling back to a broader category would compare a
  * lifter against a lift nobody in their category has made.
+ *
+ * WHY TAKING A RECORD IS NOT ONE NUMBER
+ *
+ * It reads like one -- the record plus the margin -- and for a long time this
+ * file computed exactly that. It is the answer to only the commonest of three
+ * cases, and it is the wrong answer to the other two in the direction that costs
+ * a lifter something.
+ *
+ * The rule the federations actually state, in one sentence: **chip by the small
+ * increment when the record being claimed is at the meet's level or above it;
+ * add the full loading increment when the record is below the meet's level.** So
+ * a state record is chipped at a state meet and at a local meet, and costs the
+ * full increment at nationals. A national record is chipped at nationals, and at
+ * a state meet too where that meet is sanctioned to allow one. That asymmetry is
+ * why the condition is stated about the record relative to the meet, and never
+ * about the record alone.
+ *
+ * A record still standing at the figure the federation seeded the book with is
+ * not a lift anybody made. Where the rules say so, clearing it means putting that
+ * figure on the bar, not that figure plus a margin. Told otherwise, a lifter
+ * loads a heavier attempt than the record needs, and a heavier attempt is a
+ * likelier miss.
+ *
+ * Both increments are measured from the record as published, not from the next
+ * ordinary bar multiple. A 200.5 kg record is chipped at 201 kg and taken at a
+ * higher-level meet with 203 kg -- not 205. Record attempts are the exemption
+ * from the multiple-of-the-increment rule, so rounding either figure up to a
+ * round jump undoes the exemption and asks for weight the rules do not.
+ *
+ * All three figures come from the book, because they are the federation's rules
+ * and not this project's. Nothing here knows which level outranks which, and it
+ * does not need to: the condition is the meet the lifter has entered, which this
+ * code cannot see. Both figures are produced, each labelled with when it holds,
+ * and the lifter knows which meet they are at.
+ *
+ * Everything here is kilograms, and that is not an implementation detail. Records
+ * and attempts are governed in kilograms; a pound figure is a conversion for
+ * reading and never a number to compute a target from.
  */
 
 /** The category to look a record up in. Every axis is required, as records are exact. */
@@ -38,14 +76,131 @@ export function findRecord(query: RecordQuery, records: readonly FederationRecor
   return { ok: true, record: first };
 }
 
+/**
+ * The parts of a record book that say what taking a record costs.
+ *
+ * Taken as its own type rather than the whole book, so that a caller holding one
+ * record and the three rules governing it does not have to carry several thousand
+ * others alongside them.
+ */
+export type RecordMarginRules = Pick<
+  RecordBook,
+  'minimumIncrementKilograms' | 'higherSanctionIncrementKilograms' | 'matchTakesUnclaimedLevelIds'
+>;
+
+/** Why one target figure is the figure it is. */
+export type RecordTargetBasis =
+  /** The record plus the small increment a record attempt may be chipped by. */
+  | 'chip'
+  /** The federation's own opening standard, which this book lets a lifter match. */
+  | 'match'
+  /** The record plus the full loading increment, required for a lower-level record. */
+  | 'full-increment';
+
+/** One weight that takes a record, and the reason it is that weight. */
+export interface RecordTarget {
+  readonly kilograms: number;
+  readonly basis: RecordTargetBasis;
+}
+
+/**
+ * Every weight that takes one record, by the condition each holds under.
+ *
+ * Both fields are named for the record's level *relative to the meet*, because
+ * that relation is the whole rule and every shorter name for it has been read
+ * backwards at least once. "At its own level" sounds like it covers one case and
+ * silently covers two: a record is chipped both at a meet of its own level and
+ * at a meet below it.
+ */
+export interface RecordTargets {
+  readonly record: FederationRecord;
+
+  /**
+   * When the record being claimed is at the meet's level or above it.
+   *
+   * Always present. A record can always be taken where it is kept, and this is
+   * also the figure for a record above the meet's level -- a national record at
+   * a state meet -- which is chipped on the same terms wherever that meet is
+   * sanctioned to allow the claim. Whether it is so sanctioned is a fact about
+   * the meet and not about the record, so nothing here can decide it.
+   */
+  readonly recordAtOrAboveMeetLevel: RecordTarget;
+
+  /**
+   * When the record being claimed is below the meet's level -- a state record
+   * at a national championship.
+   *
+   * `null` when the book draws no such distinction, and also when the figure
+   * would equal the one above -- two identical weights on screen under two
+   * conditions reads as a rule the lifter has failed to understand rather than
+   * as one that does not bite here.
+   */
+  readonly recordBelowMeetLevel: RecordTarget | null;
+}
+
+/**
+ * What has to go on the bar to take a record, under each condition the book
+ * distinguishes.
+ *
+ * @throws {RangeError} if either margin is negative or not finite.
+ */
+export function recordTargets(record: FederationRecord, rules: RecordMarginRules): RecordTargets {
+  assertMargin(rules.minimumIncrementKilograms, 'minimum increment');
+  if (rules.higherSanctionIncrementKilograms !== null) {
+    assertMargin(rules.higherSanctionIncrementKilograms, 'higher-sanction increment');
+  }
+
+  // Matching applies only to a figure nobody has lifted, and only where the book
+  // grants it for that level. Absent from the list means the ordinary margin, not
+  // an omission to be filled in: being asked for more than the rules demand costs
+  // an attempt, being asked for less costs the record.
+  const mayMatch =
+    record.unclaimed && rules.matchTakesUnclaimedLevelIds.includes(record.scope.levelId);
+
+  // Both figures are measured from the record exactly as published, never from
+  // the next ordinary bar multiple above it. A 200.5 kg record is chipped at 201
+  // and taken at a higher-level meet with 203, not 205.
+  const recordAtOrAboveMeetLevel: RecordTarget = mayMatch
+    ? { kilograms: ceilToHundredths(record.kilograms), basis: 'match' }
+    : {
+        // Work the lifter has left, so it rounds up. See `rounding.ts`.
+        kilograms: ceilToHundredths(record.kilograms + rules.minimumIncrementKilograms),
+        basis: 'chip',
+      };
+
+  const below =
+    rules.higherSanctionIncrementKilograms === null
+      ? null
+      : ceilToHundredths(record.kilograms + rules.higherSanctionIncrementKilograms);
+
+  return {
+    record,
+    recordAtOrAboveMeetLevel,
+    recordBelowMeetLevel:
+      // The stricter figure wins where the two rules overlap: a seeded record
+      // that may be matched where it is kept is still a record below the
+      // sanction level of a meet held above it, and a preset carries no
+      // exemption from that.
+      below === null || below <= recordAtOrAboveMeetLevel.kilograms
+        ? null
+        : { kilograms: below, basis: 'full-increment' },
+  };
+}
+
 /** Where a lift sits against a record. */
 export interface RecordStanding {
   readonly record: FederationRecord;
 
-  /** The lift that would replace the record: the record plus the required margin. */
+  /** Every weight that takes it, by condition. */
+  readonly targets: RecordTargets;
+
+  /**
+   * The lift that would replace the record at a meet whose level the record is
+   * at or above, which is the case a lifter is in unless they say otherwise.
+   */
   readonly kilogramsToReplace: number;
 
-  /** Whether the lift given is enough to replace it. */
+  /** Whether the lift given is enough to replace it, under that same condition. */
   readonly wouldReplace: boolean;
 
   /** How much more is needed. `null` once the record would be replaced. */
@@ -55,30 +210,24 @@ export interface RecordStanding {
 /**
  * Measures a lift against a record.
  *
- * @param minimumIncrementKilograms The margin the record book requires, which
- *   comes from the book rather than being assumed. Zero means matching the record
- *   is enough to replace it.
- * @throws {RangeError} if the lift is not a positive finite number, or the
- *   increment is negative.
+ * @param rules The margins the record book publishes, which come from the book
+ *   rather than being assumed. See {@link recordTargets}.
+ * @throws {RangeError} if the lift is not a positive finite number, or a margin
+ *   is negative.
  */
 export function standingAgainstRecord(
   liftedKilograms: number,
   record: FederationRecord,
-  minimumIncrementKilograms: number,
+  rules: RecordMarginRules,
 ): RecordStanding {
   if (!Number.isFinite(liftedKilograms) || liftedKilograms <= 0) {
     throw new RangeError(
       `Expected a positive finite lift in kilograms, received ${String(liftedKilograms)}`,
     );
   }
-  if (!Number.isFinite(minimumIncrementKilograms) || minimumIncrementKilograms < 0) {
-    throw new RangeError(
-      `Expected a non-negative finite increment in kilograms, received ${String(minimumIncrementKilograms)}`,
-    );
-  }
 
-  // Both figures are work the lifter has left, so both round up. See `rounding.ts`.
-  const kilogramsToReplace = ceilToHundredths(record.kilograms + minimumIncrementKilograms);
+  const targets = recordTargets(record, rules);
+  const kilogramsToReplace = targets.recordAtOrAboveMeetLevel.kilograms;
   const remaining = ceilToHundredths(kilogramsToReplace - liftedKilograms);
 
   // Rounding before the comparison, rather than testing the raw difference
@@ -86,10 +235,19 @@ export function standingAgainstRecord(
   // reading as short of it when the subtraction lands a fraction above zero.
   return {
     record,
+    targets,
     kilogramsToReplace,
     wouldReplace: remaining <= 0,
     kilogramsRemaining: remaining <= 0 ? null : remaining,
   };
+}
+
+function assertMargin(kilograms: number, what: string): void {
+  if (!Number.isFinite(kilograms) || kilograms < 0) {
+    throw new RangeError(
+      `Expected a non-negative finite ${what} in kilograms, received ${String(kilograms)}`,
+    );
+  }
 }
 
 /**

@@ -24,11 +24,13 @@
  * working on the mapping, and a partial crawl that looked complete would publish
  * a state's records as though the empty ones were empty upstream.
  */
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 
 import { assertAllowedSourceUrl, SOURCE_FETCH_TIMEOUT_MS } from '../fetch-policy.js';
+import { buildRecordTableUrl } from '../sources/record-tables.js';
+import { readRecordSourceReferences } from '../sources/records.js';
 import {
   componentDocumentUrl,
   decodeTableDocument,
@@ -49,6 +51,19 @@ const INDEX_URL = 'https://records.uspa.net/';
 
 /** Where the snapshot goes unless told otherwise. */
 const DEFAULT_OUTPUT = join('data', 'sources', 'records', 'snapshots', 'uspa-records.json');
+
+/**
+ * The mapping document, read for one field: the address of a table.
+ *
+ * The crawl does not otherwise care what the tables mean -- that is the whole
+ * separation this file's header describes -- and it reads this anyway, because
+ * the published records carry a link to the page each was read from and that link
+ * has to be the page this crawl actually fetched. Two copies of the address, one
+ * fetched and one published, is a link that rots the day the site moves and a
+ * build that never notices, because a build never follows a link. Sharing it
+ * means the drift fails the crawl instead, on the first table.
+ */
+const DEFAULT_MAPPING = join('data', 'sources', 'records', 'uspa.json');
 
 /**
  * How many tables are read at once.
@@ -105,6 +120,7 @@ interface AbsentTable {
 async function main(): Promise<void> {
   const limit = readLimit();
   const outputPath = readOutputPath();
+  const tableUrl = await readTableUrlTemplate();
 
   console.log('Walking the record index...');
   const targets = await collectTargets();
@@ -127,7 +143,7 @@ async function main(): Promise<void> {
 
   await inParallel(wanted, CONCURRENCY, async (target) => {
     try {
-      tables.push(await readTable(target));
+      tables.push(await readTable(target, tableUrl));
     } catch (error) {
       absent.push({ target, reason: describe(error) });
     }
@@ -210,12 +226,30 @@ async function collectTargets(): Promise<readonly RecordTableTarget[]> {
   return [...found.values()].sort((left, right) => (targetKey(left) < targetKey(right) ? -1 : 1));
 }
 
+/**
+ * The template every table's address is built from.
+ *
+ * A crawl with no template is refused rather than run, because the alternative is
+ * a full crawl -- minutes of somebody else's bandwidth -- discarded at the end,
+ * or worse, a corpus published with no way back to the source.
+ *
+ * @throws {Error} if the mapping cannot be read or names no template.
+ */
+async function readTableUrlTemplate(): Promise<string> {
+  const path = resolve(DEFAULT_MAPPING);
+  const references = readRecordSourceReferences(JSON.parse(await readFile(path, 'utf8')));
+  if (references.tableUrl === null) {
+    throw new Error(
+      `${DEFAULT_MAPPING} sets "tableUrl" to null, and this crawler reads its tables by URL. ` +
+        'Set the template, or crawl a source that has one.',
+    );
+  }
+  return references.tableUrl;
+}
+
 /** The three requests that turn one link into one table. */
-async function readTable(target: RecordTableTarget): Promise<CrawledTable> {
-  const page = await fetchText(
-    `https://records.uspa.net/records.php?location=${target.location}` +
-      `&status=${target.status}&event=${target.event}`,
-  );
+async function readTable(target: RecordTableTarget, tableUrl: string): Promise<CrawledTable> {
+  const page = await fetchText(buildRecordTableUrl(tableUrl, target));
   const loader = await fetchText(embedQueryUrl(readEmbedQuery(page)));
   const document = await fetchText(componentDocumentUrl(readEmbedComponent(loader)));
   const table = readRecordTable(decodeTableDocument(JSON.parse(document) as unknown));

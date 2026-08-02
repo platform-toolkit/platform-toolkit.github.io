@@ -6,10 +6,13 @@ import {
   type FederationRecord,
   type Lift,
   type RecordBook,
+  type RecordSourceTable,
   type SourceFreshness,
 } from '@platform-toolkit/data-contracts';
 import { formatPlainDate, parseKilograms, parsePlainDate } from '@platform-toolkit/domain';
 import * as v from 'valibot';
+
+import { RecordTableUrlTemplateSchema, buildRecordTableUrl } from './record-tables.js';
 
 /**
  * Turning a federation's published record tables into one record book.
@@ -217,17 +220,35 @@ export const RecordSourceDocumentSchema = v.object({
   snapshot: SnapshotReferenceSchema,
 
   /**
-   * The book's label and the margin a lift must beat a record by.
+   * The book's label and the margins a lift must beat a record by.
    *
    * No identifier: the book is the federation's, and `id` above is its name. A
    * second name chosen here would be a second thing to keep in step, and its
    * failure is a lookup that finds nothing -- which the screen renders as "no
    * records in this category", a real answer nobody would investigate.
+   *
+   * The three margin fields are the federation's own rules and are curated
+   * rather than assumed, for the reason the contract gives: a lifter told to put
+   * more on the bar than the rulebook demands loses an attempt, and one told to
+   * put less on loses the record.
    */
   book: v.object({
     label: NonEmpty,
     minimumIncrementKilograms: v.pipe(v.number(), v.finite(), v.minValue(0)),
+    higherSanctionIncrementKilograms: v.nullable(v.pipe(v.number(), v.finite(), v.minValue(0))),
+    matchTakesUnclaimedLevelIds: v.array(NonEmpty),
   }),
+
+  /**
+   * Where one published table can be read, with `{location}`, `{status}` and
+   * `{event}` standing in for the three identifiers that name it.
+   *
+   * `null` for a source whose tables have no address of their own -- a PDF, or a
+   * page that posts a form. Records from such a source are shown without a link,
+   * which is the honest outcome; a guessed one would send a lifter to somebody
+   * else's records.
+   */
+  tableUrl: v.nullable(RecordTableUrlTemplateSchema),
 
   locations: v.pipe(v.array(LocationMappingSchema), v.minLength(1)),
   statuses: v.pipe(v.array(StatusMappingSchema), v.minLength(1)),
@@ -337,6 +358,13 @@ export interface RecordSourceReferences {
   readonly snapshotFile: string;
   /** Where the crawl starts, or `null`. */
   readonly snapshotUrl: string | null;
+  /**
+   * The template for one table's address, or `null`.
+   *
+   * Read by the crawler as well as by the build, so that the page a record links
+   * to is the page the record was read from. See `record-tables.ts`.
+   */
+  readonly tableUrl: string | null;
 }
 
 /**
@@ -355,6 +383,7 @@ export function readRecordSourceReferences(document: unknown): RecordSourceRefer
     federationId: source.id,
     snapshotFile: source.snapshot.file,
     snapshotUrl: source.snapshot.url,
+    tableUrl: source.tableUrl,
   };
 }
 
@@ -415,6 +444,9 @@ export function buildRecordBook(
     id: source.id,
     label: source.book.label,
     minimumIncrementKilograms: source.book.minimumIncrementKilograms,
+    higherSanctionIncrementKilograms: source.book.higherSanctionIncrementKilograms,
+    matchTakesUnclaimedLevelIds: source.book.matchTakesUnclaimedLevelIds,
+    sourceTables: built.sourceTables,
     records: built.records,
   });
   if (!validated.success) {
@@ -549,6 +581,7 @@ function checkMappingsAreUnambiguous(problems: string[], source: RecordSourceDoc
     'placeholder holder',
     source.placeholderHolders.map((entry) => normalizeHolder(entry.holder)),
   );
+  collectDuplicates(problems, 'matchable level', source.book.matchTakesUnclaimedLevelIds);
 
   // A column that is both mapped and refused is a question with two answers, and
   // the refusal is the one that would silently win.
@@ -644,6 +677,17 @@ function checkMappingsNameRealCategories(
     if (!equipmentIds.has(entry.equipmentId)) {
       problems.push(
         `events: "${entry.event}" maps to equipment "${entry.equipmentId}", which the catalogue does not define`,
+      );
+    }
+  }
+
+  // A level named here and absent from the catalogue is a matching rule that can
+  // never fire, and the failure is silent: every seeded record at that level is
+  // published with a margin the rulebook does not ask for.
+  for (const levelId of source.book.matchTakesUnclaimedLevelIds) {
+    if (!levels.has(levelId)) {
+      problems.push(
+        `book: matchTakesUnclaimedLevelIds names level "${levelId}", which the catalogue does not define`,
       );
     }
   }
@@ -808,6 +852,8 @@ function checkAbsencesAreAccountedFor(
 interface BuiltRecords {
   readonly records: readonly FederationRecord[];
   readonly withheld: readonly WithheldRecordRow[];
+  /** One per table actually read, so a link is never offered to a page the crawl never saw. */
+  readonly sourceTables: readonly RecordSourceTable[];
 }
 
 /** Everything one table's three identifiers resolve to. */
@@ -859,6 +905,7 @@ function buildRecords(
 
   const records: FederationRecord[] = [];
   const withheld: WithheldRecordRow[] = [];
+  const sourceTables: RecordSourceTable[] = [];
   const headings: string[] = [];
   const lost: string[] = [];
   const unreadable: string[] = [];
@@ -903,6 +950,21 @@ function buildRecords(
       equipmentId: event.equipmentId,
       lifts,
     };
+
+    // Built here rather than from the mapping's cross product, so that the list
+    // holds only tables the crawl actually read and whose heading agreed. A link
+    // is an invitation to check the figure; one that leads nowhere is worse than
+    // no link at all.
+    if (source.tableUrl !== null) {
+      sourceTables.push({
+        levelId: scope.levelId,
+        regionId: scope.regionId,
+        tested: scope.tested,
+        equipmentId: scope.equipmentId,
+        disciplineId: scope.disciplineId,
+        url: buildRecordTableUrl(source.tableUrl, table),
+      });
+    }
 
     for (const row of table.rows) {
       const where = rowKey(table, row);
@@ -1040,7 +1102,11 @@ function buildRecords(
   // Sorted by identifier rather than left in crawl order. Artifacts are
   // content-addressed, so a source that merely reordered its rows would
   // otherwise rewrite every filename and evict a cache that was still correct.
-  return { records: records.sort((left, right) => compare(left.id, right.id)), withheld };
+  return {
+    records: records.sort((left, right) => compare(left.id, right.id)),
+    withheld,
+    sourceTables: sourceTables.sort((left, right) => compare(left.url, right.url)),
+  };
 }
 
 /**

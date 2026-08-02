@@ -201,13 +201,25 @@ export interface LiftStanding {
   readonly unit: WeightUnit;
 }
 
-/** A lifter, as far as choosing tables of standards is concerned. */
-export interface LifterCategory {
+/**
+ * The three axes every column of the report shares.
+ *
+ * Split out from {@link LifterCategory} because the report shows one lifter in
+ * up to two weight classes and up to two divisions at once: those two axes vary
+ * *within* one screen, and these three do not. Keeping them apart is what lets
+ * the transport key a read on the axes that choose an artifact (§5.4) while the
+ * report walks the ones that only choose a row.
+ */
+export interface LifterAxes {
   readonly sex: SexCategory;
   readonly equipmentId: string;
+  readonly tested: boolean;
+}
+
+/** A lifter, as far as choosing tables of standards is concerned. */
+export interface LifterCategory extends LifterAxes {
   readonly weightClassId: string;
   readonly divisionId: string;
-  readonly tested: boolean;
 }
 
 /**
@@ -221,27 +233,42 @@ export interface LifterCategory {
 const SEX_CATEGORIES: readonly SexCategory[] = ['female', 'male'];
 
 /**
- * The lifter's category, or `null` while any part of it is unanswered.
+ * The three shared axes, or `null` while any of them is unanswered.
  *
  * Deliberately all-or-nothing. Every axis narrows which table applies, and a
  * partial category would select the general table and present it as the
  * lifter's -- which is the failure mode this whole screen exists to prevent, in
  * the one place where nothing on screen would look unfinished.
+ *
+ * It reads the weight class and the division from nowhere, on purpose. Both used
+ * to come off the same selection and the function returned a whole
+ * {@link LifterCategory}; the report now shows up to two of each at once, and a
+ * function that quietly picked the *first* of them would have produced one
+ * correct column and silently dropped the comparison the lifter asked for.
  */
-export function lifterCategoryFrom(selection: CategorySelection): LifterCategory | null {
+export function lifterAxesFrom(selection: CategorySelection): LifterAxes | null {
   const sex = SEX_CATEGORIES.find((candidate) => candidate === selection.sex);
   const tested = testedFlag(selection);
-  const { equipment, weightClass, division } = selection;
-  if (
-    sex === undefined ||
-    tested === null ||
-    equipment === null ||
-    weightClass === null ||
-    division === null
-  ) {
+  const { equipment } = selection;
+  if (sex === undefined || tested === null || equipment === null) {
     return null;
   }
-  return { sex, equipmentId: equipment, weightClassId: weightClass, divisionId: division, tested };
+  return { sex, equipmentId: equipment, tested };
+}
+
+/**
+ * One cell of the report: the shared axes plus the two the report walks.
+ *
+ * Total rather than nullable, because both identifiers come from lists the
+ * resolver already filtered against the catalogue. A caller with an id in hand
+ * has an id the federation published.
+ */
+export function lifterCategoryFor(
+  axes: LifterAxes,
+  weightClassId: string,
+  divisionId: string,
+): LifterCategory {
+  return { ...axes, weightClassId, divisionId };
 }
 
 /**

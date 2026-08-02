@@ -95,8 +95,11 @@ export {
   LiftSchema,
   RecordBookSchema,
   RecordScopeSchema,
+  RecordSourceTableSchema,
+  findRecordSourceTable,
   type FederationRecord,
   type Lift,
   type RecordBook,
   type RecordScope,
+  type RecordSourceTable,
 } from './records.js';

@@ -1,27 +1,54 @@
-import type { Lift } from '@platform-toolkit/data-contracts';
+import type { Lift, RecordBook } from '@platform-toolkit/data-contracts';
 import type { WeightUnit } from '@platform-toolkit/domain';
 import { describe, expect, it } from 'vitest';
 
-import type { RecordPartition } from './record-scope.js';
 import {
   recordCategoryFrom,
   recordFigure,
   recordSummary,
+  recordTargetLines,
   resolveRecordStandings,
   type LiftRecordStanding,
   type RecordCategory,
 } from './record-standings.js';
 import { ANSWERED, BOOK, bookOf, record } from './records-fixture.js';
+import { NO_SELECTION, type CategorySelection, type RecordPartition } from './selection.js';
 import {
   LIFTS,
   NO_ENTRIES,
-  lifterCategoryFrom,
+  lifterAxesFrom,
+  lifterCategoryFor,
   setEntryUnit,
   typeLift,
   type LiftEntries,
+  type LifterCategory,
 } from './standards.js';
 
-const NATIONAL: RecordPartition = { levelId: 'national', regionId: null };
+const NATIONAL: RecordPartition = { levelId: 'national', regionId: null, label: 'National' };
+
+/**
+ * The lifter half of a record category, assembled the way the report assembles
+ * it rather than written out.
+ *
+ * `lifterAxesFrom` answers only the three axes every column of the report
+ * shares, because the report walks the other two -- up to two weight classes and
+ * up to two divisions -- and a function returning a whole category would have had
+ * to pick one of each and silently drop the comparison. So a *category* only
+ * exists per cell, and it is built here the same way. A literal instead would be
+ * free to name a class or a division the selection above it never chose, which is
+ * the one disagreement this file exists to catch.
+ */
+function lifterFor(
+  selection: CategorySelection,
+  weightClassId = 'f-56',
+  divisionId = 'open',
+): LifterCategory {
+  const axes = lifterAxesFrom(selection);
+  if (axes === null) {
+    throw new Error('This fixture selection is missing an axis the report needs.');
+  }
+  return lifterCategoryFor(axes, weightClassId, divisionId);
+}
 
 const CATEGORY: RecordCategory = {
   levelId: 'national',
@@ -67,9 +94,7 @@ function standingFor(
 
 describe('recordCategoryFrom', () => {
   it('joins the lifter half and the record half', () => {
-    expect(recordCategoryFrom(lifterCategoryFrom(ANSWERED), NATIONAL, 'full-power')).toEqual(
-      CATEGORY,
-    );
+    expect(recordCategoryFrom(lifterFor(ANSWERED), NATIONAL, 'full-power')).toEqual(CATEGORY);
   });
 
   /**
@@ -83,11 +108,22 @@ describe('recordCategoryFrom', () => {
   });
 
   it('refuses an unsettled partition', () => {
-    expect(recordCategoryFrom(lifterCategoryFrom(ANSWERED), null, 'full-power')).toBeNull();
+    expect(recordCategoryFrom(lifterFor(ANSWERED), null, 'full-power')).toBeNull();
   });
 
   it('refuses an unchosen event', () => {
-    expect(recordCategoryFrom(lifterCategoryFrom(ANSWERED), NATIONAL, null)).toBeNull();
+    expect(recordCategoryFrom(lifterFor(ANSWERED), NATIONAL, null)).toBeNull();
+  });
+
+  /**
+   * The three shared axes are all-or-nothing on their own, one level up. A
+   * selection with no sex category answered has no axes at all, so there is
+   * nothing for the report to build a cell's category out of -- which is the
+   * state the screen is in before anything is answered, and it has to be
+   * representable rather than thrown over.
+   */
+  it('has no lifter axes at all before the shared questions are answered', () => {
+    expect(lifterAxesFrom(NO_SELECTION)).toBeNull();
   });
 
   /**
@@ -96,8 +132,23 @@ describe('recordCategoryFrom', () => {
    * published record's own scope carries.
    */
   it('keeps a null region as an answer rather than dropping the axis', () => {
-    const category = recordCategoryFrom(lifterCategoryFrom(ANSWERED), NATIONAL, 'full-power');
+    const category = recordCategoryFrom(lifterFor(ANSWERED), NATIONAL, 'full-power');
     expect(category?.regionId).toBeNull();
+  });
+
+  /**
+   * The two walked axes come from the caller and not from the selection, which is
+   * requirements 2 and 8 in one assertion: the report draws a cell per weight
+   * class per division, and every one of them is a different record lookup.
+   */
+  it('takes the class and the division it is told rather than the ones answered', () => {
+    const category = recordCategoryFrom(
+      lifterFor(ANSWERED, 'f-52', 'masters-1'),
+      NATIONAL,
+      'full-power',
+    );
+    expect(category?.weightClassId).toBe('f-52');
+    expect(category?.divisionId).toBe('masters-1');
   });
 });
 
@@ -117,11 +168,24 @@ describe('resolveRecordStandings', () => {
    * lifter told the wrong answer finds out on the platform.
    */
   it('adds the book’s required margin to the figure that replaces it', () => {
-    expect(standingFor({}).kilogramsToReplace).toBe(145.5);
+    expect(standingFor({}).targets?.recordAtOrAboveMeetLevel).toEqual({
+      kilograms: 145.5,
+      basis: 'chip',
+    });
   });
 
-  it('prints the target before anything has been typed', () => {
-    expect(recordSummary(standingFor({}))).toBe('145.5 kg replaces it.');
+  /**
+   * The targets are present with nothing typed, because they are what the lifter
+   * came to find out and they do not depend on anybody having entered a lift.
+   * They are printed as their own lines rather than named in this sentence, for
+   * the reason {@link recordTargetLines} gives: each holds under a condition
+   * about the meet, and a bare figure in a sentence carries none of it.
+   */
+  it('has its targets before anything is typed, and says there is nothing to measure', () => {
+    const standing = standingFor({});
+    expect(standing.targets).not.toBeNull();
+    expect(standing.standing).toBeNull();
+    expect(recordSummary(standing)).toBe('Enter a lift to see how close you are.');
   });
 
   it('measures what is left when the lift is short', () => {
@@ -164,7 +228,9 @@ describe('resolveRecordStandings', () => {
 
   it('writes every figure in the unit the lifter is working in', () => {
     expect(recordFigure(standingFor({}, 'squat', 'lb'))).toBe('319.7 lb');
-    expect(recordSummary(standingFor({}, 'squat', 'lb'))).toBe('320.8 lb replaces it.');
+    expect(recordSummary(standingFor({ squat: '310' }, 'squat', 'lb'))).toBe(
+      '10.8 lb more replaces it, at 320.8 lb.',
+    );
   });
 
   /**
@@ -184,7 +250,8 @@ describe('resolveRecordStandings', () => {
   it('has nothing to measure against a missing record', () => {
     const standing = standingFor({ deadlift: '200' }, 'deadlift');
     expect(standing.standing).toBeNull();
-    expect(standing.kilogramsToReplace).toBeNull();
+    expect(standing.targets).toBeNull();
+    expect(recordTargetLines(standing)).toEqual([]);
   });
 
   it('waits for the category rather than showing a broader record', () => {
@@ -235,12 +302,17 @@ describe('resolveRecordStandings', () => {
   /**
    * A seeded record is a record. The federation founds a category with a bar to
    * clear so the first lifter has something to beat, and a lifter who clears it
-   * takes it -- so the arithmetic is the arithmetic, and the only thing that
-   * differs is the sentence about who holds it. Treating an unclaimed figure as
-   * "no record stands here" would tell a lifter the first qualifying lift sets
-   * one at any weight, which is the one wrong answer this panel could give.
+   * takes it. Treating an unclaimed figure as "no record stands here" would tell
+   * a lifter the first qualifying lift sets one at any weight, which is the one
+   * wrong answer this panel could give.
+   *
+   * What differs is the *figure*, not whether there is one: this book lets an
+   * unclaimed national standard be matched exactly, so 145 takes it rather than
+   * 145.5. That is the one basis where the target equals the record, and a reader
+   * who assumes every target is record-plus-something loads a heavier bar than
+   * the rules ask for.
    */
-  it('measures against a record nobody holds exactly as against one somebody does', () => {
+  it('measures against a record nobody holds, at the figure the book asks for', () => {
     const seeded = bookOf([record('squat', { kilograms: 145, unclaimed: true })]);
     const standings = resolveRecordStandings(
       seeded,
@@ -250,7 +322,30 @@ describe('resolveRecordStandings', () => {
     );
     const standing = standings[0] ?? standingFor({});
     expect(standing.record.kind).toBe('record');
-    expect(recordSummary(standing)).toBe('5.5 kg more replaces it, at 145.5 kg.');
+    expect(standing.targets?.recordAtOrAboveMeetLevel.basis).toBe('match');
+    expect(recordSummary(standing)).toBe('5 kg more replaces it, at 145 kg.');
+  });
+
+  /**
+   * The same seeded record at a level the book grants no match for. `bookOf`
+   * lists national only, on purpose -- a rule that applied everywhere would let
+   * the panel pass while the level check that decides it was missing entirely.
+   */
+  it('still requires the margin for a seeded record at a level the book excludes', () => {
+    const seeded = bookOf([
+      record('squat', {
+        kilograms: 130,
+        levelId: 'state',
+        regionId: 'north-example',
+        unclaimed: true,
+      }),
+    ]);
+    const atState = { ...CATEGORY, levelId: 'state', regionId: 'north-example' };
+    const standings = resolveRecordStandings(seeded, atState, ['squat'], NO_ENTRIES);
+    expect(standings[0]?.targets?.recordAtOrAboveMeetLevel).toEqual({
+      kilograms: 130.5,
+      basis: 'chip',
+    });
   });
 
   it('matches exactly on the region rather than widening to the level', () => {
@@ -270,5 +365,108 @@ describe('resolveRecordStandings', () => {
       NO_ENTRIES,
     );
     expect(standings[0]?.record.kind).toBe('none');
+  });
+});
+
+/**
+ * Requirement 6, which is the requirement most easily satisfied wrongly.
+ *
+ * The user's instruction was to find the exact rule for when a record may be
+ * chipped and when it may not, and to show both options if it can be done
+ * without a wall of words. It cannot be shown as one figure: the condition is
+ * about the level of the meet the lifter has entered, which this application
+ * cannot see and must not guess. So the panel prints a line per condition, and
+ * these tests pin the conditions rather than the wording of a sentence.
+ */
+describe('recordTargetLines', () => {
+  it('gives a line for the record chipped and a line for the full increment', () => {
+    expect(recordTargetLines(standingFor({}))).toEqual([
+      {
+        condition: 'At a meet of this level or below',
+        kilograms: 145.5,
+        basis: 'record plus the record-attempt margin',
+      },
+      {
+        condition: 'At a meet above this level',
+        kilograms: 147.5,
+        basis: 'record plus the full loading increment',
+      },
+    ]);
+  });
+
+  /**
+   * The one basis where the target equals the record. Named explicitly, because
+   * "record plus the margin" is what a reader assumes of every row and assuming
+   * it here means opening half a kilo above what the rules ask for.
+   */
+  it('says a seeded record may be matched where the book allows it', () => {
+    const seeded = bookOf([record('squat', { kilograms: 145, unclaimed: true })]);
+    const standings = resolveRecordStandings(seeded, CATEGORY, ['squat'], NO_ENTRIES);
+    const lines = recordTargetLines(standings[0] ?? standingFor({}));
+    expect(lines[0]).toEqual({
+      condition: 'At a meet of this level or below',
+      kilograms: 145,
+      basis: 'matching the opening standard takes it, as nobody holds it yet',
+    });
+  });
+
+  /**
+   * A book that draws no distinction gets one line, not one line repeated. Two
+   * identical weights on screen under two conditions reads as a rule the lifter
+   * has failed to understand rather than as one that does not bite here.
+   */
+  it('gives one line when the book publishes no higher-sanction increment', () => {
+    const flat: RecordBook = {
+      ...bookOf([record('squat', { kilograms: 145 })]),
+      higherSanctionIncrementKilograms: null,
+    };
+    const standings = resolveRecordStandings(flat, CATEGORY, ['squat'], NO_ENTRIES);
+    expect(recordTargetLines(standings[0] ?? standingFor({}))).toEqual([
+      {
+        condition: 'At a meet of this level or below',
+        kilograms: 145.5,
+        basis: 'record plus the record-attempt margin',
+      },
+    ]);
+  });
+
+  it('gives one line when both rules land on the same weight', () => {
+    const tied: RecordBook = {
+      ...bookOf([record('squat', { kilograms: 145 })]),
+      minimumIncrementKilograms: 2.5,
+    };
+    const standings = resolveRecordStandings(tied, CATEGORY, ['squat'], NO_ENTRIES);
+    const lines = recordTargetLines(standings[0] ?? standingFor({}));
+    expect(lines.map((line) => line.kilograms)).toEqual([147.5]);
+  });
+});
+
+/**
+ * Requirement 12, on the data side.
+ *
+ * The link goes to the *table* the record is published in, and it comes from the
+ * book's own list rather than being assembled from the axes. An assembled URL
+ * would resolve and show somebody else's category, which is worse than no link
+ * at all -- it is a wrong answer wearing the federation's own domain name.
+ */
+describe('the link back to the federation’s table', () => {
+  it('carries the table the book lists for the record’s scope', () => {
+    expect(standingFor({}).sourceUrl).toBe(
+      'https://records.example.test/records?level=national&event=raw-full-power',
+    );
+  });
+
+  it('carries no link when the book lists no table for that scope', () => {
+    const stateBook = bookOf([
+      record('squat', { kilograms: 130, levelId: 'state', regionId: 'north-example' }),
+    ]);
+    const atState = { ...CATEGORY, levelId: 'state', regionId: 'north-example' };
+    const standings = resolveRecordStandings(stateBook, atState, ['squat'], NO_ENTRIES);
+    expect(standings[0]?.record.kind).toBe('record');
+    expect(standings[0]?.sourceUrl).toBeNull();
+  });
+
+  it('carries no link for a category with no record in it', () => {
+    expect(standingFor({}, 'deadlift').sourceUrl).toBeNull();
   });
 });

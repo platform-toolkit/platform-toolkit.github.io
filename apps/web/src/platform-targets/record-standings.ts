@@ -23,20 +23,23 @@
  * empty row, and a record with no entry beside it still prints the figure that
  * would replace it -- the target is useful before the lifter has typed anything.
  */
-import type {
-  FederationRecord,
-  Lift,
-  RecordBook,
-  RecordScope,
+import {
+  findRecordSourceTable,
+  type FederationRecord,
+  type Lift,
+  type RecordBook,
+  type RecordScope,
 } from '@platform-toolkit/data-contracts';
 import {
   findRecord,
   standingAgainstRecord,
+  type RecordMarginRules,
   type RecordStanding,
+  type RecordTargets,
   type WeightUnit,
 } from '@platform-toolkit/domain';
 
-import type { RecordPartition } from './record-scope.js';
+import type { RecordPartition } from './selection.js';
 import {
   LIFT_LABELS,
   formatAsUnit,
@@ -80,13 +83,30 @@ export interface LiftRecordStanding {
    */
   readonly standing: RecordStanding | null;
   /**
-   * The lift that would replace the record: the record plus the required margin.
+   * Every weight that takes this record, by the condition each holds under.
    *
    * Present whenever there is a record, entry or no entry, because it is the
    * number a lifter came to find out and it does not depend on them having typed
    * anything. `null` only when there is no record to beat.
+   *
+   * The whole {@link RecordTargets}, not one figure out of it. A single
+   * "replaces it" number is the commonest case and the wrong answer to the other
+   * two: a state record costs the full loading increment at a national meet, and
+   * a federation-seeded figure can sometimes be matched exactly. Both were
+   * previously collapsed into the chip figure, so the panel told a lifter at
+   * nationals to load two kilos less than the record needs -- which reads as a
+   * successful record attempt right up until the scoring table says otherwise.
    */
-  readonly kilogramsToReplace: number | null;
+  readonly targets: RecordTargets | null;
+  /**
+   * The table the federation publishes this record in, or `null` when the book
+   * lists none for its scope.
+   *
+   * Carried on the standing so the link and the figure cannot disagree about
+   * which record they describe. Never guessed: a table URL assembled from the
+   * axes would resolve, and would show somebody else's category.
+   */
+  readonly sourceUrl: string | null;
   /** The unit every figure in this standing is written in. Carried, never passed alongside. */
   readonly unit: WeightUnit;
 }
@@ -94,7 +114,7 @@ export interface LiftRecordStanding {
 /**
  * The full record category, or `null` while any part of it is unanswered.
  *
- * All-or-nothing for the same reason `lifterCategoryFrom` is, and more sharply:
+ * All-or-nothing for the same reason `lifterAxesFrom` is, and more sharply:
  * a record lookup matches exactly, so a missing axis does not select a broader
  * record -- it selects nothing, and the panel would report that the federation
  * keeps no record in a category it certainly does.
@@ -149,25 +169,31 @@ export function resolveRecordStandings(
         entry,
         record,
         standing: null,
-        kilogramsToReplace: null,
+        targets: null,
+        sourceUrl: null,
         unit: entries.unit,
       };
     }
 
-    // From the book, never assumed. A federation that requires a margin and one
-    // that does not disagree about whether equalling a record breaks it, and a
-    // lifter told the wrong answer finds out on the platform. The book is
+    // From the book, never assumed. Federations disagree about whether equalling
+    // a record breaks it, about what a record kept below the meet's own sanction
+    // level costs, and about whether a figure nobody has lifted may be matched --
+    // and a lifter told the wrong answer finds out on the platform. The book is
     // non-null here because `recordFor` only returns a record when it had one.
-    const increment = book?.minimumIncrementKilograms ?? 0;
+    const rules: RecordMarginRules = {
+      minimumIncrementKilograms: book?.minimumIncrementKilograms ?? 0,
+      higherSanctionIncrementKilograms: book?.higherSanctionIncrementKilograms ?? null,
+      matchTakesUnclaimedLevelIds: book?.matchTakesUnclaimedLevelIds ?? [],
+    };
 
     // Measured against the record's own figure when nothing has been typed. The
-    // target does not depend on the lift handed in -- it is the record plus the
-    // margin, rounded up -- so this reaches the same arithmetic rather than
-    // repeating it, and the two sentences on the card cannot round differently.
+    // target does not depend on the lift handed in, so this reaches the same
+    // arithmetic rather than repeating it, and the two sentences on the card
+    // cannot round differently.
     const measured = standingAgainstRecord(
       entry.kind === 'weight' ? entry.kilograms : record.record.kilograms,
       record.record,
-      increment,
+      rules,
     );
 
     return {
@@ -176,11 +202,71 @@ export function resolveRecordStandings(
       entry,
       record,
       standing: entry.kind === 'weight' ? measured : null,
-      kilogramsToReplace: measured.kilogramsToReplace,
+      targets: measured.targets,
+      // From the book's own list, matched on the five axes that address a table.
+      // `book` is non-null here for the same reason the rules above are: this
+      // branch only runs when `recordFor` found a record in it.
+      sourceUrl:
+        book === null ? null : (findRecordSourceTable(book, record.record.scope)?.url ?? null),
       unit: entries.unit,
     };
   });
 }
+
+/**
+ * Every weight that takes one record, each with the condition it holds under.
+ *
+ * Two rows rather than a sentence, and this is the shape requirement 6 needs:
+ * the condition is about the meet the lifter has entered, which this application
+ * cannot see and must not guess. Prose forces a guess -- "203 kg replaces it"
+ * names one figure with no condition attached, and it is the wrong figure at
+ * every meet held above the record's own level.
+ *
+ * Empty when there is no record. One entry when the book draws no distinction,
+ * or when both rules land on the same weight ({@link recordTargets} collapses
+ * that case rather than printing one number twice under two conditions).
+ */
+export function recordTargetLines(
+  standing: LiftRecordStanding,
+): readonly { readonly condition: string; readonly kilograms: number; readonly basis: string }[] {
+  if (standing.targets === null) {
+    return [];
+  }
+  const { recordAtOrAboveMeetLevel, recordBelowMeetLevel } = standing.targets;
+  const lines = [
+    {
+      // Named for the record's level relative to the meet, because that relation
+      // is the whole rule and every shorter phrasing has been read backwards at
+      // least once. A national record is chipped at nationals *and* at a state
+      // meet sanctioned to allow the claim -- one condition, two situations.
+      condition: 'At a meet of this level or below',
+      kilograms: recordAtOrAboveMeetLevel.kilograms,
+      basis: BASIS_NOTES[recordAtOrAboveMeetLevel.basis],
+    },
+  ];
+  if (recordBelowMeetLevel !== null) {
+    lines.push({
+      condition: 'At a meet above this level',
+      kilograms: recordBelowMeetLevel.kilograms,
+      basis: BASIS_NOTES[recordBelowMeetLevel.basis],
+    });
+  }
+  return lines;
+}
+
+/**
+ * Why each figure is the figure it is, in a phrase.
+ *
+ * Written here rather than in the component so the three can be asserted without
+ * a browser, and so that "match" cannot quietly acquire a margin: it is the one
+ * basis where the target *equals* the record, and a reader who assumes every
+ * target is record-plus-something loads a heavier bar than the rules ask for.
+ */
+const BASIS_NOTES: Readonly<Record<RecordTargets['recordAtOrAboveMeetLevel']['basis'], string>> = {
+  chip: 'record plus the record-attempt margin',
+  match: 'matching the opening standard takes it, as nobody holds it yet',
+  'full-increment': 'record plus the full loading increment',
+};
 
 function recordFor(
   book: RecordBook | null,
@@ -240,12 +326,14 @@ export function recordSummary(standing: LiftRecordStanding): string {
       break;
   }
 
-  const { standing: against, kilogramsToReplace, unit } = standing;
+  const { standing: against, targets, unit } = standing;
+  const kilogramsToReplace = targets?.recordAtOrAboveMeetLevel.kilograms ?? null;
   if (against === null || kilogramsToReplace === null) {
-    // No usable weight yet, so there is nothing to measure -- but the target is
-    // still worth printing. It is what the lifter came to find out and it does
-    // not depend on them having typed anything.
-    return `${formatAsUnit(kilogramsToReplace ?? 0, unit)} replaces it.`;
+    // No usable weight yet, so there is nothing to measure. The targets are
+    // printed by {@link recordTargetLines} rather than named here, because each
+    // of them holds under a condition and a bare figure in a sentence carries
+    // none.
+    return 'Enter a lift to see how close you are.';
   }
 
   const prefix =

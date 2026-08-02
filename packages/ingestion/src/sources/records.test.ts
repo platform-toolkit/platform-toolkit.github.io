@@ -80,7 +80,17 @@ function document(overrides: Record<string, unknown> = {}): Record<string, unkno
       retrievedAt: '1999-01-01T00:00:00.000Z',
     },
     snapshot: { file: 'example-records.json', url: 'https://example.invalid/records' },
-    book: { label: 'Example records', minimumIncrementKilograms: 0.5 },
+    book: {
+      label: 'Example records',
+      minimumIncrementKilograms: 0.5,
+      // Larger than the margin above and different from it, so a test cannot
+      // pass by reading either figure where the other belongs.
+      higherSanctionIncrementKilograms: 2.5,
+      // National only. A seeded state standard still has to be beaten, which is
+      // the half of the rule that would go untested if this listed both.
+      matchTakesUnclaimedLevelIds: ['national'],
+    },
+    tableUrl: 'https://example.invalid/records.php?l={location}&s={status}&e={event}',
     locations: [
       {
         location: 'north',
@@ -247,6 +257,7 @@ describe('readRecordSourceReferences', () => {
       federationId: 'example',
       snapshotFile: 'example-records.json',
       snapshotUrl: 'https://example.invalid/records',
+      tableUrl: 'https://example.invalid/records.php?l={location}&s={status}&e={event}',
     });
   });
 

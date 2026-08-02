@@ -55,37 +55,60 @@ const OUTPUT_DIRECTORY = fileURLToPath(new URL('../apps/web/dist', import.meta.u
 const WIDTHS = [320, 390];
 
 /**
- * The interactions that reveal the rest of the Platform Targets screen.
+ * The lift entry, which arrives folded.
  *
- * Each question is only offered once the one before it has been answered -- the
- * catalogue cannot name a weight class before it knows a sex category -- so the
- * state with the most on it is reachable only by working down the list. Every
- * selector picks the *first* option in its group, which is enough: the check is
- * about layout, and the longest label in each group is measured whether or not
- * it is the one chosen.
+ * Requirement 11 put it out of the way, and a folded section measures the one
+ * line it shows -- so without this the four fields and the unit control are
+ * never looked at, and `fill` below could not reach them either, because
+ * Playwright refuses to type into something that is not visible.
+ */
+const PLATFORM_TARGETS_CLICK = ['ptk-disclosure[label="Your lifts (optional)"] summary'];
+
+/**
+ * The three tile questions, which are the only ones that gate the report.
  *
- * All five matter. The standards panel below the questions renders four fields
- * and four status lines, and it is inert until a category is complete, so
- * stopping after the first answer would measure roughly a third of the page --
- * which is what this list used to do, and why it is a list now.
+ * Requirement 9: sex, equipment, one weight class and drug-tested status are
+ * enough, and the weight class is a picker rather than a tile (see `choose`
+ * below). Each selector answers the *first* option in its group, which is
+ * enough -- the check is about layout, and the longest label in a group is
+ * measured whether or not it is the one chosen.
  *
- * The last three are the records panel's own questions, and the region one is
- * the densest thing on this screen by a wide margin: fifty state names, several
- * of which are two words long. It is reachable only because the catalogue lists
- * the subdivided level first, so `.first()` on the level group lands on the
- * level that asks it -- if a federation ever publishes an unsubdivided level
- * ahead of a subdivided one, this stops matching and fails loudly, which is the
- * correct outcome rather than a quiet skip of fifty tiles.
+ * This list used to be eight long, and shrank because the screen did. The
+ * records panel's own level, region and discipline questions are gone entirely:
+ * requirements 3 and 4 replaced them with a report that shows every level and
+ * every event at once. Region survives as an optional picker.
  */
 const PLATFORM_TARGETS_REVEAL = [
   'ptk-choice-group[data-field="sex"] input',
   'ptk-choice-group[data-field="equipment"] input',
-  'ptk-choice-group[data-field="weightClass"] input',
-  'ptk-choice-group[data-field="division"] input',
   'ptk-choice-group[data-field="tested"] input',
-  'ptk-choice-group[data-record-field="level"] input',
-  'ptk-choice-group[data-record-field="region"] input',
-  'ptk-choice-group[data-record-field="discipline"] input',
+];
+
+/**
+ * The four pickers, answered by position rather than by value.
+ *
+ * By position because the options come from published data: a weight class
+ * identifier is USPA's, not this file's, and pinning one here would make a
+ * federation renaming a class look like a layout regression. Index 1 is the
+ * first real option in every one of these -- index 0 is the placeholder that
+ * clears the answer ("Not selected", "One class only", "Open only", "Every
+ * state"), and choosing it would leave the picker unanswered.
+ *
+ * Order matters and is not arrangeable. The weight-class pickers have no
+ * options at all until a sex category has been answered, which is why this runs
+ * after `reveal` rather than beside it.
+ *
+ * All four are answered because the report widens with each: a second weight
+ * class adds a column (requirement 8), a masters division adds a set of rows to
+ * every cell (requirement 2), and a state adds a second level of record
+ * (requirement 3). Answering only the required one would measure the narrowest
+ * report the tool can draw and call the widest one covered.
+ */
+const PLATFORM_TARGETS_CHOOSE = [
+  { selector: 'ptk-select[data-field="weightClass"] select', index: 1 },
+  { selector: 'ptk-select[data-field="comparisonWeightClass"] select', index: 1 },
+  { selector: 'ptk-select[data-field="division"] select', index: 1 },
+  { selector: 'ptk-select[data-field="region"] select', index: 1 },
 ];
 
 /**
@@ -213,22 +236,23 @@ const ONE_REP_MAX_CLICK_AFTER = [
  *
  * Two rather than one, because the screen has two panels that finish at
  * different moments and neither implies the other. The derived total fills in
- * once the three lifts above it parse; the record cards exist only once the
- * event has been chosen and the panel has rendered them. Settling on the total
- * alone would measure a records panel still showing its "choose a level" notice,
- * which is a third of the height of the one with cards on it.
+ * once the three lifts above it parse; a report row exists only once both the
+ * classification standards and at least one record partition have arrived and
+ * been laid out against the chosen classes. Settling on the total alone would
+ * measure a report still showing its loading notice, which is a fraction of the
+ * height of the one with ladders on it.
  *
- * A card, not a figure. `.figure` renders only where a record actually stands in
- * the chosen category, and the category this list reveals -- the first option in
- * every group -- is a real one the federation happens to publish nothing for.
- * Waiting for a figure would be waiting for something correct data does not
- * produce. What that costs is the holder line, the widest string on a card; it is
- * measured at 320 px in `ptk-target-records.browser.test.ts` instead, where the
- * book is a fixture and the record is guaranteed to be there.
+ * A row rather than a record figure. Every row -- classification rung or record
+ * -- is the same `li.row`, and which of the two a given category has is a fact
+ * about published data: the first option in every picker is a real category the
+ * federation may publish no record for, so waiting for a record specifically
+ * would be waiting for something correct data does not have to produce. The
+ * widest string a record row renders, the holder line, is measured at 320 px in
+ * `ptk-target-report.browser.test.ts` instead, where the book is a fixture.
  */
 const PLATFORM_TARGETS_SETTLE = [
   'ptk-number-field[data-lift="total"] input',
-  'ptk-target-records .record',
+  'ptk-target-report li.row',
 ];
 
 /**
@@ -245,15 +269,17 @@ const ROUTES = [
   { path: '/', click: HUB_CLICK, reveal: [], fill: [] },
   {
     path: '/platform-targets/',
-    click: [],
+    click: PLATFORM_TARGETS_CLICK,
     reveal: PLATFORM_TARGETS_REVEAL,
+    choose: PLATFORM_TARGETS_CHOOSE,
     fill: PLATFORM_TARGETS_FILL,
     settle: PLATFORM_TARGETS_SETTLE,
   },
   {
     path: '/platform-targets/embed/uspa/',
-    click: [],
+    click: PLATFORM_TARGETS_CLICK,
     reveal: PLATFORM_TARGETS_REVEAL,
+    choose: PLATFORM_TARGETS_CHOOSE,
     fill: PLATFORM_TARGETS_FILL,
     settle: PLATFORM_TARGETS_SETTLE,
   },
@@ -433,6 +459,46 @@ async function tap(page, selectors, where, failures) {
 }
 
 /**
+ * Answers a list of pickers by position, failing on anything that is not there.
+ *
+ * By position rather than by value because the options are published data: the
+ * identifiers on the deployed site belong to a federation, and naming one here
+ * would make a renamed weight class arrive as a layout regression in a file that
+ * has nothing to do with the change. Index 1 is the first real option in every
+ * picker this drives -- index 0 clears the answer.
+ *
+ * A picker with too few options fails rather than falling back to whatever it
+ * has. `selectOption({ index })` on an absent index resolves against nothing and
+ * leaves the placeholder selected, so the check would go on to measure a report
+ * that was never drawn while reporting a pass on it -- the same silent-skip
+ * failure the unmatched-selector rule exists to prevent, arriving one level down.
+ *
+ * @param {import('playwright').Page} page
+ * @param {readonly {selector: string, index: number}[]} pickers
+ * @param {string} where
+ * @param {string[]} failures
+ * @returns {Promise<boolean>}
+ */
+async function pick(page, pickers, where, failures) {
+  for (const { selector, index } of pickers) {
+    const control = page.locator(selector).first();
+    if ((await control.count()) === 0) {
+      failures.push(`${where}: nothing matched ${selector}`);
+      return false;
+    }
+    const options = await control.locator('option').count();
+    if (options <= index) {
+      failures.push(
+        `${where}: ${selector} offers ${String(options)} options, so index ${String(index)} cannot be chosen`,
+      );
+      return false;
+    }
+    await control.selectOption({ index });
+  }
+  return true;
+}
+
+/**
  * Drives a route into the state worth measuring.
  *
  * Returns false, having recorded a failure, if any step could not be taken. A
@@ -458,6 +524,11 @@ async function reveal(page, route, width, failures) {
     }
     await control.check();
   }
+
+  // Pickers after tiles, and not arrangeable the other way round: a weight class
+  // list is empty until a sex category has been answered above, so a picker
+  // driven first would be a select with one placeholder in it.
+  if (!(await pick(page, route.choose ?? [], where, failures))) return false;
 
   for (const { selector, value } of route.fill) {
     const field = page.locator(selector).first();

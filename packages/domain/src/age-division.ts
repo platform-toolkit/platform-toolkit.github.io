@@ -78,6 +78,68 @@ export function narrowestAgeDivision(
   return narrowest ?? null;
 }
 
+/**
+ * The Open division, found by shape rather than by name.
+ *
+ * `{ ok: false }` rather than `null` because the two ways of failing want
+ * different screens: a set with no Open division at all is a federation that
+ * does not run one, and a set with two candidates is published data somebody
+ * has to look at.
+ */
+export type OpenAgeDivisionResult =
+  | { readonly ok: true; readonly division: AgeDivision }
+  | { readonly ok: false; readonly reason: 'none' | 'ambiguous' };
+
+/**
+ * The division everybody is eligible for, whatever the federation calls it.
+ *
+ * A screen that always shows Open alongside whichever Masters or Juniors
+ * division a lifter picked has to know which one Open *is*, and nothing in the
+ * published data says so directly. Three tempting ways to find it are all
+ * wrong:
+ *
+ * - **By id.** `'open'` is this federation's spelling today. Hard-coding it
+ *   makes every other federation's catalogue silently produce a report with no
+ *   Open column, which reads as a federation that keeps no open records.
+ * - **By label.** Same failure with a translation or a rename in front of it.
+ * - **By both bounds being null.** The obvious structural test, and it does not
+ *   hold: a real published Open division here is 13 and over, because the
+ *   federation runs no division below 13 at all. The test finds nothing, and
+ *   the symptom is again an empty Open column.
+ *
+ * So: the division whose age band contains every other division's band, or as
+ * many of them as any candidate does. That is what "admits everyone" means once
+ * a floor at the youngest age the federation competes at is allowed for. A tie
+ * is reported rather than broken by document order (§5.5) -- two divisions with
+ * the same reach is a genuine question about the data, and picking the first
+ * would put one federation's arbitrary ordering in front of a lifter as a fact.
+ */
+export function openAgeDivision(divisions: readonly AgeDivision[]): OpenAgeDivisionResult {
+  const [first, ...rest] = divisions;
+  if (first === undefined) {
+    return { ok: false, reason: 'none' };
+  }
+
+  const reach = (candidate: AgeDivision): number =>
+    divisions.filter((other) => other !== candidate && contains(candidate, other)).length;
+
+  let best = first;
+  let bestReach = reach(first);
+  let tied = false;
+  for (const candidate of rest) {
+    const candidateReach = reach(candidate);
+    if (candidateReach > bestReach) {
+      best = candidate;
+      bestReach = candidateReach;
+      tied = false;
+    } else if (candidateReach === bestReach) {
+      tied = true;
+    }
+  }
+
+  return tied ? { ok: false, reason: 'ambiguous' } : { ok: true, division: best };
+}
+
 /** Whether `inner`'s age range fits entirely inside `outer`'s. */
 function contains(outer: AgeDivision, inner: AgeDivision): boolean {
   const outerMinimum = outer.minimumAge ?? Number.NEGATIVE_INFINITY;

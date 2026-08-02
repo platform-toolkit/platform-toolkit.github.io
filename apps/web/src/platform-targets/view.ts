@@ -3,15 +3,14 @@ import {
   type DataSource,
   type RecordSetQuery,
 } from '@platform-toolkit/data-access';
-import type { SexCategory } from '@platform-toolkit/data-contracts';
+import type { RecordBook, SexCategory } from '@platform-toolkit/data-contracts';
 
 import { dataSource } from '../data-source.js';
 import './ptk-platform-targets.js';
 import type { PtkPlatformTargets } from './ptk-platform-targets.js';
 import { SELECTION_CHANGE_EVENT } from './ptk-target-categories.js';
-import { RECORD_SCOPE_CHANGE_EVENT } from './ptk-target-records.js';
-import type { RecordPartition } from './record-scope.js';
-import { NO_SELECTION, type CategorySelection } from './selection.js';
+import type { PartitionRead } from './ptk-target-report.js';
+import { partitionKey, type CategorySelection, type RecordPartition } from './selection.js';
 
 /** Identifier for this tool, and what it calls itself in a height message. */
 export const TOOL_ID = 'platform-targets';
@@ -32,7 +31,7 @@ export interface PlatformTargetsViewOptions {
 /**
  * Builds the tool and starts loading what it needs.
  *
- * The element is returned before either read finishes, showing its own loading
+ * The element is returned before any read finishes, showing its own loading
  * state, so the page has something with a height immediately -- the embed route
  * reports that height to its parent, and a frame that starts at zero and then
  * jumps is worse than one that starts the size of a sentence.
@@ -94,7 +93,7 @@ function watchForStandards(
     const partition = partitionOf(event.detail.selection);
     if (partition === null) {
       // Not an error and not worth clearing anything over: the lifter is part
-      // way through the questions, and the standards panel says so itself.
+      // way through the questions, and the report says so itself.
       return;
     }
     // A slash cannot make two partitions share a key: the first segment comes
@@ -107,7 +106,7 @@ function watchForStandards(
     loaded = key;
 
     // The previous read is abandoned rather than awaited. Two partitions in
-    // flight can settle out of order, and the loser would overwrite the panel
+    // flight can settle out of order, and the loser would overwrite the report
     // with standards for the category the lifter just left -- a plausible table
     // for the wrong equipment, which is the failure this screen exists to stop.
     inFlight?.abort();
@@ -158,7 +157,7 @@ async function loadStandards(
     }
     element.book = book;
     // `null` is again an answer: this federation publishes no standards for this
-    // sex and equipment category. The panel says exactly that, per lift.
+    // sex and equipment category. The report says exactly that, per lift.
     element.standardsStatus = 'ready';
   } catch (caught) {
     if (signal.aborted) {
@@ -172,119 +171,215 @@ async function loadStandards(
 }
 
 /**
- * Loads a partition of records whenever any of its four axes changes.
+ * Loads *every* record partition the report is showing, in parallel.
+ *
+ * SEVERAL AT ONCE, NOT ONE
+ *
+ * This used to read one artifact, chosen by a level question and a region
+ * question the lifter had to answer before seeing anything. Requirements 3 and 4
+ * removed both questions -- world and national records are always shown, state
+ * records are added when a state is picked -- so the report now wants two or
+ * three artifacts at the same time, and the resolver says which in
+ * `event.detail.partitions`.
+ *
+ * They are separate reads on purpose, and they are surfaced separately. Awaiting
+ * them together would hold the whole report behind the slowest one, which on a
+ * phone at a rack is the difference between a screen and a spinner; instead each
+ * lands under its own key with its own status and the report renders what has
+ * arrived.
  *
  * Records are partitioned on (level, region, sex, equipment) -- two axes more
- * than classifications, because the whole corpus is 76 MB and level and region
- * alone leave four partitions over the 2 MiB budget (ADR 2, amended). Within
- * those four the screen still moves freely: every discipline, class, division
- * and lift for that partition is in the one file, so choosing a different event
- * costs no request.
+ * than classifications, because the whole corpus is far past the 2 MiB budget on
+ * level and region alone (ADR 2, amended). Within those four the screen still
+ * moves freely: every discipline, class, division and lift for a partition is in
+ * the one file, so nothing a lifter does to the report costs another request.
  *
- * TWO EVENTS, AND NEITHER MAY BE READ OFF THE ELEMENT
+ * WHY THE SELECTION IS TAKEN OFF THE EVENT AND NOT OFF THE ELEMENT
  *
- * The four axes arrive on two different events -- sex and equipment from the
- * category questions, level and region from the record questions -- so this
- * keeps its own copy of each. It must *not* reach for `element.currentSelection`
- * instead: `createPlatformTargetsView` registers these listeners before the
- * element is appended, so they run before the element's own
- * `connectedCallback` listener has recorded anything, and the value read back
- * would be the one from before this event. The symptom would be a records panel
- * one answer behind the questions above it, which on a screen whose entire job
- * is matching a category exactly is the worst possible way to be wrong.
+ * `createPlatformTargetsView` registers this listener *before* the element is
+ * appended, so it runs before the element's own `connectedCallback` listener has
+ * recorded anything: `element.currentSelection` would be the value from before
+ * this event, and the symptom is a report one answer behind the questions above
+ * it. Everything needed is on the event -- which is also why the partitions ride
+ * along on it rather than being derived here, since deriving them needs the
+ * catalogue and this file deliberately has no idea what a competition level is.
  */
 function watchForRecords(
   element: PtkPlatformTargets,
   source: DataSource,
   federationId: string,
 ): void {
-  let selection: CategorySelection = NO_SELECTION;
-  let scope: RecordPartition | null = null;
-  let loaded: string | null = null;
-  let inFlight: AbortController | null = null;
+  /** What the report is currently being shown, keyed by partition. */
+  let reads: ReadonlyMap<string, PartitionRead> = new Map();
+  /**
+   * The full four-axis identity behind each key, so a sex or equipment change
+   * re-reads a partition whose level and region did not move.
+   *
+   * The key alone is (level, region) -- the two axes the report *names* -- and
+   * keying the cache on that would leave a lifter switching from raw to
+   * single-ply looking at their raw records under an unchanged heading.
+   */
+  const identities = new Map<string, string>();
+  const controllers = new Map<string, AbortController>();
 
-  const reconsider = (): void => {
-    const lifter = partitionOf(selection);
-    if (lifter === null || scope === null) {
-      // Part way through the questions. The panel says so itself, and clearing
-      // anything here would flicker a book the lifter may be about to come back
-      // to -- switching level from national to state and back is two clicks.
+  /**
+   * Hands the element a new map rather than mutating the one it holds.
+   *
+   * Lit compares properties by identity, so filling in the same `Map` as reads
+   * settle changes nothing on screen -- the report would sit on "Loading the
+   * national records" with the book already in memory.
+   */
+  const publish = (): void => {
+    element.recordReads = reads;
+  };
+
+  /**
+   * Applies one settled read, if it is still the one being waited for.
+   *
+   * Two guards, and both are needed. The controller check is the "loser must not
+   * win" rule: a slower read for the equipment the lifter just left would
+   * otherwise paint plausible figures for the wrong category, with nothing on
+   * screen to say so. The presence check covers a partition dropped entirely --
+   * clearing a state puts its records out of the report, and a read still in
+   * flight for it must not put them back.
+   */
+  const settle = (key: string, controller: AbortController, read: PartitionRead): void => {
+    if (controllers.get(key) !== controller) {
       return;
     }
-
-    // Newline-separated, and the reason it is safe is worth stating: a level or
-    // region identifier could contain a slash, and `sex` could not, so a single
-    // separator that appears in the data would let two partitions share a key
-    // and the second read would never be issued. A newline cannot appear in any
-    // of the four -- they are all identifiers from a validated catalogue.
-    const key = [scope.levelId, scope.regionId ?? '', lifter.sex, lifter.equipmentId].join('\n');
-    if (key === loaded) {
+    const held = reads.get(key);
+    if (held === undefined) {
       return;
     }
-    loaded = key;
-
-    // Same discipline as the standards read: the previous one is abandoned, not
-    // awaited. Two partitions in flight can settle out of order, and the loser
-    // would paint the records of the category the lifter just left -- plausible
-    // figures for the wrong state, with nothing on screen to say so.
-    inFlight?.abort();
-    const controller = new AbortController();
-    inFlight = controller;
-
-    element.recordsStatus = 'loading';
-    void loadRecords(
-      element,
-      source,
-      {
-        // The federation and its record book share an identifier by
-        // construction: the source document's `id` is the federation's, and it
-        // is what the publisher names the book with. Written out here rather
-        // than passed as one value so the day a federation publishes two books
-        // -- a masters set, an equipped set kept apart -- this is the line that
-        // needs a catalogue entry rather than a silently wrong lookup.
-        bookId: federationId,
-        levelId: scope.levelId,
-        regionId: scope.regionId,
-        sex: lifter.sex,
-        equipmentId: lifter.equipmentId,
-      },
-      controller.signal,
-    );
+    const next = new Map(reads);
+    next.set(key, read);
+    reads = next;
+    publish();
   };
 
   element.addEventListener(SELECTION_CHANGE_EVENT, (event) => {
-    selection = event.detail.selection;
-    reconsider();
-  });
+    const lifter = partitionOf(event.detail.selection);
+    if (lifter === null) {
+      // Part way through the questions. The report says so itself, and clearing
+      // anything here would flicker a book the lifter may be about to come back
+      // to -- switching sex category and back is two taps.
+      return;
+    }
 
-  element.addEventListener(RECORD_SCOPE_CHANGE_EVENT, (event) => {
-    scope = event.detail.partition;
-    reconsider();
+    // Rebuilt in the resolver's order rather than patched in place, so the map's
+    // iteration order is the order the report lists partitions in. Patching
+    // would leave a state that was cleared and re-picked sitting after the
+    // national records it is meant to precede.
+    const next = new Map<string, PartitionRead>();
+    for (const partition of event.detail.partitions) {
+      const key = partitionKey(partition);
+      const identity = identityOf(partition, lifter);
+      const held = reads.get(key);
+      if (identities.get(key) === identity && held !== undefined) {
+        // Same artifact, and it is already read or being read. The label is
+        // taken from the new partition anyway: it comes from the catalogue and a
+        // refresh could have reworded it, and a stale heading over a live book is
+        // the kind of wrong nothing else on screen contradicts.
+        next.set(key, { ...held, partition });
+        continue;
+      }
+
+      controllers.get(key)?.abort();
+      const controller = new AbortController();
+      controllers.set(key, controller);
+      identities.set(key, identity);
+      next.set(key, { partition, status: 'loading', book: null });
+
+      void readRecords(
+        source,
+        {
+          // The federation and its record book share an identifier by
+          // construction: the source document's `id` is the federation's, and it
+          // is what the publisher names the book with. Written out here rather
+          // than passed as one value so the day a federation publishes two books
+          // -- a masters set, an equipped set kept apart -- this is the line that
+          // needs a catalogue entry rather than a silently wrong lookup.
+          bookId: federationId,
+          levelId: partition.levelId,
+          regionId: partition.regionId,
+          sex: lifter.sex,
+          equipmentId: lifter.equipmentId,
+        },
+        controller.signal,
+      ).then(
+        (outcome) => {
+          if (outcome === null) {
+            return;
+          }
+          settle(key, controller, { partition, status: outcome.status, book: outcome.book });
+        },
+        (caught: unknown) => {
+          // `readRecords` handles every failure it can name, so anything landing
+          // here is a defect in this file rather than a failed request. Reported
+          // rather than swallowed (§2.4), and with the same reason-only wording,
+          // because an unexpected throw is exactly where a cause chain carrying a
+          // URL would otherwise reach the console.
+          reportFailure('records', caught);
+        },
+      );
+    }
+
+    // Anything the report no longer shows is abandoned. Without this, clearing a
+    // state leaves its read running and its slot in the map, and the report keeps
+    // a column for records nobody asked for.
+    for (const [key, controller] of controllers) {
+      if (!next.has(key)) {
+        controller.abort();
+        controllers.delete(key);
+        identities.delete(key);
+      }
+    }
+
+    reads = next;
+    publish();
   });
 }
 
-async function loadRecords(
-  element: PtkPlatformTargets,
+/**
+ * The four axes that choose the artifact, as one string.
+ *
+ * Newline-separated for the reason `partitionKey` gives: a level, region or
+ * equipment identifier is a slug from published data and may contain a hyphen or
+ * a colon, so any of those as a separator would let two identities collide and
+ * the second read would never be issued. A newline is excluded from all four.
+ */
+function identityOf(partition: RecordPartition, lifter: ClassificationPartition): string {
+  return [partition.levelId, partition.regionId ?? '', lifter.sex, lifter.equipmentId].join('\n');
+}
+
+/**
+ * Reads one partition, or answers `null` if nobody is waiting for it any more.
+ *
+ * The abort check happens after the await *and* in the catch, because an aborted
+ * fetch can either resolve late or reject, and only one of the two paths is
+ * obvious. Reporting the rejection would put a failure on screen for a request
+ * the lifter has already navigated past.
+ */
+async function readRecords(
   source: DataSource,
   query: RecordSetQuery,
   signal: AbortSignal,
-): Promise<void> {
+): Promise<{ status: 'ready' | 'failed'; book: RecordBook | null } | null> {
   try {
     const book = await source.getRecords(query, { signal });
     if (signal.aborted) {
-      return;
+      return null;
     }
-    element.records = book;
-    // `null` is an answer again: the federation keeps no records for this
-    // partition. The panel says exactly that, per lift, and says what it would
-    // take to set one.
-    element.recordsStatus = 'ready';
+    // `null` is an answer, not a failure: the federation keeps no records for
+    // this partition. The report says exactly that, and says what it would take
+    // to set one.
+    return { status: 'ready', book };
   } catch (caught) {
     if (signal.aborted) {
-      return;
+      return null;
     }
-    element.recordsStatus = 'failed';
     reportFailure('records', caught);
+    return { status: 'failed', book: null };
   }
 }
 

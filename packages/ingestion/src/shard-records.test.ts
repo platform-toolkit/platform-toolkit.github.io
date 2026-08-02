@@ -48,12 +48,31 @@ function record(id: string, overrides: Partial<FederationRecord['scope']> = {}):
   };
 }
 
-function book(records: readonly FederationRecord[]): RecordBook {
+function book(
+  records: readonly FederationRecord[],
+  sourceTables: RecordBook['sourceTables'] = [],
+): RecordBook {
   return {
     id: 'uspa',
     label: 'Fixture Federation Records',
     minimumIncrementKilograms: 0.5,
+    higherSanctionIncrementKilograms: 2.5,
+    matchTakesUnclaimedLevelIds: ['national'],
+    sourceTables,
     records: [...records],
+  };
+}
+
+/** One published table, addressed by the five axes a table has. */
+function table(overrides: Partial<RecordBook['sourceTables'][number]> = {}) {
+  return {
+    levelId: 'state',
+    regionId: 'iowa' as string | null,
+    tested: true,
+    equipmentId: 'raw',
+    disciplineId: 'full-power',
+    url: 'https://records.example.test/t',
+    ...overrides,
   };
 }
 
@@ -119,6 +138,51 @@ describe('shardRecordBook', () => {
       'records-uspa-state-ohio-female-raw',
     ]);
     expect(shards.map((shard) => shard.recordCount)).toEqual([1, 1, 1]);
+  });
+
+  it('gives each partition only the source tables its records can match', () => {
+    // A shard holds thousands of records and about six tables. Copying the whole
+    // book's list into every one of them -- fifty states by four equipment
+    // categories -- would put a few hundred URLs in each file for the sake of
+    // the six a lifter can reach from it.
+    const shards = shardRecordBook(
+      book(
+        [record('r-1'), record('r-2', { levelId: 'national', regionId: null })],
+        [
+          table(),
+          table({ tested: false }),
+          table({ disciplineId: 'bench-only' }),
+          table({ regionId: 'ohio' }),
+          table({ equipmentId: 'single-ply' }),
+          table({ levelId: 'national', regionId: null }),
+        ],
+      ),
+      SCHEMA_VERSION,
+    );
+
+    const iowa = shards.find((shard) => shard.id === 'records-uspa-state-iowa-female-raw');
+    // The three that share this partition's level, region and equipment. Sex is
+    // absent from the filter because a table holds both.
+    expect(iowa?.value.sourceTables.map((entry) => entry.disciplineId)).toEqual([
+      'full-power',
+      'full-power',
+      'bench-only',
+    ]);
+    expect(iowa?.value.sourceTables.map((entry) => entry.tested)).toEqual([true, false, true]);
+
+    const national = shards.find((shard) => shard.id === 'records-uspa-national-female-raw');
+    expect(national?.value.sourceTables).toEqual([table({ levelId: 'national', regionId: null })]);
+  });
+
+  it('carries the margins the whole book publishes into every partition', () => {
+    // A shard is fetched on its own, so a rule left behind here is a rule the
+    // browser cannot apply -- and the failure is a plausible wrong number rather
+    // than a missing one.
+    const [shard] = shardRecordBook(book([record('r-1')]), SCHEMA_VERSION);
+
+    expect(shard?.value.minimumIncrementKilograms).toBe(0.5);
+    expect(shard?.value.higherSanctionIncrementKilograms).toBe(2.5);
+    expect(shard?.value.matchTakesUnclaimedLevelIds).toEqual(['national']);
   });
 
   it('carries the key so a caller can report what it published', () => {

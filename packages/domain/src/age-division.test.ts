@@ -7,6 +7,7 @@ import {
   eligibleAgeDivisions,
   findAgeDivisionProblems,
   narrowestAgeDivision,
+  openAgeDivision,
 } from './age-division.js';
 import type { PlainDate } from './plain-date.js';
 
@@ -119,6 +120,74 @@ describe('narrowestAgeDivision', () => {
 
   it('returns null when no division admits the age', () => {
     expect(narrowestAgeDivision(15, [division('junior', 19, 23)])).toBeNull();
+  });
+});
+
+describe('openAgeDivision', () => {
+  it('finds a division with no bounds at all', () => {
+    expect(openAgeDivision(DIVISIONS)).toEqual({ ok: true, division: DIVISIONS[0] });
+  });
+
+  it('finds one with a floor at the youngest age the federation competes at', () => {
+    // The case that breaks the obvious test. A real published set has its open
+    // division starting at 13 rather than at nothing, because the federation
+    // runs no division below 13 -- so "both bounds are null" finds nothing, and
+    // a report built on it shows every lifter an empty Open column.
+    const floored: readonly AgeDivision[] = [
+      division('junior-13-15', 13, 15),
+      division('open', 13, null),
+      division('master-40-44', 40, 44),
+      division('master-85-plus', 85, null),
+    ];
+
+    expect(openAgeDivision(floored)).toEqual({ ok: true, division: floored[1] });
+  });
+
+  it('is not fooled by another division that is also unbounded above', () => {
+    // Masters 50+ has one null bound too, so anything testing for a null
+    // maximum has two answers. Reach is what separates them.
+    const result = openAgeDivision([division('master-2', 50, null), division('open', null, null)]);
+
+    expect(result.ok && result.division.id).toBe('open');
+  });
+
+  it('accepts a division that does not reach the very youngest band', () => {
+    // The open division starts at 13 and the federation also runs a 10-12
+    // division, which therefore sits outside it. Requiring the winner to
+    // contain *every* other band would reject the answer here; reaching the
+    // most of them is what the rule actually needs.
+    const withChildren: readonly AgeDivision[] = [
+      division('junior-10-12', 10, 12),
+      division('open', 13, null),
+      division('master-40-44', 40, 44),
+    ];
+
+    expect(openAgeDivision(withChildren)).toEqual({ ok: true, division: withChildren[1] });
+  });
+
+  it('returns the only division there is', () => {
+    const only = division('open', null, null);
+    expect(openAgeDivision([only])).toEqual({ ok: true, division: only });
+  });
+
+  it('reports ambiguity rather than picking by document order', () => {
+    // Two divisions with the same reach is a question about the published data,
+    // not something to resolve here. Answering it with the first one puts a
+    // federation's arbitrary ordering in front of a lifter as a fact.
+    expect(
+      openAgeDivision([division('open', null, null), division('also-open', null, null)]),
+    ).toEqual({ ok: false, reason: 'ambiguous' });
+  });
+
+  it('reports ambiguity when no division contains any other', () => {
+    expect(openAgeDivision([division('junior', 19, 23), division('master', 40, 49)])).toEqual({
+      ok: false,
+      reason: 'ambiguous',
+    });
+  });
+
+  it('has no answer for an empty set', () => {
+    expect(openAgeDivision([])).toEqual({ ok: false, reason: 'none' });
   });
 });
 

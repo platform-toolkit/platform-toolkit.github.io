@@ -12,12 +12,14 @@ import {
   NO_ENTRIES,
   formatAsUnit,
   formatKilograms,
-  lifterCategoryFrom,
+  lifterAxesFrom,
+  lifterCategoryFor,
   resolveStandards,
   setEntryUnit,
   standingSummary,
   typeLift,
   type LiftEntries,
+  type LifterAxes,
   type LifterCategory,
   type LiftStanding,
 } from './standards.js';
@@ -58,20 +60,27 @@ const BOOK: ClassificationBook = {
   tables: [table('squat'), table('bench'), table('deadlift'), table('total')],
 };
 
-const CATEGORY: LifterCategory = {
-  sex: 'female',
-  equipmentId: 'raw',
-  weightClassId: 'f-56',
-  divisionId: 'open',
-  tested: true,
-};
+/** The three axes every column of a report shares. */
+const AXES: LifterAxes = { sex: 'female', equipmentId: 'raw', tested: true };
 
+/** One cell of it: the shared axes plus the two the report walks. */
+const CATEGORY: LifterCategory = lifterCategoryFor(AXES, 'f-56', 'open');
+
+/**
+ * A lifter who has answered everything the shared axes need.
+ *
+ * `division` is `null`, which is the ordinary state rather than an omission: the
+ * report always covers Open and the picker offers only the Masters and Juniors
+ * bands, so most selections never carry one.
+ */
 const ANSWERED: CategorySelection = {
   sex: 'female',
   equipment: 'raw',
   weightClass: 'f-56',
-  division: 'open',
+  comparisonWeightClass: null,
+  division: null,
   tested: 'tested',
+  region: null,
 };
 
 /**
@@ -110,29 +119,58 @@ function standingFor(
   return standing(resolveStandards(BOOK, CATEGORY, entriesOf(typed, unit)), lift);
 }
 
-describe('lifterCategoryFrom', () => {
-  it('narrows a complete selection', () => {
-    expect(lifterCategoryFrom(ANSWERED)).toEqual(CATEGORY);
+describe('lifterAxesFrom', () => {
+  it('narrows the three axes every column of the report shares', () => {
+    expect(lifterAxesFrom(ANSWERED)).toEqual(AXES);
   });
 
-  it.each(['sex', 'equipment', 'weightClass', 'division', 'tested'] as const)(
+  it.each(['sex', 'equipment', 'tested'] as const)(
     'refuses a selection missing its %s',
     (field) => {
-      // All or nothing on purpose. Every axis narrows which table applies, so a
-      // partial category would select the general table and present it as the
-      // lifter's -- and nothing on the screen would look unfinished.
-      expect(lifterCategoryFrom({ ...ANSWERED, [field]: null })).toBeNull();
+      // All or nothing on purpose. Every one of these narrows which table
+      // applies, so a partial category would select the general table and
+      // present it as the lifter's -- and nothing on screen would look
+      // unfinished.
+      expect(lifterAxesFrom({ ...ANSWERED, [field]: null })).toBeNull();
     },
   );
+
+  it('does not wait for the two answers that vary within one report', () => {
+    // The weight class and the division are per-column, not per-report: the
+    // screen shows up to two of each side by side. A version of this that
+    // returned a whole category would have had to pick the *first* of them,
+    // producing one correct column and silently dropping the comparison the
+    // lifter asked for.
+    expect(lifterAxesFrom({ ...ANSWERED, weightClass: null, division: null })).toEqual(AXES);
+  });
 
   it('refuses a sex category the contract does not admit', () => {
     // The value arrives as a string from a radio. Casting it would compile and
     // then select a table for a category no catalogue ever offered.
-    expect(lifterCategoryFrom({ ...ANSWERED, sex: 'Female' })).toBeNull();
+    expect(lifterAxesFrom({ ...ANSWERED, sex: 'Female' })).toBeNull();
   });
 
   it('carries the drug-tested answer through as a boolean', () => {
-    expect(lifterCategoryFrom({ ...ANSWERED, tested: 'untested' })?.tested).toBe(false);
+    expect(lifterAxesFrom({ ...ANSWERED, tested: 'untested' })?.tested).toBe(false);
+  });
+});
+
+describe('lifterCategoryFor', () => {
+  it('adds the two axes the report walks to the ones it shares', () => {
+    expect(lifterCategoryFor(AXES, 'f-52', 'masters-1')).toEqual({
+      sex: 'female',
+      equipmentId: 'raw',
+      tested: true,
+      weightClassId: 'f-52',
+      divisionId: 'masters-1',
+    });
+  });
+
+  it('is total, because both identifiers came from lists already filtered', () => {
+    // No nullable return and no validation. The resolver drops anything the
+    // catalogue does not offer before either of these reaches here, so a second
+    // check would be a branch no caller can take and no test can cover.
+    expect(lifterCategoryFor(AXES, 'f-56', 'open')).toEqual(CATEGORY);
   });
 });
 
@@ -517,9 +555,10 @@ describe('standingSummary', () => {
   });
 
   it('says nothing is selected before the category is answered', () => {
-    const summary = standingSummary(
-      standing(resolveStandards(BOOK, lifterCategoryFrom(NO_SELECTION), NO_ENTRIES), 'squat'),
-    );
+    // An unanswered screen produces no axes at all, and the report passes that
+    // straight through as "no category" rather than inventing one.
+    expect(lifterAxesFrom(NO_SELECTION)).toBeNull();
+    const summary = standingSummary(standing(resolveStandards(BOOK, null, NO_ENTRIES), 'squat'));
     expect(summary).toContain('Answer every question above');
   });
 });
