@@ -85,7 +85,27 @@ export const FederationRecordSchema = v.object({
   ),
 
   /**
-   * Who holds it, as the source publishes it, or `null` if the source omits it.
+   * Whether the figure is the federation's own opening standard rather than a
+   * lift somebody made.
+   *
+   * A federation founding a record book seeds every category with a bar to
+   * clear, so that the first lifter in a category has something to beat. That
+   * figure is a real record in every way that matters to a lifter -- clearing it
+   * takes the record -- but nobody holds it.
+   *
+   * Not derivable from `holderName === null`, which is why it is its own field.
+   * That says the source did not name a holder, and the two want opposite
+   * sentences: an unnamed holder is a gap in the data, an unclaimed record is an
+   * invitation. Collapsing them loses the more useful one.
+   *
+   * Required rather than optional and defaulted. A publisher that has not
+   * considered the question must not silently claim somebody holds the record.
+   */
+  unclaimed: v.boolean(),
+
+  /**
+   * Who holds it, as the source publishes it, or `null` if the source omits it
+   * or nobody holds it yet.
    *
    * A record holder's name is published by the federation and belongs on the
    * screen next to their lift. It is not the same kind of value as an imported

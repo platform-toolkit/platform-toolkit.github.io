@@ -92,6 +92,7 @@ interface RecordOverrides {
   readonly levelId?: string;
   readonly regionId?: string | null;
   readonly disciplineId?: string;
+  readonly unclaimed?: boolean;
   readonly holderName?: string | null;
   readonly achievedOn?: string | null;
   readonly meetName?: string | null;
@@ -111,6 +112,7 @@ export function record(lift: Lift, overrides: RecordOverrides): FederationRecord
     levelId = 'national',
     regionId = null,
     disciplineId = 'full-power',
+    unclaimed = false,
     holderName = 'Robin Vance',
     achievedOn = '2024-05-18',
     meetName = 'Example Winter Open',
@@ -129,9 +131,15 @@ export function record(lift: Lift, overrides: RecordOverrides): FederationRecord
       lift,
     },
     kilograms,
-    holderName,
-    achievedOn,
-    meetName,
+    unclaimed,
+    // Both dropped for a seeded record, here as well as in the publisher, so a
+    // fixture cannot describe a record that is unclaimed *and* held by somebody.
+    // The panel would have to decide which of the two to believe, and a test
+    // written against whichever it picked would pass while describing a row the
+    // pipeline cannot produce.
+    holderName: unclaimed ? null : holderName,
+    achievedOn: unclaimed ? null : achievedOn,
+    meetName: unclaimed ? null : meetName,
   };
 }
 

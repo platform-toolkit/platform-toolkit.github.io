@@ -41,6 +41,7 @@ function record(id: string, overrides: Partial<FederationRecord['scope']> = {}):
       ...overrides,
     },
     kilograms: 400,
+    unclaimed: false,
     holderName: 'Fixture Lifter',
     achievedOn: '2024-03-02',
     meetName: 'Fixture Open',

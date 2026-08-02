@@ -248,6 +248,24 @@ export const HolderNotPublished: Story = {
 };
 
 /**
+ * A record the federation seeded and nobody has taken yet.
+ *
+ * On the real corpus this is a tenth of every row: founding a record book means
+ * putting a bar in every category so the first lifter in it has something to
+ * beat. The card says so in its own line rather than leaving the holder blank,
+ * because a blank is how "the source did not publish a name" looks — the same
+ * screen for the opposite situation, and the less useful of the two.
+ */
+export const Unclaimed: Story = {
+  args: {
+    book: bookOf([
+      record('squat', { kilograms: 145, unclaimed: true }),
+      record('bench', { kilograms: 82.5 }),
+    ]),
+  },
+};
+
+/**
  * Two records published for one category.
  *
  * Refused rather than resolved by document order. Both cannot be current, and

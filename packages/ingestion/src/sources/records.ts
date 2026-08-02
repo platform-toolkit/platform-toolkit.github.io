@@ -174,6 +174,22 @@ const UnmappedWeightClassSchema = v.object({
 const AbsentLocationSchema = v.object({ location: NonEmpty, reason: NonEmpty });
 
 /**
+ * A holder cell that names no lifter.
+ *
+ * A federation founding a record book seeds every category with a figure to
+ * beat, and writes something in the holder column to say so. The wording is the
+ * federation's own -- and so is the founding date it stamps the row with, which
+ * is not a date any lift was made.
+ *
+ * Curated data rather than a constant in this file for the reason §5.1 gives:
+ * the day the federation changes the wording, the fix is a mapping edit and a
+ * refresh, not a release. Matched case-insensitively on the whitespace-collapsed
+ * cell, because the tables are hand-maintained and "Record preset" appearing
+ * next year would otherwise become a lifter with a very large number of records.
+ */
+const PlaceholderHolderSchema = v.object({ holder: NonEmpty, reason: NonEmpty });
+
+/**
  * The band a published figure has to fall in, and how many rows may fail it.
  *
  * Wide on purpose: this is about a column having moved or a decimal point having
@@ -221,6 +237,7 @@ export const RecordSourceDocumentSchema = v.object({
   weightClasses: v.pipe(v.array(WeightClassMappingSchema), v.minLength(1)),
   unmappedWeightClasses: v.array(UnmappedWeightClassSchema),
   absentLocations: v.array(AbsentLocationSchema),
+  placeholderHolders: v.array(PlaceholderHolderSchema),
   plausibility: PlausibilitySchema,
 });
 export type RecordSourceDocument = v.InferOutput<typeof RecordSourceDocumentSchema>;
@@ -527,6 +544,11 @@ function checkMappingsAreUnambiguous(problems: string[], source: RecordSourceDoc
     'absent location',
     source.absentLocations.map((entry) => entry.location),
   );
+  collectDuplicates(
+    problems,
+    'placeholder holder',
+    source.placeholderHolders.map((entry) => normalizeHolder(entry.holder)),
+  );
 
   // A column that is both mapped and refused is a question with two answers, and
   // the refusal is the one that would silently win.
@@ -831,6 +853,10 @@ function buildRecords(
     catalog.disciplines.map((discipline) => [discipline.id, new Set(discipline.lifts)]),
   );
 
+  const placeholders = new Set(
+    source.placeholderHolders.map((entry) => normalizeHolder(entry.holder)),
+  );
+
   const records: FederationRecord[] = [];
   const withheld: WithheldRecordRow[] = [];
   const headings: string[] = [];
@@ -838,6 +864,7 @@ function buildRecords(
   const unreadable: string[] = [];
   const collisions: string[] = [];
   const seen = new Set<string>();
+  const claimedPlaceholders = new Set<string>();
 
   for (const table of tables) {
     const location = locations.get(table.location);
@@ -923,6 +950,12 @@ function buildRecords(
         continue;
       }
 
+      const holder = readHolder(row);
+      const unclaimed = holder !== null && placeholders.has(normalizeHolder(holder));
+      if (unclaimed) {
+        claimedPlaceholders.add(normalizeHolder(holder));
+      }
+
       const id = [
         source.id,
         scope.levelId,
@@ -957,8 +990,15 @@ function buildRecords(
           lift,
         },
         kilograms,
-        holderName: readHolder(row),
-        achievedOn,
+        unclaimed,
+        // A seeded record has no holder, and the founding date the federation
+        // stamps it with is not a date any lift was made -- printing it asserts
+        // one happened. The date is parsed above regardless of this, and then
+        // dropped: that parse is what notices the column has shifted, and
+        // skipping it on a tenth of the corpus would blind the check on exactly
+        // the rows that are most alike.
+        holderName: unclaimed ? null : holder,
+        achievedOn: unclaimed ? null : achievedOn,
         // The tables carry no meet name. `null` says the source omits it, which
         // is true; inventing one from the date would be a guess on screen.
         meetName: null,
@@ -970,6 +1010,21 @@ function buildRecords(
   reportCapped(problems, 'mappings', lost);
   reportCapped(problems, 'figures', unreadable);
   reportCapped(problems, 'collisions', collisions);
+
+  // One direction only, and the other is the reason this matters. A placeholder
+  // that stopped appearing is reported here; a placeholder the federation
+  // started using and nobody mapped is indistinguishable from a lifter, and the
+  // corpus quietly gains a prolific record holder. So a stale entry is worth
+  // knowing about before somebody tidies it away as unused.
+  for (const entry of source.placeholderHolders) {
+    if (!claimedPlaceholders.has(normalizeHolder(entry.holder))) {
+      problems.push(
+        `placeholder holders: "${entry.holder}" is mapped as a placeholder and appears in no ` +
+          'published row. Either the federation renamed it -- in which case the new wording is ' +
+          'being published as a lifter -- or it is gone.',
+      );
+    }
+  }
 
   if (withheld.length > source.plausibility.maximumExcludedRows) {
     // The check that catches a parser regression. Every exclusion above is one a
@@ -1059,6 +1114,18 @@ function readAchievedOn(
 function readHolder(row: SnapshotRow): string | null {
   const holder = row[3].replace(/\s+/gu, ' ').trim();
   return holder === '' ? null : holder;
+}
+
+/**
+ * One holder cell, in the form placeholders are compared in.
+ *
+ * Case-folded because these tables are hand-maintained across fifty-odd pages
+ * and "Record preset" is one keystroke from "Record Preset". A case-sensitive
+ * comparison would publish the variant as a lifter, and the corpus would gain a
+ * record holder with several thousand records and no way to notice.
+ */
+function normalizeHolder(holder: string): string {
+  return holder.replace(/\s+/gu, ' ').trim().toLowerCase();
 }
 
 /** One table, named the way the site's own links name it. */

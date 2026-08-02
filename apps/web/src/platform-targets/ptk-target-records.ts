@@ -305,7 +305,15 @@ export class PtkTargetRecords extends LitElement {
     if (standing.record.kind !== 'record') {
       return nothing;
     }
-    const { holderName, achievedOn, meetName } = standing.record.record;
+    const { unclaimed, holderName, achievedOn, meetName } = standing.record.record;
+    if (unclaimed) {
+      // Its own line rather than a missing one. A record nobody holds is the
+      // federation's opening standard, and saying so is the most encouraging
+      // thing on the card -- there is a name-shaped gap here that a lifter can
+      // put their own name in. Silence would read as a holder the source failed
+      // to publish, which is the same screen for the opposite situation.
+      return html`<p class="holder unclaimed">No lifter has claimed this record yet.</p>`;
+    }
     if (holderName === null && achievedOn === null && meetName === null) {
       return nothing;
     }

@@ -227,6 +227,23 @@ describe('ptk-target-records', () => {
     expect(card(element, 'Squat').querySelector('.holder')).toBeNull();
   });
 
+  it('says a record nobody holds is there to be taken', async () => {
+    // Not the same screen as a holder the source failed to publish, which is
+    // silence. A federation seeds a new category with a figure to clear, and the
+    // name-shaped gap is the most encouraging thing on the card.
+    const element = await mount({
+      book: bookOf([record('squat', { kilograms: 145, unclaimed: true })]),
+    });
+    await scoped(element);
+
+    expect(text(card(element, 'Squat').querySelector('.holder'))).toBe(
+      'No lifter has claimed this record yet.',
+    );
+    // Still a record, so still measured. Reading it as an empty category would
+    // tell a lifter any qualifying weight sets the first one.
+    expect(text(card(element, 'Squat').querySelector('.figure'))).toBe('145 kg');
+  });
+
   it('measures a typed lift against the record', async () => {
     const element = await mount({ entries: entriesOf({ squat: '140' }) });
     await scoped(element);

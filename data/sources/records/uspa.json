@@ -959,6 +959,39 @@
       "reason": "Linked from the records index, but every one of its tables answers 503. No records have been configured for it."
     }
   ],
+  "$comment:placeholderHolders": [
+    "Holder cells that name no lifter.",
+    "",
+    "The USPA seeded its record book by writing a figure into every category so the",
+    "first lifter in one had something to beat, and put \"Record Preset\" in the",
+    "holder column to say so. Nearly thirteen thousand of the hundred and thirty",
+    "thousand published rows are these -- a tenth of the corpus -- almost all",
+    "stamped 04/10/2011 or 23/10/2010, the days the book was founded, and many",
+    "carrying a pound figure of 0.00.",
+    "",
+    "A seeded figure is a real record to a lifter: clearing it takes the record.",
+    "What it is not is a lift somebody made, so the holder and the date are dropped",
+    "and the published record is flagged `unclaimed` instead. Printing \"Record",
+    "Preset\" as a name is the version that shipped first, and it reads as a person.",
+    "",
+    "Here rather than in the adapter so the day the federation changes the wording",
+    "the fix is a mapping edit and a data refresh rather than a release. Matched",
+    "case-insensitively: these tables are hand-maintained across fifty-odd pages,",
+    "and an unmatched variant is published as a lifter with several thousand",
+    "records and nothing on screen to say otherwise.",
+    "",
+    "Checked one way only. A mapped placeholder that appears in no row fails the",
+    "build, because a renamed placeholder is exactly what that looks like. The",
+    "other direction cannot be checked at all -- a placeholder nobody mapped is",
+    "indistinguishable from a lifter, which is the whole reason a stale entry here",
+    "is worth a failed build."
+  ],
+  "placeholderHolders": [
+    {
+      "holder": "Record Preset",
+      "reason": "The federation's own seeded figure for a category nobody has claimed. Dated to the founding of the record book, not to a lift."
+    }
+  ],
   "$comment:plausibility": [
     "The rules that decide which published rows are not published onward.",
     "",

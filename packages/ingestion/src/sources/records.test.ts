@@ -140,6 +140,11 @@ function document(overrides: Record<string, unknown> = {}): Record<string, unkno
     ],
     unmappedWeightClasses: [],
     absentLocations: [],
+    // Empty by default, and every case that maps one also publishes a row
+    // carrying it -- an unmatched placeholder is a reported problem, so a
+    // fixture that mapped one globally would make every other case fail for a
+    // reason that has nothing to do with what it is about.
+    placeholderHolders: [],
     plausibility: {
       minimumKilograms: 15,
       maximumSingleLiftKilograms: 700,
@@ -351,6 +356,111 @@ describe('buildRecordBook', () => {
     expect(record?.holderName).toBe('Renée O’Shea-Blå');
     // A blank date is the source omitting it, which is a fact worth keeping.
     expect(record?.achievedOn).toBeNull();
+  });
+
+  it('marks a seeded figure unclaimed and keeps the figure itself', () => {
+    // A tenth of the real corpus. Founding a record book means writing a figure
+    // into every category so the first lifter in it has something to beat, and
+    // the holder column says so rather than naming anybody. Dropping the row
+    // would tell a lifter any qualifying weight sets the first record.
+    const { book } = buildRecordBook(
+      document({
+        placeholderHolders: [{ holder: 'Record Preset', reason: 'The federation’s own seed.' }],
+      }),
+      snapshot({
+        tables: [
+          table('north', 'tested', 'powerlifting', 'State/Tested Records/North/Raw/Full Power', [
+            ['OPEN WOMEN', '40kg', 'Squat', 'Record Preset', '100.00', '220.46', '05/18/2024'],
+          ]),
+          ...baseTables().slice(1),
+        ],
+      }),
+      catalog,
+    );
+    const record = recordById(
+      book.records,
+      'example/state/north/female/raw/full-power/f-40/open/tested/squat',
+    );
+
+    expect(record?.kilograms).toBe(100);
+    expect(record?.unclaimed).toBe(true);
+    // The wording is not a lifter and the founding date is not a day any lift
+    // was made. Publishing either asserts a lift happened.
+    expect(record?.holderName).toBeNull();
+    expect(record?.achievedOn).toBeNull();
+  });
+
+  it('matches a placeholder however the source capitalises and spaces it', () => {
+    // The tables are hand-maintained. An unmatched variant publishes silently as
+    // a lifter holding thousands of records, which is the failure this exists to
+    // prevent -- so the comparison is on the whitespace-collapsed, lowercased
+    // cell rather than on the literal string.
+    const { book } = buildRecordBook(
+      document({
+        placeholderHolders: [{ holder: 'Record Preset', reason: 'The federation’s own seed.' }],
+      }),
+      snapshot({
+        tables: [
+          table('north', 'tested', 'powerlifting', 'State/Tested Records/North/Raw/Full Power', [
+            ['OPEN WOMEN', '40kg', 'Squat', ' record   PRESET ', '100.00', '220.46', '05/18/2024'],
+          ]),
+          ...baseTables().slice(1),
+        ],
+      }),
+      catalog,
+    );
+
+    expect(
+      recordById(book.records, 'example/state/north/female/raw/full-power/f-40/open/tested/squat')
+        ?.unclaimed,
+    ).toBe(true);
+  });
+
+  it('says a real holder is not a placeholder', () => {
+    // The other half of the flag, and the one that would fail silently: a
+    // predicate that answered `true` for everything would pass every assertion
+    // above while erasing every holder in the corpus.
+    const { book } = buildRecordBook(
+      document({
+        placeholderHolders: [{ holder: 'Record Preset', reason: 'The federation’s own seed.' }],
+      }),
+      snapshot({
+        tables: [
+          table('north', 'tested', 'powerlifting', 'State/Tested Records/North/Raw/Full Power', [
+            ['OPEN WOMEN', '40kg', 'Squat', 'Record Preset', '100.00', '220.46', '05/18/2024'],
+            ['OPEN MEN', '60kg', 'TOTAL', 'Sam Ortiz', '400.00', '881.85', '2024-05-18'],
+          ]),
+          ...baseTables().slice(1),
+        ],
+      }),
+      catalog,
+    );
+    const held = recordById(
+      book.records,
+      'example/state/north/male/raw/full-power/m-60/open/tested/total',
+    );
+
+    expect(held?.unclaimed).toBe(false);
+    expect(held?.holderName).toBe('Sam Ortiz');
+    expect(held?.achievedOn).toBe('2024-05-18');
+  });
+
+  it('reports a mapped placeholder that no longer appears in any row', () => {
+    // A rename looks exactly like this from inside the build, and the other
+    // direction is undetectable by definition -- so a stale entry is worth
+    // failing over rather than tidying away as unused.
+    const problems = problemsFrom(
+      document({
+        placeholderHolders: [{ holder: 'Record Preset', reason: 'The federation’s own seed.' }],
+      }),
+      snapshot(),
+    );
+
+    expect(problems).toEqual([
+      'placeholder holders: "Record Preset" is mapped as a placeholder and appears in no ' +
+        'published row. Either the federation renamed it -- in which case the new wording is ' +
+        'being published as a lifter -- or it is gone.',
+    ]);
   });
 
   it('sorts records by identifier rather than leaving them in crawl order', () => {

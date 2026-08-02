@@ -20,6 +20,7 @@ function record(id: string, kilograms: number, scope: Partial<RecordScope> = {})
     id,
     scope: { ...SCOPE, ...scope },
     kilograms,
+    unclaimed: false,
     holderName: null,
     achievedOn: null,
     meetName: null,

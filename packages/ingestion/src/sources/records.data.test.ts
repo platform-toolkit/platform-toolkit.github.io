@@ -124,6 +124,29 @@ describe('the committed USPA record mapping', () => {
     expect(malformed).toStrictEqual([]);
   });
 
+  it('recognises the federation’s seeded figures and gives none of them a holder', () => {
+    const unclaimed = book.records.filter((record) => record.unclaimed);
+    const contradictory = unclaimed.filter(
+      (record) => record.holderName !== null || record.achievedOn !== null,
+    );
+
+    // No count and no ratio, for the reason in the header -- but *some*, because
+    // a mapping whose placeholder wording stopped matching would publish the
+    // federation's own placeholder text as a prolific record holder, and every
+    // other assertion in this file would still pass.
+    expect(unclaimed.length).toBeGreaterThan(0);
+    expect(contradictory).toStrictEqual([]);
+  });
+
+  it('does not treat every row as a seeded figure', () => {
+    // The other direction, which the check above cannot see: a predicate that
+    // answered `true` for everything would satisfy it while erasing the name of
+    // every lifter who actually holds a record.
+    expect(book.records.some((record) => !record.unclaimed && record.holderName !== null)).toBe(
+      true,
+    );
+  });
+
   it('is sorted by identifier, so an unchanged corpus produces unchanged filenames', () => {
     const ids = book.records.map((record) => record.id);
 

@@ -232,6 +232,27 @@ describe('resolveRecordStandings', () => {
     );
   });
 
+  /**
+   * A seeded record is a record. The federation founds a category with a bar to
+   * clear so the first lifter has something to beat, and a lifter who clears it
+   * takes it -- so the arithmetic is the arithmetic, and the only thing that
+   * differs is the sentence about who holds it. Treating an unclaimed figure as
+   * "no record stands here" would tell a lifter the first qualifying lift sets
+   * one at any weight, which is the one wrong answer this panel could give.
+   */
+  it('measures against a record nobody holds exactly as against one somebody does', () => {
+    const seeded = bookOf([record('squat', { kilograms: 145, unclaimed: true })]);
+    const standings = resolveRecordStandings(
+      seeded,
+      CATEGORY,
+      ['squat'],
+      entriesOf({ squat: '140' }),
+    );
+    const standing = standings[0] ?? standingFor({});
+    expect(standing.record.kind).toBe('record');
+    expect(recordSummary(standing)).toBe('5.5 kg more replaces it, at 145.5 kg.');
+  });
+
   it('matches exactly on the region rather than widening to the level', () => {
     const stateBook = bookOf([
       record('squat', { kilograms: 130, levelId: 'state', regionId: 'north-example' }),
