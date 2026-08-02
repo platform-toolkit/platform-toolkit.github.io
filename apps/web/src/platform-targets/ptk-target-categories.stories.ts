@@ -56,6 +56,12 @@ const CATALOG: CategoryCatalog = {
       { id: 'masters-4', label: 'Masters 4', minimumAge: 70, maximumAge: null },
     ],
   },
+
+  // The records screen's vocabulary. This element draws neither.
+  levels: [{ id: 'national', label: 'National', regions: [] }],
+  disciplines: [
+    { id: 'full-power', label: 'Full power', lifts: ['squat', 'bench', 'deadlift', 'total'] },
+  ],
 };
 
 const meta: Meta<PtkTargetCategories> = {

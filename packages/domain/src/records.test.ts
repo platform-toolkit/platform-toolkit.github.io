@@ -8,6 +8,7 @@ const SCOPE: RecordScope = {
   regionId: 'example-region',
   sex: 'female',
   equipmentId: 'raw',
+  disciplineId: 'full-power',
   weightClassId: 'f-60',
   divisionId: 'open',
   tested: true,
@@ -46,6 +47,7 @@ describe('findRecord', () => {
       { levelId: 'national' },
       { lift: 'bench' as const },
       { sex: 'male' as const },
+      { disciplineId: 'bench-only' },
     ]) {
       expect(
         findRecord(SCOPE, [record('near', 400, difference)]),

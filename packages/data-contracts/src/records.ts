@@ -1,6 +1,6 @@
 import * as v from 'valibot';
 
-import { SexCategorySchema } from './categories.js';
+import { LiftSchema, SexCategorySchema } from './categories.js';
 
 /**
  * Records, and the exact category each one belongs to.
@@ -16,9 +16,15 @@ import { SexCategorySchema } from './categories.js';
 const Identifier = v.pipe(v.string(), v.minLength(1));
 const Label = v.pipe(v.string(), v.minLength(1));
 
-/** The lift a record is set in. `total` is the sum of the three. */
-export const LiftSchema = v.picklist(['squat', 'bench', 'deadlift', 'total']);
-export type Lift = v.InferOutput<typeof LiftSchema>;
+/**
+ * The lift a record is set in.
+ *
+ * Re-exported from `categories.js`, where it moved once disciplines needed to say
+ * which lifts they hold. Kept exported here because a record's lift is the first
+ * place most callers meet it, and moving the name would be churn in every import.
+ */
+export { LiftSchema } from './categories.js';
+export type { Lift } from './categories.js';
 
 /** Exactly which category a record belongs to. */
 export const RecordScopeSchema = v.object({
@@ -42,6 +48,18 @@ export const RecordScopeSchema = v.object({
 
   sex: SexCategorySchema,
   equipmentId: Identifier,
+
+  /**
+   * The event the record was set at: a full-power meet, or a single-lift one.
+   *
+   * Part of a record's identity and not a display detail. A federation keeps the
+   * best raw bench at a full-power meet and the best at a bench-only meet as two
+   * separate records, and on the real corpus a scope without this axis makes
+   * twenty thousand rows collide -- which surfaces as `ambiguous` from
+   * `findRecord`, or as one record silently overwriting another.
+   */
+  disciplineId: Identifier,
+
   weightClassId: Identifier,
   divisionId: Identifier,
   tested: v.boolean(),

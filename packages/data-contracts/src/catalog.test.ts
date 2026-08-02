@@ -36,6 +36,17 @@ const CATALOG = {
       { id: 'masters-1', label: 'Masters 1', minimumAge: 40, maximumAge: 49 },
     ],
   },
+  levels: [
+    { id: 'state', label: 'State', regions: [{ id: 'north', label: 'North' }] },
+    // A level a federation does not subdivide carries an empty list rather than
+    // a region standing for "everywhere", which would then need a name and be
+    // selectable beside the real ones.
+    { id: 'national', label: 'National', regions: [] },
+  ],
+  disciplines: [
+    { id: 'full-power', label: 'Full power', lifts: ['squat', 'bench', 'deadlift', 'total'] },
+    { id: 'bench-only', label: 'Bench only', lifts: ['bench'] },
+  ],
 };
 
 function parses(candidate: unknown): boolean {

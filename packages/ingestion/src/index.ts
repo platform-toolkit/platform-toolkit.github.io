@@ -47,6 +47,16 @@ export {
   type WithheldRow,
 } from './sources/classification-standards.js';
 export {
+  RecordSourceDocumentSchema,
+  RecordSourceError,
+  buildRecordBook,
+  readRecordSourceReferences,
+  type RecordSourceDocument,
+  type RecordSourceReferences,
+  type RecordSourceResult,
+  type WithheldRecordRow,
+} from './sources/records.js';
+export {
   ConversionSourceDocumentSchema,
   ConversionSourceError,
   buildConversionChart,

@@ -42,6 +42,14 @@ function document(overrides: Record<string, unknown> = {}): Record<string, unkno
         { id: 'master-1', label: 'Master 1', minimumAge: 40, maximumAge: 44 },
       ],
     },
+    levels: [
+      { id: 'state', label: 'State', regions: [{ id: 'north', label: 'North' }] },
+      { id: 'national', label: 'National', regions: [] },
+    ],
+    disciplines: [
+      { id: 'full-power', label: 'Full power', lifts: ['squat', 'bench', 'deadlift', 'total'] },
+      { id: 'bench-only', label: 'Bench only', lifts: ['bench'] },
+    ],
     ...overrides,
   };
 }
@@ -232,6 +240,78 @@ describe('buildCategoryCatalog', () => {
     );
 
     expect(problems).toEqual(['age division "backwards": 50 to 40 admits nobody']);
+  });
+
+  it('carries the levels and their regions through to the catalogue', () => {
+    const { catalog } = buildCategoryCatalog(document());
+
+    expect(catalog.levels.map((level) => level.id)).toEqual(['state', 'national']);
+    // Empty, not absent. A reader has to be able to tell "this level is not
+    // subdivided" from "somebody forgot to transcribe the subdivisions".
+    expect(catalog.levels.at(-1)?.regions).toEqual([]);
+  });
+
+  it('refuses two regions of one level with the same words on them', () => {
+    const problems = problemsFrom(
+      document({
+        levels: [
+          {
+            id: 'state',
+            label: 'State',
+            regions: [
+              { id: 'north', label: 'North' },
+              { id: 'north-2', label: 'North' },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(problems).toEqual(['regions of level "state": label "North" is used more than once']);
+  });
+
+  it('allows two levels to use the same region identifier', () => {
+    // A region is only ever read under a level, so "east" under State and "east"
+    // under Regional are two different places, not a collision. Rejecting them
+    // would force a transcriber to invent prefixes the federation does not use.
+    const regions = [{ id: 'east', label: 'East' }];
+    const { catalog } = buildCategoryCatalog(
+      document({
+        levels: [
+          { id: 'state', label: 'State', regions },
+          { id: 'regional', label: 'Regional', regions },
+        ],
+      }),
+    );
+
+    expect(catalog.levels).toHaveLength(2);
+  });
+
+  it('refuses a single-lift discipline that claims to hold a total', () => {
+    // A total is the sum of the three lifts. Left unchecked, a bench-only book
+    // declares one and the screen reports a lifter's bench as their total: a
+    // plausible number, wrong, and attributed to the federation.
+    const problems = problemsFrom(
+      document({
+        disciplines: [{ id: 'bench-only', label: 'Bench only', lifts: ['bench', 'total'] }],
+      }),
+    );
+
+    expect(problems).toEqual([
+      'discipline "bench-only": holds a total but does not contest squat, deadlift',
+    ]);
+  });
+
+  it('refuses a discipline that lists one lift twice', () => {
+    const problems = problemsFrom(
+      document({
+        disciplines: [{ id: 'bench-only', label: 'Bench only', lifts: ['bench', 'bench'] }],
+      }),
+    );
+
+    expect(problems).toEqual([
+      'lifts of discipline "bench-only": identifier "bench" is used more than once',
+    ]);
   });
 
   it('reports every problem at once rather than the first', () => {

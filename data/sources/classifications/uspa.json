@@ -133,13 +133,17 @@
     "to, rather than matched by comparing age bounds: the bounds agree today, and the",
     "year they stop agreeing a derived mapping would keep producing an answer.",
     "",
-    "`80+` covers both of the rulebook's divisions above eighty. `Junior 15-19` covers",
-    "the 16-17 and 18-19 divisions in full and the 13-15 division only in part; see",
+    "`80+` covers both of the rulebook's divisions above eighty. `Junior 15-19` names the",
+    "competition division of the same name exactly, and covers the 16-17 and 18-19",
+    "divisions in full; it covers the 13-15 division only at fifteen, so see",
     "`unmappedDivisions` for why partial coverage is left out rather than rounded up."
   ],
   "divisions": [
     { "age": "OPEN", "divisionIds": ["open"] },
-    { "age": "Junior 15-19", "divisionIds": ["junior-16-17", "junior-18-19"] },
+    {
+      "age": "Junior 15-19",
+      "divisionIds": ["junior-15-19", "junior-16-17", "junior-18-19"]
+    },
     { "age": "Junior 20-23", "divisionIds": ["junior-20-23"] },
     { "age": "40-44", "divisionIds": ["master-40-44"] },
     { "age": "45-49", "divisionIds": ["master-45-49"] },

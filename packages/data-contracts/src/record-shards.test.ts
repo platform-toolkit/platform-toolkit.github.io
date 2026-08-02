@@ -15,6 +15,7 @@ const SCOPE: RecordScope = {
   regionId: 'iowa',
   sex: 'female',
   equipmentId: 'raw',
+  disciplineId: 'full-power',
   weightClassId: 'wc-63',
   divisionId: 'open',
   tested: true,
@@ -47,13 +48,15 @@ describe('recordShardKey', () => {
   });
 
   it('gives one key to every scope a lifter sees at once', () => {
-    // Weight class, division, tested status and lift all narrow *within* a
-    // partition rather than replacing it: one screen shows four lifts, the class
-    // the lifter is in and the one they are cutting to, and every division they
-    // are eligible for. Splitting on any of them makes that screen a dozen
-    // requests, which is the opposite of what sharding is for.
+    // Discipline, weight class, division, tested status and lift all narrow
+    // *within* a partition rather than replacing it: one screen shows four lifts,
+    // the class the lifter is in and the one they are cutting to, every division
+    // they are eligible for, and the bench-only book beside the full-power one.
+    // Splitting on any of them makes that screen a dozen requests, which is the
+    // opposite of what sharding is for.
     const other: RecordScope = {
       ...SCOPE,
+      disciplineId: 'bench-only',
       weightClassId: 'wc-69',
       divisionId: 'master-1',
       tested: false,

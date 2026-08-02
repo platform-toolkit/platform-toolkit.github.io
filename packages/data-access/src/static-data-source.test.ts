@@ -74,6 +74,8 @@ const CATALOG = {
     basis: 'age-on-meet-date',
     divisions: [{ id: 'open', label: 'Open', minimumAge: null, maximumAge: null }],
   },
+  levels: [{ id: 'state', label: 'State', regions: [{ id: 'north', label: 'North' }] }],
+  disciplines: [{ id: 'full-power', label: 'Full power', lifts: ['squat', 'bench', 'deadlift'] }],
 };
 
 const RECORD_BOOK = {

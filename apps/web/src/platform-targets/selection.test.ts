@@ -50,6 +50,14 @@ const CATALOG: CategoryCatalog = {
       { id: 'masters-4', label: 'Masters 4', minimumAge: 70, maximumAge: null },
     ],
   },
+
+  // Carried by the catalogue for the records screen; nothing in `selection.ts`
+  // reads them. Present because the shape requires them, minimal because a
+  // fixture that grew every axis would stop showing which one a case is about.
+  levels: [{ id: 'national', label: 'National', regions: [] }],
+  disciplines: [
+    { id: 'full-power', label: 'Full power', lifts: ['squat', 'bench', 'deadlift', 'total'] },
+  ],
 };
 
 /** A federation that published the female ladder twice. */

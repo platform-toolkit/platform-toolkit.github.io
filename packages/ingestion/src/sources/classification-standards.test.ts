@@ -54,6 +54,13 @@ function catalog(overrides: Partial<CategoryCatalog> = {}): CategoryCatalog {
         { id: 'master-1', label: 'Master 1', minimumAge: 40, maximumAge: null },
       ],
     },
+
+    // Records vocabulary. Classifications are not published per level or per
+    // discipline, so nothing under test reads either of these.
+    levels: [{ id: 'national', label: 'National', regions: [] }],
+    disciplines: [
+      { id: 'full-power', label: 'Full power', lifts: ['squat', 'bench', 'deadlift', 'total'] },
+    ],
     ...overrides,
   };
 }

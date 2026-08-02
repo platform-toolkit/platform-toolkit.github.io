@@ -1,6 +1,7 @@
 import {
   AgeBasisSchema,
   CategoryCatalogSchema,
+  LiftSchema,
   SexCategorySchema,
   type CategoryCatalog,
   type SourceFreshness,
@@ -74,6 +75,31 @@ const SourceAgeDivisionSchema = v.object({
 });
 
 /**
+ * A level records are kept at, and the regions it is divided into.
+ *
+ * `regions` is required and may be empty, unlike everything else optional-looking
+ * in this file. "This level has no subdivisions" is a statement the transcriber
+ * makes; an absent key would be indistinguishable from one they forgot, and the
+ * difference is fifty state record books silently becoming one national one.
+ */
+const SourceRegionSchema = v.object({
+  id: v.pipe(v.string(), v.minLength(1)),
+  label: v.pipe(v.string(), v.minLength(1)),
+});
+
+const SourceLevelSchema = v.object({
+  id: v.pipe(v.string(), v.minLength(1)),
+  label: v.pipe(v.string(), v.minLength(1)),
+  regions: v.array(SourceRegionSchema),
+});
+
+const SourceDisciplineSchema = v.object({
+  id: v.pipe(v.string(), v.minLength(1)),
+  label: v.pipe(v.string(), v.minLength(1)),
+  lifts: v.pipe(v.array(LiftSchema), v.minLength(1)),
+});
+
+/**
  * Where a transcription came from and when.
  *
  * `retrievedAt` is the date the document was read, not the date the build ran.
@@ -118,6 +144,8 @@ export const CategorySourceDocumentSchema = v.object({
     basis: AgeBasisSchema,
     divisions: v.pipe(v.array(SourceAgeDivisionSchema), v.minLength(1)),
   }),
+  levels: v.pipe(v.array(SourceLevelSchema), v.minLength(1)),
+  disciplines: v.pipe(v.array(SourceDisciplineSchema), v.minLength(1)),
 });
 
 export type CategorySourceDocument = v.InferOutput<typeof CategorySourceDocumentSchema>;
@@ -217,6 +245,54 @@ export function buildCategoryCatalog(document: unknown): CategorySourceResult {
     }
   }
 
+  collectDuplicates(
+    problems,
+    'record level',
+    source.levels.map((level) => level.id),
+    source.levels.map((level) => level.label),
+  );
+  for (const level of source.levels) {
+    // Within a level rather than across all of them. A region identifier is only
+    // ever read under a level, so two levels may each have an "east"; two regions
+    // called "east" under one level are a question with two identical answers.
+    collectDuplicates(
+      problems,
+      `regions of level "${level.id}"`,
+      level.regions.map((region) => region.id),
+      level.regions.map((region) => region.label),
+    );
+  }
+
+  collectDuplicates(
+    problems,
+    'discipline',
+    source.disciplines.map((discipline) => discipline.id),
+    source.disciplines.map((discipline) => discipline.label),
+  );
+  for (const discipline of source.disciplines) {
+    collectDuplicates(
+      problems,
+      `lifts of discipline "${discipline.id}"`,
+      discipline.lifts,
+      undefined,
+    );
+
+    // A total is the sum of the three lifts, so a discipline that holds one must
+    // contest all three. Without this a bench-only book can declare a total, and
+    // the screen reports a lifter's bench as their three-lift total -- a number
+    // that is plausible, wrong, and attributed to the federation.
+    if (discipline.lifts.includes('total')) {
+      const missing = (['squat', 'bench', 'deadlift'] as const).filter(
+        (lift) => !discipline.lifts.includes(lift),
+      );
+      if (missing.length > 0) {
+        problems.push(
+          `discipline "${discipline.id}": holds a total but does not contest ${missing.join(', ')}`,
+        );
+      }
+    }
+  }
+
   if (problems.length > 0) {
     throw new CategorySourceError(problems);
   }
@@ -232,6 +308,8 @@ export function buildCategoryCatalog(document: unknown): CategorySourceResult {
       basis: source.ageDivisions.basis,
       divisions: source.ageDivisions.divisions,
     },
+    levels: source.levels,
+    disciplines: source.disciplines,
   };
 
   // Against the contract the browser reads it with, here rather than only in

@@ -33,6 +33,7 @@ function record(id: string, overrides: Partial<FederationRecord['scope']> = {}):
       regionId: 'iowa',
       sex: 'female',
       equipmentId: 'raw',
+      disciplineId: 'full-power',
       weightClassId: 'wc-63',
       divisionId: 'open',
       tested: true,

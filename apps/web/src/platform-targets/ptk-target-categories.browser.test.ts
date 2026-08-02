@@ -55,6 +55,12 @@ const CATALOG: CategoryCatalog = {
       { id: 'masters-1', label: 'Masters 1', minimumAge: 40, maximumAge: 49 },
     ],
   },
+
+  // The records screen's vocabulary. This element does not draw either of them.
+  levels: [{ id: 'national', label: 'National', regions: [] }],
+  disciplines: [
+    { id: 'full-power', label: 'Full power', lifts: ['squat', 'bench', 'deadlift', 'total'] },
+  ],
 };
 
 const teardown: (() => void)[] = [];

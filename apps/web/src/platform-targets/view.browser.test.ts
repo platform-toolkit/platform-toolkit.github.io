@@ -35,6 +35,12 @@ const CATALOG: CategoryCatalog = {
     basis: 'age-on-meet-date',
     divisions: [{ id: 'open', label: 'Open', minimumAge: null, maximumAge: null }],
   },
+
+  // The records screen's vocabulary. Nothing this test drives reads it.
+  levels: [{ id: 'national', label: 'National', regions: [] }],
+  disciplines: [
+    { id: 'full-power', label: 'Full power', lifts: ['squat', 'bench', 'deadlift', 'total'] },
+  ],
 };
 
 const BOOK: ClassificationBook = {

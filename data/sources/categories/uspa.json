@@ -29,7 +29,8 @@
     "sections": [
       "Item 1.2 Age Categories",
       "Item 1.3 Bodyweight Categories",
-      "Item 3.14 Raw, Classic Raw, Single Ply and Multi Ply Equipment Definition"
+      "Item 3.14 Raw, Classic Raw, Single Ply and Multi Ply Equipment Definition",
+      "Item 8.1 Records"
     ],
     "retrievedAt": "2026-07-31T00:00:00.000Z"
   },
@@ -95,12 +96,21 @@
       "distinguishes them only by the range beside it. The range is therefore part of",
       "the name here, not a gloss added by this project -- five options reading Junior",
       "would be unusable, and the adapter refuses duplicate labels so that going back",
-      "to one is a build failure rather than a screen nobody can answer."
+      "to one is a build failure rather than a screen nobody can answer.",
+      "",
+      "`junior-15-19` overlaps `junior-13-15`, `junior-16-17` and `junior-18-19`, and that",
+      "is not a transcription error. The federation contests it and keeps records under it",
+      "-- 1,126 of them across IPL world, Kansas and Ohio, the most recent set in June",
+      "2026. Divisions overlap by design anyway; an Open lifter of 45 is eligible for a",
+      "Masters division at the same meet. Leaving it out to keep the ladder tidy would",
+      "drop every one of those records on the floor, including current world records, and",
+      "the lifter would see an empty category rather than a missing one."
     ],
     "basis": "age-on-meet-date",
     "divisions": [
       { "id": "junior-10-12", "label": "Junior 10-12", "minimumAge": 10, "maximumAge": 12 },
       { "id": "junior-13-15", "label": "Junior 13-15", "minimumAge": 13, "maximumAge": 15 },
+      { "id": "junior-15-19", "label": "Junior 15-19", "minimumAge": 15, "maximumAge": 19 },
       { "id": "junior-16-17", "label": "Junior 16-17", "minimumAge": 16, "maximumAge": 17 },
       { "id": "junior-18-19", "label": "Junior 18-19", "minimumAge": 18, "maximumAge": 19 },
       { "id": "junior-20-23", "label": "Junior 20-23", "minimumAge": 20, "maximumAge": 23 },
@@ -117,5 +127,111 @@
       { "id": "master-80-84", "label": "Master 80-84", "minimumAge": 80, "maximumAge": 84 },
       { "id": "master-85-plus", "label": "Master 85+", "minimumAge": 85, "maximumAge": null }
     ]
-  }
+  },
+
+  "$comment:levels": [
+    "The levels the federation keeps records at, and the regions each is divided into.",
+    "",
+    "These are here rather than in the records document because a lifter picks a level",
+    "and a region *before* anything knows which record file to fetch -- records are",
+    "partitioned on exactly those two axes. A vocabulary published inside a partition",
+    "could only be read by somebody who already knew which partition they wanted.",
+    "",
+    "The state list is enumerated from the federation's own published record pages, not",
+    "from the fifty states: a state with no affiliate keeps no records, and inventing a",
+    "level for one would offer a lifter a category that cannot be answered. Guam links a",
+    "record page and every one of its tables answered 503 at the last crawl, so it is",
+    "recorded as an absence in the records document rather than as a region here -- a",
+    "region with no records is indistinguishable on screen from one whose records failed",
+    "to download.",
+    "",
+    "`national` and `ipl-world` carry no regions. There is one national record, not one",
+    "per state, and the empty list says so where a missing field could not."
+  ],
+  "levels": [
+    {
+      "id": "state",
+      "label": "State",
+      "regions": [
+        { "id": "alabama", "label": "Alabama" },
+        { "id": "alaska", "label": "Alaska" },
+        { "id": "arizona", "label": "Arizona" },
+        { "id": "arkansas", "label": "Arkansas" },
+        { "id": "california", "label": "California" },
+        { "id": "colorado", "label": "Colorado" },
+        { "id": "connecticut", "label": "Connecticut" },
+        { "id": "delaware", "label": "Delaware" },
+        { "id": "florida", "label": "Florida" },
+        { "id": "georgia", "label": "Georgia" },
+        { "id": "hawaii", "label": "Hawaii" },
+        { "id": "idaho", "label": "Idaho" },
+        { "id": "illinois", "label": "Illinois" },
+        { "id": "indiana", "label": "Indiana" },
+        { "id": "iowa", "label": "Iowa" },
+        { "id": "kansas", "label": "Kansas" },
+        { "id": "kentucky", "label": "Kentucky" },
+        { "id": "louisiana", "label": "Louisiana" },
+        { "id": "maine", "label": "Maine" },
+        { "id": "maryland", "label": "Maryland" },
+        { "id": "massachusetts", "label": "Massachusetts" },
+        { "id": "michigan", "label": "Michigan" },
+        { "id": "minnesota", "label": "Minnesota" },
+        { "id": "mississippi", "label": "Mississippi" },
+        { "id": "missouri", "label": "Missouri" },
+        { "id": "montana", "label": "Montana" },
+        { "id": "nebraska", "label": "Nebraska" },
+        { "id": "nevada", "label": "Nevada" },
+        { "id": "new-hampshire", "label": "New Hampshire" },
+        { "id": "new-jersey", "label": "New Jersey" },
+        { "id": "new-mexico", "label": "New Mexico" },
+        { "id": "new-york", "label": "New York" },
+        { "id": "north-carolina", "label": "North Carolina" },
+        { "id": "north-dakota", "label": "North Dakota" },
+        { "id": "ohio", "label": "Ohio" },
+        { "id": "oklahoma", "label": "Oklahoma" },
+        { "id": "oregon", "label": "Oregon" },
+        { "id": "pennsylvania", "label": "Pennsylvania" },
+        { "id": "rhode-island", "label": "Rhode Island" },
+        { "id": "south-carolina", "label": "South Carolina" },
+        { "id": "south-dakota", "label": "South Dakota" },
+        { "id": "tennessee", "label": "Tennessee" },
+        { "id": "texas", "label": "Texas" },
+        { "id": "utah", "label": "Utah" },
+        { "id": "vermont", "label": "Vermont" },
+        { "id": "virginia", "label": "Virginia" },
+        { "id": "washington", "label": "Washington" },
+        { "id": "west-virginia", "label": "West Virginia" },
+        { "id": "wisconsin", "label": "Wisconsin" },
+        { "id": "wyoming", "label": "Wyoming" }
+      ]
+    },
+    { "id": "national", "label": "National", "regions": [] },
+    { "id": "ipl-world", "label": "IPL World", "regions": [] }
+  ],
+
+  "$comment:disciplines": [
+    "The events the federation contests, and which lifts each holds records in.",
+    "",
+    "Carried rather than inferred from the name. \"Deadlift Only\" is a caption, and a",
+    "project that read the caption would be guessing in the federation's language about",
+    "a fact the federation states.",
+    "",
+    "Without this axis two records collide: the best raw bench by an open man at a",
+    "full-power meet and the best at a bench-only meet are two records the federation",
+    "keeps separately, and on the published corpus a scope without the discipline makes",
+    "twenty thousand rows land on the same identity -- which surfaces to a lifter as no",
+    "record at all, because the lookup refuses to choose between two.",
+    "",
+    "A single-lift meet has no total. A bench-only book that listed one would be",
+    "reporting a lifter's bench as their three-lift total."
+  ],
+  "disciplines": [
+    {
+      "id": "full-power",
+      "label": "Full power",
+      "lifts": ["squat", "bench", "deadlift", "total"]
+    },
+    { "id": "bench-only", "label": "Bench only", "lifts": ["bench"] },
+    { "id": "deadlift-only", "label": "Deadlift only", "lifts": ["deadlift"] }
+  ]
 }

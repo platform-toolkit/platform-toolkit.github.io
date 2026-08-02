@@ -2,6 +2,8 @@ import * as v from 'valibot';
 
 import {
   AgeDivisionSetSchema,
+  CompetitionLevelSchema,
+  DisciplineSchema,
   EquipmentCategorySchema,
   WeightClassLadderSchema,
 } from './categories.js';
@@ -51,6 +53,26 @@ export const CategoryCatalogSchema = v.object({
 
   /** The divisions, and the basis their ages are read on. */
   ageDivisions: AgeDivisionSetSchema,
+
+  /**
+   * The levels records are kept at, and the regions each is divided into.
+   *
+   * In the catalogue rather than the record artifact because choosing a level and
+   * a region is what decides *which* record artifact to fetch: records are
+   * partitioned on exactly those two axes. A vocabulary published inside a
+   * partition could only be read by somebody who already knew which partition
+   * they wanted.
+   */
+  levels: v.pipe(v.array(CompetitionLevelSchema), v.minLength(1)),
+
+  /**
+   * The events the federation contests, and which lifts each holds records in.
+   *
+   * Here for the same reason the levels are: a lifter picks a discipline on the
+   * way to a record, and the pick has to be renderable before anything has been
+   * fetched.
+   */
+  disciplines: v.pipe(v.array(DisciplineSchema), v.minLength(1)),
 });
 
 export type CategoryCatalog = v.InferOutput<typeof CategoryCatalogSchema>;

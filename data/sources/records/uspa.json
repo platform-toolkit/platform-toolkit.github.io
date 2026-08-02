@@ -1,0 +1,987 @@
+{
+  "$comment": [
+    "How the USPA record tables map onto this project's categories.",
+    "",
+    "The tables themselves are in `snapshots/uspa-records.json`, written by",
+    "`pnpm run data:crawl:records` and never edited by hand. That file says what the",
+    "federation publishes, in the federation's own words. This one says what those",
+    "words mean, and is the only half a person edits.",
+    "",
+    "WHY THE POUND COLUMN GATES NOTHING",
+    "",
+    "Every published record carries a kilogram figure and a pound figure, and it is",
+    "tempting to check one against the other. Do not add that check. Of 129,908",
+    "rows, 5,271 print `0.00` pounds, and of the 227 that genuinely disagree with",
+    "their kilogram figure a dozen were converted with a doubling factor. The",
+    "kilogram column is the one the federation lifts to and the one every other part",
+    "of this application works in; the pound column is a rendering of it that is",
+    "sometimes missing and occasionally wrong. A cross-check would fail the build",
+    "weekly on rows whose kilogram figure was never in doubt."
+  ],
+  "id": "uspa",
+  "label": "USPA",
+  "provenance": {
+    "id": "uspa-records",
+    "label": "USPA records",
+    "document": "USPA published record tables",
+    "url": "https://records.uspa.net/",
+    "sections": [
+      "State, national and IPL world record tables, drug tested and non tested",
+      "USPA Technical Rules 2025v1 Item 8.1.5 (the margin a record must be beaten by)"
+    ],
+    "retrievedAt": "2026-08-01T00:00:00.000Z"
+  },
+  "snapshot": {
+    "$comment": [
+      "No digest, unlike the classification snapshot beside it.",
+      "",
+      "A record is replaced every time somebody beats it, so this file changes after",
+      "every meet weekend. A digest that had to be re-cut weekly would stop being a",
+      "decision anybody made and become a step in a script -- and the unattended",
+      "refresh could not run at all without a human in the loop to re-cut it. What the",
+      "digest buys for the classification standards is bought here instead by the",
+      "checks below, which are about meaning rather than bytes: every value the",
+      "tables use has to be mapped, every mapping has to be used, and every table's",
+      "own title has to agree with the identifiers used to reach it."
+    ],
+    "file": "uspa-records.json",
+    "url": null
+  },
+  "$comment:book": [
+    "The book has no identifier here: it is the federation's, `uspa` above.",
+    "",
+    "Records are fetched by the federation the screen is already showing, so a second",
+    "name chosen in this file would be a second thing to keep in step with the first.",
+    "The failure is silent -- `recordArtifactId` would name files nobody asks for, and",
+    "the browser renders a lookup that finds nothing as \"no records in this",
+    "category\", which is a real answer for a category nobody has set a record in."
+  ],
+  "book": {
+    "label": "USPA records",
+    "minimumIncrementKilograms": 0.5
+  },
+  "$comment:locations": [
+    "Each link on the records site, and the level and region it stands for.",
+    "",
+    "`titleLevel` and `titleRegion` are the segments the table's own heading uses. The",
+    "heading is the only thing a downloaded table says about which table it is, which",
+    "makes it the one cross-check available against the three identifiers used to",
+    "reach it -- and a stale link on the records site, filing one state's records",
+    "under another state's name, is otherwise invisible: plausible figures, in the",
+    "wrong place, with nothing on screen to say so.",
+    "",
+    "`regionId` is `null` for a level the catalogue gives no regions to. It is not a",
+    "shorthand for \"all regions\": the browser builds its request from a level and a",
+    "region the lifter picked, so a record filed under a level with no region would",
+    "be unreachable under a level that has them."
+  ],
+  "locations": [
+    {
+      "location": "alabama",
+      "levelId": "state",
+      "regionId": "alabama",
+      "titleLevel": "State",
+      "titleRegion": "Alabama"
+    },
+    {
+      "location": "alaska",
+      "levelId": "state",
+      "regionId": "alaska",
+      "titleLevel": "State",
+      "titleRegion": "Alaska"
+    },
+    {
+      "location": "arizona",
+      "levelId": "state",
+      "regionId": "arizona",
+      "titleLevel": "State",
+      "titleRegion": "Arizona"
+    },
+    {
+      "location": "arkansas",
+      "levelId": "state",
+      "regionId": "arkansas",
+      "titleLevel": "State",
+      "titleRegion": "Arkansas"
+    },
+    {
+      "location": "california",
+      "levelId": "state",
+      "regionId": "california",
+      "titleLevel": "State",
+      "titleRegion": "California"
+    },
+    {
+      "location": "colorado",
+      "levelId": "state",
+      "regionId": "colorado",
+      "titleLevel": "State",
+      "titleRegion": "Colorado"
+    },
+    {
+      "location": "connecticut",
+      "levelId": "state",
+      "regionId": "connecticut",
+      "titleLevel": "State",
+      "titleRegion": "Connecticut"
+    },
+    {
+      "location": "delaware",
+      "levelId": "state",
+      "regionId": "delaware",
+      "titleLevel": "State",
+      "titleRegion": "Delaware"
+    },
+    {
+      "location": "florida",
+      "levelId": "state",
+      "regionId": "florida",
+      "titleLevel": "State",
+      "titleRegion": "Florida"
+    },
+    {
+      "location": "georgia",
+      "levelId": "state",
+      "regionId": "georgia",
+      "titleLevel": "State",
+      "titleRegion": "Georgia"
+    },
+    {
+      "location": "hawaii",
+      "levelId": "state",
+      "regionId": "hawaii",
+      "titleLevel": "State",
+      "titleRegion": "Hawaii"
+    },
+    {
+      "location": "idaho",
+      "levelId": "state",
+      "regionId": "idaho",
+      "titleLevel": "State",
+      "titleRegion": "Idaho"
+    },
+    {
+      "location": "illinois",
+      "levelId": "state",
+      "regionId": "illinois",
+      "titleLevel": "State",
+      "titleRegion": "Illinois"
+    },
+    {
+      "location": "indiana",
+      "levelId": "state",
+      "regionId": "indiana",
+      "titleLevel": "State",
+      "titleRegion": "Indiana"
+    },
+    {
+      "location": "iowa",
+      "levelId": "state",
+      "regionId": "iowa",
+      "titleLevel": "State",
+      "titleRegion": "Iowa"
+    },
+    {
+      "location": "ipl-world",
+      "levelId": "ipl-world",
+      "regionId": null,
+      "titleLevel": "IPL",
+      "titleRegion": null
+    },
+    {
+      "location": "kansas",
+      "levelId": "state",
+      "regionId": "kansas",
+      "titleLevel": "State",
+      "titleRegion": "Kansas"
+    },
+    {
+      "location": "kentucky",
+      "levelId": "state",
+      "regionId": "kentucky",
+      "titleLevel": "State",
+      "titleRegion": "Kentucky"
+    },
+    {
+      "location": "louisiana",
+      "levelId": "state",
+      "regionId": "louisiana",
+      "titleLevel": "State",
+      "titleRegion": "Louisiana"
+    },
+    {
+      "location": "maine",
+      "levelId": "state",
+      "regionId": "maine",
+      "titleLevel": "State",
+      "titleRegion": "Maine"
+    },
+    {
+      "location": "maryland",
+      "levelId": "state",
+      "regionId": "maryland",
+      "titleLevel": "State",
+      "titleRegion": "Maryland"
+    },
+    {
+      "location": "massachusetts",
+      "levelId": "state",
+      "regionId": "massachusetts",
+      "titleLevel": "State",
+      "titleRegion": "Massachusetts"
+    },
+    {
+      "location": "michigan",
+      "levelId": "state",
+      "regionId": "michigan",
+      "titleLevel": "State",
+      "titleRegion": "Michigan"
+    },
+    {
+      "location": "minnesota",
+      "levelId": "state",
+      "regionId": "minnesota",
+      "titleLevel": "State",
+      "titleRegion": "Minnesota"
+    },
+    {
+      "location": "mississippi",
+      "levelId": "state",
+      "regionId": "mississippi",
+      "titleLevel": "State",
+      "titleRegion": "Mississippi"
+    },
+    {
+      "location": "missouri",
+      "levelId": "state",
+      "regionId": "missouri",
+      "titleLevel": "State",
+      "titleRegion": "Missouri"
+    },
+    {
+      "location": "montana",
+      "levelId": "state",
+      "regionId": "montana",
+      "titleLevel": "State",
+      "titleRegion": "Montana"
+    },
+    {
+      "location": "national",
+      "levelId": "national",
+      "regionId": null,
+      "titleLevel": "National",
+      "titleRegion": null
+    },
+    {
+      "location": "nebraska",
+      "levelId": "state",
+      "regionId": "nebraska",
+      "titleLevel": "State",
+      "titleRegion": "Nebraska"
+    },
+    {
+      "location": "nevada",
+      "levelId": "state",
+      "regionId": "nevada",
+      "titleLevel": "State",
+      "titleRegion": "Nevada"
+    },
+    {
+      "location": "new-hampshire",
+      "levelId": "state",
+      "regionId": "new-hampshire",
+      "titleLevel": "State",
+      "titleRegion": "New Hampshire"
+    },
+    {
+      "location": "new-jersey",
+      "levelId": "state",
+      "regionId": "new-jersey",
+      "titleLevel": "State",
+      "titleRegion": "New Jersey"
+    },
+    {
+      "location": "new-mexico",
+      "levelId": "state",
+      "regionId": "new-mexico",
+      "titleLevel": "State",
+      "titleRegion": "New Mexico"
+    },
+    {
+      "location": "new-york",
+      "levelId": "state",
+      "regionId": "new-york",
+      "titleLevel": "State",
+      "titleRegion": "New York"
+    },
+    {
+      "location": "north-carolina",
+      "levelId": "state",
+      "regionId": "north-carolina",
+      "titleLevel": "State",
+      "titleRegion": "North Carolina"
+    },
+    {
+      "location": "north-dakota",
+      "levelId": "state",
+      "regionId": "north-dakota",
+      "titleLevel": "State",
+      "titleRegion": "North Dakota"
+    },
+    {
+      "location": "ohio",
+      "levelId": "state",
+      "regionId": "ohio",
+      "titleLevel": "State",
+      "titleRegion": "Ohio"
+    },
+    {
+      "location": "oklahoma",
+      "levelId": "state",
+      "regionId": "oklahoma",
+      "titleLevel": "State",
+      "titleRegion": "Oklahoma"
+    },
+    {
+      "location": "oregon",
+      "levelId": "state",
+      "regionId": "oregon",
+      "titleLevel": "State",
+      "titleRegion": "Oregon"
+    },
+    {
+      "location": "pennsylvania",
+      "levelId": "state",
+      "regionId": "pennsylvania",
+      "titleLevel": "State",
+      "titleRegion": "Pennsylvania"
+    },
+    {
+      "location": "rhode-island",
+      "levelId": "state",
+      "regionId": "rhode-island",
+      "titleLevel": "State",
+      "titleRegion": "Rhode Island"
+    },
+    {
+      "location": "south-carolina",
+      "levelId": "state",
+      "regionId": "south-carolina",
+      "titleLevel": "State",
+      "titleRegion": "South Carolina"
+    },
+    {
+      "location": "south-dakota",
+      "levelId": "state",
+      "regionId": "south-dakota",
+      "titleLevel": "State",
+      "titleRegion": "South Dakota"
+    },
+    {
+      "location": "tennessee",
+      "levelId": "state",
+      "regionId": "tennessee",
+      "titleLevel": "State",
+      "titleRegion": "Tennessee"
+    },
+    {
+      "location": "texas",
+      "levelId": "state",
+      "regionId": "texas",
+      "titleLevel": "State",
+      "titleRegion": "Texas"
+    },
+    {
+      "location": "utah",
+      "levelId": "state",
+      "regionId": "utah",
+      "titleLevel": "State",
+      "titleRegion": "Utah"
+    },
+    {
+      "location": "vermont",
+      "levelId": "state",
+      "regionId": "vermont",
+      "titleLevel": "State",
+      "titleRegion": "Vermont"
+    },
+    {
+      "location": "virginia",
+      "levelId": "state",
+      "regionId": "virginia",
+      "titleLevel": "State",
+      "titleRegion": "Virginia"
+    },
+    {
+      "location": "washington",
+      "levelId": "state",
+      "regionId": "washington",
+      "titleLevel": "State",
+      "titleRegion": "Washington"
+    },
+    {
+      "location": "west-virginia",
+      "levelId": "state",
+      "regionId": "west-virginia",
+      "titleLevel": "State",
+      "titleRegion": "West Virginia"
+    },
+    {
+      "location": "wisconsin",
+      "levelId": "state",
+      "regionId": "wisconsin",
+      "titleLevel": "State",
+      "titleRegion": "Wisconsin"
+    },
+    {
+      "location": "wyoming",
+      "levelId": "state",
+      "regionId": "wyoming",
+      "titleLevel": "State",
+      "titleRegion": "Wyoming"
+    }
+  ],
+  "$comment:statuses": [
+    "The federation keeps two separate books, and a record in one says nothing about",
+    "the other. `tested` is part of a record's scope for that reason, not a filter."
+  ],
+  "statuses": [
+    {
+      "status": "drug-tested",
+      "tested": true,
+      "titleStatus": "Drug Tested Records"
+    },
+    {
+      "status": "non-tested",
+      "tested": false,
+      "titleStatus": "Non Tested"
+    }
+  ],
+  "$comment:events": [
+    "One published event is one discipline in one equipment category.",
+    "",
+    "`equipmentId` comes from the event and never from `titleGear`, which is wrong for",
+    "exactly one event: `classic-powerlifting` is headed `Raw`, and reading the",
+    "heading would file every classic raw record in the country under raw. The gear",
+    "segment is carried anyway because the heading cross-check needs it whole.",
+    "",
+    "A federation that added a strict-curl book would add a line here and a discipline",
+    "to the categories document; the build refuses an event nothing maps, so it cannot",
+    "arrive as a silently missing set of records."
+  ],
+  "events": [
+    {
+      "event": "classic-powerlifting",
+      "disciplineId": "full-power",
+      "equipmentId": "classic-raw",
+      "titleGear": "Raw",
+      "titleEvent": "Classic Raw Full Power"
+    },
+    {
+      "event": "raw-powerlifting",
+      "disciplineId": "full-power",
+      "equipmentId": "raw",
+      "titleGear": "Raw",
+      "titleEvent": "Raw Full Power"
+    },
+    {
+      "event": "raw-bench-only",
+      "disciplineId": "bench-only",
+      "equipmentId": "raw",
+      "titleGear": "Raw",
+      "titleEvent": "Raw Bench"
+    },
+    {
+      "event": "raw-deadlift-only",
+      "disciplineId": "deadlift-only",
+      "equipmentId": "raw",
+      "titleGear": "Raw",
+      "titleEvent": "Raw Deadlift"
+    },
+    {
+      "event": "single-ply-powerlifting",
+      "disciplineId": "full-power",
+      "equipmentId": "single-ply",
+      "titleGear": "Single-Ply",
+      "titleEvent": "Single-Ply Full Power"
+    },
+    {
+      "event": "single-ply-bench-only",
+      "disciplineId": "bench-only",
+      "equipmentId": "single-ply",
+      "titleGear": "Single-Ply",
+      "titleEvent": "Single-Ply Bench"
+    },
+    {
+      "event": "single-ply-deadlift-only",
+      "disciplineId": "deadlift-only",
+      "equipmentId": "single-ply",
+      "titleGear": "Single-Ply",
+      "titleEvent": "Single-Ply Deadlift"
+    },
+    {
+      "event": "multi-ply-powerlifting",
+      "disciplineId": "full-power",
+      "equipmentId": "multi-ply",
+      "titleGear": "Multi-Ply",
+      "titleEvent": "Multi-Ply Full Power"
+    },
+    {
+      "event": "multi-ply-bench-only",
+      "disciplineId": "bench-only",
+      "equipmentId": "multi-ply",
+      "titleGear": "Multi-Ply",
+      "titleEvent": "Multi-Ply Bench"
+    },
+    {
+      "event": "multi-ply-deadlift-only",
+      "disciplineId": "deadlift-only",
+      "equipmentId": "multi-ply",
+      "titleGear": "Multi-Ply",
+      "titleEvent": "Multi-Ply Deadlift"
+    }
+  ],
+  "$comment:lifts": [
+    "`TOTAL` is the three-lift total and only a full-power event holds one. A row",
+    "whose lift the event's discipline does not contest is dropped rather than",
+    "published -- see `plausibility` for why that is a rule and not a list."
+  ],
+  "lifts": [
+    {
+      "column": "Squat",
+      "lift": "squat"
+    },
+    {
+      "column": "Bench",
+      "lift": "bench"
+    },
+    {
+      "column": "Deadlift",
+      "lift": "deadlift"
+    },
+    {
+      "column": "TOTAL",
+      "lift": "total"
+    }
+  ],
+  "$comment:divisions": [
+    "The tables name a sex and an age division in one string, so both are read from",
+    "it. Thirty-six lines for eighteen divisions: the two sexes are spelled",
+    "differently and neither can be derived from the other by rule.",
+    "",
+    "`15 TO 19` overlaps `16 TO 17` and `18 TO 19`, and that is the federation's own",
+    "arrangement rather than a transcription mistake -- the categories document",
+    "carries `junior-15-19` for it. Collapsing the three would drop more than a",
+    "thousand live records, some of them current world records."
+  ],
+  "divisions": [
+    {
+      "column": "JUNIOR MEN 10 TO 12",
+      "sex": "male",
+      "divisionId": "junior-10-12"
+    },
+    {
+      "column": "JUNIOR MEN 13 TO 15",
+      "sex": "male",
+      "divisionId": "junior-13-15"
+    },
+    {
+      "column": "JUNIOR MEN 15 TO 19",
+      "sex": "male",
+      "divisionId": "junior-15-19"
+    },
+    {
+      "column": "JUNIOR MEN 16 TO 17",
+      "sex": "male",
+      "divisionId": "junior-16-17"
+    },
+    {
+      "column": "JUNIOR MEN 18 TO 19",
+      "sex": "male",
+      "divisionId": "junior-18-19"
+    },
+    {
+      "column": "JUNIOR MEN 20 TO 23",
+      "sex": "male",
+      "divisionId": "junior-20-23"
+    },
+    {
+      "column": "JUNIOR WOMEN 10 TO 12",
+      "sex": "female",
+      "divisionId": "junior-10-12"
+    },
+    {
+      "column": "JUNIOR WOMEN 13 TO 15",
+      "sex": "female",
+      "divisionId": "junior-13-15"
+    },
+    {
+      "column": "JUNIOR WOMEN 15 TO 19",
+      "sex": "female",
+      "divisionId": "junior-15-19"
+    },
+    {
+      "column": "JUNIOR WOMEN 16 TO 17",
+      "sex": "female",
+      "divisionId": "junior-16-17"
+    },
+    {
+      "column": "JUNIOR WOMEN 18 TO 19",
+      "sex": "female",
+      "divisionId": "junior-18-19"
+    },
+    {
+      "column": "JUNIOR WOMEN 20 TO 23",
+      "sex": "female",
+      "divisionId": "junior-20-23"
+    },
+    {
+      "column": "MASTER MEN 40 TO 44",
+      "sex": "male",
+      "divisionId": "master-40-44"
+    },
+    {
+      "column": "MASTER MEN 45 TO 49",
+      "sex": "male",
+      "divisionId": "master-45-49"
+    },
+    {
+      "column": "MASTER MEN 50 TO 54",
+      "sex": "male",
+      "divisionId": "master-50-54"
+    },
+    {
+      "column": "MASTER MEN 55 TO 59",
+      "sex": "male",
+      "divisionId": "master-55-59"
+    },
+    {
+      "column": "MASTER MEN 60 TO 64",
+      "sex": "male",
+      "divisionId": "master-60-64"
+    },
+    {
+      "column": "MASTER MEN 65 TO 69",
+      "sex": "male",
+      "divisionId": "master-65-69"
+    },
+    {
+      "column": "MASTER MEN 70 TO 74",
+      "sex": "male",
+      "divisionId": "master-70-74"
+    },
+    {
+      "column": "MASTER MEN 75 TO 79",
+      "sex": "male",
+      "divisionId": "master-75-79"
+    },
+    {
+      "column": "MASTER MEN 80 TO 84",
+      "sex": "male",
+      "divisionId": "master-80-84"
+    },
+    {
+      "column": "MASTER MEN 85+",
+      "sex": "male",
+      "divisionId": "master-85-plus"
+    },
+    {
+      "column": "MASTER WOMEN 40 TO 44",
+      "sex": "female",
+      "divisionId": "master-40-44"
+    },
+    {
+      "column": "MASTER WOMEN 45 TO 49",
+      "sex": "female",
+      "divisionId": "master-45-49"
+    },
+    {
+      "column": "MASTER WOMEN 50 TO 54",
+      "sex": "female",
+      "divisionId": "master-50-54"
+    },
+    {
+      "column": "MASTER WOMEN 55 TO 59",
+      "sex": "female",
+      "divisionId": "master-55-59"
+    },
+    {
+      "column": "MASTER WOMEN 60 TO 64",
+      "sex": "female",
+      "divisionId": "master-60-64"
+    },
+    {
+      "column": "MASTER WOMEN 65 TO 69",
+      "sex": "female",
+      "divisionId": "master-65-69"
+    },
+    {
+      "column": "MASTER WOMEN 70 TO 74",
+      "sex": "female",
+      "divisionId": "master-70-74"
+    },
+    {
+      "column": "MASTER WOMEN 75 TO 79",
+      "sex": "female",
+      "divisionId": "master-75-79"
+    },
+    {
+      "column": "MASTER WOMEN 80 TO 84",
+      "sex": "female",
+      "divisionId": "master-80-84"
+    },
+    {
+      "column": "MASTER WOMEN 85+",
+      "sex": "female",
+      "divisionId": "master-85-plus"
+    },
+    {
+      "column": "OPEN MEN",
+      "sex": "male",
+      "divisionId": "open"
+    },
+    {
+      "column": "OPEN WOMEN",
+      "sex": "female",
+      "divisionId": "open"
+    },
+    {
+      "column": "SUBMASTER MEN 35 TO 39",
+      "sex": "male",
+      "divisionId": "submaster-35-39"
+    },
+    {
+      "column": "SUBMASTER WOMEN 35 TO 39",
+      "sex": "female",
+      "divisionId": "submaster-35-39"
+    }
+  ],
+  "$comment:weightClasses": [
+    "Keyed by sex as well as by column, because the two ladders share numbers: `52kg`",
+    "is a women's class and a men's class and they are different records."
+  ],
+  "weightClasses": [
+    {
+      "sex": "female",
+      "column": "44kg/97lb",
+      "weightClassId": "f-44"
+    },
+    {
+      "sex": "female",
+      "column": "48kg/105.7lb",
+      "weightClassId": "f-48"
+    },
+    {
+      "sex": "female",
+      "column": "52kg/114.5lb",
+      "weightClassId": "f-52"
+    },
+    {
+      "sex": "female",
+      "column": "56kg/123.5lb",
+      "weightClassId": "f-56"
+    },
+    {
+      "sex": "female",
+      "column": "60kg/132.2lb",
+      "weightClassId": "f-60"
+    },
+    {
+      "sex": "female",
+      "column": "67.5kg/148.7lb",
+      "weightClassId": "f-67.5"
+    },
+    {
+      "sex": "female",
+      "column": "75kg/165.2lb",
+      "weightClassId": "f-75"
+    },
+    {
+      "sex": "female",
+      "column": "82.5kg/181.7lb",
+      "weightClassId": "f-82.5"
+    },
+    {
+      "sex": "female",
+      "column": "90kg/198.2lb",
+      "weightClassId": "f-90"
+    },
+    {
+      "sex": "female",
+      "column": "100kg/220lb",
+      "weightClassId": "f-100"
+    },
+    {
+      "sex": "female",
+      "column": "110kg/242lb",
+      "weightClassId": "f-110"
+    },
+    {
+      "sex": "female",
+      "column": "110+kg",
+      "weightClassId": "f-110-plus"
+    },
+    {
+      "sex": "male",
+      "column": "52kg/114.5lb",
+      "weightClassId": "m-52"
+    },
+    {
+      "sex": "male",
+      "column": "56kg/123.5lb",
+      "weightClassId": "m-56"
+    },
+    {
+      "sex": "male",
+      "column": "60kg/132.2lb",
+      "weightClassId": "m-60"
+    },
+    {
+      "sex": "male",
+      "column": "67.5kg/148.7lb",
+      "weightClassId": "m-67.5"
+    },
+    {
+      "sex": "male",
+      "column": "75kg/165.2lb",
+      "weightClassId": "m-75"
+    },
+    {
+      "sex": "male",
+      "column": "82.5kg/181.7lb",
+      "weightClassId": "m-82.5"
+    },
+    {
+      "sex": "male",
+      "column": "90kg/198.2lb",
+      "weightClassId": "m-90"
+    },
+    {
+      "sex": "male",
+      "column": "100kg/220lb",
+      "weightClassId": "m-100"
+    },
+    {
+      "sex": "male",
+      "column": "110kg/242lb",
+      "weightClassId": "m-110"
+    },
+    {
+      "sex": "male",
+      "column": "125kg/275lb",
+      "weightClassId": "m-125"
+    },
+    {
+      "sex": "male",
+      "column": "140kg/308.5lb",
+      "weightClassId": "m-140"
+    },
+    {
+      "sex": "male",
+      "column": "140+kg/SHW",
+      "weightClassId": "m-140-plus"
+    }
+  ],
+  "$comment:unmappedWeightClasses": [
+    "Columns the tables print that the rulebook's ladders do not contain.",
+    "",
+    "Every one of them is on the IPL world tables and nowhere else, and every one is a",
+    "column from the other sex's ladder appearing under this one. The largest, women's",
+    "`140+kg/SHW`, holds 255 rows of which 111 are byte-identical copies of the row",
+    "above them and 144 carry men's figures. These are an artefact of how that one",
+    "template is rendered, not a division anybody competed in.",
+    "",
+    "Listed rather than left to fail, and listed by rule rather than by row: the whole",
+    "column is refused, so a meet that adds a record to one of them next month does",
+    "not break the unattended refresh. 343 rows of 129,908."
+  ],
+  "unmappedWeightClasses": [
+    {
+      "sex": "female",
+      "column": "125kg/275lb",
+      "reason": "A men's class printed under the women's ladder. IPL world tables only, 14 rows."
+    },
+    {
+      "sex": "female",
+      "column": "140kg/308.5lb",
+      "reason": "A men's class printed under the women's ladder. IPL world tables only, 14 rows."
+    },
+    {
+      "sex": "female",
+      "column": "140+kg/SHW",
+      "reason": "The men's unlimited class printed under the women's ladder. IPL world tables only, 255 rows, of which 111 duplicate the women's 110+ row exactly and 144 carry men's figures."
+    },
+    {
+      "sex": "male",
+      "column": "44kg/97lb",
+      "reason": "A women's class printed under the men's ladder; the men's ladder starts at 52 kg. IPL world tables only, 14 rows."
+    },
+    {
+      "sex": "male",
+      "column": "48kg/105.7lb",
+      "reason": "A women's class printed under the men's ladder; the men's ladder starts at 52 kg. IPL world tables only, 14 rows."
+    },
+    {
+      "sex": "male",
+      "column": "110+kg",
+      "reason": "The women's unlimited class printed under the men's ladder, which continues to 125 and 140. IPL world tables only, 16 rows."
+    },
+    {
+      "sex": "male",
+      "column": "90+kg/UNL",
+      "reason": "An unlimited class neither ladder has; both continue above 90 kg. IPL world tables only, 16 rows."
+    }
+  ],
+  "$comment:absentLocations": [
+    "Places the records site links to and the table service does not answer for.",
+    "",
+    "Recorded here rather than in the categories document, because the absence is a",
+    "fact about the records service and not about who may compete. Guam is a USPA",
+    "region; it simply has no record tables configured, and every one of its twenty",
+    "links answers 503 immediately and every time.",
+    "",
+    "Checked both ways. A location listed here that starts answering is a failed",
+    "build, because the alternative is a region whose records are silently never",
+    "published; and a location that stops answering without being listed is a failed",
+    "build too, because that is what a state's records disappearing looks like."
+  ],
+  "absentLocations": [
+    {
+      "location": "guam",
+      "reason": "Linked from the records index, but every one of its tables answers 503. No records have been configured for it."
+    }
+  ],
+  "$comment:plausibility": [
+    "The rules that decide which published rows are not published onward.",
+    "",
+    "Rules, never a list of rows. A row-listed quarantine is what the classification",
+    "standards use, and it works there because that dataset is a fixed table somebody",
+    "re-exports by hand. These tables change after every meet weekend and refresh",
+    "without a human, so a list would go stale between Sunday and Monday and stop the",
+    "refresh on a row nobody had had a chance to look at.",
+    "",
+    "Three rules drop 399 of 129,908 rows, 0.31%: 343 in a weight class the sex's",
+    "ladder does not contain (above), 36 in a lift the event's discipline does not",
+    "contest -- a deadlift printed on a bench-only table -- and 20 outside the band",
+    "below.",
+    "",
+    "The band is set wide enough to be about parsing rather than about performance.",
+    "The heaviest real single lift in the corpus is 545 kg and the heaviest real total",
+    "1,241.1 kg; the lightest real lift is 20 kg, which is a bare bar and belongs to a",
+    "ten-year-old. Nothing genuine is near these edges, and a figure that is means the",
+    "column moved or a decimal point did.",
+    "",
+    "`maximumExcludedRows` is the part that earns its keep. Every rule above is a rule",
+    "a parser regression could satisfy for thousands of rows at once -- a shifted",
+    "column makes every weight class unrecognisable -- and the result would be a",
+    "successful build publishing a fraction of the records with nothing said. 600",
+    "against today's 399 is room for a federation adding a class or a template, and",
+    "far below the first digit of a real failure."
+  ],
+  "plausibility": {
+    "minimumKilograms": 15,
+    "maximumSingleLiftKilograms": 700,
+    "maximumTotalKilograms": 1600,
+    "maximumExcludedRows": 600
+  }
+}

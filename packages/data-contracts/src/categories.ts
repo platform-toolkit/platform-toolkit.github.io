@@ -25,6 +25,18 @@ export const SexCategorySchema = v.picklist(['female', 'male']);
 export type SexCategory = v.InferOutput<typeof SexCategorySchema>;
 
 /**
+ * The lift a figure is about. `total` is the sum of the three.
+ *
+ * A fixed list rather than data, unlike everything else in this file. The three
+ * competition lifts and their sum are what a powerlifting meet is; a federation
+ * that contested a fourth movement would be a different sport, and every formula
+ * and every screen in this project would need widening alongside the vocabulary.
+ * Federations disagree about categories, not about what a squat is.
+ */
+export const LiftSchema = v.picklist(['squat', 'bench', 'deadlift', 'total']);
+export type Lift = v.InferOutput<typeof LiftSchema>;
+
+/**
  * An equipment category, such as the one a raw lifter competes in.
  *
  * Left as data rather than a fixed list because federations disagree about both
@@ -114,3 +126,53 @@ export const AgeDivisionSetSchema = v.object({
   divisions: v.pipe(v.array(AgeDivisionSchema), v.minLength(1)),
 });
 export type AgeDivisionSet = v.InferOutput<typeof AgeDivisionSetSchema>;
+
+/** One subdivision of a level, such as a state within a national federation. */
+export const CompetitionRegionSchema = v.object({
+  id: Identifier,
+  label: Label,
+});
+export type CompetitionRegion = v.InferOutput<typeof CompetitionRegionSchema>;
+
+/**
+ * A level records are kept at, and the regions it is divided into.
+ *
+ * `regions` is empty for a level that is not subdivided -- there is one national
+ * record, not one per state -- and a record at such a level carries
+ * `regionId: null`. An empty list rather than an absent field, because "this
+ * level has no subdivisions" is a statement the source makes and a reader has to
+ * render, and a missing field is indistinguishable from a transcription that
+ * forgot them.
+ *
+ * This is here rather than in the record artifact because a lifter chooses a
+ * level and a region *before* anything knows which record file to fetch. Records
+ * are partitioned on exactly those two axes (see `record-shards.ts`), so a
+ * vocabulary that lived inside a partition could only be read by somebody who
+ * already knew which partition they wanted.
+ */
+export const CompetitionLevelSchema = v.object({
+  id: Identifier,
+  label: Label,
+  regions: v.array(CompetitionRegionSchema),
+});
+export type CompetitionLevel = v.InferOutput<typeof CompetitionLevelSchema>;
+
+/**
+ * A contested event, and which lifts it holds records in.
+ *
+ * A full-power meet contests all three lifts and a total; a bench-only meet
+ * contests one lift and has no total. Without this axis two records collide: the
+ * best raw bench by an open man at a full-power meet and the best at a bench-only
+ * meet are two different records the federation keeps separately, and on the real
+ * corpus merging them loses twenty thousand rows to apparent duplication.
+ *
+ * `lifts` is carried rather than inferred from a name. "Deadlift Only" is a
+ * caption, and a project that read the caption would be guessing in the
+ * federation's language about a fact the federation states.
+ */
+export const DisciplineSchema = v.object({
+  id: Identifier,
+  label: Label,
+  lifts: v.pipe(v.array(LiftSchema), v.minLength(1)),
+});
+export type Discipline = v.InferOutput<typeof DisciplineSchema>;

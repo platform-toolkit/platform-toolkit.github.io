@@ -61,6 +61,12 @@ const CATALOG: CategoryCatalog = {
       { id: 'masters-4', label: 'Masters 4', minimumAge: 70, maximumAge: null },
     ],
   },
+
+  // The records screen's vocabulary, which nothing in these stories draws yet.
+  levels: [{ id: 'national', label: 'National', regions: [] }],
+  disciplines: [
+    { id: 'full-power', label: 'Full power', lifts: ['squat', 'bench', 'deadlift', 'total'] },
+  ],
 };
 
 function table(lift: Lift, third: number, second: number, first: number): ClassificationTable {

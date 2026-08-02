@@ -92,12 +92,22 @@ export function standingAgainstRecord(
   };
 }
 
+/**
+ * Every axis of a scope, compared one by one.
+ *
+ * Written out rather than derived from the schema's keys, so that adding an axis
+ * is a compile error somewhere rather than a silent widening here. An axis left
+ * out of this function does not fail: the lookup merely stops distinguishing on
+ * it, and two records that differ only in the forgotten axis come back as
+ * `ambiguous` -- or worse, one of them is returned as if it were the only one.
+ */
 function scopeEquals(left: RecordScope, right: RecordScope): boolean {
   return (
     left.levelId === right.levelId &&
     left.regionId === right.regionId &&
     left.sex === right.sex &&
     left.equipmentId === right.equipmentId &&
+    left.disciplineId === right.disciplineId &&
     left.weightClassId === right.weightClassId &&
     left.divisionId === right.divisionId &&
     left.tested === right.tested &&
