@@ -410,7 +410,6 @@ function addClassificationRows(
     const standings = resolveStandards(
       classifications,
       lifterCategoryFor(axes, weightClass.id, division.id),
-      NO_ENTRIES,
     );
 
     for (const standing of standings) {

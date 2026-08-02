@@ -12,9 +12,9 @@
  * What the visitor typed and which table applies are independent, and modelling
  * them as one outcome loses a real state: a lifter who mistypes their squat in a
  * category with no published squat standards should be told both things, and a
- * single union has to pick one. So {@link LiftStanding} carries an
- * {@link LiftEntry} and a {@link LiftStandards} side by side, and the placement
- * exists only when both are available.
+ * single union has to pick one. So {@link LiftEntry} and {@link LiftStandards}
+ * are separate types, resolved by separate calls, and no caller has to have
+ * answered the category before it can read what was typed.
  *
  * WHY THE MESSAGES ARE HERE
  *
@@ -45,7 +45,6 @@ import {
   selectClassificationTable,
   showEntryIn,
   weightIn,
-  type Classification,
   type ClassificationLadderProblem,
   type EnteredWeight,
   type ParsedWeightInput,
@@ -183,22 +182,20 @@ export type LiftStandards =
       readonly ladder: ClassificationLadder;
     };
 
+/**
+ * Which table applies to one lift, and what it says.
+ *
+ * Deliberately carries nothing the lifter typed. The report draws every rung of
+ * the ladder and strikes through the ones already behind them, which is a
+ * question about a *weight* and not about a category -- so it is answered by
+ * `reachedIn` in `report.ts`, in a second pass, against whichever weight is in
+ * hand. Folding an entry in here would mean re-resolving the whole book on every
+ * keystroke to redraw rows that had not changed.
+ */
 export interface LiftStanding {
   readonly lift: Lift;
   readonly label: string;
-  readonly entry: LiftEntry;
   readonly standards: LiftStandards;
-  /** Where the entry sits in the ladder. `null` unless there is both an entry and a ladder. */
-  readonly classification: Classification | null;
-  /**
-   * The unit every figure in this standing should be written in.
-   *
-   * Carried on the standing rather than passed alongside it, so that
-   * {@link standingSummary} cannot be called with the entries' unit and a standing
-   * resolved under the other one -- which would read as a lifter twice as strong,
-   * or half.
-   */
-  readonly unit: WeightUnit;
 }
 
 /**
@@ -272,33 +269,22 @@ export function lifterCategoryFor(
 }
 
 /**
- * Reads every lift at once.
+ * Resolves every lift at once.
  *
- * One call for the whole screen rather than one per lift, because the total can
- * be derived from the other three and deriving it needs them all.
+ * One call for the whole screen rather than one per lift, so that a caller
+ * cannot resolve three lifts against one category and the fourth against
+ * another -- which is exactly what happens when the total is treated as a
+ * special case and given its own call site.
  */
 export function resolveStandards(
   book: ClassificationBook | null,
   category: LifterCategory | null,
-  entries: LiftEntries,
 ): readonly LiftStanding[] {
-  const read = readLiftEntries(entries);
-
-  return LIFTS.map((lift) => {
-    const entry = read[lift];
-    const standards = standardsFor(book, category, lift);
-    return {
-      lift,
-      label: LIFT_LABELS[lift],
-      entry,
-      standards,
-      classification:
-        entry.kind === 'weight' && standards.kind === 'ladder'
-          ? standards.ladder.classify(entry.kilograms)
-          : null,
-      unit: entries.unit,
-    };
-  });
+  return LIFTS.map((lift) => ({
+    lift,
+    label: LIFT_LABELS[lift],
+    standards: standardsFor(book, category, lift),
+  }));
 }
 
 /**
@@ -435,71 +421,6 @@ function standardsFor(
     return { kind: 'unreadable', problems: built.problems };
   }
   return { kind: 'ladder', table: selected.table, ladder: built.ladder };
-}
-
-/**
- * The status line under one field.
- *
- * A sentence rather than a set of flags, because it is read aloud as one and
- * because writing it here is what makes every combination assertable. The
- * ordering matters: what is wrong with the entry comes before what is wrong with
- * the data, since the lifter can fix the first and can only report the second.
- */
-export function standingSummary(standing: LiftStanding): string {
-  if (standing.entry.kind === 'invalid') {
-    return standing.entry.message;
-  }
-
-  switch (standing.standards.kind) {
-    case 'unselected':
-      return 'Answer every question above to see the standards for your category.';
-    case 'none':
-      return 'This federation publishes no standards for this lift in your category.';
-    case 'ambiguous':
-      return 'More than one set of standards applies to this category, so none can be shown.';
-    case 'unreadable':
-      return 'The published standards for this category could not be read.';
-    case 'ladder':
-      break;
-  }
-
-  const { ladder } = standing.standards;
-  if (standing.entry.kind === 'empty') {
-    const first = ladder.standards.at(0);
-    const last = ladder.standards.at(-1);
-    // `at` is `| undefined` and a ladder is never empty -- `ClassificationLadder`
-    // rejects that -- but proving it to the checker with a cast would be a cast
-    // in exchange for nothing.
-    if (first === undefined || last === undefined) {
-      return 'No standards are published for this lift in your category.';
-    }
-    return `${first.label} at ${formatAsUnit(first.requiredKilograms, standing.unit)}, up to ${last.label} at ${formatAsUnit(last.requiredKilograms, standing.unit)}.`;
-  }
-
-  return placementSummary(standing.classification, standing.entry.derived, standing.unit);
-}
-
-function placementSummary(
-  classification: Classification | null,
-  derived: boolean,
-  unit: WeightUnit,
-): string {
-  if (classification === null) {
-    // Only reachable if a caller built a standing by hand with an entry and a
-    // ladder and no placement. Saying so plainly beats an empty line.
-    return 'This weight has not been read against the standards.';
-  }
-
-  const prefix = derived ? 'From your three lifts. ' : '';
-  const reached =
-    classification.achieved === null
-      ? 'Below the first published standard.'
-      : `${classification.achieved.label}.`;
-
-  if (classification.next === null || classification.kilogramsToNext === null) {
-    return `${prefix}${reached} This is the highest published standard.`;
-  }
-  return `${prefix}${reached} ${formatAsUnit(classification.kilogramsToNext, unit)} to ${classification.next.label}.`;
 }
 
 /**

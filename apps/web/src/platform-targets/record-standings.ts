@@ -303,9 +303,8 @@ export function recordFigure(standing: LiftRecordStanding): string | null {
 /**
  * The status line under one record.
  *
- * Ordered the same way `standingSummary` is: what is wrong with the entry comes
- * before what is missing from the data, because the lifter can fix the first and
- * can only report the second.
+ * What is wrong with the entry comes before what is missing from the data,
+ * because the lifter can fix the first and can only report the second.
  */
 export function recordSummary(standing: LiftRecordStanding): string {
   if (standing.entry.kind === 'invalid') {
