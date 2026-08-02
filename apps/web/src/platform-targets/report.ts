@@ -84,6 +84,7 @@ import type {
   WeightClass,
 } from '@platform-toolkit/data-contracts';
 
+import type { GoalTarget } from './goals.js';
 import {
   recordCategoryFrom,
   recordTargetLines,
@@ -123,6 +124,17 @@ export interface RecordAttempt extends Figures {
   readonly condition: string;
   /** Why it is that figure and not the record itself. */
   readonly basis: string;
+  /**
+   * This attempt, as something a lifter can commit to.
+   *
+   * On the attempt and not on the cell, because the cell prints the *record* and
+   * a record is not a target -- equalling it takes nothing. Which of the two
+   * attempts applies depends on the meet, which this application cannot see, so
+   * the choice is the lifter's and the goal is attached to whichever one they
+   * pick. See the review's rule: choose the record, choose the attempt, then set
+   * the goal.
+   */
+  readonly goal: GoalTarget;
 }
 
 /** Who set a record, as much of it as the federation published. */
@@ -217,6 +229,17 @@ export interface MatrixCell {
   readonly thresholdKilograms: number | null;
   /** `null` for a classification, which has nothing to disclose. */
   readonly detail: RecordDetail | null;
+  /**
+   * This figure, as something a lifter can commit to, or `null`.
+   *
+   * `null` in two situations that are not the same and do not need to be told
+   * apart here: a cell with nothing published (there is no figure to aim at) and
+   * a **record** cell (the figure is the record, and the goal belongs to one of
+   * the two attempts under it -- see {@link RecordAttempt.goal}). So in practice
+   * this is set for exactly the published classification standards, which is the
+   * review's "every classification target is selectable".
+   */
+  readonly goal: GoalTarget | null;
   /**
    * The whole context, spoken.
    *
@@ -474,7 +497,7 @@ function cellsOf(groups: readonly TargetGroup[]): readonly MatrixCell[] {
  * kilograms; the pound figure is a reading aid and is rounded to one decimal for
  * the reason `formatAsUnit` gives at length.
  */
-function figuresFor(kilograms: number): Figures {
+export function figuresFor(kilograms: number): Figures {
   return {
     kilograms,
     kilogramsText: formatKilograms(kilograms),
@@ -673,7 +696,7 @@ function classificationRows(
 
   for (const [standardId, level] of levels) {
     for (const [divisionIndex, division] of divisions.entries()) {
-      const cells = weightClasses.map((weightClass, classIndex) => {
+      const cells = weightClasses.map((weightClass, classIndex): MatrixCell => {
         const standard = standardAt(grid, divisionIndex, classIndex, lift, standardId);
         const value = standard === null ? null : figuresFor(standard.requiredKilograms);
         return {
@@ -683,6 +706,24 @@ function classificationRows(
           emptyLabel: NOT_PUBLISHED,
           thresholdKilograms: standard?.requiredKilograms ?? null,
           detail: null,
+          goal:
+            standard === null
+              ? null
+              : {
+                  lift,
+                  kind: 'classification',
+                  kilograms: standard.requiredKilograms,
+                  standardId,
+                  weightClassId: weightClass.id,
+                  divisionId: division.id,
+                  // A classification has no level, region or event: the standard
+                  // is the same figure whatever meet it is hit at, which is the
+                  // whole difference between it and a record.
+                  levelId: '',
+                  regionId: '',
+                  disciplineId: '',
+                  attempt: 'none',
+                },
           accessibleName: cellName(
             [level.label, divisions.length > 1 ? division.label : null],
             weightClass,
@@ -910,6 +951,7 @@ function recordCell(
       emptyLabel,
       thresholdKilograms: null,
       detail: null,
+      goal: null,
       accessibleName: cellName(context, weightClass, null, emptyLabel),
     };
   }
@@ -919,6 +961,23 @@ function recordCell(
     label: line.label,
     condition: line.condition,
     basis: line.basis,
+    goal: {
+      lift: standing.lift,
+      kind: 'record',
+      kilograms: line.kilograms,
+      // A record has no classification standard behind it. The five axes below
+      // are what address one, and they are taken from the loop that found it
+      // rather than parsed back out of the cell identifier.
+      standardId: '',
+      weightClassId: weightClass.id,
+      divisionId: division.id,
+      levelId: partition.levelId,
+      regionId: partition.regionId ?? '',
+      disciplineId: discipline.id,
+      // The assignment that keeps `GoalAttempt` honest: a fourth basis in the
+      // domain stops compiling here rather than storing as an unknown string.
+      attempt: line.basisId,
+    } satisfies GoalTarget,
     ...figuresFor(line.kilograms),
   }));
   const value = figuresFor(record.kilograms);
@@ -946,6 +1005,10 @@ function recordCell(
       sourceUrl: standing.sourceUrl,
       scopeLabel: [...context, weightClass.label].filter((part) => part !== null).join(', '),
     },
+    // The record itself is not a goal: equalling it takes nothing, and which of
+    // the two attempts under it applies is a fact about the meet. See the
+    // attempts above.
+    goal: null,
     accessibleName: cellName(context, weightClass, value, emptyLabel),
   };
 }

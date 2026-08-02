@@ -115,6 +115,29 @@ export class PtkDisclosure extends LitElement {
 
   @property({ type: Boolean, reflect: true }) open = false;
 
+  /**
+   * Puts focus on the toggle.
+   *
+   * For the case where something *else* on the page sends a visitor here -- a
+   * link, a secondary action, a summary that says "add your lifts below". Setting
+   * `open` alone expands a section somewhere off the bottom of a phone and leaves
+   * focus where it was, so a keyboard user has to hunt for what just happened and
+   * a screen reader is told nothing at all.
+   *
+   * The toggle rather than the first control inside, because the toggle is what
+   * announces the state: a reader lands on "Add current lifts, expanded" and
+   * knows both what opened and how to close it again. Focusing past it skips
+   * that, and skips the section's own name.
+   *
+   * `focus()` on the host would be the tidier call and does nothing useful: this
+   * element does not delegate focus, so the summary inside the shadow root has to
+   * be reached directly. Silent when there is nothing to focus, which happens
+   * only before the first render.
+   */
+  focusToggle(): void {
+    this.shadowRoot?.querySelector('summary')?.focus();
+  }
+
   override render(): TemplateResult {
     return html`
       <details

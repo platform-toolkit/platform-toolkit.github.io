@@ -6,6 +6,7 @@ import { PtkChoiceGroup, PtkSelect } from '@platform-toolkit/ui';
 import '@platform-toolkit/ui/tokens.css';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { deepText } from '../testing/deep-text.js';
 import type { PtkPlatformTargets } from './ptk-platform-targets.js';
 import './ptk-platform-targets.js';
 import {
@@ -14,6 +15,7 @@ import {
   type SelectionChangeDetail,
 } from './ptk-target-categories.js';
 import type { PtkTargetContext } from './ptk-target-context.js';
+import type { PtkTargetGoals } from './ptk-target-goals.js';
 import type { PtkTargetReport } from './ptk-target-report.js';
 import { ANSWERED, CATALOG, CLASSIFICATIONS } from './records-fixture.js';
 import type { CategorySelection, SelectionField } from './selection.js';
@@ -32,6 +34,10 @@ import { saveContext, saveView } from './session.js';
  * form somebody filled in last week -- and the editor must not have a long
  * report behind it to reflow, which is asserted here as the report element not
  * being rendered at all rather than as a measurement of anything.
+ *
+ * Stage 3 added a third: the goal list. It is owned here and shown in two
+ * places, so the panel a lifter commits in and the tray listing the commitment
+ * are the two ends of a wire nothing below this element can test.
  *
  * The catalogue is invented (§5.1). Nothing that ships imports it.
  */
@@ -213,6 +219,121 @@ function returningStore(selection: CategorySelection = ANSWERED): PtkPlatformTar
   // the storage shape fails here as well as in `session.test.ts`.
   saveContext(store, selection);
   return store;
+}
+
+function tray(element: PtkPlatformTargets): PtkTargetGoals {
+  const found = root(element).querySelector('ptk-target-goals');
+  if (found === null) throw new Error('The goal tray is not on screen.');
+  return found;
+}
+
+function trayRoot(element: PtkPlatformTargets): ShadowRoot {
+  const { shadowRoot } = tray(element);
+  if (shadowRoot === null) throw new Error('The goal tray has no shadow root.');
+  return shadowRoot;
+}
+
+/**
+ * One name per saved goal, read off the control that would forget it.
+ *
+ * The tray's own text is a paragraph per row and would need reassembling to
+ * compare; the remove button's accessible name is the whole of what the tool
+ * calls that goal, in one string, built by the same `describeGoal` the panel
+ * used. Comparing the two ends of the wire is the point of this file.
+ */
+function saved(element: PtkPlatformTargets): string[] {
+  return [...trayRoot(element).querySelectorAll('.remove')].map(
+    (control) => control.getAttribute('aria-label') ?? '',
+  );
+}
+
+function trayButton(element: PtkPlatformTargets, selector: string): HTMLButtonElement {
+  const found = trayRoot(element).querySelector(selector);
+  if (!(found instanceof HTMLButtonElement)) throw new Error(`The tray has no "${selector}".`);
+  return found;
+}
+
+/** What the report's live region currently says. */
+function status(element: PtkPlatformTargets): string {
+  return report(element).shadowRoot?.querySelector('.goal-status')?.textContent.trim() ?? '';
+}
+
+/** Every cell the matrix is currently marking as committed to. */
+function flagged(element: PtkPlatformTargets): string[] {
+  const flags = report(element).shadowRoot?.querySelectorAll('.flag') ?? [];
+  // Filtered rather than selected on: `reached` and `next` draw a flag of their
+  // own in the same slot, so a bare count would rise the moment somebody types
+  // a weight and would say nothing about goals at all.
+  return [...flags].map((flag) => flag.textContent.trim()).filter((label) => label === 'Goal');
+}
+
+const SAVE_PREFIX = 'Set as goal: ';
+
+/**
+ * Commits to the first published figure in the report, and answers what the
+ * tool calls it.
+ *
+ * Two presses, because that is the flow the review specifies: a value cell
+ * opens, and the panel it opens is where the commitment is made. The name comes
+ * off the button rather than being written out here — the panel and the tray
+ * both build it with `describeGoal`, so taking it from one end is what makes an
+ * assertion about the other end mean anything.
+ */
+async function saveFirstGoal(element: PtkPlatformTargets): Promise<string> {
+  const panel = report(element);
+  const cell = panel.shadowRoot?.querySelector('button.cell-button');
+  if (!(cell instanceof HTMLButtonElement)) throw new Error('No target cell on screen.');
+  cell.click();
+  await element.updateComplete;
+
+  const button = goalAction(element);
+  const name = button.getAttribute('aria-label') ?? '';
+  if (!name.startsWith(SAVE_PREFIX)) throw new Error(`Unexpected goal button name: "${name}".`);
+  button.click();
+  await element.updateComplete;
+  return name.slice(SAVE_PREFIX.length);
+}
+
+/** The commit control in whichever panel is open. */
+function goalAction(element: PtkPlatformTargets): HTMLButtonElement {
+  const found = report(element).shadowRoot?.querySelector('button.goal-button');
+  if (!(found instanceof HTMLButtonElement)) throw new Error('The open panel offers no goal.');
+  return found;
+}
+
+/** Files the first saved goal under a horizon, from inside the select's own root. */
+async function fileUnder(element: PtkPlatformTargets, value: string): Promise<void> {
+  const select = trayRoot(element).querySelector('ptk-select');
+  if (!(select instanceof PtkSelect)) throw new Error('The tray has no horizon control.');
+  const control = select.shadowRoot?.querySelector('select');
+  if (!(control instanceof HTMLSelectElement)) {
+    throw new Error('The horizon control rendered no select.');
+  }
+  control.value = value;
+  control.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+  await element.updateComplete;
+}
+
+/** Whether the optional lift entry is unfolded. */
+function liftsOpen(element: PtkPlatformTargets): boolean {
+  const details = root(element)
+    .querySelector('ptk-target-lifts')
+    ?.shadowRoot?.querySelector('ptk-disclosure')
+    ?.shadowRoot?.querySelector('details');
+  if (!(details instanceof HTMLDetailsElement)) throw new Error('The lift entry has no fold.');
+  return details.open;
+}
+
+/** Types a squat, which is the lift the report opens on. */
+async function typeSquat(element: PtkPlatformTargets, text: string): Promise<void> {
+  const input = root(element)
+    .querySelector('ptk-target-lifts')
+    ?.shadowRoot?.querySelector('ptk-number-field[data-lift="squat"]')
+    ?.shadowRoot?.querySelector('input');
+  if (!(input instanceof HTMLInputElement)) throw new Error('No squat field to type into.');
+  input.value = text;
+  input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+  await element.updateComplete;
 }
 
 describe('ptk-platform-targets', () => {
@@ -447,16 +568,141 @@ describe('ptk-platform-targets', () => {
    */
   it('mirrors the entered lifts into the report', async () => {
     const element = await mount({ settings: returningStore() });
-    const panel = root(element).querySelector('ptk-target-lifts');
-    const input = panel?.shadowRoot
-      ?.querySelector('ptk-number-field[data-lift="squat"]')
-      ?.shadowRoot?.querySelector('input');
-    if (!(input instanceof HTMLInputElement)) throw new Error('No squat field to type into.');
-    input.value = '120';
-    input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    await typeSquat(element, '120');
+    expect(report(element).entries.fields.squat.text).toBe('120');
+  });
+
+  /**
+   * The goal list is owned here and shown in two places, which is the whole
+   * reason it is owned here: the panel a lifter commits in and the tray listing
+   * the commitment are siblings, and either keeping its own copy is two lists
+   * that agree until one of them is wrong. Everything below is a claim about the
+   * wire between them, never about what either end draws.
+   */
+  it('lists a goal committed to in the report, under the name the report used', async () => {
+    const element = await mount({ settings: returningStore() });
+    const spoken = await saveFirstGoal(element);
+    expect(saved(element)).toEqual([`Remove goal: ${spoken}`]);
+  });
+
+  /**
+   * The report holds keys rather than goals, so the tray and the matrix cannot
+   * disagree about what is saved without one of them being handed the wrong set.
+   */
+  it('marks the figure in the matrix it was committed to from', async () => {
+    const element = await mount({ settings: returningStore() });
+    expect(flagged(element)).toEqual([]);
+    await saveFirstGoal(element);
+    expect(flagged(element)).toEqual(['Goal']);
+  });
+
+  /**
+   * A press that changes the list says so, because the tray is below the fold on
+   * a phone and the flag in the cell is the only other evidence. Announced by
+   * the report rather than by the tray: the tray does not exist until the first
+   * goal is in it, and a live region created in the same update as its own text
+   * is not announced at all.
+   */
+  it('says what happened to the list, in one place, for both ends', async () => {
+    const element = await mount({ settings: returningStore() });
+    const spoken = await saveFirstGoal(element);
+    expect(status(element)).toBe(`Saved goal: ${spoken}.`);
+
+    trayButton(element, '.remove').click();
+    await element.updateComplete;
+    expect(status(element)).toBe(`Removed goal: ${spoken}.`);
+  });
+
+  it('takes a commitment back from the panel it was made in', async () => {
+    const element = await mount({ settings: returningStore() });
+    await saveFirstGoal(element);
+    goalAction(element).click();
     await element.updateComplete;
 
-    expect(report(element).entries.fields.squat.text).toBe('120');
+    expect(saved(element)).toEqual([]);
+    expect(flagged(element)).toEqual([]);
+  });
+
+  it('takes a commitment back from the tray, and clears the flag with it', async () => {
+    const element = await mount({ settings: returningStore() });
+    await saveFirstGoal(element);
+    trayButton(element, '.remove').click();
+    await element.updateComplete;
+
+    expect(saved(element)).toEqual([]);
+    expect(flagged(element)).toEqual([]);
+  });
+
+  /**
+   * A goal a lifter set at a rack and lost on the walk back to the platform is
+   * worse than no goal feature. Written on the press, not on unload.
+   */
+  it('remembers a goal for the next visit', async () => {
+    const store = returningStore();
+    const first = await mount({ settings: store });
+    const spoken = await saveFirstGoal(first);
+
+    const second = await mount({ settings: store });
+    expect(saved(second)).toEqual([`Remove goal: ${spoken}`]);
+  });
+
+  it('forgets one that was removed', async () => {
+    const store = returningStore();
+    const first = await mount({ settings: store });
+    await saveFirstGoal(first);
+    trayButton(first, '.remove').click();
+    await first.updateComplete;
+
+    const second = await mount({ settings: store });
+    expect(saved(second)).toEqual([]);
+  });
+
+  /**
+   * Filing a goal is the one goal action a lifter does several times in a row,
+   * and the select they just used already shows the answer — so it is written
+   * and not announced. Asserting the sentence is *unchanged* rather than empty:
+   * a message cleared on every tag change would take the save announcement away
+   * before a screen reader reached it.
+   */
+  it('remembers a horizon without announcing it', async () => {
+    const store = returningStore();
+    const first = await mount({ settings: store });
+    const spoken = await saveFirstGoal(first);
+    await fileUnder(first, 'next-meet');
+    expect(status(first)).toBe(`Saved goal: ${spoken}.`);
+
+    const second = await mount({ settings: store });
+    const select = trayRoot(second).querySelector('ptk-select');
+    expect(select instanceof PtkSelect ? select.value : null).toBe('next-meet');
+  });
+
+  /**
+   * The tray's secondary action reaches a sibling, so the root is what connects
+   * them — the tray cannot open a panel it is not inside of, and an element that
+   * reached across to one could not be mounted alone.
+   */
+  it('opens the lift entry when a saved goal asks for a figure to compare', async () => {
+    const element = await mount({ settings: returningStore() });
+    await saveFirstGoal(element);
+    expect(liftsOpen(element)).toBe(false);
+
+    trayButton(element, '.add-lifts').click();
+    await element.updateComplete;
+    expect(liftsOpen(element)).toBe(true);
+  });
+
+  /**
+   * The other half of that: what gets typed into the panel has to reach the tray,
+   * or the action above opens a form that changes nothing. The arithmetic itself
+   * is `goals.ts`; what is asserted here is that both figures arrived.
+   */
+  it('mirrors the entered lifts into the tray, which is what makes the gap appear', async () => {
+    const element = await mount({ settings: returningStore() });
+    await saveFirstGoal(element);
+    expect(deepText(tray(element))).not.toContain('Current best');
+
+    await typeSquat(element, '120');
+    expect(deepText(tray(element))).toContain('Current best 120 kg');
   });
 
   it('holds together in a 320 pixel column, on both screens', async () => {

@@ -149,6 +149,30 @@ export class PtkSelect extends LitElement {
   /** The question. Becomes the control's accessible name, so it is not optional. */
   @property({ type: String }) label = '';
 
+  /**
+   * A longer name for the control, when the visible label cannot carry the whole
+   * question.
+   *
+   * For a list of these: a repeated control beside each row of something, where
+   * the visible label has to stay short enough to sit in the row and the spoken
+   * one has to say which row it belongs to. Without it every select in the list
+   * is announced identically, which is the "repeated link names with little
+   * unique context" finding arriving on a form control -- a reader moving by
+   * control hears "Label, combo box" four times and cannot tell them apart.
+   *
+   * **It must begin with, or otherwise contain, the visible `label`.** WCAG 2.5.3
+   * requires the visible text to be part of the accessible name, so that somebody
+   * speaking "Label" to a voice control still reaches the control they can see.
+   * `Label for Class I, Squat` is right; `Class I goal horizon` is not.
+   *
+   * Applied as `aria-label` on the `<select>`, which outranks the `<label>`
+   * element -- the visible label stays visible and stays associated for a click,
+   * and only the announcement changes. Empty by default, in which case the
+   * `<label>` is the whole of the name and nothing about this element differs
+   * from before.
+   */
+  @property({ type: String, attribute: 'accessible-name' }) accessibleName = '';
+
   @property({ attribute: false }) options: readonly SelectOption[] = [];
 
   /**
@@ -200,6 +224,7 @@ export class PtkSelect extends LitElement {
                 id="control"
                 class=${this.#chosen() === null ? 'unset' : nothing}
                 ?disabled=${this.disabled}
+                aria-label=${this.accessibleName === '' ? nothing : this.accessibleName}
                 aria-describedby=${describedBy ?? nothing}
                 @change=${this.#onChange}
               >

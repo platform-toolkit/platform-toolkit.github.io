@@ -45,8 +45,21 @@ import { customElement, property, state } from 'lit/decorators.js';
 
 import './ptk-target-categories.js';
 import './ptk-target-context.js';
+import './ptk-target-goals.js';
 import './ptk-target-lifts.js';
 import './ptk-target-report.js';
+import {
+  addGoal,
+  describeGoal,
+  goalKey,
+  loadGoals,
+  removeGoal,
+  saveGoals,
+  tagGoal,
+  MAX_GOALS,
+  type Goal,
+  type GoalTarget,
+} from './goals.js';
 import {
   SELECTION_APPLIED_EVENT,
   SELECTION_CANCEL_EVENT,
@@ -54,9 +67,17 @@ import {
   type SelectionChangeDetail,
 } from './ptk-target-categories.js';
 import { CONTEXT_EDIT_EVENT } from './ptk-target-context.js';
+import {
+  CURRENT_LIFTS_EVENT,
+  GOAL_REMOVE_EVENT,
+  GOAL_TAG_EVENT,
+  type GoalListDetail,
+} from './ptk-target-goals.js';
 import { ENTRIES_CHANGE_EVENT, type EntriesChangeDetail } from './ptk-target-lifts.js';
 import {
+  GOAL_REQUEST_EVENT,
   VIEW_CHANGE_EVENT,
+  type GoalRequestDetail,
   type PartitionRead,
   type StandardsStatus,
   type TargetType,
@@ -225,6 +246,27 @@ export class PtkPlatformTargets extends LitElement {
    */
   @state() private entries: LiftEntries = NO_ENTRIES;
 
+  /**
+   * Everything this device has committed to, in the order it was committed.
+   *
+   * Held here rather than in either element that shows it, because both of them
+   * show it: the report marks a figure as saved, the tray lists it, and a goal
+   * removed in one has to disappear from the other on the same tick. Two owners
+   * would be two lists that agree until somebody presses the button in the panel
+   * whose copy the other did not hear about.
+   */
+  @state() private goals: readonly Goal[] = [];
+
+  /**
+   * What just happened to that list, for the report's live region.
+   *
+   * A sentence rather than a code, because the region reads it out verbatim and
+   * the three outcomes that are not "saved" are the ones worth explaining --
+   * "the list is full" is the only thing that tells a lifter why the button they
+   * pressed did nothing.
+   */
+  @state() private goalMessage = '';
+
   /** What the questions currently say the category is. */
   get currentSelection(): CategorySelection {
     return this.selection;
@@ -238,8 +280,14 @@ export class PtkPlatformTargets extends LitElement {
     const categories = this.shadowRoot?.querySelector('ptk-target-categories');
     const context = this.shadowRoot?.querySelector('ptk-target-context');
     const lifts = this.shadowRoot?.querySelector('ptk-target-lifts');
+    const goals = this.shadowRoot?.querySelector('ptk-target-goals');
     const report = this.shadowRoot?.querySelector('ptk-target-report');
-    await Promise.all([categories?.updateComplete, context?.updateComplete, lifts?.updateComplete]);
+    await Promise.all([
+      categories?.updateComplete,
+      context?.updateComplete,
+      lifts?.updateComplete,
+      goals?.updateComplete,
+    ]);
     // Awaited after the other two rather than alongside them. The report renders
     // from state this element mirrors out of both of them, so its update is
     // queued by their settling -- awaiting all three at once resolves before that
@@ -259,6 +307,10 @@ export class PtkPlatformTargets extends LitElement {
     this.addEventListener(CONTEXT_EDIT_EVENT, this.#onContextEdit);
     this.addEventListener(VIEW_CHANGE_EVENT, this.#onViewChange);
     this.addEventListener(ENTRIES_CHANGE_EVENT, this.#onEntriesChange);
+    this.addEventListener(GOAL_REQUEST_EVENT, this.#onGoalRequest);
+    this.addEventListener(GOAL_REMOVE_EVENT, this.#onGoalRemove);
+    this.addEventListener(GOAL_TAG_EVENT, this.#onGoalTag);
+    this.addEventListener(CURRENT_LIFTS_EVENT, this.#onCurrentLifts);
   }
 
   override disconnectedCallback(): void {
@@ -267,6 +319,10 @@ export class PtkPlatformTargets extends LitElement {
     this.removeEventListener(CONTEXT_EDIT_EVENT, this.#onContextEdit);
     this.removeEventListener(VIEW_CHANGE_EVENT, this.#onViewChange);
     this.removeEventListener(ENTRIES_CHANGE_EVENT, this.#onEntriesChange);
+    this.removeEventListener(GOAL_REQUEST_EVENT, this.#onGoalRequest);
+    this.removeEventListener(GOAL_REMOVE_EVENT, this.#onGoalRemove);
+    this.removeEventListener(GOAL_TAG_EVENT, this.#onGoalTag);
+    this.removeEventListener(CURRENT_LIFTS_EVENT, this.#onCurrentLifts);
     super.disconnectedCallback();
   }
 
@@ -293,6 +349,12 @@ export class PtkPlatformTargets extends LitElement {
       this.draftSeed = settings.context;
       this.lift = settings.lift;
       this.targetType = settings.targetType;
+      // Goals are read from the same store on the same tick, and deliberately
+      // not through `session.ts`: that module remembers the *question* a lifter
+      // asked, and a goal is an answer they chose to keep. One preference
+      // holding both would make clearing a context forget the commitments made
+      // under it, and a context that failed to store take the goals with it.
+      this.goals = loadGoals(this.settings);
       // A change of store is a different device's worth of answers, so the
       // announcement is owed again.
       this.#announcedRestore = false;
@@ -397,9 +459,17 @@ export class PtkPlatformTargets extends LitElement {
           .classificationsStatus=${this.standardsStatus}
           .recordReads=${this.recordReads}
           .entries=${this.entries}
+          .savedGoals=${this.#savedKeys()}
+          .goalMessage=${this.goalMessage}
           .initialLift=${this.lift}
           .initialTargetType=${this.targetType}
         ></ptk-target-report>
+        <ptk-target-goals
+          .goals=${this.goals}
+          .catalog=${this.catalog}
+          .classifications=${this.book}
+          .entries=${this.entries}
+        ></ptk-target-goals>
         <div class="lifts">
           <ptk-target-lifts></ptk-target-lifts>
         </div>
@@ -461,6 +531,119 @@ export class PtkPlatformTargets extends LitElement {
   readonly #onEntriesChange = (event: CustomEvent<EntriesChangeDetail>): void => {
     this.entries = event.detail.entries;
   };
+
+  /**
+   * The keys of every saved goal, which is all the report is told.
+   *
+   * Rebuilt per render rather than kept beside the list. A second field holding
+   * a projection of the first is a second thing to update, and the one path that
+   * would forget it is the one that matters -- a goal removed from the tray
+   * while the report is still drawing the figure as saved.
+   */
+  #savedKeys(): ReadonlySet<string> {
+    return new Set(this.goals.map((goal) => goalKey(goal)));
+  }
+
+  /**
+   * A figure was committed to, or the commitment was taken back.
+   *
+   * Every rule that can refuse one lives here rather than in the panel that
+   * drew the button, because the tray can remove the same goal and both have to
+   * end up looking at one list. The message is set for the report's live region
+   * in all four outcomes -- a press that changes nothing still has to say why,
+   * or a full list reads as a button that has stopped working.
+   */
+  readonly #onGoalRequest = (event: CustomEvent<GoalRequestDetail>): void => {
+    const { target, action } = event.detail;
+    const spoken = this.#describe(target);
+
+    if (action === 'remove') {
+      this.#commit(removeGoal(this.goals, goalKey(target)), `Removed goal: ${spoken}.`);
+      return;
+    }
+
+    const outcome = addGoal(this.goals, target);
+    switch (outcome.kind) {
+      case 'added':
+        this.#commit(outcome.goals, `Saved goal: ${spoken}.`);
+        break;
+      case 'already-saved':
+        this.goalMessage = `Already saved: ${spoken}.`;
+        break;
+      case 'full':
+        this.goalMessage = `You have ${String(MAX_GOALS)} goals saved. Remove one to save another.`;
+        break;
+      case 'unstorable':
+        // Unreachable against published data, and said plainly rather than
+        // swallowed: a button that does nothing with no sentence beside it is
+        // the failure this branch exists to avoid.
+        this.goalMessage = 'This target could not be saved on this device.';
+        break;
+    }
+  };
+
+  /** Removed from the tray. Same list, same write, same sentence as the panel's. */
+  readonly #onGoalRemove = (event: CustomEvent<GoalListDetail>): void => {
+    const goal = this.goals.find((candidate) => goalKey(candidate) === event.detail.key);
+    if (goal === undefined) {
+      return;
+    }
+    this.#commit(
+      removeGoal(this.goals, event.detail.key),
+      `Removed goal: ${this.#describe(goal)}.`,
+    );
+  };
+
+  /**
+   * A goal was filed under a horizon.
+   *
+   * Silent -- no message. The select the lifter just used shows the answer, so
+   * announcing it would repeat what the control already said, and this is the
+   * one goal action that happens several times in a row.
+   */
+  readonly #onGoalTag = (event: CustomEvent<GoalListDetail>): void => {
+    const { key, tag } = event.detail;
+    if (tag === null) {
+      return;
+    }
+    this.goals = tagGoal(this.goals, key, tag);
+    saveGoals(this.settings, this.goals);
+  };
+
+  /** The tray's secondary action. The panel is a sibling, so the root opens it. */
+  readonly #onCurrentLifts = (): void => {
+    void this.shadowRoot?.querySelector('ptk-target-lifts')?.reveal();
+  };
+
+  /**
+   * Writes a changed list to the device and says what happened.
+   *
+   * One place, because the write and the announcement have to agree: a list
+   * updated without the write is a goal that vanishes on reload, and a write
+   * without the message is a press with nothing announced.
+   *
+   * The write's outcome is deliberately not turned into a different sentence.
+   * `saveGoals` reports `unavailable` on a device that refuses storage, and the
+   * goal is genuinely saved for this visit either way -- telling a lifter their
+   * goal was not saved, in the moment they can see it listed, is worse than
+   * being quiet about a limitation the tray does not promise around.
+   */
+  #commit(goals: readonly Goal[], message: string): void {
+    this.goals = goals;
+    this.goalMessage = message;
+    saveGoals(this.settings, goals);
+  }
+
+  /** What a goal is called, for a sentence read out rather than drawn. */
+  #describe(target: GoalTarget): string {
+    const description = describeGoal(target, {
+      catalog: this.catalog,
+      classifications: this.book,
+    });
+    return description.scope === ''
+      ? description.title
+      : `${description.title}, ${description.scope}`;
+  }
 
   /**
    * Tells the page about a context that was restored rather than pressed.

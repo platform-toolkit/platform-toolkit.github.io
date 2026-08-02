@@ -228,6 +228,16 @@ export interface RecordTargetLine {
   readonly kilograms: number;
   /** Why it is that figure and not the record itself. */
   readonly basis: string;
+  /**
+   * Which rule produced it, as an identifier rather than as a sentence.
+   *
+   * Carried alongside the prose because a saved goal has to say *which* attempt
+   * it is for after the report that produced it is gone, and the only durable
+   * spelling of that is this. The prose beside it is computed from the two
+   * figures and is right for the screen it was built on; a stored sentence would
+   * be a copy of arithmetic frozen at the moment somebody tapped a button.
+   */
+  readonly basisId: TargetBasis;
 }
 
 /**
@@ -271,6 +281,7 @@ export function recordTargetLines(standing: LiftRecordStanding): readonly Record
         recordAtOrAboveMeetLevel.kilograms,
         recordKilograms,
       ),
+      basisId: recordAtOrAboveMeetLevel.basis,
     },
   ];
   if (recordBelowMeetLevel !== null) {
@@ -279,12 +290,13 @@ export function recordTargetLines(standing: LiftRecordStanding): readonly Record
       condition: 'At a meet above this level',
       kilograms: recordBelowMeetLevel.kilograms,
       basis: basisNote(recordBelowMeetLevel.basis, recordBelowMeetLevel.kilograms, recordKilograms),
+      basisId: recordBelowMeetLevel.basis,
     });
   }
   return lines;
 }
 
-type TargetBasis = RecordTargets['recordAtOrAboveMeetLevel']['basis'];
+export type TargetBasis = RecordTargets['recordAtOrAboveMeetLevel']['basis'];
 
 /**
  * What each figure is called, in the fewest words that stay true.
@@ -294,8 +306,13 @@ type TargetBasis = RecordTargets['recordAtOrAboveMeetLevel']['basis'];
  * 203 kg and not at 205 -- and a label naming a multiple would be false for
  * every record that was itself chipped, in the direction that costs a lifter the
  * record. See `packages/domain/src/records.ts`.
+ *
+ * Exported because a saved goal has to name the attempt it was set for long
+ * after the matrix that produced it is off the screen, and the tray listing it
+ * has no standing to read a label from. One table, so the fold explaining the
+ * rule and the goal set under it cannot call the same figure two things.
  */
-const TARGET_LABELS: Readonly<Record<TargetBasis, string>> = {
+export const TARGET_LABELS: Readonly<Record<TargetBasis, string>> = {
   chip: 'Chip target',
   match: 'Match target',
   'full-increment': 'Full increment',

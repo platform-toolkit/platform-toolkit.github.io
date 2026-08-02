@@ -777,15 +777,21 @@ describe('ptk-target-report', () => {
    * above it -- and a reader who reaches a button from a rotor or an element
    * list hears none of them. So a record cell carries the whole context.
    *
-   * Classification cells deliberately carry no label: the row heading and the
-   * column heading already name them, and a label would *replace* that reading
-   * with a hand-written string.
+   * A classification cell carries one too, for the same reason and not because
+   * the table failed to name it. Since goal selection landed, that cell is a
+   * button -- and a button is exactly what a reader reaches from a rotor or an
+   * element list, arriving with none of the caption, the bars or the row and
+   * column headings that would otherwise have named it. "Class I, 56 kg: 150
+   * kilograms" is the review's own worked example of what such a button has to
+   * say. (Before it was selectable the cell was plain text, and a label on it
+   * would have *replaced* the headings' reading with a hand-written string --
+   * which is why the rule reads the other way round now.)
    *
    * The division follows the same rule the row headings follow -- named when the
    * report distinguishes on it, absent when it does not. Saying "Open" on a
    * report that shows only Open claims the federation singled that division out.
    */
-  it('names a record cell with the whole context it sits in', async () => {
+  it('names a cell with the whole context it sits in', async () => {
     const element = await mount();
     await showRecords(element);
     expect(recordButtons(element).map((button) => button.getAttribute('aria-label'))).toEqual([
@@ -793,7 +799,13 @@ describe('ptk-target-report', () => {
     ]);
 
     await chooseSegment(element, 'target-type', 'Classifications');
-    expect(all(element, 'td [aria-label]')).toEqual([]);
+    expect(
+      all(element, 'td [aria-label]').map((button) => button.getAttribute('aria-label')),
+    ).toEqual([
+      'Class III, 56 kg: 100 kilograms',
+      'Class II, 56 kg: 120 kilograms',
+      'Class I, 56 kg: 150 kilograms',
+    ]);
   });
 
   it('names the division in a record cell once the report distinguishes on one', async () => {

@@ -278,6 +278,11 @@ const ONE_REP_MAX_CLICK_AFTER = [
  *   -- two attempt weights each with a label, a condition and a basis, then the
  *   responsibility note, the holder line and the source link, all inside the
  *   width of one matrix.
+ * - The **goal commitment** inside that detail, which is the only thing that
+ *   brings the tray into existence -- it renders nothing at all until something
+ *   is saved. A route that stopped before this would measure a screen with no
+ *   tray on it and report a clean pass on the panel holding the longest control
+ *   row in the tool.
  * - The **lift entry**, which arrives folded and measures the one line it shows.
  *   Last, so the record detail above it is still open when the page is measured,
  *   and after everything else because `fillAfter` has to be able to type into
@@ -303,6 +308,13 @@ const PLATFORM_TARGETS_CLICK_AFTER = [
   'ptk-target-report ptk-segmented[data-control="target-type"] label.segment:has(span:text-is("Records"))',
   'ptk-target-report ptk-disclosure[label="How record attempts work"] summary',
   'ptk-target-report td button.cell-button',
+  // Commits to the first attempt in the open detail, which is the only way the
+  // goal tray comes into existence: it renders nothing at all until something is
+  // saved, so a route that never pressed this would measure a screen with no
+  // tray on it and report a clean pass on the panel that carries the longest
+  // control row in the tool -- a label picker and a Remove button side by side
+  // under a two-line goal title.
+  'ptk-target-report .detail button.goal-button',
   // Hand-kept in step with `LIFTS_FOLD_LABEL` in `ptk-target-lifts.ts`. This
   // file is plain Node and cannot import a TypeScript module, so a rename there
   // arrives here as "nothing matched" -- loudly, which is the whole reason an
@@ -311,10 +323,10 @@ const PLATFORM_TARGETS_CLICK_AFTER = [
 ];
 
 /**
- * The two last things to appear on the Platform Targets screen.
+ * The last things to appear on the Platform Targets screen.
  *
- * Two rather than one, because the screen has two panels that finish at
- * different moments and neither implies the other. The derived total fills in
+ * Three rather than one, because the screen has panels that finish at
+ * different moments and none of them implies the others. The derived total fills in
  * once the three lifts above it parse; the record detail exists only once the
  * classification standards and the record partitions have arrived, been laid out
  * against the chosen classes, and had one of their cells pressed open by
@@ -339,6 +351,13 @@ const PLATFORM_TARGETS_CLICK_AFTER = [
 const PLATFORM_TARGETS_SETTLE = [
   'ptk-number-field[data-lift="total"] input',
   'ptk-target-report .detail .attempt-weight',
+  // A row inside the tray rather than the tray element, which is always in the
+  // document and renders nothing until a goal is saved. So the host matching
+  // says only that the composition root drew a placeholder; the row says the
+  // press above actually committed to something, and it is the row -- a goal
+  // title over a figure line over a picker beside a Remove button -- that has
+  // to fit the column.
+  'ptk-target-goals li',
 ];
 
 /**

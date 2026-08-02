@@ -172,6 +172,33 @@ export class PtkTargetLifts extends LitElement {
     return complete;
   }
 
+  /**
+   * Opens the fold and puts focus on it.
+   *
+   * Called by the composition root when a lifter presses "Add current lifts" from
+   * the goals tray -- the review's secondary entry point into this panel, offered
+   * from a saved goal rather than only from the fold's own summary. A lifter who
+   * has committed to a weight is the one lifter with a reason to type what they
+   * are lifting now, and that reason arrives after the goal, not before it.
+   *
+   * A method rather than an `open` property, because the fold's state belongs to
+   * the visitor: a property would be re-applied on every render of the parent and
+   * would reopen a section the lifter had just closed.
+   */
+  async reveal(): Promise<void> {
+    const disclosure = this.shadowRoot?.querySelector('ptk-disclosure');
+    if (disclosure === null || disclosure === undefined) {
+      return;
+    }
+    disclosure.open = true;
+    // Focus after the expansion has been committed. Focusing a summary inside a
+    // `details` that is still closed scrolls the page to a collapsed strip and
+    // announces the section as closed, which is the opposite of what was asked
+    // for.
+    await disclosure.updateComplete;
+    disclosure.focusToggle();
+  }
+
   override connectedCallback(): void {
     super.connectedCallback();
     // One delegated listener rather than four bound ones: the event is composed,

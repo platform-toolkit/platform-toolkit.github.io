@@ -40,11 +40,19 @@
  * copy of the same context and a far more verbose reading than the table
  * semantics give for free.
  *
- * That is also why classification cells carry no `aria-label`: the row heading
- * and the column heading already name them, and a label would *replace* that
- * with a hand-written string. Record cells are buttons, and a button announced
- * out of its row -- from a rotor, an element list, a tab stop -- is a bare figure
- * with no context at all, so those do carry the full name `report.ts` composed.
+ * Every published figure is a button, because every published figure is
+ * something a lifter can commit to, and each carries the full name `report.ts`
+ * composed. A button announced out of its row -- from a rotor, an element list, a
+ * tab stop -- is a bare figure with no context at all, and the table semantics
+ * that name it in place cannot reach any of those.
+ *
+ * NOTHING IS SAVED BY TAPPING A NUMBER
+ *
+ * A cell opens a panel; the panel has the button that saves. One tap saving a
+ * goal would be shorter and would also mean a thumb dragging a matrix of fourteen
+ * figures down the screen fills the tray by accident -- and a goal a lifter did
+ * not set is worse than one that took two taps. It also gives both target types
+ * the same shape: choose the figure, read what it is, commit.
  *
  * THE RECORD RULE IS EXPLAINED ONCE
  *
@@ -83,10 +91,12 @@ import '@platform-toolkit/ui';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
+import { describeGoal, goalKey, type GoalTarget } from './goals.js';
 import {
   buildReport,
   nextIn,
   reachedIn,
+  type Figures,
   type LiftTargets,
   type Matrix,
   type MatrixCell,
@@ -157,6 +167,25 @@ export interface ViewChangeDetail {
  * away from.
  */
 export const VIEW_CHANGE_EVENT = 'ptk-view-change';
+
+/** A lifter has pressed the button under a figure. */
+export interface GoalRequestDetail {
+  readonly target: GoalTarget;
+  /** Which way. `remove` is the immediate undo of a `save` in the same panel. */
+  readonly action: 'save' | 'remove';
+}
+
+/**
+ * Fired when a lifter commits to a figure, or takes the commitment back.
+ *
+ * A request rather than a change, and the distinction is the whole arrangement:
+ * this element draws figures and does not own the list. The root above it holds
+ * the goals, applies the rules that can refuse one -- the list is full, the
+ * identifier is unstorable -- writes them to the device, and hands back
+ * {@link PtkTargetReport.savedGoals} and a sentence. An element that saved its
+ * own would have to be told what the tray beside it had already removed.
+ */
+export const GOAL_REQUEST_EVENT = 'ptk-goal-request';
 
 /**
  * The two families, as the bar's options.
@@ -539,6 +568,69 @@ export class PtkTargetReport extends LitElement {
       font-size: var(--ptk-font-size-sm);
       color: var(--ptk-color-text-muted);
     }
+
+    /*
+     * Always in the document, empty when there is nothing to say.
+     *
+     * A live region created at the moment its text appears is a live region a
+     * screen reader has not been watching, and the announcement is lost. So the
+     * paragraph is rendered on every pass and only its contents change -- which
+     * is also why it collapses to nothing rather than reserving a line.
+     */
+    .goal-status {
+      margin: 0 0 var(--ptk-space-sm);
+      font-size: var(--ptk-font-size-sm);
+      font-weight: 600;
+      color: var(--ptk-color-text);
+    }
+
+    .goal-status:empty {
+      margin: 0;
+    }
+
+    .detail-scope {
+      margin: 0 0 var(--ptk-space-sm);
+      font-size: var(--ptk-font-size-sm);
+      color: var(--ptk-color-text-muted);
+    }
+
+    /*
+     * The commitment, at the comfortable tap floor and full width.
+     *
+     * Full width because it is the one action in the panel and a narrow button
+     * beside a wide one reads as the lesser of two choices; there is no second
+     * choice here.
+     */
+    .goal-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: var(--ptk-tap-target-comfortable);
+      padding: var(--ptk-space-xs) var(--ptk-space-sm);
+      border: 1px solid var(--ptk-color-border-strong);
+      border-radius: var(--ptk-radius-sm);
+      background: var(--ptk-color-surface);
+      color: inherit;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /*
+     * A saved button says so in words and is drawn differently as well. The
+     * accent rule is the second signal and never the only one -- the label
+     * changes too, so forced colours and a reader who cannot separate two hues
+     * both still get the answer.
+     */
+    .goal-button[data-saved] {
+      border-color: var(--ptk-color-accent);
+      border-inline-start-width: 3px;
+    }
+
+    .attempt .goal-button {
+      margin-block-start: var(--ptk-space-xs);
+    }
   `;
 
   /** The published vocabulary. Without it there is nothing to resolve against. */
@@ -564,6 +656,25 @@ export class PtkTargetReport extends LitElement {
 
   /** What the lifter has entered, if anything. Only marks figures; never adds one. */
   @property({ attribute: false }) entries: LiftEntries = NO_ENTRIES;
+
+  /**
+   * The keys of every goal this device has saved, from {@link goalKey}.
+   *
+   * Keys and not the goals themselves: this element asks one question of the set
+   * -- is this figure already committed to -- and handing it the whole list would
+   * let it read a saved weight and print that instead of the published one, which
+   * is how a corrected standard comes to be shown as the figure it used to be.
+   */
+  @property({ attribute: false }) savedGoals: ReadonlySet<string> = new Set();
+
+  /**
+   * What just happened to the list, for the live region under the bars.
+   *
+   * Set by the root, because the root is what applied the change and is the only
+   * thing that knows a save was refused. Empty means nothing to announce, which
+   * is the ordinary state.
+   */
+  @property({ attribute: false }) goalMessage = '';
 
   /**
    * Which lift and which target type a fresh report opens on.
@@ -696,6 +807,7 @@ export class PtkTargetReport extends LitElement {
           .value=${this.targetType}
         ></ptk-segmented>
       </div>
+      <p class="goal-status" role="status">${this.goalMessage}</p>
       ${lift === undefined ? nothing : this.#renderPanel(lift)}
     `;
   }
@@ -810,20 +922,12 @@ export class PtkTargetReport extends LitElement {
     reached: ReadonlySet<string>,
     next: ReadonlySet<string>,
   ): TemplateResult {
-    // The open detail belongs to this matrix only when one of its own cells is
-    // the open one, so a reader who opens a national record and scrolls to the
-    // state table does not find the panel following them down the page.
-    //
-    // The predicate narrows rather than merely filtering so that the render below
-    // asks one question instead of two. Asking twice is not just longer: the
-    // second question reads as though a cell could be open and detail-less, which
-    // is exactly the state this `find` exists to exclude.
+    // The open panel belongs to this matrix only when one of its own cells is the
+    // open one, so a reader who opens a national record and scrolls to the state
+    // table does not find the panel following them down the page.
     const open = matrix.rows
       .flatMap((row) => row.cells)
-      .find(
-        (cell): cell is MatrixCell & { readonly detail: RecordDetail } =>
-          cell.id === this.openCellId && cell.detail !== null,
-      );
+      .find((cell) => cell.id === this.openCellId);
 
     return html`
       <div class="matrix">
@@ -847,9 +951,27 @@ export class PtkTargetReport extends LitElement {
             `,
           )}
         </table>
-        ${open === undefined ? nothing : renderDetail(open.id, open.detail)}
+        ${open === undefined ? nothing : this.#renderOpenCell(open)}
       </div>
     `;
+  }
+
+  /**
+   * Whichever panel the open cell has.
+   *
+   * A record has a detail: the published figure, and the two weights that take
+   * it. A classification has only itself, so its panel names the standard and
+   * offers the one button. Both are the same box in the same place, because they
+   * are the same interaction -- a figure, what it is, and whether to commit.
+   */
+  #renderOpenCell(cell: MatrixCell): TemplateResult | typeof nothing {
+    if (cell.detail !== null) {
+      return this.#renderDetail(cell.id, cell.detail);
+    }
+    if (cell.goal !== null && cell.value !== null) {
+      return this.#renderStandard(cell.id, cell.goal, cell.value);
+    }
+    return nothing;
   }
 
   #renderRow(
@@ -881,11 +1003,14 @@ export class PtkTargetReport extends LitElement {
       <span class="figure">
         <span class="kilograms">${cell.value.kilogramsText} kg</span>
         <span class="pounds">${cell.value.poundsText} lb</span>
-        ${flagFor(reached, next)}
+        ${flagFor(reached, next)}${this.#isSaved(cell) ? html`<span class="flag">Goal</span>` : nothing}
       </span>
     `;
 
-    if (cell.detail === null) {
+    // Nothing published and nothing to commit to. Unreachable while every figure
+    // is one or the other, and listed rather than assumed: a target type added
+    // with neither would otherwise render a button that opens an empty box.
+    if (cell.detail === null && cell.goal === null) {
       return html`<td class=${reached ? 'reached' : nothing}>${figure}</td>`;
     }
 
@@ -910,6 +1035,137 @@ export class PtkTargetReport extends LitElement {
 
   #toggleCell(id: string): void {
     this.openCellId = this.openCellId === id ? null : id;
+  }
+
+  /**
+   * Whether this figure is already committed to.
+   *
+   * A record cell asks about its *attempts* rather than about itself, because a
+   * record is not a target and carries no goal of its own. Either attempt saved
+   * marks the cell, so a lifter scanning a matrix can see which records they are
+   * chasing without opening each one.
+   */
+  #isSaved(cell: MatrixCell): boolean {
+    if (cell.goal !== null) {
+      return this.savedGoals.has(goalKey(cell.goal));
+    }
+    return (
+      cell.detail?.attempts.some((attempt) => this.savedGoals.has(goalKey(attempt.goal))) ?? false
+    );
+  }
+
+  /**
+   * One record, opened.
+   *
+   * The record itself is visually first and largest, because it is the published
+   * fact; the attempts follow it, because each is conditional and a reader has to
+   * know which condition they are under before either figure means anything --
+   * and each carries its own button, because the goal is the attempt and not the
+   * record.
+   */
+  #renderDetail(cellId: string, detail: RecordDetail): TemplateResult {
+    return html`
+      <div class="detail" id=${domId(cellId)} role="group" aria-label=${detail.scopeLabel}>
+        <p class="detail-title">${detail.scopeLabel}</p>
+        <p class="record-figure">
+          Current record
+          <span class="kilograms">${detail.record.kilogramsText} kg</span>
+          (${detail.record.poundsText} lb)
+        </p>
+        <ul class="attempts">
+          ${detail.attempts.map(
+            (attempt) => html`
+              <li class="attempt">
+                <span class="attempt-label">${attempt.label}</span>
+                <span class="attempt-weight">${attempt.kilogramsText} kg</span>
+                <span class="attempt-condition">
+                  ${attempt.condition} · ${attempt.poundsText} lb
+                </span>
+                <span class="attempt-basis">${attempt.basis}</span>
+                ${this.#renderGoalButton(
+                  attempt.goal,
+                  `${attempt.label}, ${attempt.kilogramsText} kilograms, ${detail.scopeLabel}`,
+                )}
+              </li>
+            `,
+          )}
+        </ul>
+        <p class="responsibility">${RESPONSIBILITY_NOTE}</p>
+        ${renderDisagreement(detail.disagreement)}
+        ${
+          detail.unclaimed
+            ? html`<p class="holder">No lifter has claimed this record yet.</p>`
+            : renderHolder(detail.holder)
+        }
+        ${renderSourceLink(detail)}
+      </div>
+    `;
+  }
+
+  /**
+   * One classification standard, opened.
+   *
+   * Named by {@link describeGoal} rather than by anything assembled here, so the
+   * panel a lifter commits in and the tray listing it afterwards cannot call one
+   * figure two things. There is nothing to disclose beyond the name and the
+   * figure -- a standard is the same weight whatever meet it is hit at, which is
+   * the whole difference between it and a record -- so the panel is short by
+   * design and exists for the button.
+   */
+  #renderStandard(cellId: string, goal: GoalTarget, value: Figures): TemplateResult {
+    const description = describeGoal(goal, {
+      catalog: this.catalog,
+      classifications: this.classifications,
+    });
+    const spoken = joinedName(description.title, description.scope);
+    return html`
+      <div class="detail" id=${domId(cellId)} role="group" aria-label=${spoken}>
+        <p class="detail-title">${description.title}</p>
+        <p class="detail-scope">${description.scope}</p>
+        <p class="record-figure">
+          <span class="kilograms">${value.kilogramsText} kg</span>
+          (${value.poundsText} lb)
+        </p>
+        ${this.#renderGoalButton(goal, spoken)}
+      </div>
+    `;
+  }
+
+  /**
+   * The commitment, and the way back out of it.
+   *
+   * One button rather than a button and a separate undo. The review asks for an
+   * "Undo" after a save, and that word is right for the two seconds after a tap
+   * and wrong on the next visit, when the same button is still there and the
+   * lifter is not undoing anything. "Remove" is true at both moments; the
+   * immediacy the review wanted comes from the button being in the same place
+   * rather than from the word.
+   */
+  #renderGoalButton(target: GoalTarget, spoken: string): TemplateResult {
+    const saved = this.savedGoals.has(goalKey(target));
+    return html`
+      <button
+        type="button"
+        class="goal-button"
+        data-saved=${saved ? '' : nothing}
+        aria-label=${saved ? `Remove goal: ${spoken}` : `Set as goal: ${spoken}`}
+        @click=${() => {
+          this.#requestGoal(target, saved ? 'remove' : 'save');
+        }}
+      >
+        ${saved ? 'Saved · Remove' : 'Set as goal'}
+      </button>
+    `;
+  }
+
+  #requestGoal(target: GoalTarget, action: GoalRequestDetail['action']): void {
+    this.dispatchEvent(
+      new CustomEvent<GoalRequestDetail>(GOAL_REQUEST_EVENT, {
+        detail: { target, action },
+        bubbles: true,
+        composed: true,
+      }),
+    );
   }
 
   /**
@@ -978,45 +1234,14 @@ export class PtkTargetReport extends LitElement {
 }
 
 /**
- * One record, opened.
+ * A title and its scope as one spoken string.
  *
- * The record itself is visually first and largest, because it is the published
- * fact; the attempts follow it, because each is conditional and a reader has to
- * know which condition they are under before either figure means anything.
+ * "Class I, Squat · 56 kg · Open" rather than the two read separately, because a
+ * button's accessible name is one string and a panel's label is one string, and
+ * the pair has to survive being flattened into either.
  */
-function renderDetail(cellId: string, detail: RecordDetail): TemplateResult {
-  return html`
-    <div class="detail" id=${domId(cellId)} role="group" aria-label=${detail.scopeLabel}>
-      <p class="detail-title">${detail.scopeLabel}</p>
-      <p class="record-figure">
-        Current record
-        <span class="kilograms">${detail.record.kilogramsText} kg</span>
-        (${detail.record.poundsText} lb)
-      </p>
-      <ul class="attempts">
-        ${detail.attempts.map(
-          (attempt) => html`
-            <li class="attempt">
-              <span class="attempt-label">${attempt.label}</span>
-              <span class="attempt-weight">${attempt.kilogramsText} kg</span>
-              <span class="attempt-condition">
-                ${attempt.condition} · ${attempt.poundsText} lb
-              </span>
-              <span class="attempt-basis">${attempt.basis}</span>
-            </li>
-          `,
-        )}
-      </ul>
-      <p class="responsibility">${RESPONSIBILITY_NOTE}</p>
-      ${renderDisagreement(detail.disagreement)}
-      ${
-        detail.unclaimed
-          ? html`<p class="holder">No lifter has claimed this record yet.</p>`
-          : renderHolder(detail.holder)
-      }
-      ${renderSourceLink(detail)}
-    </div>
-  `;
+function joinedName(title: string, scope: string): string {
+  return scope === '' ? title : `${title}, ${scope}`;
 }
 
 /**
@@ -1194,5 +1419,6 @@ declare global {
 
   interface HTMLElementEventMap {
     [VIEW_CHANGE_EVENT]: CustomEvent<ViewChangeDetail>;
+    [GOAL_REQUEST_EVENT]: CustomEvent<GoalRequestDetail>;
   }
 }

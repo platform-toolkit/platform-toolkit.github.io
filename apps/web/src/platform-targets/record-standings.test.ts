@@ -386,12 +386,14 @@ describe('recordTargetLines', () => {
         condition: 'At a meet of this level or below',
         kilograms: 145.5,
         basis: 'Exceeds the record by 0.5 kg',
+        basisId: 'chip',
       },
       {
         label: 'Full increment',
         condition: 'At a meet above this level',
         kilograms: 147.5,
         basis: 'Exceeds the record by 2.5 kg',
+        basisId: 'full-increment',
       },
     ]);
   });
@@ -447,6 +449,7 @@ describe('recordTargetLines', () => {
       condition: 'At a meet of this level or below',
       kilograms: 145,
       basis: 'Matching the opening standard takes it, as nobody holds it yet',
+      basisId: 'match',
     });
   });
 
@@ -467,6 +470,7 @@ describe('recordTargetLines', () => {
         condition: 'At a meet of this level or below',
         kilograms: 145.5,
         basis: 'Exceeds the record by 0.5 kg',
+        basisId: 'chip',
       },
     ]);
   });
