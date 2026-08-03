@@ -23,7 +23,7 @@
   ],
   "name": "Platform Toolkit",
   "short_name": "Toolkit",
-  "description": "Open-source tools for powerlifters and meet directors. Every tool works on its own and embeds anywhere.",
+  "description": "Open-source tools for the powerlifting community. Every tool works on its own and embeds anywhere.",
   "start_url": "./",
   "scope": "./",
   "id": "./",

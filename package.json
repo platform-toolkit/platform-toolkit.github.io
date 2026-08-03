@@ -2,7 +2,7 @@
   "name": "platform-toolkit",
   "version": "0.0.0",
   "private": true,
-  "description": "Open-source tools for powerlifters and meet directors. Each works alone and embeds anywhere.",
+  "description": "Open-source tools for the powerlifting community. Each works alone and embeds anywhere.",
   "license": "Apache-2.0",
   "author": "Jason Smathers <jason@smathe.rs>",
   "type": "module",
