@@ -139,6 +139,102 @@ export function adjustWarmups(
   };
 }
 
+/** One warm-up set the lifter has given their own rep count for. */
+export interface WarmupReps {
+  /** Which set of `plan.warmups`. */
+  readonly index: number;
+  readonly reps: number;
+}
+
+/**
+ * The ramp with the lifter's rep counts in it.
+ *
+ * Separate from {@link adjustWarmups} because reps and weights are separate
+ * questions with separate consequences: a rep count changes nothing about the
+ * plates, so nothing downstream has to be recomputed, and folding it into the
+ * weight adjustment would put a rebuild of the loading table behind every press
+ * of a rep stepper.
+ *
+ * Unlike a weight, a rep count is adjustable on every set including the bar-only
+ * ones -- the number of bar reps before the first plate is exactly the figure
+ * lifters vary most, and there is no rack constraint on it to resolve against.
+ * Entries naming a set that is not there, or a count that is not a positive
+ * whole number, are dropped for the reason `adjustWarmups` drops its own: these
+ * arrive from stored state written against a ramp that has since changed shape.
+ */
+export function setWarmupReps(plan: WarmupPlan, reps: readonly WarmupReps[]): WarmupPlan {
+  if (reps.length === 0) return plan;
+
+  const wanted = new Map(
+    reps
+      .filter((entry) => Number.isInteger(entry.reps) && entry.reps > 0)
+      .map((entry) => [entry.index, entry.reps]),
+  );
+  if (wanted.size === 0) return plan;
+
+  return {
+    ...plan,
+    warmups: plan.warmups.map((set, index) => {
+      const count = wanted.get(index);
+      return count === undefined ? set : { ...set, reps: count };
+    }),
+  };
+}
+
+/**
+ * The ramp cut to at most `maximumSets` weighted sets, from the bottom up.
+ *
+ * WHICH SETS GO
+ *
+ * The lightest, and the final warm-up never. A shortened ramp is what a lifter
+ * asks for when the rack is busy or the flight is moving faster than anyone
+ * expected, and in that situation the sets worth keeping are the ones nearest the
+ * opener: the top of the ramp is what tells a lifter what the weight will feel
+ * like, and the bottom is what they can most afford to skip. Trimming from the
+ * top would leave a ramp that stops well short of the working weight, which is
+ * not a shorter warm-up -- it is a different and worse one.
+ *
+ * The bar-only sets are not counted and are never dropped. There is nothing
+ * lighter to fall back to, and a lifter who wants to skip the empty bar is asking
+ * a question about the rack rather than about the length of the ramp.
+ *
+ * Every plate change below the cut is recomputed, for the reason this module
+ * exists: a checklist saying "add 20 per side" under a set whose predecessor was
+ * just removed describes work nobody is doing.
+ */
+export function trimWarmups(plan: WarmupPlan, maximumSets: number): WarmupPlan {
+  if (!Number.isFinite(maximumSets)) return plan;
+
+  const weighted = plan.warmups
+    .map((set, index) => ({ set, index }))
+    .filter((entry) => isAdjustable(entry.set));
+  const keep = Math.max(1, Math.floor(maximumSets));
+  if (weighted.length <= keep) return plan;
+
+  // The heaviest `keep` of them, which -- the ramp being ascending -- is the tail.
+  // Held by index rather than by object, so two sets that happen to be equal
+  // cannot take each other's place in the ramp.
+  const kept = new Set(weighted.slice(weighted.length - keep).map((entry) => entry.index));
+
+  let previous: Loading = plan.emptyImplement;
+  const warmups: WarmupSet[] = [];
+  for (const [index, set] of plan.warmups.entries()) {
+    if (isAdjustable(set) && !kept.has(index)) continue;
+    warmups.push({ ...set, change: plateChange(previous, set.loading) });
+    previous = set.loading;
+  }
+
+  const load = plan.working.load;
+  return {
+    ...plan,
+    warmups,
+    working: {
+      ...plan.working,
+      change: load.kind === 'loadable' ? plateChange(previous, load.loading) : null,
+    },
+  };
+}
+
 /** The next loadable weight either side of one warm-up set. */
 export interface WarmupStep {
   /** Which set of `plan.warmups`. */

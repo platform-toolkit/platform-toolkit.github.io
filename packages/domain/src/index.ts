@@ -383,8 +383,11 @@ export {
   adjustWarmups,
   isAdjustable,
   nudgeWarmup,
+  setWarmupReps,
+  trimWarmups,
   warmupSteps,
   type WarmupAdjustment,
+  type WarmupReps,
   type WarmupStep,
 } from './warmup-adjust.js';
 export {

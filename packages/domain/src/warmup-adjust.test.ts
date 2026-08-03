@@ -5,7 +5,14 @@ import { describe, expect, it } from 'vitest';
 
 import type { BarbellSetup, PlateDenomination } from './plates.js';
 import { planWarmup, type WarmupFamily, type WarmupPlan } from './warmup.js';
-import { adjustWarmups, isAdjustable, nudgeWarmup, warmupSteps } from './warmup-adjust.js';
+import {
+  adjustWarmups,
+  isAdjustable,
+  nudgeWarmup,
+  setWarmupReps,
+  trimWarmups,
+  warmupSteps,
+} from './warmup-adjust.js';
 
 /** Invented denominations, shaped like a rack. See the note in `warmup.test.ts`. */
 function plates(weights: readonly number[], full: readonly number[]): PlateDenomination[] {
@@ -50,6 +57,10 @@ function planned(setup: BarbellSetup, family: WarmupFamily, workingWeight: numbe
 
 function totals(plan: WarmupPlan): number[] {
   return plan.warmups.map((set) => set.loading.total);
+}
+
+function reps(plan: WarmupPlan): number[] {
+  return plan.warmups.map((set) => set.reps);
 }
 
 /** The index of the last warm-up, which is the one a lifter reaches for first. */
@@ -170,6 +181,116 @@ describe('adjustWarmups', () => {
     expect(plan.working.load.kind).toBe('not-loadable');
     const moved = adjustWarmups(plan, [{ index: lastWarmup(plan), total: 225 }]);
     expect(moved.working.change).toBe(null);
+  });
+});
+
+describe('setWarmupReps', () => {
+  it('leaves a plan alone when nothing has been asked for', () => {
+    const plan = planned(POUND_GYM, 'squat-press', 225);
+    // The same plan back, not a copy of it: a rep stepper that has been pressed
+    // and undone must not hand a Lit template a new object to re-render.
+    expect(setWarmupReps(plan, [])).toBe(plan);
+    expect(setWarmupReps(plan, [{ index: 0, reps: 0 }])).toBe(plan);
+    // An entry naming a set that is not in this ramp is dropped the way
+    // `adjustWarmups` drops one, which is by value rather than by identity --
+    // the walk has already begun by the time the index misses.
+    expect(reps(setWarmupReps(plan, [{ index: 99, reps: 3 }]))).toEqual(reps(plan));
+  });
+
+  it('puts the lifter’s rep count on the set they named', () => {
+    const plan = planned(POUND_GYM, 'squat-press', 225);
+    const index = lastWarmup(plan);
+    const before = plan.warmups[index]?.reps ?? 0;
+    // Derived from what the set already carries, because the top of the ramp is
+    // a single already: a test asking for one rep there would pass against a
+    // function that did nothing at all.
+    const wanted = before + 3;
+    const changed = setWarmupReps(plan, [{ index, reps: wanted }]);
+
+    expect(changed.warmups[index]?.reps).toBe(wanted);
+    // The control: nothing else moved, and no plate did.
+    expect(reps(changed).slice(0, index)).toEqual(reps(plan).slice(0, index));
+    expect(totals(changed)).toEqual(totals(plan));
+    expect(changed.warmups.map((set) => set.change)).toEqual(plan.warmups.map((set) => set.change));
+  });
+
+  it('takes a rep count for a bar-only set, which a weight adjustment may not', () => {
+    // The number of bar reps is the figure lifters vary most, and there is no
+    // rack constraint on it to resolve against.
+    const plan = planned(POUND_GYM, 'squat-press', 225);
+    const index = plan.warmups.findIndex((set) => set.stage === 'empty-implement');
+    expect(index).toBeGreaterThanOrEqual(0);
+    expect(setWarmupReps(plan, [{ index, reps: 12 }]).warmups[index]?.reps).toBe(12);
+    // The control that keeps this honest: the weight on that set is still refused.
+    expect(totals(adjustWarmups(plan, [{ index, total: 135 }]))).toEqual(totals(plan));
+  });
+
+  it('drops a rep count that is not a positive whole number', () => {
+    const plan = planned(POUND_GYM, 'squat-press', 225);
+    const index = lastWarmup(plan);
+    const original = plan.warmups[index]?.reps;
+    for (const reps of [0, -3, 2.5, Number.NaN]) {
+      expect(setWarmupReps(plan, [{ index, reps }]).warmups[index]?.reps).toBe(original);
+    }
+    // The control: a figure that is one does land, so the guard is not simply off.
+    expect(setWarmupReps(plan, [{ index, reps: 2 }]).warmups[index]?.reps).toBe(2);
+  });
+});
+
+describe('trimWarmups', () => {
+  it('leaves a plan alone when the cap is above the ramp', () => {
+    const plan = planned(POUND_GYM, 'squat-press', 225);
+    expect(trimWarmups(plan, plan.warmups.length + 1)).toBe(plan);
+    expect(trimWarmups(plan, Number.POSITIVE_INFINITY)).toBe(plan);
+  });
+
+  it('keeps the heaviest sets and drops from the bottom', () => {
+    // The top of the ramp is what tells a lifter what the weight will feel like.
+    const plan = planned(POUND_GYM, 'squat-press', 405);
+    const weighted = plan.warmups.filter((set) => isAdjustable(set));
+    expect(weighted.length).toBeGreaterThan(2);
+
+    const trimmed = trimWarmups(plan, 2);
+    const kept = trimmed.warmups.filter((set) => isAdjustable(set));
+    expect(kept.map((set) => set.loading.total)).toEqual(
+      weighted.slice(weighted.length - 2).map((set) => set.loading.total),
+    );
+  });
+
+  it('never drops the bar-only sets, whatever the cap says', () => {
+    const plan = planned(POUND_GYM, 'squat-press', 405);
+    const barOnly = plan.warmups.filter((set) => !isAdjustable(set));
+    expect(barOnly.length).toBeGreaterThan(0);
+
+    const trimmed = trimWarmups(plan, 1);
+    expect(trimmed.warmups.filter((set) => !isAdjustable(set))).toHaveLength(barOnly.length);
+    // One weighted set survives even below a cap of one, because a ramp with no
+    // weight on it is not a shorter ramp.
+    expect(trimmed.warmups.filter((set) => isAdjustable(set))).toHaveLength(1);
+    expect(trimWarmups(plan, 0).warmups).toEqual(trimmed.warmups);
+  });
+
+  it('recomputes every plate change across the cut', () => {
+    // A checklist saying "add 20 per side" under a set whose predecessor was just
+    // removed describes work nobody is doing.
+    const plan = planned(POUND_GYM, 'squat-press', 405);
+    const trimmed = trimWarmups(plan, 2);
+    const sum = (weights: readonly number[]): number =>
+      weights.reduce((total, weight) => total + weight, 0);
+
+    let running = trimmed.emptyImplement.total;
+    for (const set of trimmed.warmups) {
+      running += 2 * (sum(set.change.added) - sum(set.change.removed));
+      expect(running).toBe(set.loading.total);
+    }
+    const working = trimmed.working.change ?? { removed: [], added: [] };
+    expect(running + 2 * (sum(working.added) - sum(working.removed))).toBe(trimmed.working.total);
+  });
+
+  it('describes no plate change for a working weight that cannot be built', () => {
+    const plan = planned(COARSE_GYM, 'squat-press', 300);
+    expect(plan.working.load.kind).toBe('not-loadable');
+    expect(trimWarmups(plan, 1).working.change).toBe(null);
   });
 });
 
