@@ -235,12 +235,26 @@ body {
   line-height: var(--ptk-line-height);
   -webkit-font-smoothing: antialiased;
   /*
-   * A long unbroken token -- a federation name, a pasted identifier -- must
-   * wrap rather than widen the page. At 320px there is no room to absorb one,
-   * and the failure is the whole document scrolling sideways, not just the
-   * element that contains it.
+   * A long unbroken token -- a federation name, a pasted identifier, a label
+   * reading "Competition bodyweight" at 200% text -- must wrap rather than
+   * widen the page. At 320px there is no room to absorb one, and the failure is
+   * the whole document scrolling sideways, not just the element that holds it.
+   *
+   * `anywhere` and not `break-word`, and the difference is the entire point.
+   * Both let the word wrap; only `anywhere` is counted as a break opportunity
+   * when the box's *min-content* size is computed. A grid or flex item will not
+   * shrink below min-content, so under `break-word` the word still sets a floor
+   * the container cannot go under -- it wraps, and the page scrolls sideways
+   * anyway, which is exactly what this declaration was written to stop. It said
+   * `break-word` for months and never once did the thing described above.
+   *
+   * Inherited, so it crosses shadow boundaries: a component's tree inherits
+   * from its host, which inherits from here. That is what makes one declaration
+   * enough, and it is why the hand-rolled `overflow-wrap: anywhere` in five
+   * tools -- each written after this same failure -- is now belt and braces
+   * rather than the only thing holding those screens together.
    */
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 
 /*
