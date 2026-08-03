@@ -180,6 +180,22 @@ export {
   type UndoStep,
 } from './meet-document.js';
 export {
+  VERIFY_WITH_OFFICIALS,
+  recordPlan,
+  type QualifyingAttempt,
+  type RecordAdvisory,
+  type RecordAdvisoryCode,
+  type RecordAdvisorySeverity,
+  type RecordMarginSource,
+  type RecordPlan,
+  type RecordPlanRequest,
+  type RecordProvenance,
+  type RecordRoute,
+  type RecordRouteAnswer,
+  type RecordRouteBlockCode,
+  type RecordRouteVia,
+} from './meet-records.js';
+export {
   MeetRules,
   type AttemptFloorReason,
   type AttemptLegality,
