@@ -49,6 +49,27 @@ export {
   type StrategyPercentages,
 } from './attempt-plan.js';
 export {
+  distributeTargetTotal,
+  planFromOpener,
+  type OpenerPlan,
+  type OpenerPlanNote,
+  type OpenerPlanNoteCode,
+  type OpenerPlanProblem,
+  type OpenerPlanProblemCode,
+  type OpenerPlanRequest,
+  type OpenerPlanResult,
+  type TargetTotalAdvisory,
+  type TargetTotalAdvisoryCode,
+  type TargetTotalAdvisorySeverity,
+  type TargetTotalLift,
+  type TargetTotalProblem,
+  type TargetTotalProblemCode,
+  type TargetTotalProposal,
+  type TargetTotalRequest,
+  type TargetTotalResult,
+  type TargetTotalShare,
+} from './attempt-methods.js';
+export {
   attemptWeightFor,
   enterAttemptWeight,
   type AttemptEntry,
