@@ -1,6 +1,14 @@
 {
-  "checkedAt": "2026-08-01T06:44:56.095Z",
+  "checkedAt": "2026-08-03T12:36:27.939Z",
   "findings": [
+    {
+      "id": "ipf-meet-rules",
+      "document": "data/sources/meet-rules/ipf.json",
+      "expectedSha256": "cf3aac6c4a231918217a3155a9fc34b766e35d6f8ec2bbf6da8af59ec1b37145",
+      "status": "matched",
+      "actualSha256": "cf3aac6c4a231918217a3155a9fc34b766e35d6f8ec2bbf6da8af59ec1b37145",
+      "detail": null
+    },
     {
       "id": "uspa-classifications",
       "document": "data/sources/classifications/uspa.json",
@@ -8,6 +16,22 @@
       "status": "manual",
       "actualSha256": null,
       "detail": "No URL is recorded for this snapshot, so nothing is watching it."
+    },
+    {
+      "id": "uspa-conversions",
+      "document": "data/sources/conversions/uspa.json",
+      "expectedSha256": "026ba62bca3bc37e21f01430e1502657dd44b12f938a8f7e34d81055db139e70",
+      "status": "matched",
+      "actualSha256": "026ba62bca3bc37e21f01430e1502657dd44b12f938a8f7e34d81055db139e70",
+      "detail": null
+    },
+    {
+      "id": "uspa-meet-rules",
+      "document": "data/sources/meet-rules/uspa.json",
+      "expectedSha256": "ef23ed9f46c2177f0904fea92c8ee80fa7515321af44ad2eee81bd01fdccb842",
+      "status": "matched",
+      "actualSha256": "ef23ed9f46c2177f0904fea92c8ee80fa7515321af44ad2eee81bd01fdccb842",
+      "detail": null
     }
   ]
 }
