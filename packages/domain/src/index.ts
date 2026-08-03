@@ -198,6 +198,22 @@ export {
   type TakenAttempt,
 } from './meet-rules.js';
 export {
+  PROJECTION_BASES,
+  meetTotals,
+  type LiftProjectionInput,
+  type MeetProjection,
+  type MeetTotals,
+  type MeetTotalsRequest,
+  type ProjectedLift,
+  type ProjectionBasis,
+  type ProjectionStop,
+  type SettledSubtotal,
+  type TargetProgress,
+  type TotalsAdvisory,
+  type TotalsAdvisoryCode,
+  type TotalsAdvisorySeverity,
+} from './meet-totals.js';
+export {
   LOADING_TOLERANCE,
   buildLoadingTable,
   emptyImplement,
