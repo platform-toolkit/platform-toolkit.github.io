@@ -110,6 +110,20 @@ export {
   type LiftGroup,
 } from './lifts.js';
 export {
+  liveChoicesFor,
+  type LiveAdvisory,
+  type LiveAdvisoryCode,
+  type LiveAdvisorySeverity,
+  type LiveChoice,
+  type LiveChoiceReason,
+  type LiveChoiceSlot,
+  type LiveChoices,
+  type LiveChoicesRequest,
+  type LiveTarget,
+  type LiveTargetKind,
+  type LiveTrigger,
+} from './live-choices.js';
+export {
   MAX_ATTEMPT_NOTE_LENGTH,
   UNDO_HISTORY_LIMIT,
   applyMeetAction,
