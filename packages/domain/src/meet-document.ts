@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The live meet as one immutable document, and every earlier version of it.
  *

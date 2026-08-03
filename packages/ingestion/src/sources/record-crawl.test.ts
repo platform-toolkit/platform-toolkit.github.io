@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import { crc32 } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 

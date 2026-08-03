@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import type { DataMeta } from '@platform-toolkit/data-contracts';
 import { createPreferenceStore, memoryPreferenceStorage } from '@platform-toolkit/preferences';
 import { PtkChoiceGroup, PtkSelect } from '@platform-toolkit/ui';

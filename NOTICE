@@ -1,0 +1,35 @@
+Platform Toolkit
+Copyright 2026 Jason Smathers
+
+This product includes software developed by Jason Smathers.
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file for the
+full terms.
+
+--------------------------------------------------------------------------------
+
+This file is the NOTICE file required by section 4(d) of the Apache License.
+Anyone who redistributes this work has to carry it along, which is the reason it
+is short: everything added here is added to every downstream distribution
+forever. Dependency licences and their attribution live in
+THIRD_PARTY_NOTICES.md, which is where they belong -- a NOTICE file is not a
+dependency manifest.
+
+--------------------------------------------------------------------------------
+
+PUBLISHED FEDERATION DATA
+
+This repository contains records, classification standards, weight-class
+definitions and rule details published by powerlifting federations. Those are
+facts about what a federation has published, independently encoded here from
+publicly available sources. They are not copies of any federation's pages,
+tables, artwork or software, and no federation has reviewed, approved,
+sponsored or endorsed this project.
+
+Provenance for each dataset -- what was read, when it was retrieved, and how it
+was transcribed -- is recorded in data/sources/ and in the published artifact
+metadata. Federation names and marks belong to their respective owners and are
+used here only to say factually whose rules a number came from.
+
+The Apache License covers the software in this repository. It does not purport
+to license anyone else's data, marks or documents.

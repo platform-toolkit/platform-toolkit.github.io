@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Every equation shown, and the spread underneath it kept out of the language of
  * probability.

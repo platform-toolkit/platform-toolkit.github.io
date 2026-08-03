@@ -88,7 +88,13 @@ jobs:
       # went live. The build reads it when it stamps `meta.json`; see
       # `readGeneratedAt` in the publish script. `fetch-depth: 0` above is what
       # makes the log available.
-      - run: echo "PTK_GENERATED_AT=$(git log -1 --format=%cI)" >> "$GITHUB_ENV"
+      # Two spellings of one fact. The publisher wants an ISO string to stamp
+      # into `meta.json`; SOURCE_DATE_EPOCH is defined as seconds since the epoch
+      # and the SBOM step below reads it. Deriving both from the same `git log`
+      # keeps them from disagreeing about which commit is being built.
+      - run: |
+          echo "PTK_GENERATED_AT=$(git log -1 --format=%cI)" >> "$GITHUB_ENV"
+          echo "PTK_GENERATED_AT_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
 
       # The full check, not just a build. Nothing reaches the live site without
       # passing format, typecheck, lint, tests, and the reference scan first.
@@ -102,6 +108,26 @@ jobs:
           # means renaming the repository or moving to a project site does not
           # silently break every asset URL.
           PTK_BASE_PATH: ${{ steps.pages.outputs.base_path }}/
+
+      # A bill of materials for what just went live, kept beside the deployment
+      # rather than inside it. `verify` has already proved every licence in the
+      # tree is acceptable; this records which versions those were, so that a
+      # future advisory can be checked against a specific deploy instead of
+      # against whatever the lockfile says today.
+      #
+      # SOURCE_DATE_EPOCH is the commit's own timestamp, for the same reason the
+      # build takes its generation date from there: rebuilding this commit must
+      # produce the same document, or the artifact cannot be checked against the
+      # source it claims to describe.
+      - run: pnpm run sbom
+        env:
+          SOURCE_DATE_EPOCH: ${{ env.PTK_GENERATED_AT_EPOCH }}
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom
+          path: sbom.cdx.json
+          if-no-files-found: error
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:

@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Renders the application icon from its single SVG source.
  *

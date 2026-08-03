@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The answer, in the order §9.1 fixes: the figure, the grade, the two
  * scenarios, one sentence of interpretation, and then the reasons.

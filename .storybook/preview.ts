@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import { asThemeMode, THEME_MODES, type ThemeMode } from '@platform-toolkit/configuration';
 import { applyThemeMode } from '@platform-toolkit/ui';
 import type { Preview } from '@storybook/web-components-vite';

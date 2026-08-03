@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import type { Lift, RecordBook } from '@platform-toolkit/data-contracts';
 import type { WeightUnit } from '@platform-toolkit/domain';
 import { describe, expect, it } from 'vitest';

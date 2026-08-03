@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import { DataMetaSchema, type SourceFreshness } from '@platform-toolkit/data-contracts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';

@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Turns a published catalogue into the questions the tool asks, and keeps the
  * answers honest as they change.

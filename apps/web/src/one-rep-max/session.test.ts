@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The tool's session layer: what is typed, what is remembered, and for how long.
  *

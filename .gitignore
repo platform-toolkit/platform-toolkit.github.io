@@ -21,6 +21,14 @@ apps/web/public/data/
 .env.*
 !.env.example
 
+# Build-time bill of materials. Generated from the installed tree by
+# `pnpm run sbom` and attached to a release, not committed: a checked-in SBOM
+# describes whatever tree existed when someone last remembered to regenerate it,
+# which is exactly the false assurance the artifact is supposed to remove. The
+# durable, reviewable record is docs/dependency-licenses.md, which is committed
+# and gated.
+sbom.cdx.json
+
 # Local-only, per-machine opt-ins for the reference scan. Both are absent for
 # everyone but a maintainer who wants them, and the scan imposes nothing when
 # they are missing -- outside contributors are unaffected.

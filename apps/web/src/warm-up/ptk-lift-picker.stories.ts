@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import { PRIMARY_LIFTS } from '@platform-toolkit/domain';
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';

@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Kilogram/pound conversion matching the USPA classification calculator exactly.
  *

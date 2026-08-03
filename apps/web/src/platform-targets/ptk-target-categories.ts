@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The manual selection path: the questions a lifter answers to identify the
  * category the report is drawn for.

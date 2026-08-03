@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Builds the converter, reads the federation's chart, and gives the tool
  * somewhere to remember what it was doing.

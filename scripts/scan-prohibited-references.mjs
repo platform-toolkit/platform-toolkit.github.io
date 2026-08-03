@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Keeps strings that must not appear in this repository out of it -- in file
  * contents, in file paths, and in commit metadata.

@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Loads the built site at phone widths and fails on the ways a layout stops
  * working there.

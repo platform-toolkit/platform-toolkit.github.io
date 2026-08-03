@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import type { PtkButton, PtkNumberField } from '@platform-toolkit/ui';
 // Without the stylesheet `--ptk-tap-target-min` is undefined, the declaration
 // referencing it is dropped, and the row-height assertion below measures a row

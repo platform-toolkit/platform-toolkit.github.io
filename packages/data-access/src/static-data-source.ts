@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The strategy in use today: every answer is a JSON file that CI published
  * alongside the site.

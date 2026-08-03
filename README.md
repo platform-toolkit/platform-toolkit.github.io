@@ -379,9 +379,13 @@ but never newer than the figures.
 
 ## Contributing
 
-Run `pnpm verify` before opening a pull request. Commit under your own name and email — the project
-imposes no identity requirement on contributors.
+[CONTRIBUTING.md](CONTRIBUTING.md) has the whole process; [GOVERNANCE.md](GOVERNANCE.md) says who
+decides and how. The short version: run `pnpm verify` before opening a pull request, sign your
+commits off with `git commit -s` to certify the [DCO](DCO.md), and commit under your own name and
+email — the project imposes no identity requirement on contributors, and there is no CLA and no
+copyright assignment. Security problems go to [SECURITY.md](SECURITY.md), not to a public issue.
 
+One local check is worth explaining here because it is unusual and it will confuse you otherwise.
 `pnpm scan:references` checks tracked content, file paths, and commit metadata against a list of
 strings that must not appear in this repository. That list is deliberately **not** committed, in
 plaintext or as digests: the tokens are short enough that a wordlist recovers them from hashes in
@@ -401,4 +405,22 @@ a fresh checkout enforces nothing.
 
 ## License
 
-[MIT](LICENSE)
+[Apache License 2.0](LICENSE), with attribution requirements set out in [NOTICE](NOTICE).
+
+Use it, embed it, fork it, ship it in something you sell. The licence asks for attribution, for the
+NOTICE file to travel with redistributions, and for changed files to be marked. It grants a patent
+licence along with the copyright one, which is the practical reason to prefer it over a shorter
+permissive licence: an organisation embedding a widget does not have to work out the patent position
+for itself.
+
+Third-party code distributed with the toolkit is attributed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); every installed dependency and its licence is
+inventoried in [docs/dependency-licenses.md](docs/dependency-licenses.md), and that inventory is
+enforced by `pnpm run check:licenses` rather than maintained by hand.
+
+Releases up to the `mit-final` tag were published under the MIT License and remain available under
+it. Nothing about your permissions has narrowed.
+
+The licence covers the software. It does not license anyone else's data or trademarks — federation
+records and standards here are independently encoded public facts, and federation names belong to
+their owners. See [NOTICE](NOTICE).

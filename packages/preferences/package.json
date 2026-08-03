@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "The seam between a tool and whatever remembers a visitor's own settings between visits.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "exports": {
     ".": {

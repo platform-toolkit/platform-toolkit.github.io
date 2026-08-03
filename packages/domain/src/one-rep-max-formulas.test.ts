@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The equations, checked against arithmetic done by hand and against the
  * conditions each one declines under.

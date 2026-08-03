@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The bar, the collars, and the plates -- what the lifter has, and how it is
  * remembered.

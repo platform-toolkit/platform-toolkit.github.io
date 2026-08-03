@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The published equations that estimate a one-repetition maximum from a
  * submaximal set, and nothing about how they are combined.

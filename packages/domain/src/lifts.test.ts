@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, expect, it } from 'vitest';
 
 import { LIFTS, PRIMARY_LIFTS, findLift, liftsByGroup, type LiftDefinition } from './lifts.js';

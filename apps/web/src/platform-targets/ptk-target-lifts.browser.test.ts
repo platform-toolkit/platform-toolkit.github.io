@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import type { Lift } from '@platform-toolkit/data-contracts';
 import { PtkChoiceGroup, PtkDisclosure, PtkNumberField } from '@platform-toolkit/ui';
 // Every spacing declaration in this panel reads a custom property, and a

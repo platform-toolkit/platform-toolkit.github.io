@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import type { WeightClass } from '@platform-toolkit/data-contracts';
 
 import { ceilToHundredths, floorToHundredths } from './rounding.js';

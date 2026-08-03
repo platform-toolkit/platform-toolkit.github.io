@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 

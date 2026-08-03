@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Where remembered settings actually go, and the fact that quite often there is
  * nowhere.

@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "The deployed site: the tool index, and each tool's standalone and embeddable pages.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

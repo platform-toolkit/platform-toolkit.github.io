@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Today's session: which lifts are on the list, what is typed against each, and
  * which sets have been ticked off.

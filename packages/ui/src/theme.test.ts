@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Runs in a real browser, because every claim here is about browser behaviour:
  * attribute and inline-style writes, `prefers-color-scheme`, and the identity of

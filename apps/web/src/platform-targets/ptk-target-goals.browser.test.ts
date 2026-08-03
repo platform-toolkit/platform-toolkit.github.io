@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import { PtkSelect } from '@platform-toolkit/ui';
 // Every spacing and tap-target declaration in the tray reads a custom property,
 // and a declaration referencing an undefined one is dropped -- so without the

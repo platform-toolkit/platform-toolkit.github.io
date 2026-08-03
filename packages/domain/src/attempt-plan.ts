@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Three attempts on one lift, from one number the lifter confirmed about themselves.
  *

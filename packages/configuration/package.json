@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "Theme configuration and the protocol an embedding page speaks to a framed tool.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "exports": {
     ".": {

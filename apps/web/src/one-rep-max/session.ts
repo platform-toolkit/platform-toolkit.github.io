@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * What the one-rep max calculator holds between keystrokes, and what it
  * remembers between visits.

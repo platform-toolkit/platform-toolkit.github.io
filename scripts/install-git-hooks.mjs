@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Points git at the repository's tracked hooks directory.
  *

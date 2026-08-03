@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import type { FederationRecord, RecordBook, RecordScope } from '@platform-toolkit/data-contracts';
 
 import { ceilToHundredths } from './rounding.js';

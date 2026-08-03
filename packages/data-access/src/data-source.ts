@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The boundary between "what the application needs to know" and "where that
  * knowledge is stored".

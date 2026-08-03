@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 // The retry is a `ptk-button`, and every dimension it has comes from a custom
 // property. Without the stylesheet the tap-target assertion at the bottom of this
 // file measures a button with no minimum height and passes against a layout

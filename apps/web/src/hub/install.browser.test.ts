@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Both sheets, and the pairing is the point. `tokens.css` carries the `[hidden]`

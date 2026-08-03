@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The answer: what the federation's chart says, and -- quietly, underneath -- what
  * the arithmetic says.

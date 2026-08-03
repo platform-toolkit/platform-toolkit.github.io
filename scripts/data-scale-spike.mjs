@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Measures what a full record book costs to publish, so that the hosting
  * decision is made against numbers rather than against a guess.

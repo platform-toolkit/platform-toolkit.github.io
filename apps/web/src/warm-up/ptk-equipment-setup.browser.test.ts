@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import { PtkChoiceGroup, PtkNumberField, PtkToggleGroup } from '@platform-toolkit/ui';
 // Every spacing and sizing declaration in these components reads a custom
 // property, and a declaration referencing an undefined one is dropped. Without

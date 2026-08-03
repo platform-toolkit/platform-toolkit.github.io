@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 // Every spacing and colour declaration in this control reads a custom property,
 // and a declaration referencing an undefined one is dropped -- so without the
 // stylesheet the button measured at the bottom of this file has no padding and

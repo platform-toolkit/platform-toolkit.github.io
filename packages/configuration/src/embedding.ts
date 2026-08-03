@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The embed protocol: everything an embedding page may say to a framed tool,
  * and everything it hears back.

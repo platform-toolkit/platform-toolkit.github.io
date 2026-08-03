@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import { slugSegment } from './artifact-naming.js';
 import type { ClassificationScope } from './classification.js';
 import type { SexCategory } from './categories.js';

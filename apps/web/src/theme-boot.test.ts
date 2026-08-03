@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Guards `public/theme-boot.js`, which nothing imports and nothing bundles.
  *

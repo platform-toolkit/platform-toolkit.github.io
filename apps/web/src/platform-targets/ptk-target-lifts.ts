@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * What the lifter has already lifted. Four fields and a unit, and nothing else.
  *

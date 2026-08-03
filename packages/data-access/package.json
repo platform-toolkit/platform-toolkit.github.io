@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "The port between the application and wherever data is stored, plus the static-file adapter in use today.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "module",
   "exports": {
     ".": {

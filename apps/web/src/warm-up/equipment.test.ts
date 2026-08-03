@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import { createPreferenceStore, memoryPreferenceStorage } from '@platform-toolkit/preferences';
 import { describe, expect, it } from 'vitest';
 

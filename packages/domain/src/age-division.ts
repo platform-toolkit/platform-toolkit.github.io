@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import type { AgeBasis, AgeDivision } from '@platform-toolkit/data-contracts';
 
 import { completedYearsBetween, type PlainDate } from './plain-date.js';

@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import type { ConversionChartData, ConversionRow } from '@platform-toolkit/data-contracts';
 import { describe, expect, it } from 'vitest';
 

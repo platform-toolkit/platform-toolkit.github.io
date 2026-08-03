@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The optional questions: everything that changes what the answer is *worth*
  * rather than what it is.

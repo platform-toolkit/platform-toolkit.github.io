@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 import type { Lift } from '@platform-toolkit/data-contracts';
 import { PtkNotice, PtkSegmented } from '@platform-toolkit/ui';
 // Every measurement at the bottom of this file reads a spacing or tap-target

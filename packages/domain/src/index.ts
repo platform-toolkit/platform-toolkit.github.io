@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 export {
   ATTEMPT_PLAN_METHODOLOGY_VERSION,
   ATTEMPT_RISKS,

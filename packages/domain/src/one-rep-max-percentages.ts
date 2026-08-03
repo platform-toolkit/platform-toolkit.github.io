@@ -1,3 +1,6 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Fractions of an estimated maximum, for somebody who came for one number and
  * stayed for the training loads.
