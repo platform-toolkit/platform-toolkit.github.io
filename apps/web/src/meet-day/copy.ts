@@ -55,6 +55,7 @@ import {
 import type { MeetFormat, PlatformLift } from '@platform-toolkit/data-contracts';
 import { type Choice } from '@platform-toolkit/ui';
 
+import type { SubmissionUrgency } from './live.js';
 import type { PlanProblem } from './plan.js';
 import {
   EQUIPMENT_CATEGORIES,
@@ -1201,6 +1202,144 @@ export function attemptStatusText(status: AttemptStatus): string {
 
 /** Said where there is nothing to offer, so an empty card list is an answer. */
 export const NO_CHOICES_NOTE = 'No weights to offer on this lift.';
+
+/*
+ * ---------------------------------------------------------------------------
+ * §14: handing the next attempt to the table, against a clock.
+ *
+ * THE TOOL HANDS NOTHING IN
+ *
+ * §14 says plainly that the application does not submit attempts to meet
+ * officials, and every sentence below is written so that a lifter reading this
+ * panel at speed cannot come away believing otherwise. The button says "Mark
+ * handed in", which records something the lifter did; it never says "Submit",
+ * which would name an action the tool cannot take and would be believed on the
+ * one screen where being wrong costs an attempt.
+ *
+ * THE CLOCK IS AN AID AND SAYS SO
+ *
+ * The minute starts when the result is recorded here, which may already be
+ * several seconds after the referees' decision -- §14.1 allows exactly that and
+ * calls the official clock authoritative. So the panel carries that sentence
+ * itself rather than putting it in a help fold: a countdown with no such line
+ * on it is read as the deadline, and the reading is wrong in the direction of
+ * running out of time later than the table does.
+ *
+ * URGENCY IS WORDS FIRST
+ *
+ * §14.1 asks for visual urgency, and §5.8 forbids colour as the sole carrier of
+ * meaning. The seconds are always on screen and the band is always a sentence,
+ * so the panel is legible in forced colours, to a reader who cannot separate the
+ * hues, and -- the case that actually happens -- when a handler reads it aloud
+ * across a warm-up room.
+ * ---------------------------------------------------------------------------
+ */
+
+export const SUBMISSION_HEADING = 'Hand in the next attempt';
+
+/**
+ * The name and the weight on one line, because §14 names the failure.
+ *
+ * "Show the lifter's name and weight clearly to prevent submitting the correct
+ * weight for the wrong athlete" -- which is a handler with two lifters on two
+ * platforms and one phone. The two facts are one line so that neither can be
+ * read without the other; on separate lines the name scrolls away from the
+ * figure on a 320px screen, and it is the pairing that carries the check.
+ */
+export function submissionSubjectLine(lifterName: string, weight: AttemptWeight | null): string {
+  const chosen = weight === null ? 'no weight chosen yet' : attemptKilogramsText(weight);
+  return `${lifterName} -- ${chosen}`;
+}
+
+/**
+ * The clock face: minutes and seconds, zero-padded.
+ *
+ * Negative input is clamped rather than rendered, because a lapsed deadline is a
+ * different sentence and "-0:03 left" reads as three seconds of credit. The
+ * seconds come from the view, which derives them from `now`, so a throttled tab
+ * makes this jump rather than drift (see the clock seam).
+ */
+export function countdownText(secondsRemaining: number): string {
+  const clamped = Math.max(0, Math.floor(secondsRemaining));
+  const minutes = Math.floor(clamped / 60);
+  const seconds = clamped % 60;
+  return `${String(minutes)}:${String(seconds).padStart(2, '0')}`;
+}
+
+/**
+ * The same figure in words, for the label on the clock face.
+ *
+ * A screen reader announcing "zero colon four two" is the digits read as digits.
+ * This is not a live region -- it changes four times a second and would talk
+ * over everything else on the screen -- it is the accessible name of a figure
+ * somebody may ask for once.
+ */
+export function countdownSpokenText(secondsRemaining: number): string {
+  const clamped = Math.max(0, Math.floor(secondsRemaining));
+  if (clamped === 0) return 'no time left';
+  const minutes = Math.floor(clamped / 60);
+  const seconds = clamped % 60;
+  const minutePart = minutes === 0 ? '' : `${String(minutes)} minute${minutes === 1 ? '' : 's'}`;
+  const secondPart = seconds === 0 ? '' : `${String(seconds)} second${seconds === 1 ? '' : 's'}`;
+  return `${[minutePart, secondPart].filter((part) => part !== '').join(' ')} left`;
+}
+
+/**
+ * The band as a sentence. The one thing on this panel that is announced.
+ *
+ * Four values over a whole minute, so a reader is told the deadline is closing
+ * without being read a number every quarter second. The wording escalates and
+ * never repeats, because a live region that announces the same string twice is
+ * announced once by most screen readers and the second escalation would be
+ * silent.
+ */
+export function urgencySentence(urgency: SubmissionUrgency): string {
+  switch (urgency) {
+    case 'calm':
+      return 'There is time. Choose the weight, then mark it handed in.';
+    case 'hurry':
+      return 'Under thirty seconds. Get the weight to the table.';
+    case 'critical':
+      return 'Seconds left.';
+    case 'lapsed':
+      return 'The minute has passed.';
+  }
+}
+
+/** Whether the lifter has said they handed it in. Not whether the table has it. */
+export function submissionStatusText(submitted: boolean): string {
+  return submitted ? 'Marked handed in' : 'Not marked handed in';
+}
+
+export const MARK_SUBMITTED_LABEL = 'Mark handed in';
+
+/**
+ * What the officials write down if nothing is handed in (§14.1).
+ *
+ * `null` where the rules have nothing to apply, and that is a different sentence
+ * rather than a missing one: "the same weight again" is what happens after a
+ * miss, and printing it where no result has been recorded yet would tell a lifter
+ * a fallback exists that does not.
+ */
+export function automaticSentence(automatic: AttemptWeight | null): string {
+  if (automatic === null) {
+    return 'These rules set no automatic weight here, so a missed deadline is the table to sort out.';
+  }
+  return `If nothing is handed in, the table takes ${attemptKilogramsText(automatic)}.`;
+}
+
+/**
+ * On the panel, not in a fold.
+ *
+ * The tool's minute starts when a result is recorded here, which is already late
+ * by however long it took to reach the phone. A countdown with no such line on
+ * it is read as the deadline itself.
+ */
+export const OFFICIAL_CLOCK_NOTE =
+  'The official clock is the one that counts. This one starts when you record the result, so it may already be a few seconds behind.';
+
+/** Said in place of the panel, so "no deadline is running" is an answer. */
+export const NO_SUBMISSION_NOTE = 'No submission deadline is running.';
 
 /** The lift named inside a sentence, where a capital would read as a heading. */
 function liftMidSentence(lift: PlatformLift): string {

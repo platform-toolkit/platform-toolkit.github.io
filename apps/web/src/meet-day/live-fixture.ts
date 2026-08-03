@@ -157,6 +157,22 @@ export function viewOf(timeline: MeetTimeline, context = contextAt(START)) {
 }
 
 /**
+ * §14.1's panel, unwrapped.
+ *
+ * Every band the panel can be in comes out of one sequence and a different
+ * `now`: the fixture profile allows ninety seconds, so the same recorded opener
+ * reads calm, then hurry under thirty, then critical under ten, then lapsed.
+ * That is the fixture worth having, because the thresholds are absolute seconds
+ * and a rule profile that allowed sixty would move every band boundary in a test
+ * that hard-coded an offset from the deadline instead of from the start.
+ */
+export function submissionOf(timeline: MeetTimeline, context = contextAt(START)) {
+  const submission = viewOf(timeline, context).submission;
+  if (submission === null) throw new Error('fixture lifter has no deadline running');
+  return submission;
+}
+
+/**
  * The choices on a lift, unwrapped.
  *
  * `LiveView.choices` is nullable because a lifter whose meet is over has none,
