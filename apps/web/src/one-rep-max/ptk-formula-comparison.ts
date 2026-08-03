@@ -140,13 +140,21 @@ export class PtkFormulaComparison extends LitElement {
       list-style: none;
     }
 
+    /* A zero minimum width is what keeps a card inside its track. A grid item's
+       automatic minimum size is its min-content width, so without this the
+       widest unbreakable run of text on the card -- a notation, a surname, a
+       year -- becomes a floor the track cannot go under, and the whole page
+       scrolls sideways at 320px. The overflow-wrap rules below are the other
+       half: this lets the box shrink, those let the text follow it. */
     .card {
       display: grid;
+      min-width: 0;
       gap: var(--ptk-space-xs);
       padding: var(--ptk-space-md);
       border: 1px solid var(--ptk-color-border);
       border-radius: var(--ptk-radius-md);
       background-color: var(--ptk-color-surface);
+      overflow-wrap: anywhere;
     }
 
     /* An equation that did not count is drawn quieter by its surface and its
