@@ -330,6 +330,23 @@ export {
   type PlainDate,
 } from './plain-date.js';
 export {
+  ASSUMED_SECONDS_PER_ATTEMPT,
+  MEET_STAFF_ARE_AUTHORITATIVE,
+  MIN_ATTEMPTS_FOR_OBSERVED_PACE,
+  PACE_SPREAD,
+  assumedPace,
+  observedPace,
+  platformEstimate,
+  type FlightPosition,
+  type MeetPace,
+  type PaceSource,
+  type PlatformEstimate,
+  type PlatformEstimateRequest,
+  type TimingAdvisory,
+  type TimingAdvisoryCode,
+  type TimingAdvisorySeverity,
+} from './platform-timing.js';
+export {
   findRecord,
   recordTargets,
   standingAgainstRecord,
