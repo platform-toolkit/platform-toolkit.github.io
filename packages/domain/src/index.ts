@@ -198,6 +198,27 @@ export {
   type TakenAttempt,
 } from './meet-rules.js';
 export {
+  TOTAL_PLACING_SCALE,
+  attemptChangeHistory,
+  whatWins,
+  type AttemptChangeHistory,
+  type CompetitorPendingAttempt,
+  type DeclaredWeight,
+  type PlacingScale,
+  type ScenarioAssumption,
+  type TacticalAdvisory,
+  type TacticalAdvisoryCode,
+  type TacticalAdvisorySeverity,
+  type TacticalAnswer,
+  type TacticalCompetitor,
+  type TacticalOutcome,
+  type TacticalRequest,
+  type TacticalRequirement,
+  type TieAssessment,
+  type TieFavours,
+  type TieReasonCode,
+} from './meet-tactics.js';
+export {
   PROJECTION_BASES,
   meetTotals,
   type LiftProjectionInput,
