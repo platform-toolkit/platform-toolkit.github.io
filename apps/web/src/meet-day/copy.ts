@@ -26,6 +26,7 @@
 import {
   convertWeight,
   formatWeight,
+  type AttemptEffort,
   type AttemptRefusalCode,
   type AttemptRisk,
   type AttemptWeight,
@@ -34,9 +35,12 @@ import {
   type JumpEvidence,
   type MaximumSource,
   type MeetGoal,
+  type MissReason,
   type PublishedPoundsReason,
   type Readiness,
+  type RecordedResult,
   type ResearchComparison,
+  type RefereeLight,
   type WeightUnit,
 } from '@platform-toolkit/domain';
 import type { MeetFormat, PlatformLift } from '@platform-toolkit/data-contracts';
@@ -684,3 +688,214 @@ export function poundsAbsenceSentence(reason: PublishedPoundsReason): string | n
 export function approximatePoundsText(weight: AttemptWeight): string {
   return `about ${formatWeight({ amount: weight.exactPounds, unit: 'lb' })}`;
 }
+
+/*
+ * §12: recording what happened.
+ *
+ * The wording here is doing more work than the rest of this file, because it is
+ * read standing up, between attempts, by somebody who has just lifted. Every
+ * label below is the shortest thing that is still unambiguous, and the second
+ * lines exist only where the short label would be read two ways -- §12 allows
+ * the whole flow three or four taps, and a tile carrying two lines of prose is
+ * a tile that gets read instead of tapped.
+ */
+
+/** The four results §12.1 lists, in the order it lists them. */
+export type ResultOutcome = RecordedResult['outcome'];
+
+/**
+ * §12.1's four outcomes.
+ *
+ * "Passed" and "Extra attempt granted" are marked secondary -- not hidden, and
+ * still the same tiles under the same arrow keys, but the two answers that come
+ * up a handful of times across a whole meet should not be the same visual weight
+ * as the two that come up on every attempt. The granted extra in particular is
+ * the expeditor's decision arriving at the tool, not a thing a lifter chooses.
+ */
+export const OUTCOME_CHOICES: readonly Choice[] = [
+  { value: 'good', label: 'Good lift' },
+  { value: 'no-lift', label: 'No lift' },
+  { value: 'passed', label: 'Passed', secondary: true },
+  { value: 'extra-attempt-granted', label: 'Extra attempt granted', secondary: true },
+];
+
+export function outcomeLabel(outcome: ResultOutcome): string {
+  switch (outcome) {
+    case 'good':
+      return 'Good lift';
+    case 'no-lift':
+      return 'No lift';
+    case 'passed':
+      return 'Passed';
+    case 'extra-attempt-granted':
+      return 'Extra attempt granted';
+  }
+}
+
+/**
+ * §12.2's six readings, worded from the requirement rather than paraphrased.
+ *
+ * These carry descriptions where the others do not, because the whole scale is a
+ * comparison against one thing -- what the lifter expected -- and a bare "Slow"
+ * invites the reading "slow for a heavy weight", which is every third attempt
+ * ever made. §13 branches on these, so a lifter picking the wrong word here moves
+ * the next recommendation; that is the reason this is the one list on the screen
+ * worth spending two lines a tile on.
+ *
+ * "Pain or unsafe" is not secondary and must never become so. It is the one
+ * reading that stops the tool offering an increase at all.
+ */
+export const EFFORT_CHOICES: readonly Choice[] = [
+  { value: 'flew', label: 'Flew', description: 'Clearly easier or faster than expected.' },
+  { value: 'solid', label: 'Solid', description: 'About as expected.' },
+  { value: 'slow', label: 'Slow', description: 'Harder than expected, but controlled.' },
+  { value: 'grind', label: 'Grind', description: 'Near-maximal.' },
+  { value: 'pain', label: 'Pain or unsafe' },
+  { value: 'unsure', label: 'Not sure', secondary: true },
+];
+
+export function effortLabel(effort: AttemptEffort): string {
+  switch (effort) {
+    case 'flew':
+      return 'Flew';
+    case 'solid':
+      return 'Solid';
+    case 'slow':
+      return 'Slow';
+    case 'grind':
+      return 'Grind';
+    case 'pain':
+      return 'Pain or unsafe';
+    case 'unsure':
+      return 'Not sure';
+  }
+}
+
+/**
+ * §12.3's six reasons.
+ *
+ * The requirement's own sentence is the reason this is a tile list and not a
+ * note: "These reasons materially affect the next recommendation and must not be
+ * hidden in a notes field." The first one carries a description because the
+ * distinction it draws -- the strength was there, the lift was not -- is the
+ * whole point of asking, and it is the difference between the tool offering the
+ * same weight again and offering less.
+ */
+export const MISS_REASON_CHOICES: readonly Choice[] = [
+  {
+    value: 'command',
+    label: 'Command or technical',
+    description: 'The strength was there.',
+  },
+  { value: 'strength', label: 'Strength' },
+  { value: 'pain', label: 'Pain or unsafe' },
+  { value: 'platform-error', label: 'Loading, spotter or official error' },
+  { value: 'administrative', label: 'Timeout or paperwork' },
+  { value: 'unsure', label: 'Not sure', secondary: true },
+];
+
+export function missReasonLabel(reason: MissReason): string {
+  switch (reason) {
+    case 'command':
+      return 'Command or technical';
+    case 'strength':
+      return 'Strength';
+    case 'pain':
+      return 'Pain or unsafe';
+    case 'platform-error':
+      return 'Loading, spotter or official error';
+    case 'administrative':
+      return 'Timeout or paperwork';
+    case 'unsure':
+      return 'Not sure';
+  }
+}
+
+/**
+ * One referee's light.
+ *
+ * Two words rather than two colours: §21 forbids colour as an identity cue on
+ * the coach board, and the same argument applies harder here, where the two
+ * values *are* colours and a red-green reader would be choosing between two
+ * identical tiles. The words are the control; any colour is decoration on top.
+ */
+export const LIGHT_CHOICES: readonly Choice[] = [
+  { value: 'white', label: 'White' },
+  { value: 'red', label: 'Red' },
+];
+
+export function lightLabel(light: RefereeLight): string {
+  switch (light) {
+    case 'white':
+      return 'White';
+    case 'red':
+      return 'Red';
+  }
+}
+
+/** The three positions, in `AttemptLights` order. Names, because they are seats. */
+export const LIGHT_POSITION_LABELS = ['Left', 'Head', 'Right'] as const;
+
+/**
+ * The optional fold, and the promise its summary has to keep.
+ *
+ * §12.1 says light-by-light entry must not be required before the next choices
+ * appear, so everything in here is genuinely optional and the summary has to say
+ * so while folded -- a fold whose summary reads like a question gets opened by
+ * everyone, which costs the taps §12 was counting.
+ */
+export const DETAIL_FOLD_SUMMARY = 'Add lights, RPE or a note -- optional';
+
+/** §12.1's notes field. The referees' stated reason goes here too. */
+export const NOTE_LABEL = 'Notes';
+export const NOTE_HINT =
+  'What the referees said, how the bar moved -- anything worth reading back.';
+
+/**
+ * RPE, and the one place this tool knowingly departs from its requirement.
+ *
+ * §12.2 offers RPE "instead" of the plain-language effort. Here it is an
+ * addition: the effort reading is required on a good lift and RPE sits beside it.
+ * The reason is downstream -- `live-choices.ts` branches on `AttemptEffort` and
+ * on nothing else, so an attempt recorded with RPE alone would reach the next
+ * recommendation with no reading to act on. Mapping 8 onto "solid" would invent
+ * a correspondence nobody published, and would do it silently, at the point where
+ * the tool decides what to offer next.
+ */
+export const RPE_LABEL = 'RPE';
+export const RPE_HINT =
+  'Optional, on the usual 6 to 10 scale. Recorded alongside the reading above, not instead of it.';
+
+/** Said on the card, because §14's named failure is the wrong athlete. */
+export function resultSubjectLine(
+  lifterName: string,
+  lift: PlatformLift,
+  attemptNumber: number,
+): string {
+  return `${lifterName} -- ${liftLabel(lift)} attempt ${String(attemptNumber)}`;
+}
+
+/**
+ * What is still missing, said rather than left for the lifter to work out.
+ *
+ * A disabled button with no explanation is the version of this screen that gets
+ * pressed four times and then abandoned, and this one is disabled for exactly one
+ * reason at a time -- so the sentence can name it.
+ */
+export const OUTCOME_MISSING = 'Choose what happened.';
+export const EFFORT_MISSING = 'Say how it felt. This changes what comes next.';
+export const MISS_REASON_MISSING = 'Say why it was missed. This changes what comes next.';
+
+/** The button. Imperative, because §12 counts the taps and this is the last one. */
+export const RECORD_LABEL = 'Record';
+
+/**
+ * §29 arriving on the one screen where it is most tempting to leave it out.
+ *
+ * The tool has just been told the result of an attempt, which makes it look like
+ * a record of the meet. It is not one: the scoring table's sheet is, and a lifter
+ * who reconciles against this screen at the end of the day is reconciling against
+ * their own typing.
+ */
+export const RECORD_KEEPING_NOTE =
+  "Your record of the day, not the meet's. The scoring table's sheet is the one that counts.";

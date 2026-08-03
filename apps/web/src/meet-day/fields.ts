@@ -93,3 +93,26 @@ export const PERSONAL_RECORD_TOTAL_FIELD = 'personal-record-total';
 export const QUALIFYING_TOTAL_FIELD = 'qualifying-total';
 export const MINIMUM_TOTAL_FIELD = 'minimum-total';
 export const STRETCH_TOTAL_FIELD = 'stretch-total';
+
+/*
+ * §12's result flow. These carry no `data-lift`: the element is handed one
+ * attempt at a time and the attempt already names its lift, so a lift attribute
+ * here would be a second copy of the same fact and a second thing to get wrong.
+ */
+export const OUTCOME_FIELD = 'outcome';
+export const EFFORT_FIELD = 'effort';
+export const MISS_REASON_FIELD = 'miss-reason';
+export const RPE_FIELD = 'rpe';
+export const NOTE_FIELD = 'note';
+
+/**
+ * §12.1's three lights, as a tuple indexed the way `AttemptLights` is.
+ *
+ * The same reasoning as `ATTEMPT_FIELDS`, arriving at a place where it costs
+ * more: these three read left, head, right, and two of the three are
+ * interchangeable to a glance. Three loose constants would let a template draw
+ * the head referee's bar under the left referee's name, and the recorded lights
+ * would be a legal-looking two-to-one in the wrong direction -- which is
+ * precisely the detail somebody goes back to the note for.
+ */
+export const LIGHT_FIELDS = ['light-left', 'light-head', 'light-right'] as const;

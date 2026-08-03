@@ -168,6 +168,17 @@ export type RefereeLight = 'white' | 'red';
 export type AttemptLights = readonly [RefereeLight, RefereeLight, RefereeLight];
 
 /**
+ * The scale RPE is recorded on, exported because a screen has to ask for it.
+ *
+ * `recordResult` refuses anything outside this, and a field that let a lifter
+ * type 12 and then reported a refusal from the document layer would be a form
+ * that validates by being submitted. Exported rather than restated in the tool
+ * so the two cannot drift: a screen that accepted more than the document does
+ * would surface as a recorded attempt silently missing its RPE.
+ */
+export const RPE_BOUNDS = { min: 6, max: 10 } as const;
+
+/**
  * What was recorded about a completed attempt.
  *
  * The effort and the miss reason are **required** on their branches, with
@@ -953,8 +964,15 @@ function recordResult(
     // §12.2 lets an advanced user give RPE instead of the plain-language effort.
     // Bounded because an out-of-range figure would feed a comparison in
     // `live-choices.ts` that has no answer for it.
-    if (!Number.isFinite(result.rpe) || result.rpe < 6 || result.rpe > 10) {
-      return refuse('rpe-out-of-range', 'RPE is recorded on the usual 6 to 10 scale.');
+    if (
+      !Number.isFinite(result.rpe) ||
+      result.rpe < RPE_BOUNDS.min ||
+      result.rpe > RPE_BOUNDS.max
+    ) {
+      return refuse(
+        'rpe-out-of-range',
+        `RPE is recorded on the usual ${String(RPE_BOUNDS.min)} to ${String(RPE_BOUNDS.max)} scale.`,
+      );
     }
   }
 

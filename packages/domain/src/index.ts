@@ -156,6 +156,7 @@ export {
 } from './live-choices.js';
 export {
   MAX_ATTEMPT_NOTE_LENGTH,
+  RPE_BOUNDS,
   UNDO_HISTORY_LIMIT,
   applyMeetAction,
   attemptsOn,
