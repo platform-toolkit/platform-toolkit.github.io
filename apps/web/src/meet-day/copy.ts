@@ -24,15 +24,22 @@
  * or an explanation of why a weight was withheld.
  */
 import {
+  MAX_WEIGHT_INPUT,
   convertWeight,
   formatWeight,
   type AttemptEffort,
   type AttemptRefusalCode,
   type AttemptRisk,
+  type AttemptStatus,
   type AttemptWeight,
   type DataConfidence,
   type EvidenceAge,
   type JumpEvidence,
+  type LiveAttempt,
+  type LiveChoice,
+  type LiveChoiceSlot,
+  type LiveTarget,
+  type LiveTrigger,
   type MaximumSource,
   type MeetGoal,
   type MissReason,
@@ -41,6 +48,8 @@ import {
   type RecordedResult,
   type ResearchComparison,
   type RefereeLight,
+  type RunningTotal,
+  type WeightInputProblem,
   type WeightUnit,
 } from '@platform-toolkit/domain';
 import type { MeetFormat, PlatformLift } from '@platform-toolkit/data-contracts';
@@ -899,3 +908,319 @@ export const RECORD_LABEL = 'Record';
  */
 export const RECORD_KEEPING_NOTE =
   "Your record of the day, not the meet's. The scoring table's sheet is the one that counts.";
+
+/*
+ * ---------------------------------------------------------------------------
+ * §13: the three choices, live.
+ *
+ * TWO VOCABULARIES THAT SHARE THREE WORDS
+ *
+ * §13 names the three slots Secure, Recommended and Push. §10.2 names the four
+ * risk bands Secure, Recommended, Push and Long shot. They are not the same
+ * scale and they do not move together: the slot says which of three offers a
+ * card is, and the band says what `classifyAttemptRisk` made of the weight on
+ * it. A Push slot holding a Recommended weight is not a contradiction -- it is
+ * what a conservative plan looks like after a lift flew -- but a card headed
+ * "Push" carrying a bare chip reading "Recommended" cannot be read at all.
+ *
+ * Neither word can be renamed. Both are the requirement's own, and inventing a
+ * synonym for a term §10.2 defines would put a fifth word into a vocabulary
+ * that already has one word too many. So the risk band is never printed bare on
+ * this screen: it arrives prefixed, "Risk: Recommended", and the slot name is
+ * the card's heading. Exactly one of the two is always labelled, which is the
+ * cheapest thing that makes the pair legible, and it is a wording rule rather
+ * than a layout one -- a colour or a position would be lost the moment the card
+ * is read aloud, which on a platform floor is how it is usually read.
+ * ---------------------------------------------------------------------------
+ */
+
+/** Which of the three offers this is. The card's heading. */
+export function slotLabel(slot: LiveChoiceSlot): string {
+  switch (slot) {
+    case 'secure':
+      return 'Secure';
+    case 'recommended':
+      return 'Recommended';
+    case 'push':
+      return 'Push';
+  }
+}
+
+/**
+ * What the three slots are, said once above them.
+ *
+ * The sentence exists because the highlighted card is the tool's answer and the
+ * other two are not runners-up -- §13 requires all three to stay pressable, and
+ * a lifter who reads the highlight as the only real option has lost the choice
+ * the screen was built to offer.
+ */
+export const SLOTS_EXPLANATION =
+  'Three legal weights, all of them yours to take. The highlighted one is what this tool would do; the other two are not worse answers, they are different bets.';
+
+/**
+ * The highlight, as a word rather than as a border.
+ *
+ * §13 asks for one option to be highlighted, and a tinted edge is the obvious
+ * way to do it -- which fails under forced colours, fails for a reader who
+ * cannot separate the hues, and fails completely when the card is read out. The
+ * badge is the highlight; the border is decoration on top of it.
+ */
+export const HIGHLIGHT_BADGE = "This tool's pick";
+
+/** Said when nothing was graded, so an absent band is not read as a safe one. */
+export const RISK_NOT_ASSESSED = 'Risk: not graded without a confirmed meet-day maximum';
+
+/**
+ * The risk band, always prefixed, never bare (see the header above).
+ *
+ * Takes the whole choice rather than the band so that the one card with no
+ * weight on it -- Pass -- is answered here instead of in the template. There is
+ * nothing to grade about not lifting, and "Risk: not graded" on that card would
+ * read as a warning about passing.
+ */
+export function riskLine(choice: LiveChoice): string | null {
+  if (choice.kilograms === null) return null;
+  if (choice.risk === null) return RISK_NOT_ASSESSED;
+  return `Risk: ${riskLabel(choice.risk)}`;
+}
+
+/**
+ * The jump from the preceding attempt, in kilograms and only in kilograms.
+ *
+ * The lifter's display unit is deliberately not consulted. §16 makes kilograms
+ * the attempt, so the weight on this card is a kilogram figure, and a jump
+ * printed in pounds beside it is two units in one sentence about one bar -- the
+ * reading that produces is "up 11" from "182.5", which is not arithmetic anyone
+ * can do standing up.
+ */
+export function increaseText(choice: LiveChoice): string | null {
+  const increase = choice.increaseKilograms;
+  if (increase === null) return null;
+  if (choice.repeat || increase === 0) return 'The same weight again';
+  if (increase < 0) return `Down ${formatWeight({ amount: -increase, unit: 'kg' })}`;
+  return `Up ${formatWeight({ amount: increase, unit: 'kg' })}`;
+}
+
+/**
+ * The weight as a share of the confirmed meet-day maximum.
+ *
+ * Whole numbers. A tenth of a percent of a maximum is a hundred grams of
+ * implied precision, and the maximum this is a share of was in most cases typed
+ * from memory -- the extra digit would be the most precise-looking thing on the
+ * card and the least earned.
+ *
+ * Not a probability and must never be worded as one (§10.2): this says where
+ * the weight sits on a scale the lifter already believes, and says nothing at
+ * all about whether it goes up.
+ */
+export function percentOfMaximumText(percentOfMaximum: number | null): string | null {
+  if (percentOfMaximum === null) return null;
+  return `${percentOfMaximum.toFixed(0)}% of your meet-day maximum`;
+}
+
+/**
+ * The subtotal or the total this choice would leave standing.
+ *
+ * A total *is* shown in the lifter's unit, unlike the attempt above it: nobody
+ * calls a total to an expeditor, so the §16 rule that makes the attempt a
+ * kilogram figure does not reach it, and a lifter chasing a 1200 lb total wants
+ * to see it in the unit they set it in.
+ */
+export function projectedText(projected: RunningTotal, unit: WeightUnit): string {
+  const amount = weightText(projected.kilograms, unit);
+  if (projected.isTotal) return `Total ${amount}`;
+  if (projected.liftsOutstanding.length === 0) return `Subtotal ${amount}`;
+  return `Subtotal ${amount}, ${liftListText(projected.liftsOutstanding)} still to come`;
+}
+
+/** §13's "reaches a target", named with the caller's own words for the target. */
+export function reachesText(targets: readonly LiveTarget[]): string | null {
+  if (targets.length === 0) return null;
+  return `Reaches ${listText(targets.map((target) => target.label))}`;
+}
+
+/**
+ * What taking this choice gives up.
+ *
+ * §13.3 asks for it on a reduction and this shows it on any choice that has
+ * one, because the case that matters is the secure card quietly surrendering a
+ * record the push card would have reached -- which is a fact about the secure
+ * card, and putting it only on the reduction would hide it exactly there.
+ */
+export function surrendersText(targets: readonly LiveTarget[]): string | null {
+  if (targets.length === 0) return null;
+  return `Gives up ${listText(targets.map((target) => target.label))}`;
+}
+
+/**
+ * §13.4's label, which the requirement asks for in those words.
+ *
+ * A tactical weight is chosen against another lifter's attempt and not against
+ * what this lifter can lift, and the two reasons produce the same number on the
+ * same card. Unlabelled, a lifter reads the tool's opinion of their strength
+ * off a figure that was never about it.
+ */
+export const TACTICAL_NOTE = 'Tactical: chosen against the other lifters, not against your best';
+
+/** §13.5's words, kept exactly, because they are what gets said to an official. */
+export const PASS_LABEL = 'Pass / Stop this lift';
+
+/**
+ * The button on a card.
+ *
+ * Takes the resolved `AttemptWeight` and not a raw number so that the kilogram
+ * figure on the button is the same object the card printed above it. Three
+ * buttons reading "Choose" would also be three identical accessible names in
+ * one list, which is the version of this screen a screen reader cannot use.
+ */
+export function chooseLabel(weight: AttemptWeight | null): string {
+  return weight === null ? PASS_LABEL : `Choose ${attemptKilogramsText(weight)}`;
+}
+
+/**
+ * What the offer is reacting to, said out loud above it.
+ *
+ * The three weights change completely between a lift that flew and one that was
+ * a grind, and the reading that moved them was typed a screen ago. Printing it
+ * here is what lets a lifter notice they tapped the wrong tile -- otherwise the
+ * only evidence is that the numbers look wrong, and by then it is a declaration.
+ */
+export function triggerSentence(trigger: LiveTrigger): string {
+  switch (trigger) {
+    case 'flew':
+      return 'That one flew.';
+    case 'solid':
+      return 'That one was solid.';
+    case 'slow':
+      return 'That one was slow.';
+    case 'grind':
+      return 'That one was a grind.';
+    case 'pain':
+      return 'You reported pain on that one.';
+    case 'effort-not-recorded':
+      return 'Good lift, with no reading of how it felt.';
+    case 'command-miss':
+      return 'Missed on a command.';
+    case 'strength-miss':
+      return 'Missed on strength.';
+    case 'pain-miss':
+      return 'Missed, with pain reported.';
+    case 'platform-error':
+      return 'Missed on a platform error.';
+    case 'administrative-miss':
+      return 'Missed on an administrative call.';
+    case 'miss-reason-not-recorded':
+      return 'Missed, with no reason recorded.';
+    case 'attempt-set-aside':
+      return 'That attempt was set aside and another granted.';
+    case 'nothing-recorded-yet':
+      return 'Nothing taken on this lift yet.';
+  }
+}
+
+/**
+ * The free-entry field, which is the half of §13 that is easiest to leave out.
+ *
+ * "Never prevent the user from entering a different legal weight" is a
+ * requirement about this control existing, and a screen with three cards and no
+ * field meets every other line of §13 while failing that one. The hint says the
+ * three are suggestions because a card looks like a menu and a menu looks
+ * closed.
+ */
+export const OTHER_WEIGHT_LABEL = 'Another weight';
+export const OTHER_WEIGHT_HINT =
+  'Kilograms. The three above are suggestions, not the list -- anything legal for this attempt can go here.';
+export const OTHER_WEIGHT_SUBMIT = 'Use this weight';
+
+/** Kilograms, because the attempt is a kilogram figure and nothing here converts (§16). */
+export const OTHER_WEIGHT_MUST_BE_KILOGRAMS =
+  'Attempts are declared in kilograms, so type the kilogram figure with no unit after it.';
+
+/** One sentence per way a typed weight fails to be a weight. */
+export function weightInputProblemSentence(code: WeightInputProblem): string {
+  switch (code) {
+    case 'empty':
+      return 'Type a weight first.';
+    case 'not-a-number':
+      return 'Enter the weight using digits, for example 182.5.';
+    case 'negative':
+      return 'A weight cannot be negative.';
+    case 'too-large':
+      return `Enter a weight under ${String(MAX_WEIGHT_INPUT)} kg.`;
+    case 'unknown-unit':
+      return OTHER_WEIGHT_MUST_BE_KILOGRAMS;
+  }
+}
+
+/**
+ * §13.8's extras, kept beside the three and never among them.
+ *
+ * A fourth attempt is not a fourth choice: it does not raise the floor under a
+ * later attempt, it does not count toward the total in most rule sets, and a
+ * lifter who takes one from the same list they take a competition attempt from
+ * has made the mistake the separate status exists to prevent.
+ */
+export const EXTRA_ATTEMPTS_HEADING = 'Extra attempts';
+export const EXTRA_ATTEMPTS_NOTE =
+  'Tracked apart from the three. These do not raise the floor under a competition attempt.';
+
+export function extraAttemptLine(attempt: LiveAttempt): string {
+  const kind = attempt.kind === 'record' ? 'Record attempt' : 'Extra attempt';
+  const weight =
+    attempt.kilograms === null
+      ? 'no weight yet'
+      : formatWeight({ amount: attempt.kilograms, unit: 'kg' });
+  return `${kind} on ${liftMidSentence(attempt.lift)} -- ${weight}, ${attemptStatusText(attempt.status)}`;
+}
+
+/** Where an attempt has got to, in the words a handler would use. */
+export function attemptStatusText(status: AttemptStatus): string {
+  switch (status) {
+    case 'planned':
+      return 'planned';
+    case 'proposed':
+      return 'proposed';
+    case 'selected':
+      return 'chosen, not yet handed in';
+    case 'submitted':
+      return 'handed in';
+    case 'confirmed':
+      return 'confirmed by the table';
+    case 'locked':
+      return 'locked';
+    case 'good':
+      return 'good lift';
+    case 'no-lift':
+      return 'no lift';
+    case 'passed':
+      return 'passed';
+    case 'extra-attempt-granted':
+      return 'set aside, another granted';
+  }
+}
+
+/** Said where there is nothing to offer, so an empty card list is an answer. */
+export const NO_CHOICES_NOTE = 'No weights to offer on this lift.';
+
+/** The lift named inside a sentence, where a capital would read as a heading. */
+function liftMidSentence(lift: PlatformLift): string {
+  switch (lift) {
+    case 'squat':
+      return 'squat';
+    case 'bench':
+      return 'bench press';
+    case 'deadlift':
+      return 'deadlift';
+  }
+}
+
+function liftListText(lifts: readonly PlatformLift[]): string {
+  return listText(lifts.map(liftMidSentence));
+}
+
+/** "a", "a and b", "a, b and c". No serial comma, matching the rest of this file. */
+function listText(items: readonly string[]): string {
+  if (items.length <= 1) return items.join('');
+  const last = items[items.length - 1] ?? '';
+  return `${items.slice(0, -1).join(', ')} and ${last}`;
+}

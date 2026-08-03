@@ -11,130 +11,43 @@
  * copes with one proves the screen copes with something that will never arrive,
  * while saying nothing about the states that will.
  *
- * No figure below is written out where it can be derived. Both the rule book and
- * the chart are invented (§5.1), and the fixture's bar multiple is a half
- * kilogram with a one-kilogram minimum progression -- unlike anything published,
- * so an assertion that passed against a hard-coded real increment fails here.
+ * The builders live in `live-fixture.ts` because §13's element and its stories
+ * need the same meet; the reasoning about why they are builders and not literals
+ * moved there with them.
  */
 
 import { describe, expect, it } from 'vitest';
 import {
   MEET_STAFF_ARE_AUTHORITATIVE,
-  applyMeetAction,
   createMeetDocument,
-  nextAttemptOn,
   startTimeline,
-  type MeetAction,
   type MeetTimeline,
-  type RecordedResult,
 } from '@platform-toolkit/domain';
-import type { MeetFormat, PlatformLift } from '@platform-toolkit/data-contracts';
 
 import {
   EMPTY_LIVE_VIEW,
-  NOTHING_OBSERVED,
-  NO_PLANNING_AT_ALL,
   SUBMISSION_CRITICAL_SECONDS,
   SUBMISSION_HURRY_SECONDS,
   awaitingResult,
   buildLiveView,
   urgencyFor,
-  type LiveContext,
 } from './live.js';
-import { CHARTED_CONTEXT } from './planner-fixture.js';
-import { rulesFor } from './meet-rules.fixture.js';
-
-const RULES = rulesFor();
-const CHART = CHARTED_CONTEXT.chart;
-
-/** Invented, and the point of the panel it appears on (§14). */
-const LIFTER = 'Dana Okafor';
-
-/** Every action lands here, so the whole suite has one clock and no `Date`. */
-const START = 1_700_000_000_000;
-
-/** Chart rows are 5 kg apart from 150, so these three all have a published pound figure. */
-const OPENER = 180;
-const SECOND = 190;
-const THIRD = 200;
-
-function act(timeline: MeetTimeline, action: MeetAction, at = START): MeetTimeline {
-  const result = applyMeetAction(RULES, timeline, action, at);
-  if (!result.ok) {
-    throw new Error(
-      `fixture action ${action.kind} was refused: ${result.problems.map((p) => p.code).join(', ')}`,
-    );
-  }
-  return result.timeline;
-}
-
-function meetWith(format: MeetFormat = 'full-power'): MeetTimeline {
-  return act(startTimeline(createMeetDocument(RULES, format)), {
-    kind: 'add-lifter',
-    name: LIFTER,
-  });
-}
-
-function onlyLifterIn(timeline: MeetTimeline): string {
-  const [first] = timeline.present.lifters;
-  if (first === undefined) throw new Error('fixture has no lifter');
-  return first.id;
-}
-
-function nextAttemptIdOn(timeline: MeetTimeline, lift: PlatformLift): string {
-  const [lifter] = timeline.present.lifters;
-  if (lifter === undefined) throw new Error('fixture has no lifter');
-  const next = nextAttemptOn(lifter, lift);
-  if (next === null) throw new Error(`fixture has no attempt left on the ${lift}`);
-  return next.id;
-}
-
-/** Declares a weight and gets it as far as the table, without a result. */
-function submit(
-  timeline: MeetTimeline,
-  lift: PlatformLift,
-  kilograms: number,
-  at = START,
-): MeetTimeline {
-  const attemptId = nextAttemptIdOn(timeline, lift);
-  const declared = act(timeline, { kind: 'set-attempt-weight', attemptId, kilograms }, at);
-  return act(declared, { kind: 'advance-attempt', attemptId, to: 'submitted' }, at);
-}
-
-/** One whole attempt, from declaring the weight to the lights. */
-function take(
-  timeline: MeetTimeline,
-  lift: PlatformLift,
-  kilograms: number,
-  result: RecordedResult = { outcome: 'good', effort: 'solid' },
-  at = START,
-): MeetTimeline {
-  const attemptId = nextAttemptIdOn(timeline, lift);
-  return act(
-    submit(timeline, lift, kilograms, at),
-    { kind: 'record-result', attemptId, result },
-    at,
-  );
-}
-
-function contextAt(now: number, patch: Partial<LiveContext> = {}): LiveContext {
-  return {
-    rules: RULES,
-    chart: CHART,
-    planning: NO_PLANNING_AT_ALL,
-    targets: [],
-    observed: NOTHING_OBSERVED,
-    now,
-    ...patch,
-  };
-}
-
-/** Throws rather than returning null, so no assertion below has to unwrap. */
-function viewOf(timeline: MeetTimeline, context = contextAt(START)) {
-  const view = buildLiveView(timeline, onlyLifterIn(timeline), context);
-  if (view === null) throw new Error('fixture lifter was not found in the meet');
-  return view;
-}
+import {
+  LIFTER,
+  OPENER,
+  RULES,
+  SECOND,
+  START,
+  THIRD,
+  act,
+  contextAt,
+  meetWith,
+  nextAttemptIdOn,
+  onlyLifterIn,
+  submit,
+  take,
+  viewOf,
+} from './live-fixture.js';
 
 describe('buildLiveView', () => {
   it('answers null for a lifter who is not in this meet', () => {

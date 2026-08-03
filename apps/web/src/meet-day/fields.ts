@@ -116,3 +116,25 @@ export const NOTE_FIELD = 'note';
  * precisely the detail somebody goes back to the note for.
  */
 export const LIGHT_FIELDS = ['light-left', 'light-head', 'light-right'] as const;
+
+/*
+ * §13's three choices.
+ *
+ * The odd one out in this file: every other constant here is the *value* of a
+ * `data-field` attribute, and this is the attribute's own name -- the value is
+ * the slot, which differs per card. So a choice button carries `data-slot`
+ * followed by its slot, and the handler reads `dataset.slot`.
+ *
+ * The card is identified by its slot and not by its position in the list. The
+ * live screen repaints off the clock seam four times a second (§14), so the
+ * array behind these cards is rebuilt between a press starting and the handler
+ * running; an index would then name whichever card had moved into that
+ * position, and the failure is a declared weight nobody chose. A slot names the
+ * same offer across a rebuild. `collapseDuplicates` in `live-choices.ts` folds
+ * by weight and never emits two cards in one slot, so the key is unique as well
+ * as stable.
+ */
+export const CHOICE_SLOT_FIELD = 'slot';
+
+/** §13's "a different legal weight", which is a field and not a card. */
+export const OTHER_WEIGHT_FIELD = 'other-weight';
