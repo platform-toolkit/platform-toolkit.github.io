@@ -72,10 +72,10 @@ import {
   liftLabel,
   percentOfMaximumText,
   poundsAbsenceSentence,
-  projectedText,
   reachesText,
   refusalSentence,
   riskLine,
+  runningTotalText,
   slotLabel,
   surrendersText,
   triggerSentence,
@@ -360,7 +360,7 @@ export class PtkLiveChoices extends LitElement {
         <ul class="facts">
           ${increase === null ? nothing : html`<li>${increase}</li>`}
           ${percent === null ? nothing : html`<li>${percent}</li>`}
-          <li>${projectedText(choice.projected, this.unit)}</li>
+          <li>${runningTotalText(choice.projected, this.unit)}</li>
           ${risk === null ? nothing : html`<li>${risk}</li>`}
           ${reaches === null ? nothing : html`<li class="reaches">${reaches}</li>`}
           ${surrenders === null ? nothing : html`<li class="surrenders">${surrenders}</li>`}

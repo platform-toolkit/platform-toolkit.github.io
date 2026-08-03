@@ -89,6 +89,34 @@ export function nextAttemptIdOn(timeline: MeetTimeline, lift: PlatformLift): str
   return next.id;
 }
 
+/**
+ * Chooses a weight and stops short of the table, which is §11's `submit-to-the-table`.
+ *
+ * The one state between choosing and the table, and the only way to reach it:
+ * `submit` below advances past it in the same call, so a caller that wanted the
+ * screen mid-declaration would otherwise have to hand-write a document, which is
+ * the thing the header of this file rules out.
+ *
+ * It takes **two** actions and the second one is the whole point. `set-attempt-weight`
+ * writes the kilograms and deliberately leaves the status alone -- an attempt with a
+ * weight on it is still `planned`, because the plan holds weights nobody has declared
+ * -- so a fixture that stopped after it is indistinguishable from one that chose
+ * nothing, and `actionFor` still reads `choose-the-next-attempt`. It is `selected`
+ * that says a human picked this, and `selected` is the state the table has not been
+ * told about yet. Written the short way first, and the test asserting the four
+ * headlines are four distinct sentences is what caught it.
+ */
+export function choose(
+  timeline: MeetTimeline,
+  lift: PlatformLift,
+  kilograms: number,
+  at = START,
+): MeetTimeline {
+  const attemptId = nextAttemptIdOn(timeline, lift);
+  const declared = act(timeline, { kind: 'set-attempt-weight', attemptId, kilograms }, at);
+  return act(declared, { kind: 'advance-attempt', attemptId, to: 'selected' }, at);
+}
+
 /** Declares a weight and gets it as far as the table, without a result. */
 export function submit(
   timeline: MeetTimeline,

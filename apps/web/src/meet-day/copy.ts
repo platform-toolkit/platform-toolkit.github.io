@@ -32,6 +32,7 @@ import {
   type AttemptRisk,
   type AttemptStatus,
   type AttemptWeight,
+  type BombOutRisk,
   type DataConfidence,
   type EvidenceAge,
   type JumpEvidence,
@@ -41,6 +42,7 @@ import {
   type LiveTarget,
   type LiveTrigger,
   type MaximumSource,
+  type MeetAction,
   type MeetGoal,
   type MissReason,
   type PublishedPoundsReason,
@@ -55,7 +57,7 @@ import {
 import type { MeetFormat, PlatformLift } from '@platform-toolkit/data-contracts';
 import { type Choice } from '@platform-toolkit/ui';
 
-import type { SubmissionUrgency } from './live.js';
+import type { LivePosition, NextActionCode, SubmissionUrgency, UrgentNote } from './live.js';
 import type { PlanProblem } from './plan.js';
 import {
   EQUIPMENT_CATEGORIES,
@@ -1020,18 +1022,25 @@ export function percentOfMaximumText(percentOfMaximum: number | null): string | 
 }
 
 /**
- * The subtotal or the total this choice would leave standing.
+ * A running total said as a subtotal or as a total, with what is still to come.
+ *
+ * Named for the shape rather than for the caller, because there are two of these
+ * on the §11 screen -- what is banked and what the highlighted choice would leave
+ * -- and one function formatting both is the point: it was called `projectedText`
+ * while it had one call site, and a second name for the same fact is how the two
+ * figures drift into being worded differently, which §17 is precisely about.
+ * Which of the two a figure is comes from its heading, not from its sentence.
  *
  * A total *is* shown in the lifter's unit, unlike the attempt above it: nobody
  * calls a total to an expeditor, so the §16 rule that makes the attempt a
  * kilogram figure does not reach it, and a lifter chasing a 1200 lb total wants
  * to see it in the unit they set it in.
  */
-export function projectedText(projected: RunningTotal, unit: WeightUnit): string {
-  const amount = weightText(projected.kilograms, unit);
-  if (projected.isTotal) return `Total ${amount}`;
-  if (projected.liftsOutstanding.length === 0) return `Subtotal ${amount}`;
-  return `Subtotal ${amount}, ${liftListText(projected.liftsOutstanding)} still to come`;
+export function runningTotalText(total: RunningTotal, unit: WeightUnit): string {
+  const amount = weightText(total.kilograms, unit);
+  if (total.isTotal) return `Total ${amount}`;
+  if (total.liftsOutstanding.length === 0) return `Subtotal ${amount}`;
+  return `Subtotal ${amount}, ${liftListText(total.liftsOutstanding)} still to come`;
 }
 
 /** §13's "reaches a target", named with the caller's own words for the target. */
@@ -1340,6 +1349,185 @@ export const OFFICIAL_CLOCK_NOTE =
 
 /** Said in place of the panel, so "no deadline is running" is an answer. */
 export const NO_SUBMISSION_NOTE = 'No submission deadline is running.';
+
+/*
+ * ---------------------------------------------------------------------------
+ * §11: live mode, where the screen says one thing.
+ *
+ * ONE NEXT ACTION, NOT A LIST OF EVERYTHING POSSIBLE
+ *
+ * §11 asks that live mode "remove setup details from the immediate workflow and
+ * show only what matters now", and names the next action as prominent. So the
+ * headline below is one sentence in the imperative, chosen from four codes, and
+ * every other thing the screen can do stays reachable without being offered.
+ * The failure this avoids is the screen it replaces: a lifter at the expeditor's
+ * table reading a page of live controls and having to work out which one is
+ * theirs, with under a minute to do it.
+ *
+ * THE FIGURES ARE NAMED, NEVER JUST SHOWN
+ *
+ * There are two totals on this screen and §17 forbids collapsing them into one.
+ * Both therefore carry their own heading, and the projected one says out loud
+ * that it depends on an attempt that has not happened. A lifter two lifts in,
+ * shown one figure, believes the day is banked.
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * §11's headline, in the imperative, one code at a time.
+ *
+ * Written as an instruction rather than as a status ("Choose the next attempt",
+ * not "Awaiting selection") because the requirement is that the lifter be told
+ * the next thing to do. A status line is a description of the tool's state, and
+ * the reader then has to translate it into their own action -- which is the step
+ * this screen exists to remove.
+ */
+export function nextActionHeadline(action: NextActionCode): string {
+  switch (action) {
+    case 'choose-the-next-attempt':
+      return 'Choose the next attempt';
+    case 'submit-to-the-table':
+      return 'Take the weight to the table';
+    case 'record-the-result':
+      return 'Record what the referees gave';
+    case 'the-meet-is-over':
+      return 'Your meet is done';
+  }
+}
+
+/**
+ * §11's "current lift and round", as one line.
+ *
+ * The round is the attempt number and is said as a word rather than shown as a
+ * bare digit beside the weights: "Squat, attempt 2" cannot be misread as part of
+ * the figure below it, and on this screen every other number is a kilogram.
+ */
+export function positionText(position: LivePosition): string {
+  if (position.lift === null || position.attemptNumber === null) {
+    return 'No lift under way';
+  }
+  return `${liftLabel(position.lift)}, attempt ${String(position.attemptNumber)}`;
+}
+
+/** §11's "jump from the previous attempt", which is silent rather than zero on an opener. */
+export function jumpText(jumpKilograms: number | null): string | null {
+  if (jumpKilograms === null) return null;
+  if (jumpKilograms === 0) return 'Same weight again';
+  const direction = jumpKilograms > 0 ? 'Up' : 'Down';
+  return `${direction} ${formatWeight({ amount: Math.abs(jumpKilograms), unit: 'kg' })} from the last attempt`;
+}
+
+export const NEXT_ATTEMPT_HEADING = 'Next attempt';
+
+/** Said where no attempt is owed, so an empty card is an answer rather than a gap. */
+export const NO_NEXT_ATTEMPT_NOTE = 'No attempt is owed right now.';
+
+/** Said where the attempt exists but has no weight yet, which is a state and not a fault. */
+export const NEXT_ATTEMPT_UNCHOSEN = 'No weight chosen yet.';
+
+export const BANKED_HEADING = 'Banked so far';
+export const PROJECTED_HEADING = 'If the highlighted choice is made';
+
+/**
+ * Said in place of a projected figure when the tool is pointing at a pass.
+ *
+ * Printing the banked total under "projected" would read as the pass adding
+ * something, when what it does is close the lift -- which is why `LiveView`
+ * carries `null` there rather than repeating the banked figure (§13.5).
+ */
+export const NO_PROJECTION_NOTE = 'The pick is to stop this lift, so there is nothing to project.';
+
+/**
+ * §11's "attempts or lifters remaining before the user is called".
+ *
+ * Zero is "You are up now" and is a different sentence, not a smaller number:
+ * the figure a handler acts on is whether to send the lifter to the platform.
+ * `null` is nobody having counted, which gets its own sentence rather than no
+ * line at all -- a missing line reads as "there is nobody ahead of you", which
+ * is the one wrong answer that costs an attempt.
+ */
+export function attemptsBeforeCalledText(attemptsBeforeCalled: number | null): string {
+  if (attemptsBeforeCalled === null) return 'Attempts ahead of you: not counted';
+  if (attemptsBeforeCalled === 0) return 'You are up now';
+  if (attemptsBeforeCalled === 1) return '1 attempt before you are called';
+  return `${String(attemptsBeforeCalled)} attempts before you are called`;
+}
+
+/**
+ * §13.7's prominent warning, and the single miss it deliberately says nothing
+ * about.
+ *
+ * One miss is an ordinary meet. A warning on it fires for most lifters in most
+ * flights and teaches the reader to skim the one that matters, which is the same
+ * argument that keeps the countdown from buzzing on its calm band. Two is where
+ * §13.7 asks for prominence, and the last chance is its own sentence because the
+ * consequence -- no total for the day, not merely a weaker one -- is the part a
+ * lifter mid-meet is least likely to have in mind.
+ */
+export function bombOutSentence(bombOut: BombOutRisk): string | null {
+  if (bombOut.onTheLastChance) {
+    return 'Last chance on this lift. Miss it and there is no total for the day.';
+  }
+  if (bombOut.misses >= 2) {
+    return `Two misses on this lift, ${String(bombOut.attemptsRemaining)} left.`;
+  }
+  return null;
+}
+
+/** §11's "any urgent warm-up or equipment action", labelled by which it is. */
+export function urgentNoteLabel(kind: UrgentNote['kind']): string {
+  switch (kind) {
+    case 'warm-up':
+      return 'Warm-up';
+    case 'equipment':
+      return 'Equipment';
+  }
+}
+
+export const URGENT_HEADING = 'Needs doing now';
+
+/**
+ * §13.9's control, naming what it would take back.
+ *
+ * An undo button reading only "Undo" asks a lifter to remember what the last
+ * thing they did was, at the one moment they are least able to -- and the action
+ * being undone is usually a mis-tapped result, which the tool knows and they may
+ * not. So the label says it, and the action is carried in the event so a caller
+ * can check it is still undoing the thing that was on screen when the button was
+ * pressed.
+ */
+export function undoLabel(action: MeetAction): string {
+  switch (action.kind) {
+    case 'add-lifter':
+      return 'Undo adding the lifter';
+    case 'focus-lifter':
+      return 'Undo switching lifter';
+    case 'set-attempt-weight':
+      return `Undo choosing ${formatWeight({ amount: action.kilograms, unit: 'kg' })}`;
+    case 'advance-attempt':
+      return 'Undo handing the attempt in';
+    case 'record-result':
+      return `Undo recording ${outcomeLabel(action.result.outcome).toLowerCase()}`;
+    case 'grant-extra-attempt':
+      return 'Undo granting the extra attempt';
+    case 'annotate-attempt':
+      return 'Undo the lights or the note';
+    case 'add-record-attempt':
+      return 'Undo adding the record attempt';
+  }
+}
+
+/** Said in place of the control, so the absence of undo is stated rather than blank. */
+export const NOTHING_TO_UNDO = 'Nothing to undo yet.';
+
+/** §11's "advanced details remain available without competing with the next action". */
+export const MEET_DETAIL_SUMMARY = 'Meet detail';
+
+/** Which lifts are behind the lifter, so the banked figure can be read against something. */
+export function liftsFinishedText(lifts: readonly PlatformLift[]): string {
+  if (lifts.length === 0) return 'No lift is finished yet.';
+  return `Finished: ${liftListText(lifts)}.`;
+}
 
 /** The lift named inside a sentence, where a capital would read as a heading. */
 function liftMidSentence(lift: PlatformLift): string {
