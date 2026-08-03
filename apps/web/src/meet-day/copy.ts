@@ -26,9 +26,15 @@
 import {
   convertWeight,
   formatWeight,
+  type AttemptRefusalCode,
+  type AttemptRisk,
+  type AttemptWeight,
+  type DataConfidence,
   type EvidenceAge,
+  type JumpEvidence,
   type MaximumSource,
   type MeetGoal,
+  type PublishedPoundsReason,
   type Readiness,
   type ResearchComparison,
   type WeightUnit,
@@ -436,4 +442,162 @@ export function equipmentChoices(): readonly Choice[] {
         label: category,
       },
   );
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * The plan screen.
+ *
+ * Everything below labels something the domain already decided. Nothing here
+ * grades, compares or combines -- the two headline words on this screen are
+ * §10's two axes, and the whole rule about them is that a sentence naming both
+ * must not exist. So they get separate label functions, separate explanations,
+ * and no function that takes them together.
+ * ---------------------------------------------------------------------------
+ */
+
+/** §9's names for the three attempts. */
+export function attemptLabel(attemptNumber: 1 | 2 | 3): string {
+  switch (attemptNumber) {
+    case 1:
+      return 'Opener';
+    case 2:
+      return 'Second attempt';
+    case 3:
+      return 'Third attempt';
+  }
+}
+
+/** §10.2's four words, verbatim, and the interface may use no others. */
+export function riskLabel(risk: AttemptRisk): string {
+  switch (risk) {
+    case 'secure':
+      return 'Secure';
+    case 'recommended':
+      return 'Recommended';
+    case 'push':
+      return 'Push';
+    case 'long-shot':
+      return 'Long shot';
+  }
+}
+
+/**
+ * What the risk word is measuring, said once beside the scale.
+ *
+ * The sentence has one job beyond describing the axis, and it is the last line:
+ * a lifter who reads "Long shot" as an estimate of whether the lift will go up
+ * has read a probability off a screen that never printed one, and §10.2's ban is
+ * on the claim rather than on the digits. Saying what the word is *not* is the
+ * only way to close that, because the word alone invites the reading.
+ */
+export const RISK_EXPLANATION =
+  'Risk describes how much of a reach a weight is against your confirmed maximum, one attempt at a time. It is not a statement about whether the lift will be good on the day.';
+
+/** §10.1's three grades. */
+export function confidenceLabel(level: DataConfidence): string {
+  switch (level) {
+    case 'high':
+      return 'High';
+    case 'medium':
+      return 'Medium';
+    case 'low':
+      return 'Low';
+  }
+}
+
+/**
+ * The other axis, and the sentence that keeps the two apart.
+ *
+ * §10 requires these never to be fused into one score, and the failure that rule
+ * exists to prevent is not a formula -- it is a reader who sees two words side by
+ * side and averages them. A low grade beside a Secure opener is a perfectly
+ * coherent plan; this says so in as many words, because nothing else on the
+ * screen can.
+ */
+export const CONFIDENCE_EXPLANATION =
+  'Data confidence grades how well described you are, not how good the plan is. It moves only when you tell the planner more about where your maximum came from. A plan can be well described and ambitious, or thinly described and cautious.';
+
+/** §9: the third is recalculated after the second, so it is never a commitment. */
+export const PROVISIONAL_NOTE =
+  'A scenario, not a commitment. Decide it after you see the second attempt.';
+
+/**
+ * §9.3's caveat, which is required whether or not the lifter is in the dataset.
+ *
+ * Both arms name the population, because the requirement is that a warning
+ * "explain that these ranges come from population data in raw IPF competition
+ * and may not fit every lifter" -- and the arm that matters most is `general`,
+ * where the lifter is outside the measured group and the numbers are the same
+ * numbers. §9.3 asks for a lower-evidence label there rather than false
+ * precision, so the wording says the range is being quoted at a distance rather
+ * than quietly dropping it.
+ */
+export function jumpEvidenceNote(evidence: JumpEvidence): string {
+  switch (evidence) {
+    case 'population-matched':
+      return 'Drawn from published jump data measured in raw international competition. It describes what lifters commonly do, and may not fit you.';
+    case 'general':
+      return 'Drawn from published jump data measured in raw international competition, on lifters set up differently from you -- equipment, rules or comparison group. Treat it as general guidance rather than a figure matched to your lifting.';
+  }
+}
+
+/** §15.1: the tool checks a weight against the rules and never submits one. */
+export function refusalSentence(code: AttemptRefusalCode): string {
+  switch (code) {
+    case 'not-a-legal-bar-weight':
+      return 'The bar cannot be loaded to this weight under the chosen rule book.';
+    case 'below-the-minimum-progression':
+      return 'This is not far enough above the attempt before it.';
+    case 'below-a-failed-attempt':
+      return 'This is below an attempt that was already missed, which the rule book does not allow.';
+  }
+}
+
+/**
+ * An attempt, in kilograms, whatever unit the lifter is typing in.
+ *
+ * Deliberately not `weightText`, and this is the one place on the screen where
+ * the difference matters. `weightText` writes a figure in the lifter's chosen
+ * unit, which for an attempt means computing a pound figure -- and §16 gives that
+ * job to the federation's published chart and to nothing else. A card is written
+ * in kilograms on every platform this tool has a rule profile for, so the
+ * kilogram figure is the attempt and the pound figure beside it is a reading aid
+ * that either comes off the chart or is labelled approximate.
+ */
+export function attemptKilogramsText(weight: AttemptWeight): string {
+  return formatWeight({ amount: weight.kilograms, unit: 'kg' });
+}
+
+/**
+ * An attempt's pound reading, which comes off the federation's chart or not at
+ * all.
+ *
+ * §16 is explicit that a pound figure beside an attempt is the published chart's
+ * and never a conversion, and the reason is the expeditor's table: a lifter who
+ * reads a computed pound figure off this screen is reading a number that is not
+ * on the card and not in the rule book. So this returns `null` rather than
+ * falling back to `exactPounds` -- the approximate figure is shown separately
+ * and labelled as approximate, which is a different claim in a different place.
+ */
+export function attemptPoundsText(weight: AttemptWeight): string | null {
+  if (weight.publishedPounds === null) return null;
+  return `${formatWeight({ amount: weight.publishedPounds, unit: 'lb' })} on the chart`;
+}
+
+/** Why there is no chart figure, so the absence is an answer rather than a gap. */
+export function poundsAbsenceSentence(reason: PublishedPoundsReason): string | null {
+  switch (reason) {
+    case 'published':
+      return null;
+    case 'not-on-the-chart':
+      return 'The federation chart has no row for this weight.';
+    case 'no-chart':
+      return 'No published pound chart is loaded, so the pound figures below are approximate conversions rather than the chart entries themselves.';
+  }
+}
+
+/** The unrounded conversion, always hedged, and never the attempt (§16). */
+export function approximatePoundsText(weight: AttemptWeight): string {
+  return `about ${formatWeight({ amount: weight.exactPounds, unit: 'lb' })}`;
 }

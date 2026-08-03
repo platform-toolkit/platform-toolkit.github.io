@@ -21,7 +21,8 @@
  *
  * Nothing that ships may import this file.
  */
-import type { MeetRuleProfile } from '@platform-toolkit/data-contracts';
+import type { ConversionChartData, MeetRuleProfile } from '@platform-toolkit/data-contracts';
+import { ConversionChart } from '@platform-toolkit/domain';
 
 import { MEET_PROFILE_FIXTURE, rulesFor } from './meet-rules.fixture.js';
 import { buildPlan, type PlanContext, type PlannerView } from './plan.js';
@@ -77,6 +78,84 @@ export const PROBABILITY_WORDS: readonly string[] = [
 export const PLAN_CONTEXT: PlanContext = { rules: rulesFor(), chart: null };
 
 /**
+ * An invented conversion chart, in the range this tool's attempts land in.
+ *
+ * A second chart rather than tool 4's, and for the reason `meet-rules.fixture.ts`
+ * gives for its second profile: a tool's fixtures belong to the tool. Tool 4's
+ * runs 50 to 150 kg in five-kilogram steps because that is where a conversion
+ * question is asked; every attempt this planner produces from its own sessions is
+ * heavier than the top row of it, so borrowing it would make every lookup
+ * `not-on-the-chart` and leave the published branch untested while looking
+ * covered.
+ *
+ * §5.1 forbids real federation numbers in source, so these belong to a federation
+ * that does not exist. Five-kilogram steps against a half-kilogram bar multiple
+ * are the point rather than a shortcut: a real chart is coarser than the bar, so
+ * an ordinary plan lands some attempts on a row and some between rows, which is
+ * the mixed state `poundsAbsenceSentence` is written for and the state a chart
+ * fine enough to name every attempt would hide.
+ *
+ * The pound column is the federation's own printing, not a conversion of the
+ * kilogram column -- 180 kg is published here as 396.9 lb where the arithmetic
+ * gives 396.83. That gap is deliberate and load-bearing: it is what lets a test
+ * prove the screen read the chart rather than converting, which is the whole of
+ * §16 and is unprovable against a column that agrees with the arithmetic.
+ */
+export const CHART_FIXTURE_DATA: ConversionChartData = {
+  id: 'example',
+  label: 'Example Federation',
+  source: {
+    label: 'Example Federation Conversion Chart',
+    url: 'https://example.test/conversion-chart/',
+    revision: '2026v1',
+    verifiedOn: '2026-08-01',
+  },
+  rows: [
+    { kilograms: 150, pounds: 330.7 },
+    { kilograms: 155, pounds: 341.7 },
+    { kilograms: 160, pounds: 352.7 },
+    { kilograms: 165, pounds: 363.8 },
+    { kilograms: 170, pounds: 374.8 },
+    { kilograms: 175, pounds: 385.8 },
+    { kilograms: 180, pounds: 396.9 },
+    { kilograms: 185, pounds: 407.9 },
+    { kilograms: 190, pounds: 418.9 },
+    { kilograms: 195, pounds: 429.9 },
+    { kilograms: 200, pounds: 440.9 },
+    { kilograms: 205, pounds: 451.9 },
+    { kilograms: 210, pounds: 463 },
+    { kilograms: 215, pounds: 474 },
+    { kilograms: 220, pounds: 485 },
+    { kilograms: 225, pounds: 496 },
+    { kilograms: 230, pounds: 507.1 },
+    { kilograms: 235, pounds: 518.1 },
+    { kilograms: 240, pounds: 529.1 },
+    { kilograms: 245, pounds: 540.1 },
+    { kilograms: 250, pounds: 551.2 },
+  ],
+};
+
+/**
+ * The same context with that chart loaded, built through the smart constructor.
+ *
+ * Through `ConversionChart.from` rather than assembled directly, so a fixture that
+ * stopped being a legal chart -- a row edited out of order, a duplicate -- fails
+ * here with the reason rather than downstream as a lookup that quietly returns the
+ * wrong neighbours.
+ */
+export const CHARTED_CONTEXT: PlanContext = { rules: rulesFor(), chart: chartFixture() };
+
+function chartFixture(): ConversionChart {
+  const result = ConversionChart.from(CHART_FIXTURE_DATA);
+  if (!result.ok) {
+    throw new Error(
+      `fixture chart was refused: ${result.problems.map((problem) => problem.code).join(', ')}`,
+    );
+  }
+  return result.chart;
+}
+
+/**
  * A session whose §6 questions have been answered.
  *
  * Routed through `withSetup` rather than spread over `EMPTY_SESSION.setup`,
@@ -124,7 +203,14 @@ export function confirmAll(session: PlannerSession): PlannerSession {
   return sessionLifts(session).reduce((carry, lift) => confirmMaximum(carry, lift, true), session);
 }
 
-/** The plan the tool would draw from that session. */
-export function viewFor(session: PlannerSession): PlannerView {
-  return buildPlan(session, PLAN_CONTEXT);
+/**
+ * The plan the tool would draw from that session.
+ *
+ * The context defaults to the chartless one because that is the state the site
+ * opens in, and a caller that wants the published pound column passes
+ * {@link CHARTED_CONTEXT} explicitly -- so a screen showing chart figures says in
+ * its own source that it is the special case.
+ */
+export function viewFor(session: PlannerSession, context: PlanContext = PLAN_CONTEXT): PlannerView {
+  return buildPlan(session, context);
 }
