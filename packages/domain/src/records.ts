@@ -3,7 +3,7 @@
 
 import type { FederationRecord, RecordBook, RecordScope } from '@platform-toolkit/data-contracts';
 
-import { ceilToHundredths } from './rounding.js';
+import { ceilToHundredths, ceilToIncrement } from './rounding.js';
 
 /**
  * Finding the record that applies to a lifter, and measuring the distance to it.
@@ -35,11 +35,23 @@ import { ceilToHundredths } from './rounding.js';
  * loads a heavier attempt than the record needs, and a heavier attempt is a
  * likelier miss.
  *
- * Both increments are measured from the record as published, not from the next
- * ordinary bar multiple. A 200.5 kg record is chipped at 201 kg and taken at a
- * higher-level meet with 203 kg -- not 205. Record attempts are the exemption
- * from the multiple-of-the-increment rule, so rounding either figure up to a
- * round jump undoes the exemption and asks for weight the rules do not.
+ * The chip is measured from the record as published, not from the next ordinary
+ * bar multiple: a 200.5 kg record is chipped at 201 kg, not 202.5. Record
+ * attempts are the exemption from the multiple-of-the-increment rule, so
+ * rounding that figure up to a round jump undoes the exemption and asks for
+ * weight the rules do not.
+ *
+ * The full increment is the other way round, and it is the half of this that is
+ * easy to get wrong in both directions at once. A record below the meet's level
+ * is taken *without* the exemption, so two conditions apply together: the bar
+ * has to hold an ordinary multiple of the loading increment, and the attempt has
+ * to clear the record by at least the full increment. Against that same 200.5 kg
+ * record the answer is 205, because 203 satisfies the margin but is not a legal
+ * load, and 202.5 is a legal load but only clears the record by 2. Adding the
+ * increment without rounding names a weight the bar cannot make; rounding up to
+ * the next multiple without adding it names a weight that does not take the
+ * record. Both mistakes cost the lifter the record, so the figure is the first
+ * ordinary multiple at or above the record plus the full increment.
  *
  * All three figures come from the book, because they are the federation's rules
  * and not this project's. Nothing here knows which level outranks which, and it
@@ -160,9 +172,8 @@ export function recordTargets(record: FederationRecord, rules: RecordMarginRules
   const mayMatch =
     record.unclaimed && rules.matchTakesUnclaimedLevelIds.includes(record.scope.levelId);
 
-  // Both figures are measured from the record exactly as published, never from
-  // the next ordinary bar multiple above it. A 200.5 kg record is chipped at 201
-  // and taken at a higher-level meet with 203, not 205.
+  // The chip is measured from the record exactly as published, never from the
+  // next ordinary bar multiple above it: a 200.5 kg record is chipped at 201.
   const recordAtOrAboveMeetLevel: RecordTarget = mayMatch
     ? { kilograms: ceilToHundredths(record.kilograms), basis: 'match' }
     : {
@@ -171,10 +182,17 @@ export function recordTargets(record: FederationRecord, rules: RecordMarginRules
         basis: 'chip',
       };
 
+  // Not the record plus the increment. The rule that costs the full increment is
+  // the same rule that withdraws the fractional-plate exemption, so the weight
+  // has to be an ordinary multiple of that increment as well as clear of the
+  // record by it. The two conditions are stated in one sentence of the rulebook
+  // and they are the same number, which is why one field can express both: the
+  // first legal load at or above record + increment.
+  const fullIncrement = rules.higherSanctionIncrementKilograms;
   const below =
-    rules.higherSanctionIncrementKilograms === null
+    fullIncrement === null || fullIncrement === 0
       ? null
-      : ceilToHundredths(record.kilograms + rules.higherSanctionIncrementKilograms);
+      : ceilToIncrement(record.kilograms + fullIncrement, fullIncrement);
 
   return {
     record,

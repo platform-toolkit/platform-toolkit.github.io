@@ -120,15 +120,31 @@ describe('recordTargets', () => {
     });
   });
 
-  it('measures both figures from the record as published, not the next bar multiple', () => {
+  it('chips from the record as published, not from the next bar multiple', () => {
     // The rule that makes a record attempt exempt from loading in round jumps.
-    // A 200.5 kg record is taken at 201 and, a level down, at 203 -- rounding
-    // either to 202.5 or 205 asks for weight the rulebook does not.
+    // A 200.5 kg record is taken at 201; rounding to 202.5 asks for weight the
+    // rulebook does not.
     const fractional = record('fractional', 200.5);
-    const targets = recordTargets(fractional, rules());
 
-    expect(targets.recordAtOrAboveMeetLevel.kilograms).toBe(201);
-    expect(targets.recordBelowMeetLevel?.kilograms).toBe(203);
+    expect(recordTargets(fractional, rules()).recordAtOrAboveMeetLevel.kilograms).toBe(201);
+  });
+
+  it('asks a level down for a weight that is both loadable and clear of the record', () => {
+    // The exemption is withdrawn by the same sentence that imposes the full
+    // increment, so both conditions bind. Against 200.5, the answer 203 clears
+    // the margin but cannot be loaded, and 202.5 loads but clears the record by
+    // 2 -- either one hands back the record on a technicality.
+    const fractional = record('fractional', 200.5);
+
+    expect(recordTargets(fractional, rules()).recordBelowMeetLevel?.kilograms).toBe(205);
+  });
+
+  it('does not inflate a record that is already an ordinary multiple', () => {
+    // Rounding up after adding the increment would turn 400 into 405 and cost a
+    // lifter a 2.5 kg jump they never needed. 402.5 is already loadable.
+    expect(recordTargets(record('round', 400), rules()).recordBelowMeetLevel?.kilograms).toBe(
+      402.5,
+    );
   });
 
   it('omits the second figure where the book draws no such distinction', () => {
