@@ -45,7 +45,12 @@ sbom.cdx.json
 # `notes/` holds the same kind of thing at length: requirements for tools that
 # have not been built yet. Published requirements would read as a commitment,
 # and half of what is in them is still a conversation.
-/CLAUDE.md
+#
+# The pattern is deliberately unanchored: the root file is an index and the
+# detail lives in a `CLAUDE.md` beside the code it governs, so an agent loads a
+# package's rules only when it touches that package. An anchored `/CLAUDE.md`
+# would ignore the index and publish every one of those.
+CLAUDE.md
 /notes/
 
 # Per-machine editor and agent settings. `.claude/settings.json` is shared if it
