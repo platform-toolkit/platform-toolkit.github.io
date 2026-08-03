@@ -1,7 +1,7 @@
 # Platform Toolkit
 
-Open-source tools for the powerlifting community. Each one works on its own, and any site may
-embed a single tool without taking the rest.
+Open-source tools for the powerlifting community. Each one works on its own, and any site may embed
+a single tool without taking the rest.
 
 **Status: early development.** The site is live at <https://platform-toolkit.github.io>. Four tools
 ship today. Platform Targets is usable end to end for classification standards: pick a category,
