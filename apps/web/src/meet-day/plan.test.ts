@@ -4,9 +4,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { MAX_COMPLETED_REPS } from '@platform-toolkit/domain';
-import type { PlatformLift } from '@platform-toolkit/data-contracts';
+import type { MeetRuleProfile, PlatformLift } from '@platform-toolkit/data-contracts';
 
-import { rulesFor } from './meet-rules.fixture.js';
+import { MEET_PROFILE_FIXTURE, rulesFor } from './meet-rules.fixture.js';
 import {
   buildPlan,
   populationFor,
@@ -116,19 +116,24 @@ describe('readinessWith', () => {
 });
 
 describe('populationFor', () => {
-  it('says the ruleset is not the one the research measured', () => {
-    // §9.3's ranges come from raw IPF competition. Nothing in a published rule
-    // profile says which ruleset it is, so claiming `research-population` would
-    // hand out the population-matched label on a guess.
+  /** The profile the fixture describes: not the research population. */
+  const TRANSFERRED = MEET_PROFILE_FIXTURE;
+  /** The same federation with the one field flipped, and nothing else. */
+  const MEASURED: MeetRuleProfile = { ...MEET_PROFILE_FIXTURE, attemptResearchPopulation: true };
+
+  it('reads the ruleset off the profile rather than deciding it', () => {
     for (const comparison of ['male', 'female', 'none'] as const) {
       const session = withExtras(EMPTY_SESSION, { comparison });
-      expect(populationFor(session).ruleset).toBe('other');
+      expect(populationFor(session, TRANSFERRED).ruleset).toBe('other');
+      // The control. Two profiles differing in exactly one boolean must not
+      // produce the same answer, or a function hard-coding either word passes.
+      expect(populationFor(session, MEASURED).ruleset).toBe('research-population');
     }
   });
 
   it('treats every equipment answer except raw as equipped, unstated included', () => {
     const equipmentOf = (equipment: EquipmentCategory) =>
-      populationFor(withExtras(EMPTY_SESSION, { equipment })).equipment;
+      populationFor(withExtras(EMPTY_SESSION, { equipment }), TRANSFERRED).equipment;
     expect(equipmentOf('raw')).toBe('raw');
     for (const equipment of ['wraps', 'single-ply', 'multi-ply', 'other', 'unstated'] as const) {
       expect(equipmentOf(equipment)).toBe('equipped');
@@ -137,7 +142,9 @@ describe('populationFor', () => {
 
   it('carries the comparison group through untouched', () => {
     for (const comparison of ['male', 'female', 'none'] as const) {
-      expect(populationFor(withExtras(EMPTY_SESSION, { comparison })).comparison).toBe(comparison);
+      expect(populationFor(withExtras(EMPTY_SESSION, { comparison }), TRANSFERRED).comparison).toBe(
+        comparison,
+      );
     }
   });
 });
@@ -522,6 +529,34 @@ describe('buildPlan, §7.4 Manual', () => {
       squatOf(buildPlan(manual(['180', '198', '200'], { expectedMaximum: '200' }), CONTEXT))
         .advisories.length,
     ).toBeGreaterThan(0);
+  });
+
+  it('can reach both evidence labels, depending only on the profile', () => {
+    // The end-to-end half of `attemptResearchPopulation`. `populationFor` is
+    // unit-tested above, but the label a lifter sees is produced four calls
+    // deeper, and before the profile carried this field `population-matched`
+    // was unreachable from anywhere in the application -- a live branch of
+    // `evidenceFor` with no path to it, which reads as a bug rather than as a
+    // grade nobody qualifies for.
+    //
+    // §9.3 grades on three axes at once and takes the worst, so both sessions
+    // are raw and both name a comparison group; the profile is the only thing
+    // that differs between the two lines.
+    const session = withExtras(manual(['180', '198', '200'], { expectedMaximum: '200' }), {
+      equipment: 'raw',
+      comparison: 'male',
+    });
+    const evidenceUnder = (attemptResearchPopulation: boolean) =>
+      squatOf(
+        buildPlan(session, { rules: rulesFor({ attemptResearchPopulation }), chart: null }),
+      ).advisories.map((advisory) => advisory.evidence);
+
+    const transferred = evidenceUnder(false);
+    // Positive control: there is advice to grade at all. Without this an empty
+    // list satisfies both `toContain`-free assertions below by vacuity.
+    expect(transferred.length).toBeGreaterThan(0);
+    expect(new Set(transferred)).toEqual(new Set(['general']));
+    expect(new Set(evidenceUnder(true))).toEqual(new Set(['population-matched']));
   });
 
   it('measures the gaps from the weights that were typed', () => {

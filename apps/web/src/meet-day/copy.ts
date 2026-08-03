@@ -162,6 +162,89 @@ export const UNIT_CHOICES: readonly Choice[] = [
   { value: 'lb', label: 'Pounds' },
 ];
 
+/** The unit as a word in a sentence, where "kg" beside prose reads as a label. */
+export function unitWord(unit: WeightUnit): string {
+  return unit === 'kg' ? 'kilograms' : 'pounds';
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * The question a unit change asks.
+ * ---------------------------------------------------------------------------
+ */
+
+/** The two answers, spelled once so the template and the listener agree. */
+export const CONVERT_ANSWER = 'convert';
+export const KEEP_ANSWER = 'keep';
+
+/**
+ * A weight to show the conversion on, in whichever unit is being left.
+ *
+ * Two hundred of something: a plausible squat in kilograms and a plausible bench
+ * in pounds, so the example never reads as a weight belonging to somebody else's
+ * lift. It is an illustration and not a federation figure, so §5.1 does not
+ * reach it.
+ */
+const CONVERSION_EXAMPLE_AMOUNT = 200;
+
+/**
+ * What the lifter is being asked, named by the unit the figures were typed in.
+ *
+ * The sentence says *typed in*, not *shown in*, because the two are the same
+ * only until this moment: the unit control has already moved, so the figures on
+ * screen are being read under a unit nobody typed them under, and a question
+ * about "the weights shown" would be asking about the reading rather than about
+ * the digits.
+ */
+export function conversionQuestion(from: WeightUnit): string {
+  return `The figures on this screen were typed in ${unitWord(from)}. What should happen to them?`;
+}
+
+/**
+ * The two named answers, with what each does to a worked example.
+ *
+ * A question with two answers rather than a "convert" button, for tool 2's
+ * reason (§10.2): the button's absence is not an answer, so a lifter who ignores
+ * it leaves the tool in a state where nobody -- including the tool -- knows
+ * whether the digits on screen have been reinterpreted. Here that ambiguity is
+ * worse than it is at a rack, because these digits become an attempt card: a
+ * 200 that meant kilograms and is read as pounds is a hundred kilograms of
+ * difference on a squat, declared to an expeditor.
+ *
+ * The example is worked out rather than described, because "convert them" and
+ * "leave them" are both defensible readings of the same tap and neither label
+ * says which digits end up in the boxes.
+ */
+export function conversionChoices(from: WeightUnit, to: WeightUnit): readonly Choice[] {
+  const before = formatWeight({ amount: CONVERSION_EXAMPLE_AMOUNT, unit: from });
+  const after = formatWeight(convertWeight({ amount: CONVERSION_EXAMPLE_AMOUNT, unit: from }, to));
+  return [
+    {
+      value: CONVERT_ANSWER,
+      label: `Convert them to ${unitWord(to)}`,
+      description: `${before} becomes ${after}.`,
+    },
+    {
+      value: KEEP_ANSWER,
+      label: 'Leave the numbers as they are',
+      description: `They were meant as ${unitWord(to)} all along.`,
+    },
+  ];
+}
+
+/**
+ * Why the ticks went, said beside the question that took them.
+ *
+ * §7 will not plan from a maximum the lifter has not underwritten, and a unit
+ * change moves what every figure on screen means -- so a tick made against
+ * 200 kg would otherwise carry over to 200 lb unexamined. Saying so here is what
+ * separates "the tool cleared them" from "the tool lost them", which is the same
+ * screen to a lifter who is not told.
+ */
+export const CONVERSION_CONFIRMATION_NOTE =
+  'The figures you agreed to have been un-ticked, because a weight means something else in the ' +
+  'other unit. Agree to them again once the numbers below read the way you meant them.';
+
 /** §6.2's first-meet question. Three states; see `firstMeetValueOf`. */
 export const FIRST_MEET_CHOICES: readonly Choice[] = [
   { value: 'yes', label: 'Yes, my first' },

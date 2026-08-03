@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en" data-theme-mode="system">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meet Day Planner — Platform Toolkit</title>
+    <meta
+      name="description"
+      content="Plan three attempts on each lift against your federation's published increments, with what each attempt risks and how much the plan is standing on stated separately."
+    />
+    <!--
+      Runs before first paint to apply a theme an embedder forced. Must stay an
+      external classic script: a module script would be deferred until after
+      parsing, which is the flash of wrong theme this prevents, and an inline
+      script would require weakening the Content Security Policy.
+    -->
+    <script src="/theme-boot.js"></script>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <!--
+      The same manifest as the hub, on purpose. One installed application holding
+      the collection, not one installable icon per tool: `start_url` is the hub,
+      so installing from here and installing from there give the same thing.
+      Absent from the embed route beside this one -- see the hub for why.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Toolkit" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#14171b" />
+  </head>
+  <body>
+    <div class="page">
+      <header>
+        <!-- Relative, so it resolves under a subpath deploy too. See tools.ts. -->
+        <a class="back-link" href="../">Platform Toolkit</a>
+        <h1>Meet Day Planner</h1>
+        <p class="tagline">
+          Nine attempts, legal on the bar your federation loads — with what each one asks of you and
+          how much the plan is standing on kept apart.
+        </p>
+      </header>
+      <!--
+        No `data-federation` here, unlike Platform Targets and the converter.
+        Those pages are each about one federation and declare which. This page is
+        about a lifter's meet, and the federation is the first question the tool
+        asks -- so the answer arrives from the visitor, and there is one planner
+        route rather than one per federation.
+      -->
+      <main id="app">
+        <noscript>
+          <p>
+            The planner needs JavaScript: it reads the published rule books to know what weights
+            your federation's bar can legally be loaded to. The rest of the collection is listed on
+            the toolkit home page.
+          </p>
+        </noscript>
+      </main>
+    </div>
+    <script type="module" src="/src/meet-day/standalone.ts"></script>
+  </body>
+</html>

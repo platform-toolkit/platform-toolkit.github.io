@@ -246,6 +246,8 @@ export default defineConfig({
         'convert-embed': here('convert/embed/uspa/index.html'),
         'one-rep-max': here('one-rep-max/index.html'),
         'one-rep-max-embed': here('one-rep-max/embed/index.html'),
+        'meet-day': here('meet-day/index.html'),
+        'meet-day-embed': here('meet-day/embed/index.html'),
       },
     },
   },

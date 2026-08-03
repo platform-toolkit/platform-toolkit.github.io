@@ -32,6 +32,7 @@ const PROFILE = {
   automaticAfterMiss: 'repeat',
   forbidsAttemptBelowFailedWeight: true,
   risingBar: true,
+  attemptResearchPopulation: false,
   openerChange: {
     allowed: 1,
     firstGroupMinutesBefore: 4,

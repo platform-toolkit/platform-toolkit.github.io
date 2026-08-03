@@ -332,6 +332,25 @@ export const MeetRuleProfileSchema = v.object({
   /** Whether the bar only rises within a round. */
   risingBar: v.boolean(),
 
+  /**
+   * Whether the published attempt-jump research was gathered under these rules.
+   *
+   * A fact about the rulebook that only a person reading it can settle, so it is
+   * curated alongside the increments rather than derived. The domain grades its
+   * jump advice as population-matched or general depending on it, and the
+   * alternatives were both worse: hard-coding the answer in the browser makes
+   * every profile "general", including the one the research actually describes,
+   * and inferring it from the profile identifier puts a federation's name in
+   * source, which §5.1 keeps out.
+   *
+   * Note what it is not. It does not say the research is *right* about a lifter
+   * under these rules -- the ranges describe what is common in a population and
+   * `RESEARCH_BASIS_NOTE` says so either way. It says only that the population
+   * lifted under this rulebook, which is the difference between advice that is
+   * matched and advice that is transferred.
+   */
+  attemptResearchPopulation: v.boolean(),
+
   openerChange: OpenerChangeSchema,
 
   /** Changes permitted to a second attempt. Zero in both published profiles. */

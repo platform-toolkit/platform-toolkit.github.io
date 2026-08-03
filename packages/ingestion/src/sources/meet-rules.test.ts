@@ -58,6 +58,7 @@ function document(overrides: Overrides = {}): unknown {
       automaticAfterMiss: 'repeat',
       forbidsAttemptBelowFailedWeight: true,
       risingBar: true,
+      attemptResearchPopulation: false,
       openerChange: {
         allowed: 1,
         firstGroupMinutesBefore: 4,

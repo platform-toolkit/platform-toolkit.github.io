@@ -578,6 +578,7 @@ const MEET_RULE_BOOK = {
       automaticAfterMiss: 'repeat',
       forbidsAttemptBelowFailedWeight: true,
       risingBar: true,
+      attemptResearchPopulation: false,
       openerChange: {
         allowed: 1,
         firstGroupMinutesBefore: 4,

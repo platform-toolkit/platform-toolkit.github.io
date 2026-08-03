@@ -68,6 +68,7 @@ export const MEET_PROFILE_FIXTURE: MeetRuleProfile = {
   automaticAfterMiss: 'repeat',
   forbidsAttemptBelowFailedWeight: true,
   risingBar: true,
+  attemptResearchPopulation: false,
   openerChange: {
     allowed: 1,
     firstGroupMinutesBefore: 4,

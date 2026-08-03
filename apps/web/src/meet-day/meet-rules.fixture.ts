@@ -49,6 +49,12 @@ export const MEET_PROFILE_FIXTURE: MeetRuleProfile = {
   automaticAfterMiss: 'repeat',
   forbidsAttemptBelowFailedWeight: true,
   risingBar: true,
+  // False, like most real profiles: §9.3's ranges were gathered under one
+  // federation's rules and this invented one is not it. A fixture that said
+  // otherwise would make `population-matched` the default every test ran
+  // under, which is the grade the fewest lifters actually get. Reach the other
+  // branch with `rulesFor({ attemptResearchPopulation: true })`.
+  attemptResearchPopulation: false,
   openerChange: {
     allowed: 1,
     firstGroupMinutesBefore: 4,

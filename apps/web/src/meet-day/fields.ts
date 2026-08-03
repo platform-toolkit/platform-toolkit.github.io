@@ -30,6 +30,17 @@ export const FIRST_MEET_FIELD = 'first-meet';
 export const GOAL_FIELD = 'goal';
 export const METHOD_FIELD = 'method';
 
+/**
+ * The question a unit change asks about the figures already typed.
+ *
+ * Not a setup answer -- nothing in `PlannerSetup` holds it. It is asked by the
+ * root, answered once, and gone, so it lives here rather than beside the unit it
+ * follows: the constant is shared between the root's template and the root's own
+ * listener, which is the same two-places-one-string contract as every field
+ * above it.
+ */
+export const CONVERT_FIELD = 'convert';
+
 /*
  * §7's per-lift figures. Each of these needs a `data-lift` beside it.
  */

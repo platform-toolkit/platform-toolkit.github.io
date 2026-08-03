@@ -369,6 +369,66 @@ const ONE_REP_MAX_CLICK_AFTER = [
 ];
 
 /**
+ * The federation, and the fold holding everything §8 asks for.
+ *
+ * The federation answer is a `click` on a label rather than a `reveal` entry on
+ * the radio, and it is the one place in this file where that distinction is
+ * load-bearing rather than stylistic. `reveal` asks `count()`, which is an
+ * instantaneous question, and this control does not exist until a published
+ * rule book has been read over the network -- so a `reveal` entry here would
+ * report "nothing matched" on a cold cache and pass on a warm one. `tap` waits
+ * for attachment, which is the same wait `settle` performs at the other end of
+ * the route. Clicking the label rather than the input is what §5.7's tap-target
+ * rule already assumes: the label *is* the target.
+ *
+ * `.first()` picks whichever federation the corpus publishes first, on purpose.
+ * Naming one would put a federation identifier in a layout check, and a renamed
+ * profile would then arrive as a layout regression (the `pick` rule, one control
+ * type across).
+ *
+ * The plan cannot be drawn at all without this answer -- the attempt increments
+ * come from the profile -- so without it the route would measure a page of
+ * questions and none of the output.
+ */
+const MEET_DAY_CLICK = [
+  'ptk-choice-group[data-field="federation"] label',
+  'ptk-disclosure[label="Improve my plan"] summary',
+];
+
+/**
+ * Three maximums, which is the least that produces a full nine-attempt plan.
+ *
+ * Invented figures (§5.1), and deliberately not round ones: every attempt is
+ * rounded to the profile's bar multiple, so round inputs would hide the rounding
+ * note that sits under an attempt and shorten the longest line on the card.
+ * Different per lift, because the three cards are laid out side by side above a
+ * certain width and identical figures would make a column-width difference
+ * invisible.
+ */
+const MEET_DAY_FILL = ['squat', 'bench', 'deadlift'].map((lift, index) => ({
+  selector: `ptk-number-field[data-field="expected-maximum"][data-lift="${lift}"] input`,
+  value: ['192.5', '117.5', '227.5'][index],
+}));
+
+/**
+ * The three agreements, without which there is no plan on the page at all.
+ *
+ * In `clickAfter` and not in `reveal` for a reason particular to this tool
+ * rather than for the ordering reason the estimator's folds have: `reveal` runs
+ * *before* `fill`, and typing a maximum withdraws that lift's agreement
+ * (`withFigures`, and §7's gate behind it). Ticked first, all three would be
+ * cleared by the very next step and the check would measure the questions with
+ * the plan missing -- while passing, because nothing here asserts that a plan
+ * appeared. The `settle` entry below is the other half of that guard.
+ *
+ * The label rather than the checkbox inside it, so that the row is pressed the
+ * way a thumb presses it.
+ */
+const MEET_DAY_CLICK_AFTER = ['squat', 'bench', 'deadlift'].map(
+  (lift) => `ptk-toggle-group[data-field="confirm"][data-lift="${lift}"] label`,
+);
+
+/**
  * The report shows one lift and one target type at a time, so the widest thing
  * on it has to be navigated to before it can be measured.
  *
@@ -602,6 +662,29 @@ const ROUTES = [
     fill: ONE_REP_MAX_FILL,
     clickAfter: ONE_REP_MAX_CLICK_AFTER,
     settle: ['ptk-formula-comparison li'],
+  },
+  {
+    path: '/meet-day/',
+    click: MEET_DAY_CLICK,
+    reveal: [],
+    fill: MEET_DAY_FILL,
+    clickAfter: MEET_DAY_CLICK_AFTER,
+    // An attempt card, not a field and not the plan element itself. The element
+    // is in the DOM from the first paint carrying one sentence about a
+    // federation nobody has chosen; a card exists only once all three
+    // agreements survived the typing above, which is the one thing this route
+    // gets wrong silently. It is also the densest row in the collection -- an
+    // attempt number, a weight in kilograms, the federation's published pounds
+    // beside it, a risk word and a rounding note, on one line in 320px.
+    settle: ['ptk-plan-screen li.attempt'],
+  },
+  {
+    path: '/meet-day/embed/',
+    click: MEET_DAY_CLICK,
+    reveal: [],
+    fill: MEET_DAY_FILL,
+    clickAfter: MEET_DAY_CLICK_AFTER,
+    settle: ['ptk-plan-screen li.attempt'],
   },
 ];
 

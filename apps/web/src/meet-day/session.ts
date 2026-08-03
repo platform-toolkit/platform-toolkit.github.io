@@ -376,8 +376,9 @@ function clearConfirmations(
  *   different maximums from the same fields and a tick made under one of them
  *   says nothing about another.
  *
- * A unit change deliberately does none of this and does not touch the figures
- * either; see `convertFigures`.
+ * A unit change is deliberately not one of the three, and callers should not
+ * make one through here: `withUnit` is the transition that knows what a unit
+ * change costs, and `convertFigures` is the half of it the lifter is asked about.
  */
 export function withSetup(
   session: PlannerSession,
@@ -763,6 +764,35 @@ export function reserveFromValue(value: string): RepsInReserve {
  * Changing unit.
  * ---------------------------------------------------------------------------
  */
+
+/**
+ * Moves the display unit, and withdraws every agreement made under the old one.
+ *
+ * The digits are left exactly where they are: what happens to them is the
+ * lifter's answer to `convertFigures`'s question, and this transition runs
+ * before that question has been asked.
+ *
+ * The confirmations cannot be left alone in the meantime, and that is the whole
+ * reason this is not a `withSetup` call. If the lifter never answers, the
+ * standing behaviour is "keep" -- the digits do not move and their meaning does
+ * -- so from the instant the unit control moves, a tick that underwrote 200 kg
+ * is underwriting 200 lb. That is exactly the state §7's gate exists to make
+ * impossible, and it is reached without the lifter touching a figure. Answering
+ * "convert" does not restore them either: re-ticking costs one tap a lift, and
+ * a plan drawn from a maximum nobody agreed to costs a great deal more.
+ *
+ * Gated on `hasTypedWeights` for the same reason the question is: the ticks go
+ * exactly when the lifter is asked about the digits, so a unit changed on an
+ * empty screen is the free action it looks like. Nothing is lost by the gate --
+ * every method that asks for a confirmation asks for a typed weight first, so
+ * there is no tick to clear on a session that has none.
+ */
+export function withUnit(session: PlannerSession, unit: WeightUnit): PlannerSession {
+  if (unit === session.setup.unit) return session;
+  const moved = withSetup(session, { unit });
+  if (!hasTypedWeights(moved)) return moved;
+  return { ...moved, figures: clearConfirmations(moved.figures) };
+}
 
 /**
  * Every typed figure reinterpreted as the same weight in another unit.

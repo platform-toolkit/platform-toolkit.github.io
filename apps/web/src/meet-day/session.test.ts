@@ -29,6 +29,7 @@ import {
   withSetup,
   withTargetTotal,
   withTargets,
+  withUnit,
   type PlanMethod,
   type PlannerSession,
 } from './session.js';
@@ -415,6 +416,45 @@ describe('evidenceAgeFor', () => {
       evidenceAge: 'within-six-months',
     });
     expect(evidenceAgeFor(session, 'squat')).toBe('within-six-months');
+  });
+});
+
+describe('withUnit', () => {
+  it('moves the unit and withdraws every agreement made under the old one', () => {
+    const session = confirmedSession();
+    // Positive control: the fixture really is confirmed before the unit moves,
+    // so a `withUnit` that did nothing at all could not pass this.
+    expect(confirmations(session)).toEqual([true, true, true]);
+
+    const pounds = withUnit(session, 'lb');
+    expect(pounds.setup.unit).toBe('lb');
+    expect(confirmations(pounds)).toEqual([false, false, false]);
+  });
+
+  it('leaves the digits exactly where they were', () => {
+    // The lifter has not been asked yet, and "keep" is the standing answer, so
+    // this transition must not pre-empt either half of the question.
+    const squat = withUnit(confirmedSession(), 'lb').figures.squat;
+    expect(squat.expectedMaximum).toBe('200');
+    expect(squat.ceiling).toBe('220');
+  });
+
+  it('hands back the same session when the unit did not change', () => {
+    // Otherwise re-rendering the unit control -- which reports the current
+    // answer on every pass -- would clear the ticks without the lifter touching
+    // anything.
+    const session = confirmedSession();
+    expect(withUnit(session, 'kg')).toBe(session);
+  });
+
+  it('costs nothing on a screen with no weights typed', () => {
+    // §6.2 is sixty seconds of taps and the unit is one of them. There is no
+    // tick to lose here either: every method that asks for a confirmation asks
+    // for a weight first.
+    const session = withSetup(EMPTY_SESSION, { firstMeet: false });
+    const pounds = withUnit(session, 'lb');
+    expect(pounds.setup.unit).toBe('lb');
+    expect(pounds.figures).toBe(session.figures);
   });
 });
 

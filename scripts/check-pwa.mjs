@@ -75,6 +75,8 @@ const PAGES = [
   { path: '/convert/embed/uspa/', installable: false },
   { path: '/one-rep-max/', installable: true },
   { path: '/one-rep-max/embed/', installable: false },
+  { path: '/meet-day/', installable: true },
+  { path: '/meet-day/embed/', installable: false },
 ];
 
 /**

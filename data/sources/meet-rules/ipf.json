@@ -68,6 +68,7 @@
     "automaticAfterMiss": "repeat",
     "forbidsAttemptBelowFailedWeight": true,
     "risingBar": true,
+    "attemptResearchPopulation": true,
     "openerChange": {
       "allowed": 1,
       "firstGroupMinutesBefore": 3,

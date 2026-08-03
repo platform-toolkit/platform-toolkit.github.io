@@ -75,7 +75,7 @@ import {
   type TargetTotalProposal,
   type WeightUnit,
 } from '@platform-toolkit/domain';
-import type { PlatformLift } from '@platform-toolkit/data-contracts';
+import type { MeetRuleProfile, PlatformLift } from '@platform-toolkit/data-contracts';
 
 import {
   GUIDED_REPS_MAX,
@@ -293,20 +293,26 @@ export function readinessWith(readiness: Readiness, hardCut: Answer): Readiness 
 /**
  * §8.2's comparison group as `reviewJumps` wants it.
  *
- * `ruleset` is `'other'` for every profile published today, and that is an
- * answer rather than a placeholder: §9.3's ranges come from raw IPF competition,
- * the profiles this tool ships against are not that, and the lower-evidence
- * label is exactly what the requirement asks for in that case. Nothing in
- * `MeetRuleProfile` says which ruleset it is, and inferring it from a profile
- * identifier would put a federation in source, which §5.1 forbids -- so when a
- * research-ruleset profile is ever published, the profile gains a field and this
- * function reads it rather than growing a list of names.
+ * `ruleset` is read off the profile rather than decided here, because it is a
+ * fact about a rulebook and §5.1 keeps federations out of source -- a list of
+ * identifiers in this function would be the same wrong thing spelled in code.
+ * The profile carries `attemptResearchPopulation` for exactly this question; see
+ * the note on it in `data-contracts/meet-rules.ts`.
+ *
+ * It is worth being clear what the two answers mean, because the low one is the
+ * common case and not a failure. §9.3's ranges were gathered under one
+ * federation's rules; a lifter under any other is being offered advice that
+ * transferred, and `'other'` is what makes the interface say so. That covers
+ * most of the people this tool is for. `'population-matched'` is the narrower
+ * claim, and before this field existed it was unreachable -- the one profile the
+ * research actually describes was graded down with everybody else, which is a
+ * quieter kind of wrong than over-claiming but still wrong.
  */
-export function populationFor(session: PlannerSession): JumpPopulation {
+export function populationFor(session: PlannerSession, profile: MeetRuleProfile): JumpPopulation {
   return {
     comparison: session.extras.comparison,
     equipment: researchEquipmentFor(session.extras.equipment),
-    ruleset: 'other',
+    ruleset: profile.attemptResearchPopulation ? 'research-population' : 'other',
   };
 }
 
@@ -536,7 +542,7 @@ function planFromMaximum(
     ceilingKilograms: limits.ceilingKilograms,
     minimumJumpKilograms: limits.minimumJumpKilograms,
     maximumJumpKilograms: limits.maximumJumpKilograms,
-    population: populationFor(session),
+    population: populationFor(session, context.rules.profile),
   });
 
   const problems = [...extra.problems, ...limits.problems];
@@ -599,7 +605,7 @@ function planKnownOpener(
     goal: session.setup.goal,
     minimumJumpKilograms: limits.minimumJumpKilograms,
     maximumJumpKilograms: limits.maximumJumpKilograms,
-    population: populationFor(session),
+    population: populationFor(session, context.rules.profile),
   });
 
   if (!result.ok) {
@@ -715,7 +721,7 @@ function planManual(
             secondKilograms: second,
             thirdKilograms: third,
           },
-          populationFor(session),
+          populationFor(session, context.rules.profile),
         );
 
   return {

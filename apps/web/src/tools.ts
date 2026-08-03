@@ -51,4 +51,14 @@ export const TOOLS: readonly Tool[] = [
       'What a set you already did suggests about a single, from the published equations — including where they disagree.',
     embedPath: 'one-rep-max/embed/',
   },
+  {
+    id: 'meet-day',
+    name: 'Meet Day Planner',
+    summary:
+      // "Legal" rather than a number: what a bar may be loaded to is published
+      // data per federation, and a figure in this sentence would be a rule in
+      // source (§5.1) that nothing refreshes.
+      'Nine attempts that are legal on your federation’s bar, with what each one asks of you and how much the plan is standing on kept apart.',
+    embedPath: 'meet-day/embed/',
+  },
 ];

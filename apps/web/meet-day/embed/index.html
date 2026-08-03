@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en" data-theme-mode="system">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meet Day Planner (embedded)</title>
+    <!--
+      Embedding this route is intentional and unrestricted: any site may frame it.
+      No frame-ancestors directive and no X-Frame-Options are set anywhere.
+
+      Framing grants the parent page no access to anything inside. Theme is
+      accepted only through the documented query parameter and validated
+      postMessage payloads, and the only message sent outward is this frame's
+      height -- never a bodyweight, an age, or a maximum the visitor typed.
+
+      `?theme=light|dark` forces a theme for embedders whose page is not the same
+      colour as the visitor's operating system. Left off, the view follows
+      `prefers-color-scheme`; the visitor is never asked to choose twice.
+
+      No federation segment, unlike the converter's embed route. The federation is
+      the planner's first question rather than something a page declares, so an
+      embedding site cannot pin it -- which is the right way round here: a lifter
+      planning attempts is the only party who knows which meet they have entered.
+    -->
+    <!--
+      A tab icon and nothing else. No manifest and no apple-touch-icon here, on
+      purpose and enforced by `scripts/check-pwa.mjs`: framing a widget must not
+      offer to install anything on the embedder's visitor. A favicon offers
+      nothing -- it is what a browser shows when somebody opens this URL directly
+      to see what they are about to frame.
+    -->
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <script src="/theme-boot.js"></script>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body data-embedded="true">
+    <main id="app">
+      <noscript>
+        <p>
+          The planner needs JavaScript to read the published rule books that say what your
+          federation's bar can legally be loaded to.
+        </p>
+      </noscript>
+    </main>
+    <script type="module" src="/src/meet-day/embed.ts"></script>
+  </body>
+</html>
