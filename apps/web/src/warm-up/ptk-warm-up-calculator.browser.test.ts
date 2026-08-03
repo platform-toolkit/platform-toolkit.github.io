@@ -14,7 +14,7 @@ import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { DEFAULT_EQUIPMENT, saveEquipment } from './equipment.js';
+import { DEFAULT_EQUIPMENT, saveEquipment, type Equipment } from './equipment.js';
 import type { PtkLiftCard } from './ptk-lift-card.js';
 import type { PtkWarmUpCalculator } from './ptk-warm-up-calculator.js';
 import './ptk-warm-up-calculator.js';
@@ -29,6 +29,22 @@ import { addLift, saveEntries, SESSION_PREFERENCES } from './session.js';
  */
 const ENTRIES_KEY = PREFERENCE_KEY_PREFIX + SESSION_PREFERENCES.entries.name;
 const MARKS_KEY = PREFERENCE_KEY_PREFIX + SESSION_PREFERENCES.marks.name;
+
+/**
+ * A remembered rack in kilograms, which is what a unit-change test needs.
+ *
+ * The tool defaults to pounds on a pound bar, so a test that starts from the
+ * default and then picks pounds has changed nothing -- and every assertion
+ * about what a unit change does then holds over a tap that did not happen.
+ * These three tests are the only ones in the file that care which unit the
+ * session opens in, so the fixture is theirs rather than the mount helper's.
+ */
+const KG_RACK: Equipment = {
+  ...DEFAULT_EQUIPMENT,
+  plateUnit: 'kg',
+  barId: 'olympic-20',
+  customBar: { amount: 20, unit: 'kg' },
+};
 
 /**
  * Real browser, real custom elements, real Shadow DOM.
@@ -189,7 +205,7 @@ describe('ptk-warm-up-calculator', () => {
     // chose, so the prompt is the one question this tool asks that it could have
     // answered for itself.
     const settings = createPreferenceStore(memoryPreferenceStorage());
-    saveEquipment(settings, DEFAULT_EQUIPMENT);
+    saveEquipment(settings, KG_RACK);
     saveEntries(
       settings,
       addLift([], 'squat').map((entry) => ({ ...entry, weight: '100' })),
@@ -211,6 +227,7 @@ describe('ptk-warm-up-calculator', () => {
 
   it('leaves the numbers alone when the lifter says they meant the new unit', async () => {
     const settings = createPreferenceStore(memoryPreferenceStorage());
+    saveEquipment(settings, KG_RACK);
     saveEntries(
       settings,
       addLift([], 'squat').map((entry) => ({ ...entry, weight: '225' })),
@@ -231,9 +248,12 @@ describe('ptk-warm-up-calculator', () => {
     // A lifter who sets the unit before typing anything gets no question. An
     // unconditional prompt is a box that appears on the first tap of every
     // session and means nothing.
+    // Kilograms, because the session opens in pounds: picking the unit it is
+    // already in is not a unit change, and a test that made one would assert
+    // silence about a tap that did nothing.
     const element = await mount({ settings: createPreferenceStore(memoryPreferenceStorage()) });
     await press(element, 'Add Squat');
-    await choose(element, unitGroup(element), 'lb');
+    await choose(element, unitGroup(element), 'kg');
     expect(conversionPrompt(element)).toBe(null);
   });
 

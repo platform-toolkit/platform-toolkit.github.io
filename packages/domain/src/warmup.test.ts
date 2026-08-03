@@ -194,26 +194,70 @@ describe('squat, bench press, and overhead press', () => {
     expect(firstWeighted?.reps).toBe(5);
   });
 
-  it('drops to roughly a third when a full plate would be too heavy an opener', () => {
+  it('spreads from the bar when a full plate would be too heavy an opener', () => {
     // The 40% cap, and it bites more often than it looks like it will: bar plus
     // 25 kg a side is 70, which is half of a 140 kg squat, so a lifter has to be
-    // squatting 175 before the plate is the opener. That is the rule as written
-    // and it is a product decision, not an approximation of one.
+    // squatting 175 before the plate is the opener. Below that the ramp is
+    // spread over the distance from the bar instead, and the check that it has
+    // been spread rather than merely started lower is that the jumps close up as
+    // the bar gets heavy -- which is the point of the whole exercise.
     for (const working of [90, 140]) {
-      const [firstWeighted] = weighted(planned(KILOGRAM_GYM, 'squat-press', working));
-      expect(firstWeighted?.loading.total).toBeLessThan(working * 0.4);
-      expect(firstWeighted?.loading.total).toBeCloseTo(working / 3, 0);
-      expect(firstWeighted?.loading.perSide.length).toBeGreaterThan(0);
+      const plan = planned(KILOGRAM_GYM, 'squat-press', working);
+      const list = weighted(plan);
+      expect(list[0]?.loading.total).toBeLessThan(20 + 2 * 25);
+      expect(list[0]?.loading.perSide.length).toBeGreaterThan(0);
+
+      const steps = [plan.emptyImplement.total, ...list.map((set) => set.loading.total)];
+      const jumps = steps.slice(1).map((total, index) => total - (steps[index] ?? Number.NaN));
+      for (const [index, jump] of jumps.entries()) {
+        if (index === 0) continue;
+        expect(jump, `jump ${String(index)} of ${JSON.stringify(steps)}`).toBeLessThanOrEqual(
+          jumps[index - 1] ?? Number.NaN,
+        );
+      }
     }
   });
 
-  it('halves the remaining gap in the middle set, and finishes on a single near 90%', () => {
-    const plan = planned(KILOGRAM_GYM, 'squat-press', 200);
-    const list = weighted(plan);
+  it('grades the jumps down as the weight goes up', () => {
+    // The whole shape of the ramp, asserted as one list because the numbers only
+    // mean anything next to each other: 5 - 3 - 1 with the sets closing up
+    // toward the top set rather than spaced evenly.
+    const list = weighted(planned(KILOGRAM_GYM, 'squat-press', 140));
+    expect(list.map((set) => [set.stage, set.loading.total, set.reps])).toEqual([
+      ['first', 60, 5],
+      ['middle', 85, 3],
+      ['middle', 105, 2],
+      ['final', 125, 1],
+    ]);
+  });
+
+  it('adds sets as the ramp gets longer instead of widening the gaps', () => {
+    // A 200 kg squat has 160 kg of ramp in it. Three sets would leave 60 kg
+    // jumps, which is what this used to do.
+    const list = weighted(planned(KILOGRAM_GYM, 'squat-press', 200));
     expect(list.map((set) => [set.stage, set.loading.total, set.reps])).toEqual([
       ['first', 70, 5],
-      ['middle', 135, 3],
+      ['middle', 105, 5],
+      // 127.5 and 147.5 are what the ramp asks for. The lightest plate in this
+      // gym is half a kilogram, so the bar moves in whole kilograms and the
+      // search answers with the kilogram below rather than inventing a plate.
+      ['middle', 127, 5],
+      ['middle', 147, 3],
+      ['middle', 165, 2],
       ['final', 180, 1],
+    ]);
+  });
+
+  it('ramps a light working weight on a heavy bar', () => {
+    // The reported case. A 45 lb bar is nearly half of a 100 lb working weight,
+    // so a ramp aimed at shares of the working weight names openers below the
+    // bar and then jumps from the bar straight to 90%. Spreading over the 55 lb
+    // that is actually there gives three real sets instead.
+    const list = weighted(planned(POUND_GYM, 'squat-press', 100));
+    expect(list.map((set) => [set.stage, set.loading.total, set.reps])).toEqual([
+      ['first', 65, 5],
+      ['middle', 80, 3],
+      ['final', 90, 1],
     ]);
   });
 
@@ -227,8 +271,10 @@ describe('squat, bench press, and overhead press', () => {
   });
 
   it('never inserts singles, however wide the gaps', () => {
-    // The jump cap belongs to the pull. A squat ramp is three weighted sets by
-    // construction, and inserting extras would be adding work nobody asked for.
+    // The jump cap belongs to the pull. A squat ramp gets its spacing from the
+    // graded ladder, and inserting extras on top of it would be adding work
+    // nobody asked for -- out of a rack, a wider jump is not the risk it is off
+    // the floor.
     const plan = planned(KILOGRAM_GYM, 'squat-press', 300);
     expect(plan.warmups.some((set) => set.stage === 'inserted')).toBe(false);
   });
@@ -282,9 +328,12 @@ describe('the deadlift', () => {
   });
 
   it('inserts singles when the ramp would otherwise take a bigger jump', () => {
-    // The stated heavy-deadlift scenario. 45 lb a side is the cap; the path from
-    // the opener to 90% of 500 lb is far more than that in one move.
-    const plan = planned(POUND_GYM, 'deadlift', 500);
+    // The stated heavy-deadlift scenario, at the weight where it still bites.
+    // 45 lb a side is the cap, and the graded ramp now keeps most pulls inside
+    // it on its own -- but a ramp long enough to hit the ceiling on how many
+    // sets it may have runs out of room to subdivide, and this is where the cap
+    // takes over.
+    const plan = planned(POUND_GYM, 'deadlift', 700);
     expect(plan.warmups.some((set) => set.stage === 'inserted')).toBe(true);
     for (const set of plan.warmups) {
       if (set.stage !== 'inserted') continue;
@@ -397,9 +446,9 @@ describe('the working set', () => {
 
   it('reports the plates to move from the last warm-up', () => {
     const plan = planned(KILOGRAM_GYM, 'squat-press', 140);
-    // 126 is 25 + 25 + 2.5 + 0.5 a side; 140 is 25 + 25 + 10. A caller
-    // subtracting totals would say "add 14 per side", which is not a plate.
-    expect(plan.working.change).toEqual({ removed: [2.5, 0.5], added: [10] });
+    // 125 is 25 + 25 + 2.5 a side; 140 is 25 + 25 + 10. A caller subtracting
+    // totals would say "add 7.5 per side", which is not a plate in this gym.
+    expect(plan.working.change).toEqual({ removed: [2.5], added: [10] });
   });
 });
 

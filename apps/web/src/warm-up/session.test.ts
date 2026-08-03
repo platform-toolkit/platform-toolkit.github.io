@@ -10,6 +10,7 @@ import {
   SESSION_PREFERENCES,
   addCustomLift,
   addLift,
+  adjustableWarmups,
   convertEntryWeights,
   describeChange,
   loadCompletion,
@@ -26,6 +27,7 @@ import {
   setupFor,
   toggleMark,
   updateEntry,
+  withAdjustment,
   type LiftEntry,
 } from './session.js';
 
@@ -42,6 +44,13 @@ function squat(overrides: Partial<LiftEntry> = {}): LiftEntry {
   const [entry] = addLift([], 'squat');
   if (entry === undefined) throw new Error('The catalogue has no squat.');
   return { ...entry, weight: '100', ...overrides };
+}
+
+/** The ramp a row produces, for the tests that read something off it. */
+function planOf(entry: LiftEntry, equipment: Equipment = DEFAULT_EQUIPMENT) {
+  const result = planFor(entry, equipment);
+  if (result?.ok !== true) throw new Error('The row should have produced a plan.');
+  return result.plan;
 }
 
 describe('adding lifts', () => {
@@ -129,6 +138,34 @@ describe('updateEntry', () => {
   it('leaves the list alone for a row that is not there', () => {
     const one = addLift([], 'squat');
     expect(updateEntry(one, 'jerk', { weight: '60' })).toEqual(one);
+  });
+
+  const adjusted = [squat({ adjustments: [{ index: 2, total: 65 }] })];
+
+  it('throws away the hand-set weights when the working weight changes', () => {
+    // An adjustment names a position, and after a new working weight position
+    // two is a different set. Carrying it over would put a weight chosen for
+    // 100 lb into the middle of a ramp for 135 and present it as the lifter's.
+    expect(updateEntry(adjusted, 'squat', { weight: '135' })[0]?.adjustments).toEqual([]);
+  });
+
+  it('throws them away when the bar changes, for the same reason', () => {
+    expect(updateEntry(adjusted, 'squat', { barId: 'squat-25' })[0]?.adjustments).toEqual([]);
+  });
+
+  it('keeps them across a change to the set and rep counts', () => {
+    // Those change how many times each rung is performed, never what the rungs
+    // are, so the set the lifter moved is still the set they moved.
+    const kept = updateEntry(adjusted, 'squat', { sets: '5', reps: '3' });
+    expect(kept[0]?.adjustments).toEqual([{ index: 2, total: 65 }]);
+  });
+
+  it('lets a patch that names the adjustments set them outright', () => {
+    // Both halves of the stepper go through this: the press that adds one, and
+    // the button that puts every set back to the calculated weight.
+    const set = updateEntry(adjusted, 'squat', { adjustments: [{ index: 3, total: 80 }] });
+    expect(set[0]?.adjustments).toEqual([{ index: 3, total: 80 }]);
+    expect(updateEntry(adjusted, 'squat', { adjustments: [] })[0]?.adjustments).toEqual([]);
   });
 });
 
@@ -223,7 +260,7 @@ describe('planFor', () => {
 
 describe('setupFor', () => {
   it('follows the equipment default when the row has chosen no bar', () => {
-    expect(setupFor(squat(), DEFAULT_EQUIPMENT).bar).toEqual({ amount: 20, unit: 'kg' });
+    expect(setupFor(squat(), DEFAULT_EQUIPMENT).bar).toEqual({ amount: 45, unit: 'lb' });
   });
 
   it('uses the bar chosen on the row when it has one', () => {
@@ -276,13 +313,23 @@ describe('convertEntryWeights', () => {
     const entries = [squat()];
     expect(convertEntryWeights(entries, 'kg', 'kg')).toBe(entries);
   });
+
+  it('carries a hand-set warm-up over, in the new unit', () => {
+    // Not discarded: the lifter chose that rung, and the unit they read it in
+    // is not the rung. Safe to convert because an adjustment is resolved to the
+    // nearest weight the rack can build before it is shown.
+    const converted = convertEntryWeights(
+      [squat({ adjustments: [{ index: 2, total: 60 }] })],
+      'kg',
+      'lb',
+    );
+    expect(converted[0]?.adjustments[0]?.total).toBeCloseTo(132.28, 2);
+  });
 });
 
 describe('sessionRows', () => {
   function rowsFor(entry: LiftEntry, equipment: Equipment = DEFAULT_EQUIPMENT) {
-    const result = planFor(entry, equipment);
-    if (result?.ok !== true) throw new Error('The row should have produced a plan.');
-    return sessionRows(result.plan);
+    return sessionRows(planOf(entry, equipment));
   }
 
   it('gives a repeated set one tickable row per performance', () => {
@@ -317,6 +364,8 @@ describe('sessionRows', () => {
     // diagram for a load nothing can make.
     const coarse: Equipment = {
       ...DEFAULT_EQUIPMENT,
+      plateUnit: 'kg',
+      barId: 'olympic-20',
       inventory: {
         ...DEFAULT_EQUIPMENT.inventory,
         kg: [{ weight: 25, pairs: null, fullDiameter: true }],
@@ -329,6 +378,78 @@ describe('sessionRows', () => {
       expect(row.loading).toBe(null);
       expect(row.total).toBe(103);
     }
+  });
+});
+
+describe('adjustableWarmups', () => {
+  it('numbers the movable sets from one, past the bar-only ones', () => {
+    // The squat ramp opens with the empty bar twice. Numbering from the plan
+    // would offer "warm-up 3" as the first row a lifter can move, against a
+    // checklist whose third row is the first weighted one.
+    const plan = planOf(squat());
+    expect(plan.warmups[0]?.stage).toBe('empty-implement');
+
+    const movable = adjustableWarmups(plan, []);
+    expect(movable).not.toHaveLength(0);
+    expect(movable.map((row) => row.ordinal)).toEqual(movable.map((_, at) => at + 1));
+  });
+
+  it('keeps the position in the plan beside it, which is what an adjustment names', () => {
+    const plan = planOf(squat());
+    for (const row of adjustableWarmups(plan, [])) {
+      expect(plan.warmups[row.index]?.loading.total).toBe(row.total);
+      expect(plan.warmups[row.index]?.stage).not.toBe('empty-implement');
+    }
+  });
+
+  it('arrives with both steps found, so drawing the control searches the rack once', () => {
+    const rows = adjustableWarmups(planOf(squat()), []);
+    for (const row of rows) {
+      expect(row.down).not.toBe(null);
+      expect(row.up).not.toBe(null);
+    }
+  });
+
+  it('marks the set the lifter named, and only that one', () => {
+    const plan = planOf(squat());
+    const [first] = adjustableWarmups(plan, []);
+    if (first === undefined) throw new Error('The ramp should have a movable set.');
+
+    const marked = adjustableWarmups(plan, [{ index: first.index, total: first.total }]);
+    expect(marked.filter((row) => row.adjusted).map((row) => row.ordinal)).toEqual([1]);
+  });
+
+  it('still marks a set given back the weight it already had', () => {
+    // `adjusted` asks whether the lifter chose the weight, not whether it
+    // differs from the calculated one. A mark that vanished when the two
+    // coincided would make the reset button look like it had nothing to do.
+    const plan = planOf(squat());
+    const [first] = adjustableWarmups(plan, []);
+    if (first === undefined) throw new Error('The ramp should have a movable set.');
+
+    const same = adjustableWarmups(plan, [{ index: first.index, total: first.total }])[0];
+    expect(same?.total).toBe(first.total);
+    expect(same?.adjusted).toBe(true);
+  });
+});
+
+describe('withAdjustment', () => {
+  it('gives a set a weight', () => {
+    expect(withAdjustment([], 2, 65)).toEqual([{ index: 2, total: 65 }]);
+  });
+
+  it('replaces the weight on a set rather than listing it twice', () => {
+    // Every press of a stepper comes through here, so an appending version
+    // would reach the storage cap after a dozen taps on one row.
+    expect(withAdjustment([{ index: 2, total: 65 }], 2, 70)).toEqual([{ index: 2, total: 70 }]);
+  });
+
+  it('keeps the list in ramp order', () => {
+    // Nothing reading it requires the order -- `adjustWarmups` builds a map --
+    // but `saveEntries` stops at its limit, so an append-ordered list would
+    // drop whichever sets were adjusted last rather than the ones highest up.
+    const list = withAdjustment(withAdjustment([], 4, 90), 2, 65);
+    expect(list.map((adjustment) => adjustment.index)).toEqual([2, 4]);
   });
 });
 
@@ -429,6 +550,42 @@ describe('remembering the list of lifts', () => {
       saveEntries(remembered, many, 'kg');
     }).not.toThrow();
     expect(remembered.read(SESSION_PREFERENCES.entries)).toHaveLength(24);
+  });
+
+  it('remembers a warm-up the lifter set themselves', () => {
+    const remembered = store();
+    saveEntries(remembered, [squat({ adjustments: [{ index: 2, total: 65 }] })], 'lb');
+    expect(loadEntries(remembered, 'lb')[0]?.adjustments).toEqual([{ index: 2, total: 65 }]);
+  });
+
+  it('converts a remembered warm-up into the unit now in force', () => {
+    // Same trap as the working weight, one layer down: 65 read back as 65 kg is
+    // a warm-up heavier than the work it is warming up for.
+    const remembered = store();
+    saveEntries(remembered, [squat({ adjustments: [{ index: 2, total: 65 }] })], 'lb');
+    expect(loadEntries(remembered, 'kg')[0]?.adjustments[0]?.total).toBeCloseTo(29.48, 2);
+  });
+
+  it('drops an adjustment it cannot store rather than clamping it', () => {
+    // Clamped, it would put a weight the lifter never chose on a set the
+    // checklist then labels as theirs. Dropped, they see the calculated figure,
+    // which is the honest answer.
+    const remembered = store();
+    saveEntries(remembered, [squat({ adjustments: [{ index: 4000, total: 65 }] })], 'lb');
+    expect(loadEntries(remembered, 'lb')[0]?.adjustments).toEqual([]);
+  });
+
+  it('keeps the hand-set warm-ups with the lift they belong to', () => {
+    const remembered = store();
+    const two = [
+      squat({ adjustments: [{ index: 2, total: 65 }] }),
+      squat({ key: 'deadlift', liftId: 'deadlift', adjustments: [{ index: 1, total: 95 }] }),
+    ];
+    saveEntries(remembered, two, 'lb');
+
+    const loaded = loadEntries(remembered, 'lb');
+    expect(loaded[0]?.adjustments).toEqual([{ index: 2, total: 65 }]);
+    expect(loaded[1]?.adjustments).toEqual([{ index: 1, total: 95 }]);
   });
 
   it('recovers to an empty list from an unreadable value', () => {

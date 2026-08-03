@@ -1,7 +1,7 @@
 // Copyright 2026 Jason Smathers
 // SPDX-License-Identifier: Apache-2.0
 
-import type { PtkButton, PtkNumberField } from '@platform-toolkit/ui';
+import type { PtkButton, PtkDisclosure, PtkNumberField } from '@platform-toolkit/ui';
 // Without the stylesheet `--ptk-tap-target-min` is undefined, the declaration
 // referencing it is dropped, and the row-height assertion below measures a row
 // with no floor at all and passes.
@@ -39,6 +39,16 @@ const SQUAT: LiftEntry = {
   weight: '100',
   sets: '3',
   reps: '5',
+  adjustments: [],
+};
+
+/** A rack with nothing on it but full plates, so one step is a long way. */
+const COARSE: Equipment = {
+  ...DEFAULT_EQUIPMENT,
+  inventory: {
+    ...DEFAULT_EQUIPMENT.inventory,
+    lb: [{ weight: 45, pairs: null, fullDiameter: true }],
+  },
 };
 
 const teardown: (() => void)[] = [];
@@ -112,6 +122,61 @@ function control(element: PtkLiftCard, accessibleName: string): PtkButton {
   return found;
 }
 
+/**
+ * Opens the adjustment fold the way the card cannot be tested without.
+ *
+ * By property rather than by pressing the summary because `<details>` fires
+ * `toggle` asynchronously, so a click and an assertion on the same tick read the
+ * previous state. Idempotent: the fold is the same DOM node across the card's
+ * re-renders, so a test that feeds an adjustment back does not have to reopen it
+ * -- calling this again after one is cheap insurance rather than a requirement.
+ */
+async function openAdjust(element: PtkLiftCard): Promise<PtkDisclosure> {
+  const fold = element.shadowRoot?.querySelector<PtkDisclosure>('.adjust ptk-disclosure');
+  if (fold === null || fold === undefined) throw new Error('No adjustment fold rendered.');
+  fold.open = true;
+  await element.updateComplete;
+  return fold;
+}
+
+/**
+ * One stepper, found by the ordinal a lifter reads rather than by position.
+ *
+ * The name is a prefix match because the rest of it is the weight the press
+ * lands on, which is the thing under test in one of these and must not have to
+ * be spelled out in the others.
+ */
+function stepper(element: PtkLiftCard, verb: 'Lower' | 'Raise', ordinal: number): PtkButton {
+  const found = element.shadowRoot?.querySelector<PtkButton>(
+    `ptk-button[accessible-name^="${verb} warm-up ${String(ordinal)} for "]`,
+  );
+  if (found === null || found === undefined) {
+    throw new Error(`No ${verb} stepper for warm-up ${String(ordinal)}.`);
+  }
+  return found;
+}
+
+/**
+ * The one control in the fold that carries its label as text rather than a name.
+ *
+ * `control()` cannot find it: an `accessible-name` on a button whose own words
+ * already say what it does would be a second, competing label.
+ */
+function reset(element: PtkLiftCard): PtkButton {
+  const found = element.shadowRoot?.querySelector<PtkButton>(
+    '.adjust ptk-button:not([accessible-name])',
+  );
+  if (found === null || found === undefined) throw new Error('No reset control in the fold.');
+  return found;
+}
+
+/** The text of a set of nodes, with the template's line breaks squeezed out. */
+function texts(element: PtkLiftCard, selector: string): string[] {
+  return [...(element.shadowRoot?.querySelectorAll(selector) ?? [])].map((node) =>
+    node.textContent.replace(/\s+/gu, ' ').trim(),
+  );
+}
+
 async function type(element: PtkLiftCard, field: string, text: string): Promise<void> {
   const host = element.shadowRoot?.querySelector<PtkNumberField>(
     `ptk-number-field[data-field="${field}"]`,
@@ -143,7 +208,7 @@ describe('ptk-lift-card', () => {
     element.entry = { ...SQUAT, weight: '180' };
     await element.updateComplete;
 
-    expect(element.shadowRoot?.textContent).toContain('180 kg');
+    expect(element.shadowRoot?.textContent).toContain('180 lb');
     expect(rows(element).length).toBeGreaterThanOrEqual(before);
   });
 
@@ -182,14 +247,7 @@ describe('ptk-lift-card', () => {
   it('warns about an unloadable working weight and names both neighbours', async () => {
     // Shown, flagged, and offered with what surrounds it -- never silently moved
     // to a weight the lifter did not choose.
-    const coarse: Equipment = {
-      ...DEFAULT_EQUIPMENT,
-      inventory: {
-        ...DEFAULT_EQUIPMENT.inventory,
-        kg: [{ weight: 25, pairs: null, fullDiameter: true }],
-      },
-    };
-    const element = await mount({ entry: { ...SQUAT, weight: '103' }, equipment: coarse });
+    const element = await mount({ entry: { ...SQUAT, weight: '103' }, equipment: COARSE });
     const advisories = element.shadowRoot?.querySelector('.advisories')?.textContent ?? '';
     expect(advisories).toContain('cannot be built from these plates');
     expect(advisories).toContain('The nearest are');
@@ -259,8 +317,138 @@ describe('ptk-lift-card', () => {
     expect(seen.at(-1)).toEqual({ key: 'squat', patch: { barId: 'womens-15' } });
   });
 
+  it('keeps the calculated weights folded away and says so while they are', async () => {
+    // The fold hides whether the numbers above are the calculator's or the
+    // lifter's, so the summary has to answer that without being opened.
+    const element = await mount();
+    const fold = element.shadowRoot?.querySelector('.adjust ptk-disclosure');
+    expect(fold?.getAttribute('summary')).toBe('Calculated weights');
+  });
+
+  it('numbers the movable warm-ups from one, past the bar-only sets', async () => {
+    // The squat ramp opens on the empty bar. Numbering the fold from the plan
+    // would offer "warm-up 3" for a row the checklist calls the first warm-up.
+    const element = await mount();
+    await openAdjust(element);
+
+    expect(rows(element)[0]?.textContent).toContain('Empty bar');
+    const names = texts(element, '.tweak-name');
+    expect(names.length).toBeGreaterThan(0);
+    expect(names).toEqual(names.map((_, at) => `Warm-up ${String(at + 1)}`));
+  });
+
+  it('moves one warm-up to the next weight the plates can build', async () => {
+    const element = await mount();
+    await openAdjust(element);
+    const before = texts(element, '.tweak-total');
+    const seen = watch(LIFT_CHANGE_EVENT);
+
+    press(stepper(element, 'Raise', 1));
+
+    const adjustments = seen.at(-1)?.patch.adjustments;
+    if (adjustments === undefined) throw new Error('A press should report the whole list.');
+    expect(adjustments).toHaveLength(1);
+
+    // The card holds nothing, so the move only happens once the session hands
+    // the entry back -- which is the half a test of the event alone would miss.
+    element.entry = { ...SQUAT, adjustments };
+    await element.updateComplete;
+    await openAdjust(element);
+
+    const after = texts(element, '.tweak-total');
+    expect(after[0]).not.toBe(before[0]);
+    expect(after.slice(1)).toEqual(before.slice(1));
+
+    const fold = element.shadowRoot?.querySelector('.adjust ptk-disclosure');
+    expect(fold?.getAttribute('summary')).toBe(`1 of ${String(after.length)} set by you`);
+
+    // The checklist has to say it too. A lifter reading the ramp between sets is
+    // not going to open the fold to find out whose number they are looking at.
+    const marked = rows(element).filter((row) => row.textContent.includes('Your weight'));
+    expect(marked).toHaveLength(1);
+  });
+
+  it('will not step a warm-up below the empty bar', async () => {
+    // The bar is a real answer and there is nothing under it, so the control has
+    // to be disabled rather than offering a press that does nothing.
+    const element = await mount({ entry: { ...SQUAT, weight: '225' }, equipment: COARSE });
+    await openAdjust(element);
+    const seen = watch(LIFT_CHANGE_EVENT);
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const lower = stepper(element, 'Lower', 1);
+      if (lower.disabled) break;
+      press(lower);
+      const adjustments = seen.at(-1)?.patch.adjustments;
+      if (adjustments === undefined) throw new Error('A press should report the whole list.');
+      element.entry = { ...SQUAT, weight: '225', adjustments };
+      await element.updateComplete;
+      await openAdjust(element);
+    }
+
+    const lower = stepper(element, 'Lower', 1);
+    expect(lower.disabled).toBe(true);
+    expect(texts(element, '.tweak-total')[0]).toBe('45 lb');
+    // No destination to name, so the clause naming one is dropped rather than
+    // left dangling on a control that cannot go anywhere.
+    expect(lower.getAttribute('accessible-name')).toBe('Lower warm-up 1 for Squat');
+  });
+
+  it('offers the calculated weights back only once something has been changed', async () => {
+    const element = await mount();
+    await openAdjust(element);
+    expect(reset(element).textContent).toContain('Use the calculated weights');
+    expect(reset(element).disabled).toBe(true);
+
+    const seen = watch(LIFT_CHANGE_EVENT);
+    press(stepper(element, 'Raise', 1));
+    const adjustments = seen.at(-1)?.patch.adjustments;
+    if (adjustments === undefined) throw new Error('A press should report the whole list.');
+    element.entry = { ...SQUAT, adjustments };
+    await element.updateComplete;
+    await openAdjust(element);
+
+    expect(reset(element).disabled).toBe(false);
+    press(reset(element));
+    expect(seen.at(-1)).toEqual({ key: 'squat', patch: { adjustments: [] } });
+  });
+
+  it('keeps the steppers out of the rows a thumb ticks', async () => {
+    // A stepper inside a checklist row would be a press that also marks the set
+    // as done, on the one screen where a mis-tap costs a lifter their place.
+    const element = await mount();
+    await openAdjust(element);
+    expect(element.shadowRoot?.querySelector('.adjust')?.closest('label')).toBe(null);
+
+    const ticks = watch(SET_TOGGLE_EVENT);
+    press(stepper(element, 'Raise', 1));
+    expect(ticks).toEqual([]);
+  });
+
+  it('names the weight each stepper lands on, and names the lift as well', async () => {
+    // Without the destination in the name a screen-reader user has to hunt for
+    // the new figure after every press, and a live region announcing it would
+    // talk over a checklist being read between sets. The lift is in the name
+    // because a session holds several cards and every one of them has a warm-up 1.
+    const element = await mount();
+    await openAdjust(element);
+    expect(stepper(element, 'Raise', 1).getAttribute('accessible-name')).toMatch(
+      /^Raise warm-up 1 for Squat to [\d.]+ lb$/u,
+    );
+    expect(stepper(element, 'Lower', 1).getAttribute('accessible-name')).toMatch(
+      /^Lower warm-up 1 for Squat to [\d.]+ lb$/u,
+    );
+  });
+
   it('has no accessibility violations with a full ramp on screen', async () => {
     const element = await mount();
+    const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
+    expect(results.violations).toEqual([]);
+  });
+
+  it('has no accessibility violations with the adjustment fold open', async () => {
+    const element = await mount();
+    await openAdjust(element);
     const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
     expect(results.violations).toEqual([]);
   });

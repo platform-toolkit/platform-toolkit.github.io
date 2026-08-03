@@ -17,7 +17,12 @@
  * state -- an unloadable weight, a rack with no plates, a half-typed number --
  * from a story or a test with no storage and no session behind it.
  */
-import { formatWeight, type WarmupAdvisory, type WarmupPlan } from '@platform-toolkit/domain';
+import {
+  formatWeight,
+  type WarmupAdvisory,
+  type WarmupPlan,
+  type WeightUnit,
+} from '@platform-toolkit/domain';
 import {
   CHOICE_CHANGE_EVENT,
   NUMBER_FIELD_CHANGE_EVENT,
@@ -30,12 +35,15 @@ import { customElement, property } from 'lit/decorators.js';
 
 import { BAR_PRESETS, CUSTOM_BAR_ID, barLabel, type Equipment } from './equipment.js';
 import {
+  adjustableWarmups,
   describeChange,
   markKey,
   parseCount,
   parseWeight,
   planFor,
   sessionRows,
+  withAdjustment,
+  type AdjustableWarmup,
   type Completion,
   type FieldReading,
   type LiftEntry,
@@ -45,7 +53,7 @@ import {
 /** Fired when the lifter edits a field on this row. */
 export interface LiftChangeDetail {
   readonly key: string;
-  readonly patch: Partial<Pick<LiftEntry, 'barId' | 'weight' | 'sets' | 'reps'>>;
+  readonly patch: Partial<Pick<LiftEntry, 'barId' | 'weight' | 'sets' | 'reps' | 'adjustments'>>;
 }
 
 /** Fired when the lifter moves this row up or down the list. */
@@ -239,6 +247,63 @@ export class PtkLiftCard extends LitElement {
       margin: 0;
       color: var(--ptk-color-text-muted);
     }
+
+    .adjust {
+      margin-top: var(--ptk-space-md);
+    }
+
+    .hint {
+      margin: 0 0 var(--ptk-space-md);
+      font-size: var(--ptk-font-size-sm);
+      color: var(--ptk-color-text-muted);
+    }
+
+    ul.tweaks {
+      list-style: none;
+      margin: 0 0 var(--ptk-space-md);
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: var(--ptk-space-sm);
+    }
+
+    /* Wraps for the same reason .controls does: the two buttons are sized in px
+       and do not scale with the text, but their glyphs do, so at 200% text a
+       row of name, weight and two steppers outgrows a 320px card. Letting it
+       wrap costs a taller row; not letting it wrap costs the steppers. */
+    .tweak {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--ptk-space-sm);
+      min-height: var(--ptk-tap-target-min);
+    }
+
+    .tweak-name {
+      /* A flex item will not shrink below its min-content width without this,
+         and min-content only counts a break opportunity that overflow-wrap
+         declares -- which is why it is anywhere and not break-word. */
+      flex: 1 1 6rem;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      font-size: var(--ptk-font-size-sm);
+      color: var(--ptk-color-text-muted);
+    }
+
+    .tweak-mark {
+      display: block;
+      color: var(--ptk-color-accent);
+    }
+
+    .tweak-total {
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+    }
+
+    .tweak-steps {
+      display: flex;
+      gap: var(--ptk-space-xs);
+    }
   `;
 
   @property({ attribute: false }) entry!: LiftEntry;
@@ -390,11 +455,18 @@ export class PtkLiftCard extends LitElement {
       // reads as two separate faults.
       return html`<p class="idle">Check the numbers above to see the warm-up.</p>`;
     }
+    const plan = result.plan;
+    // Computed once for both halves of the panel: the checklist numbers each
+    // movable set, and the fold below offers to move the same ones. Two calls
+    // would be two searches of the rack for one answer.
+    const movable = adjustableWarmups(plan, this.entry.adjustments);
+    const byIndex = new Map(movable.map((row) => [row.index, row]));
     return html`
-      ${this.#renderAdvisories(result.plan)}
+      ${this.#renderAdvisories(plan)}
       <ol>
-        ${sessionRows(result.plan).map((row) => this.#renderRow(row))}
+        ${sessionRows(plan).map((row) => this.#renderRow(row, byIndex))}
       </ol>
+      ${this.#renderAdjust(movable)}
     `;
   }
 
@@ -447,8 +519,9 @@ export class PtkLiftCard extends LitElement {
     }
   }
 
-  #renderRow(row: SessionRow): TemplateResult {
+  #renderRow(row: SessionRow, byIndex: ReadonlyMap<number, AdjustableWarmup>): TemplateResult {
     const unit = this.equipment.plateUnit;
+    const warmup = row.warmupIndex === null ? undefined : byIndex.get(row.warmupIndex);
     const key = markKey(this.entry.key, row.index);
     const done = this.completion.has(key);
     const change = row.change === null ? '' : describeChange(row.change, unit);
@@ -469,7 +542,7 @@ export class PtkLiftCard extends LitElement {
               >${formatWeight({ amount: row.total, unit })}
               <span class="reps">× ${row.reps}</span></span
             >
-            <span class="stage">${stageName(row)}</span>
+            <span class="stage">${stageName(row, warmup)}</span>
             ${
               row.loading === null
                 ? html`<span class="change">These plates cannot build this weight.</span>`
@@ -483,6 +556,98 @@ export class PtkLiftCard extends LitElement {
         </label>
       </li>
     `;
+  }
+
+  /**
+   * The stepper column, folded away under the checklist.
+   *
+   * Folded because adjusting a calculated weight is not what anybody came here
+   * to do -- the ramp is the product, and a column of steppers beside every row
+   * would make the checklist look like a form to fill in rather than a list to
+   * work through. Below the checklist rather than above it for the same reason,
+   * and because every row of the checklist is a tick target: a control inside
+   * one would be a press that also marks a set as done.
+   *
+   * Steppers rather than typed fields. This is read between sets on a phone: a
+   * stepper cannot be mistyped, cannot name a weight the rack cannot build, and
+   * does not put a keyboard over the list. What one press is worth is the rack's
+   * own answer, so a gym with quarter-pound plates steps in quarters.
+   */
+  #renderAdjust(movable: readonly AdjustableWarmup[]): TemplateResult | typeof nothing {
+    // A ramp of nothing but bar-only sets has nothing to offer, and an empty
+    // fold is a control that opens onto a blank.
+    if (movable.length === 0) return nothing;
+
+    const changed = movable.filter((row) => row.adjusted).length;
+    return html`
+      <div class="adjust">
+        <ptk-disclosure
+          label="Adjust the warm-up weights"
+          summary=${adjustSummary(changed, movable.length)}
+        >
+          <p class="hint">
+            Each step is the next weight these plates can build. The working sets are not changed.
+          </p>
+          <ul class="tweaks">
+            ${movable.map((row) => this.#renderTweak(row))}
+          </ul>
+          <ptk-button
+            ?disabled=${changed === 0}
+            @click=${() => {
+              this.#change({ adjustments: [] });
+            }}
+            >Use the calculated weights</ptk-button
+          >
+        </ptk-disclosure>
+      </div>
+    `;
+  }
+
+  #renderTweak(row: AdjustableWarmup): TemplateResult {
+    const unit = this.equipment.plateUnit;
+    return html`
+      <li class="tweak">
+        <span class="tweak-name">
+          Warm-up
+          ${row.ordinal}${
+            row.adjusted ? html`<span class="tweak-mark">Your weight</span>` : nothing
+          }
+        </span>
+        <span class="tweak-total">${formatWeight({ amount: row.total, unit })}</span>
+        <span class="tweak-steps">
+          <ptk-button
+            accessible-name=${stepName('Lower', row, row.down, unit, this.entry.name)}
+            ?disabled=${row.down === null}
+            @click=${() => {
+              this.#nudge(row.index, row.down);
+            }}
+            >−</ptk-button
+          >
+          <ptk-button
+            accessible-name=${stepName('Raise', row, row.up, unit, this.entry.name)}
+            ?disabled=${row.up === null}
+            @click=${() => {
+              this.#nudge(row.index, row.up);
+            }}
+            >+</ptk-button
+          >
+        </span>
+      </li>
+    `;
+  }
+
+  /**
+   * Move one warm-up to a weight the rack can already build.
+   *
+   * `null` is the end of the rack in that direction and the button offering it
+   * is disabled, so this is only reached by a press that raced a re-render.
+   * Dispatching the whole adjustment list rather than the one change keeps the
+   * card stateless: the session owns the list, and a card holding a copy would
+   * be a second owner of the thing the storage layer writes.
+   */
+  #nudge(index: number, total: number | null): void {
+    if (total === null) return;
+    this.#change({ adjustments: withAdjustment(this.entry.adjustments, index, total) });
   }
 
   readonly #onNumber = (event: CustomEvent<NumberFieldChangeDetail>): void => {
@@ -557,10 +722,50 @@ function messageOf(reading: FieldReading): string {
  * them; the bar-only sets and the working sets are called out because those two
  * are the ones somebody scanning the list is looking for.
  */
-function stageName(row: SessionRow): string {
+function stageName(row: SessionRow, warmup: AdjustableWarmup | undefined): string {
   if (row.kind === 'working') return 'Working set';
   if (row.stage === 'empty-implement') return 'Empty bar';
-  return 'Warm-up';
+  // The ordinal is what ties this row to the row in the adjustment fold, and it
+  // counts only the movable sets -- the bar-only ones above are not numbered, so
+  // the first thing a lifter can move is always "Warm-up 1".
+  if (warmup === undefined) return 'Warm-up';
+  return warmup.adjusted ? `Warm-up ${warmup.ordinal} · Your weight` : `Warm-up ${warmup.ordinal}`;
+}
+
+/**
+ * What is true about the warm-up weights while the fold is shut.
+ *
+ * §5.8 requires a disclosure's summary to state the whole of what it hides, and
+ * what this one hides is whether the numbers above are the calculator's or the
+ * lifter's. A fold reading only "Adjust the warm-up weights" over a ramp with
+ * two hand-set rungs is how somebody reads a plan they edited last week as one
+ * the tool just produced for today's working weight.
+ */
+function adjustSummary(changed: number, total: number): string {
+  if (changed === 0) return 'Calculated weights';
+  return `${changed} of ${total} set by you`;
+}
+
+/**
+ * The name of one stepper, including the weight the press lands on.
+ *
+ * Naming the destination is what makes this usable without sight. A stepper
+ * called "Raise warm-up 2" tells a screen-reader user the direction and nothing
+ * about the result, so the new figure has to be hunted for after every press --
+ * and a live region announcing it would talk over the checklist on a screen
+ * whose whole purpose is being read between sets. The "to" clause is dropped at
+ * the end of the rack, where the button is disabled and there is no destination
+ * to name.
+ */
+function stepName(
+  verb: 'Lower' | 'Raise',
+  row: AdjustableWarmup,
+  to: number | null,
+  unit: WeightUnit,
+  liftName: string,
+): string {
+  const target = to === null ? '' : ` to ${formatWeight({ amount: to, unit })}`;
+  return `${verb} warm-up ${row.ordinal} for ${liftName}${target}`;
 }
 
 /**

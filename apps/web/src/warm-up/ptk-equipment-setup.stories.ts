@@ -22,19 +22,41 @@ import './ptk-equipment-setup.js';
  * because the element checks a toggle against the list it offered.
  */
 
-/** A commercial gym: everything, no limits. */
+/**
+ * A commercial gym: everything, no limits, and the fractional set in the bag.
+ *
+ * This is the shipped default -- pounds on a 45 lb bar -- because the lifter who
+ * never opens this screen is the one who trains in pounds, and a story showing
+ * something else documents a state nobody arrives in.
+ */
 const FULL_RACK: Equipment = DEFAULT_EQUIPMENT;
 
-/** A home rack: two denominations, one of them nearly gone. */
+/**
+ * A home rack: a few denominations, one of them nearly gone, no small plates.
+ *
+ * Pounds, and pinned rather than inherited: overriding the *kilogram* inventory
+ * on a rack the element draws in pounds is a fixture that shows the defaults
+ * while claiming to show limits.
+ */
 const HOME_RACK: Equipment = {
   ...DEFAULT_EQUIPMENT,
   inventory: {
     ...DEFAULT_EQUIPMENT.inventory,
-    kg: [
-      { weight: 25, pairs: 1, fullDiameter: true },
+    lb: [
+      { weight: 45, pairs: 1, fullDiameter: true },
+      { weight: 25, pairs: 2, fullDiameter: true },
       { weight: 10, pairs: 2, fullDiameter: false },
-      { weight: 2.5, pairs: 1, fullDiameter: false },
+      { weight: 5, pairs: 1, fullDiameter: false },
     ],
+  },
+};
+
+/** The bag with one plate missing from it, which is the third state of the switch. */
+const PART_MICRO: Equipment = {
+  ...DEFAULT_EQUIPMENT,
+  inventory: {
+    ...DEFAULT_EQUIPMENT.inventory,
+    lb: DEFAULT_EQUIPMENT.inventory.lb.filter((plate) => plate.weight !== 0.25),
   },
 };
 
@@ -98,9 +120,60 @@ export const CustomBar: Story = {
   args: { equipment: { ...FULL_RACK, barId: CUSTOM_BAR_ID } },
 };
 
-/** Pound plates, which are a different set of denominations rather than a label. */
-export const PoundPlates: Story = {
-  args: { equipment: { ...FULL_RACK, plateUnit: 'lb', collarId: 'competition' } },
+/**
+ * Kilogram plates, which are a different set of denominations rather than a label.
+ *
+ * The bar moves with them. A kilogram rack on a 45 lb bar is a real thing a
+ * lifter can describe and a poor thing to open a story on, since the summary
+ * line then reads as a mistake rather than as a configuration.
+ */
+export const KilogramPlates: Story = {
+  args: {
+    equipment: {
+      ...FULL_RACK,
+      plateUnit: 'kg',
+      barId: 'olympic-20',
+      customBar: { amount: 20, unit: 'kg' },
+      collarId: 'competition',
+    },
+  },
+};
+
+/**
+ * A bar that is neither 45 lb nor a 15 kg women's bar.
+ *
+ * Before this the only way to say so was the custom box. It is here as a story
+ * because the preset list is the one part of this screen a lifter scans rather
+ * than reads, and a bar that is not on it is a bar they conclude is unsupported.
+ */
+export const TrainingBar: Story = {
+  args: { equipment: { ...FULL_RACK, barId: 'training-22' } },
+};
+
+/**
+ * Every fractional plate on the rack, which is how the tool arrives.
+ *
+ * The switch above the chips is a shortcut past four taps and never a mode --
+ * so this state and the two below it are all reachable by the chips alone, and
+ * the switch only ever reports what they say.
+ */
+export const AllFractionalPlates: Story = {};
+
+/**
+ * The bag with one plate lost out of it.
+ *
+ * The master switch cannot describe this rack with a tick or a blank, and
+ * drawing it as either is a lie about what is on the rack. Indeterminate is the
+ * third state the platform has for exactly this, and it is the only one of the
+ * three that cannot be checked by reading the code.
+ */
+export const SomeFractionalPlates: Story = {
+  args: { equipment: PART_MICRO },
+};
+
+/** A rack with nothing small on it, so the ramp's last step is a long one. */
+export const NoFractionalPlates: Story = {
+  args: { equipment: HOME_RACK },
 };
 
 /**

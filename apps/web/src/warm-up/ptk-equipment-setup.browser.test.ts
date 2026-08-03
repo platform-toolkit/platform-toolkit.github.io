@@ -36,15 +36,34 @@ import './ptk-equipment-setup.js';
  * Invented, like every figure in these tests. The plate weights happen to be
  * real denominations because the element checks values against the offered list
  * and would drop anything else -- that check is the point of one of the tests.
+ *
+ * The unit, the bar and the custom bar's unit are all pinned rather than
+ * inherited from `DEFAULT_EQUIPMENT`. The default is pounds on a 45 lb bar, and
+ * these tests are about the element's mechanics rather than about the defaults:
+ * a fixture that follows the default draws the *pound* plate switches while
+ * overriding the kilogram inventory, so the toggle test would tick a plate on a
+ * rack nothing here is reading. The defaults have a test of their own below.
  */
 const RACK: Equipment = {
   ...DEFAULT_EQUIPMENT,
+  plateUnit: 'kg',
+  barId: 'olympic-20',
+  customBar: { amount: 20, unit: 'kg' },
   inventory: {
     ...DEFAULT_EQUIPMENT.inventory,
     kg: [
       { weight: 25, pairs: null, fullDiameter: true },
       { weight: 10, pairs: 2, fullDiameter: false },
     ],
+  },
+};
+
+/** The same rack with one of the four fractional plates on it, and no more. */
+const PART_MICRO: Equipment = {
+  ...RACK,
+  inventory: {
+    ...RACK.inventory,
+    kg: [...RACK.inventory.kg, { weight: 0.5, pairs: null, fullDiameter: false }],
   },
 };
 
@@ -112,6 +131,26 @@ function plates(element: PtkEquipmentSetup): PtkToggleGroup {
   const found = find(element, 'ptk-toggle-group');
   if (!(found instanceof PtkToggleGroup)) throw new Error('The plate switches are not a toggle.');
   return found;
+}
+
+/**
+ * The one switch that stands for the whole bagged set of fractional plates.
+ *
+ * A plain checkbox rather than a chip in the toggle group above, because it is
+ * not a denomination and ticking it does not put a plate on the rack by itself.
+ * It is also the only control on this screen with a third state, which is why
+ * the tests below read `indeterminate` off it directly.
+ */
+function microMaster(element: PtkEquipmentSetup): HTMLInputElement {
+  const found = find(element, 'input[data-field="micro-all"]');
+  if (!(found instanceof HTMLInputElement)) throw new Error('The micro switch is not an input.');
+  return found;
+}
+
+/** What is on the rack, in the unit the reported equipment is actually in. */
+function weights(equipment: Equipment | undefined): number[] {
+  if (equipment === undefined) throw new Error('Nothing was reported.');
+  return equipment.inventory[equipment.plateUnit].map((plate) => plate.weight);
 }
 
 /** Clicks an option the way a lifter would: on the control itself. */
@@ -245,6 +284,78 @@ describe('ptk-equipment-setup', () => {
 
     const changed = seen.at(-1)?.equipment.inventory.kg.find((plate) => plate.weight === 10);
     expect(changed?.pairs).toBeNull();
+  });
+
+  it('opens in pounds on a pound bar, with the fractional set already on the rack', async () => {
+    // The lifter who has not been into this screen is the one who trains in
+    // pounds -- the kilogram racks belong to people who configure things. And
+    // the small plates are there until somebody says otherwise, because a ramp
+    // that cannot make 47.5 lb is the reason this iteration exists.
+    const element = await mount(DEFAULT_EQUIPMENT);
+    expect(group(element, 'unit').value).toBe('lb');
+    expect(group(element, 'bar').value).toBe('standard-45');
+
+    const master = microMaster(element);
+    expect(master.checked).toBe(true);
+    expect(master.indeterminate).toBe(false);
+  });
+
+  it('offers the 22 lb bar some lifters train on', async () => {
+    // A women's bar is 15 kg and a 22 lb training bar is neither that nor 45.
+    // Before this the only way to say so was the custom box, which is two more
+    // taps and a number to remember.
+    const element = await mount(DEFAULT_EQUIPMENT);
+    const seen = watch();
+    await click(element, group(element, 'bar'), 'training-22');
+    expect(seen.at(-1)?.equipment.barId).toBe('training-22');
+    expect(find(element, 'ptk-disclosure').getAttribute('summary')).toContain('22 lb');
+  });
+
+  it('stocks or clears the whole fractional set with one switch', async () => {
+    // Four denominations sold in one bag is one decision, not four. The chips
+    // above stay the authority; this is a shortcut past four taps.
+    const element = await mount();
+    expect(microMaster(element).checked).toBe(false);
+
+    const seen = watch();
+    microMaster(element).click();
+    await element.updateComplete;
+
+    const stocked = weights(seen.at(-1)?.equipment);
+    expect(stocked).toContain(0.5);
+    expect(stocked).toContain(0.25);
+    // The plates that were already on the rack are still on it.
+    expect(stocked).toContain(25);
+    expect(stocked).toContain(10);
+  });
+
+  it('shows a partly stocked bag as neither on nor off, and clears it in one press', async () => {
+    // Somebody who lost the quarter-pounders has a rack the switch cannot
+    // describe with a tick or a blank, and drawing it as either is a lie about
+    // what is on the rack. Indeterminate is the third state the platform has
+    // for exactly this.
+    const element = await mount(PART_MICRO);
+    const master = microMaster(element);
+    expect(master.checked).toBe(true);
+    expect(master.indeterminate).toBe(true);
+
+    const seen = watch();
+    master.click();
+    await element.updateComplete;
+
+    expect(weights(seen.at(-1)?.equipment)).toEqual([25, 10]);
+  });
+
+  it('leaves the individual plates operable for a rack that is not a whole bag', async () => {
+    // The master is a shortcut and never a mode: a lifter with three of the four
+    // has to be able to say so, and the switch above must follow rather than
+    // overrule them.
+    const element = await mount(PART_MICRO);
+    const seen = watch();
+    await click(element, plates(element), '0.5');
+
+    expect(weights(seen.at(-1)?.equipment)).toEqual([25, 10]);
+    expect(microMaster(element).checked).toBe(false);
   });
 
   it('says so when the device will not let the page remember anything', async () => {

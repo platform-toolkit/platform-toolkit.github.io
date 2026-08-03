@@ -12,13 +12,16 @@ import {
   DEFAULT_EQUIPMENT,
   DENOMINATIONS,
   EQUIPMENT_PREFERENCES,
+  MICRO_DENOMINATIONS,
   barLabel,
   barWeight,
   collarWeight,
   denomination,
   describeEquipment,
   loadEquipment,
+  microPlateState,
   saveEquipment,
+  setMicroPlates,
   toBarbellSetup,
   toggleDenomination,
   updateDenomination,
@@ -57,7 +60,7 @@ describe('the bar presets', () => {
 
 describe('barWeight', () => {
   it('answers the preset for the equipment default', () => {
-    expect(barWeight(DEFAULT_EQUIPMENT)).toEqual({ amount: 20, unit: 'kg' });
+    expect(barWeight(DEFAULT_EQUIPMENT)).toEqual({ amount: 45, unit: 'lb' });
   });
 
   it('answers a per-lift bar without changing the default', () => {
@@ -65,7 +68,13 @@ describe('barWeight', () => {
     // the bar belongs to the lift and the equipment holds only what a new lift
     // starts with.
     expect(barWeight(DEFAULT_EQUIPMENT, 'safety-squat-65')).toEqual({ amount: 65, unit: 'lb' });
-    expect(DEFAULT_EQUIPMENT.barId).toBe('olympic-20');
+    expect(DEFAULT_EQUIPMENT.barId).toBe('standard-45');
+  });
+
+  it('offers the light bar a lot of lifters are actually under, in pounds', () => {
+    // The gap the requirements named: a twenty-two pound bar was reachable only
+    // by typing a custom weight, and the custom field opened on a kilogram bar.
+    expect(barWeight(DEFAULT_EQUIPMENT, 'training-22')).toEqual({ amount: 22, unit: 'lb' });
   });
 
   it('answers the custom bar for the custom identifier', () => {
@@ -119,43 +128,43 @@ describe('collarWeight', () => {
 describe('toBarbellSetup', () => {
   it('hands the domain the plate unit, the bar, the collars, and the rack', () => {
     const setup = toBarbellSetup(DEFAULT_EQUIPMENT);
-    expect(setup.plateUnit).toBe('kg');
-    expect(setup.bar).toEqual({ amount: 20, unit: 'kg' });
+    expect(setup.plateUnit).toBe('lb');
+    expect(setup.bar).toEqual({ amount: 45, unit: 'lb' });
     expect(setup.collars.amount).toBe(0);
-    expect(setup.plates).toBe(DEFAULT_EQUIPMENT.inventory.kg);
+    expect(setup.plates).toBe(DEFAULT_EQUIPMENT.inventory.lb);
   });
 
   it('takes the plates for the selected unit and not the other one', () => {
-    // The two inventories are separate on purpose. Handing over the kilogram
-    // rack while the unit says pounds produces a ramp of totals that look
+    // The two inventories are separate on purpose. Handing over the pound rack
+    // while the unit says kilograms produces a ramp of totals that look
     // reasonable and cannot be loaded.
-    const equipment: Equipment = { ...DEFAULT_EQUIPMENT, plateUnit: 'lb' };
-    expect(toBarbellSetup(equipment).plates).toBe(DEFAULT_EQUIPMENT.inventory.lb);
+    const equipment: Equipment = { ...DEFAULT_EQUIPMENT, plateUnit: 'kg' };
+    expect(toBarbellSetup(equipment).plates).toBe(DEFAULT_EQUIPMENT.inventory.kg);
   });
 
   it('keeps a bar in the other unit in its own unit', () => {
-    // A pound bar in a kilogram gym is ordinary, and the requirements say the
+    // A kilogram bar in a pound gym is ordinary, and the requirements say the
     // bar's native weight must stay visible. Converting here would round it into
     // the plate unit and the setup summary would stop matching the sticker.
-    const setup = toBarbellSetup(DEFAULT_EQUIPMENT, 'standard-45');
-    expect(setup.bar).toEqual({ amount: 45, unit: 'lb' });
-    expect(setup.plateUnit).toBe('kg');
+    const setup = toBarbellSetup(DEFAULT_EQUIPMENT, 'olympic-20');
+    expect(setup.bar).toEqual({ amount: 20, unit: 'kg' });
+    expect(setup.plateUnit).toBe('lb');
   });
 });
 
 describe('describeEquipment', () => {
   it('summarises the whole setup in one line', () => {
-    expect(describeEquipment(DEFAULT_EQUIPMENT)).toBe('kg plates • 20 kg bar • no collar weight');
+    expect(describeEquipment(DEFAULT_EQUIPMENT)).toBe('lb plates • 45 lb bar • no collar weight');
   });
 
   it('says what the collars weigh once they weigh something', () => {
     const equipment: Equipment = { ...DEFAULT_EQUIPMENT, collarId: 'competition' };
-    expect(describeEquipment(equipment)).toBe('kg plates • 20 kg bar • 5 kg collars');
+    expect(describeEquipment(equipment)).toBe('lb plates • 45 lb bar • 5 kg collars');
   });
 
   it('names a mixed setup in both units', () => {
-    const equipment: Equipment = { ...DEFAULT_EQUIPMENT, barId: 'standard-45' };
-    expect(describeEquipment(equipment)).toBe('kg plates • 45 lb bar • no collar weight');
+    const equipment: Equipment = { ...DEFAULT_EQUIPMENT, barId: 'olympic-20' };
+    expect(describeEquipment(equipment)).toBe('lb plates • 20 kg bar • no collar weight');
   });
 });
 
@@ -171,13 +180,24 @@ describe('barLabel', () => {
 });
 
 describe('the plate inventory', () => {
-  it('stocks a broadly equipped gym and not a competition platform', () => {
-    // Change plates below a kilogram are a competition item. Building a ramp on
-    // plates the lifter does not own is a plan that cannot be loaded, and the
-    // screen would give no clue why.
-    const weights = DEFAULT_EQUIPMENT.inventory.kg.map((plate) => plate.weight);
-    expect(weights).toEqual([25, 20, 15, 10, 5, 2.5]);
-    expect(weights).not.toContain(0.5);
+  it('stocks a broadly equipped gym and not every size ever made', () => {
+    // The odd sizes between are a specialty rack. Building a ramp on plates the
+    // lifter does not own is a plan that cannot be loaded, and the screen would
+    // give no clue why.
+    const weights = DEFAULT_EQUIPMENT.inventory.lb.map((plate) => plate.weight);
+    expect(weights).not.toContain(35);
+    expect(weights).not.toContain(20);
+    expect(weights).not.toContain(15);
+  });
+
+  it('assumes the fractional set is in the bag', () => {
+    // The ramp is rounded to a readable step before the plates are searched, so
+    // these can only be called for by an odd bar or by the working weight -- and
+    // the working weight is the number the lifter typed, where rounding it off
+    // is the tool getting the one figure that matters wrong.
+    for (const unit of ['kg', 'lb'] as const) {
+      expect(microPlateState(DEFAULT_EQUIPMENT, unit), unit).toBe('all');
+    }
   });
 
   it('marks the competition-diameter plates in each unit', () => {
@@ -202,18 +222,80 @@ describe('the plate inventory', () => {
     expect(DENOMINATIONS.kg).toContain(0.5);
     expect(DENOMINATIONS.lb).toContain(1.25);
   });
+
+  it('offers the fractional set the requirements named, down to the quarter', () => {
+    expect(MICRO_DENOMINATIONS.lb).toEqual([1, 0.75, 0.5, 0.25]);
+    for (const unit of ['kg', 'lb'] as const) {
+      for (const weight of MICRO_DENOMINATIONS[unit]) {
+        expect(DENOMINATIONS[unit], unit).toContain(weight);
+      }
+    }
+  });
+
+  it('keeps every offered denomination inside what storage will hold', () => {
+    // `PLATE_LIST` caps the stored list. A catalogue that outgrew the cap would
+    // save nothing at all rather than save most of the rack.
+    for (const unit of ['kg', 'lb'] as const) {
+      expect(DENOMINATIONS[unit].length, unit).toBeLessThanOrEqual(16);
+    }
+  });
+});
+
+describe('the fractional set as one switch', () => {
+  it('reports the set as partly on once one plate is missing', () => {
+    // The state the switch has to be able to show. Anything else makes a lifter
+    // who owns three of the four look like a lifter who owns all of them.
+    const partial = toggleDenomination(DEFAULT_EQUIPMENT, 'lb', 0.75);
+    expect(microPlateState(partial, 'lb')).toBe('some');
+  });
+
+  it('clears the whole set in one action', () => {
+    const cleared = setMicroPlates(DEFAULT_EQUIPMENT, 'lb', false);
+    expect(microPlateState(cleared, 'lb')).toBe('none');
+    for (const weight of MICRO_DENOMINATIONS.lb) {
+      expect(denomination(cleared, 'lb', weight), String(weight)).toBe(null);
+    }
+  });
+
+  it('clears the rest of a set somebody has already broken up', () => {
+    // Partly on counts as on for the switch, so a lifter who unticked one plate
+    // can still clear the rest rather than having to finish the job by hand.
+    const partial = toggleDenomination(DEFAULT_EQUIPMENT, 'lb', 0.75);
+    expect(microPlateState(setMicroPlates(partial, 'lb', false), 'lb')).toBe('none');
+  });
+
+  it('restores the whole set in one action', () => {
+    const cleared = setMicroPlates(DEFAULT_EQUIPMENT, 'lb', false);
+    expect(microPlateState(setMicroPlates(cleared, 'lb', true), 'lb')).toBe('all');
+  });
+
+  it('leaves the ordinary plates and the other unit alone', () => {
+    const cleared = setMicroPlates(DEFAULT_EQUIPMENT, 'lb', false);
+    expect(denomination(cleared, 'lb', 45)).not.toBe(null);
+    expect(denomination(cleared, 'lb', 2.5)).not.toBe(null);
+    expect(cleared.inventory.kg).toBe(DEFAULT_EQUIPMENT.inventory.kg);
+  });
+
+  it('keeps the list heaviest first after the set comes back', () => {
+    const restored = setMicroPlates(setMicroPlates(DEFAULT_EQUIPMENT, 'lb', false), 'lb', true);
+    const weights = restored.inventory.lb.map((plate) => plate.weight);
+    expect(weights).toEqual([...weights].sort((left, right) => right - left));
+  });
 });
 
 describe('toggleDenomination', () => {
   it('adds a denomination in weight order rather than at the end', () => {
-    const next = toggleDenomination(DEFAULT_EQUIPMENT, 'kg', 1);
-    expect(next.inventory.kg.map((plate) => plate.weight)).toEqual([25, 20, 15, 10, 5, 2.5, 1]);
+    const next = toggleDenomination(DEFAULT_EQUIPMENT, 'lb', 1.25);
+    expect(next.inventory.lb.map((plate) => plate.weight)).toEqual([
+      45, 25, 10, 5, 2.5, 1.25, 1, 0.75, 0.5, 0.25,
+    ]);
   });
 
   it('keeps the list descending when the addition is not the smallest', () => {
+    const before = DEFAULT_EQUIPMENT.inventory.kg.map((plate) => plate.weight);
     const without = toggleDenomination(DEFAULT_EQUIPMENT, 'kg', 15);
     const restored = toggleDenomination(without, 'kg', 15);
-    expect(restored.inventory.kg.map((plate) => plate.weight)).toEqual([25, 20, 15, 10, 5, 2.5]);
+    expect(restored.inventory.kg.map((plate) => plate.weight)).toEqual(before);
   });
 
   it('removes a denomination that is already selected', () => {
@@ -250,8 +332,8 @@ describe('updateDenomination', () => {
     // Silently inserting would hide the fact that the interface and the
     // inventory have gone out of step -- a plate would appear in every ramp with
     // no control anywhere to take it back off.
-    const next = updateDenomination(DEFAULT_EQUIPMENT, 'kg', 0.5, { pairs: 1 });
-    expect(denomination(next, 'kg', 0.5)).toBe(null);
+    const next = updateDenomination(DEFAULT_EQUIPMENT, 'lb', 35, { pairs: 1 });
+    expect(denomination(next, 'lb', 35)).toBe(null);
   });
 });
 

@@ -33,22 +33,72 @@ const SQUAT: LiftEntry = {
   weight: '140',
   sets: '3',
   reps: '5',
+  adjustments: [],
 };
 
-/** A rack holding one denomination, which is what makes a weight unbuildable. */
+/**
+ * A rack holding one denomination, which is what makes a weight unbuildable.
+ *
+ * Pinned to the *pound* inventory, like every rack below. The tool defaults to
+ * pounds on a 45 lb bar, so a fixture that overrides the kilogram list is a
+ * fixture the element never reads: the card would draw the unlimited pound
+ * defaults under a name promising a rack with one plate on it, and the story
+ * would be reviewed as evidence of a state it does not show.
+ */
 const COARSE_RACK: Equipment = {
   ...DEFAULT_EQUIPMENT,
   inventory: {
     ...DEFAULT_EQUIPMENT.inventory,
-    kg: [{ weight: 25, pairs: null, fullDiameter: true }],
+    lb: [{ weight: 45, pairs: null, fullDiameter: true }],
+  },
+};
+
+/**
+ * A rack that runs out rather than one that is coarse: one pair of each.
+ *
+ * The distinction matters for exactly one control. A coarse rack steps in
+ * ninetys and can always find another step, because the search is sized from
+ * the heaviest plate on it; a rack with no second pair genuinely cannot go up,
+ * which is the only honest way to reach a disabled `Raise`.
+ */
+const SPARSE_RACK: Equipment = {
+  ...DEFAULT_EQUIPMENT,
+  inventory: {
+    ...DEFAULT_EQUIPMENT.inventory,
+    lb: [
+      { weight: 45, pairs: 1, fullDiameter: true },
+      { weight: 25, pairs: 1, fullDiameter: true },
+    ],
   },
 };
 
 /** Nothing selected at all. Every set is the bar on its own, and it says so. */
 const BARE_RACK: Equipment = {
   ...DEFAULT_EQUIPMENT,
-  inventory: { ...DEFAULT_EQUIPMENT.inventory, kg: [] },
+  inventory: { ...DEFAULT_EQUIPMENT.inventory, lb: [] },
 };
+
+/**
+ * Presses the summary of the adjust fold, which is the only way it opens.
+ *
+ * Two shadow roots down, and pinned to `.adjust` because the card draws a second
+ * disclosure above the ramp for the bar -- a bare `ptk-disclosure` selector opens
+ * whichever comes first in the template, which is the wrong one and looks right.
+ * `<details>` fires `toggle` asynchronously, so the wait is on the card's own
+ * update rather than on the click returning.
+ */
+async function openAdjust(canvasElement: HTMLElement): Promise<void> {
+  const card = canvasElement.querySelector('ptk-lift-card');
+  if (card === null) throw new Error('No card rendered.');
+  await card.updateComplete;
+
+  const summary = card.shadowRoot
+    ?.querySelector('.adjust ptk-disclosure')
+    ?.shadowRoot?.querySelector('summary');
+  if (!(summary instanceof HTMLElement)) throw new Error('No adjust fold on this ramp.');
+  summary.click();
+  await card.updateComplete;
+}
 
 const meta: Meta<PtkLiftCard> = {
   title: 'Warm-up/Lift card',
@@ -83,7 +133,16 @@ export default meta;
 
 type Story = StoryObj<PtkLiftCard>;
 
-/** A full ramp, nothing done yet. */
+/**
+ * A full ramp, nothing done yet -- and the adjust fold as it arrives, shut.
+ *
+ * Editing a calculated warm-up is a real thing lifters want and a rare thing they
+ * do, so the whole of it is one line of summary until somebody asks. The summary
+ * is not decoration: a fold reading only "Adjust the warm-up weights" would hide
+ * whether the ramp above it is still the calculated one, which is the single fact
+ * a lifter reading somebody else's phone needs. Here it says "Calculated
+ * weights", and the stories below open it.
+ */
 export const FullRamp: Story = {};
 
 /**
@@ -136,9 +195,92 @@ export const NoPlatesAtAll: Story = {
   args: { equipment: BARE_RACK },
 };
 
-/** A working weight at or under the bar, which leaves nothing to warm up to. */
+/**
+ * A working weight at or under the bar, which leaves nothing to warm up to.
+ *
+ * Also the state where the adjust fold is absent rather than empty: every set
+ * is the bar itself, no set can be moved, and a fold offering to adjust nothing
+ * is a control that can only disappoint whoever opens it.
+ */
 export const LighterThanTheBar: Story = {
   args: { entry: { ...SQUAT, name: 'Overhead press', weight: '15' } },
+};
+
+/**
+ * The fold opened: a stepper pair per movable set, and nothing else.
+ *
+ * Steppers rather than fields, because this is used between sets on a phone. A
+ * stepper cannot be mistyped, cannot name a weight the rack cannot build, and
+ * does not summon a keyboard over the checklist being read -- and what counts as
+ * one step is the rack's own answer, so a gym with quarter-pound plates moves in
+ * quarters and one with nothing under forty-five moves in ninetys.
+ *
+ * The bar-only set has no row here at all. Its weight is the implement, so a
+ * control for it could only refuse to move.
+ */
+export const AdjustFoldOpen: Story = {
+  play: async ({ canvasElement }) => {
+    await openAdjust(canvasElement);
+  },
+};
+
+/**
+ * One warm-up moved by hand, with the fold still shut.
+ *
+ * The count in the summary is what makes the fold safe to leave closed, and the
+ * row above carries `Your weight` so the changed set is findable without
+ * opening anything. Both are needed: the summary says *that* something was
+ * changed, the mark says *which*, and neither answers the other's question.
+ *
+ * The plate change under the following set is recomputed rather than patched --
+ * that is the whole reason an adjustment is arithmetic in the domain instead of
+ * a number substituted into the row.
+ */
+export const OneWarmupAdjusted: Story = {
+  args: {
+    entry: { ...SQUAT, adjustments: [{ index: 2, total: 102.5 }] },
+  },
+};
+
+/**
+ * The same adjusted ramp with the fold open, where the way back is.
+ *
+ * "Use the calculated weights" is enabled only once something has been changed,
+ * which is why it needs this story and not the one above it: a reset that is
+ * always pressable invites a lifter to press it and watch nothing happen. One
+ * button for the lot rather than a revert beside each row -- undoing one set of
+ * three is a thing nobody has ever wanted, and it would be a third tap target on
+ * a row that already has two.
+ */
+export const AdjustedFoldOpen: Story = {
+  args: {
+    entry: { ...SQUAT, adjustments: [{ index: 2, total: 102.5 }] },
+  },
+  play: async ({ canvasElement }) => {
+    await openAdjust(canvasElement);
+  },
+};
+
+/**
+ * A rack that has run out, so the top set cannot be raised.
+ *
+ * `Raise` is drawn disabled rather than absent: a missing control reads as a
+ * layout that shifted, and a lifter pressing it twice deserves to be told the
+ * rack is the reason. This state is only reachable when the rack genuinely has
+ * no further pair -- the step search reaches a full step past the heaviest
+ * plate -- and it therefore always co-occurs with a working weight the plates
+ * cannot build, which the card says above the ramp. Showing both together is
+ * honest about the cause; a story that showed a disabled stepper on a rack that
+ * could plainly take another plate would be documenting a bug.
+ *
+ * Opened by the `play` function, because a disabled control inside a shut fold
+ * is a story that renders and shows nothing of what it is named for.
+ */
+export const TopSetCannotGoHigher: Story = {
+  args: { entry: { ...SQUAT, weight: '200' }, equipment: SPARSE_RACK },
+  play: async ({ canvasElement }) => {
+    await openAdjust(canvasElement);
+  },
 };
 
 /** The only lift on the list: both move controls unavailable rather than absent. */

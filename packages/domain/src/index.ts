@@ -286,6 +286,14 @@ export {
   type WorkingSetPlan,
 } from './warmup.js';
 export {
+  adjustWarmups,
+  isAdjustable,
+  nudgeWarmup,
+  warmupSteps,
+  type WarmupAdjustment,
+  type WarmupStep,
+} from './warmup-adjust.js';
+export {
   KILOGRAMS_PER_POUND,
   convertWeight,
   enterWeight,

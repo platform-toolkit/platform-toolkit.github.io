@@ -41,9 +41,10 @@ const SQUAT: LiftEntry = {
   name: 'Squat',
   family: 'squat-press',
   barId: '',
-  weight: '140',
+  weight: '225',
   sets: '3',
   reps: '5',
+  adjustments: [],
 };
 
 /** Two lifts, in the order they are done. */
@@ -55,11 +56,27 @@ const TUESDAY: readonly LiftEntry[] = [
     name: 'Bench Press',
     family: 'squat-press',
     barId: '',
-    weight: '95',
+    weight: '155',
     sets: '3',
     reps: '5',
+    adjustments: [],
   },
 ];
+
+/**
+ * A kilogram rack, spelled out rather than flipped from the default.
+ *
+ * The tool ships in pounds on a 45 lb bar, so `{ ...DEFAULT_EQUIPMENT,
+ * plateUnit: 'kg' }` would leave a pound bar under kilogram plates -- a rack a
+ * lifter can genuinely describe and a poor thing to open a story on, since the
+ * summary line then reads as a mistake rather than as a configuration.
+ */
+const KILOGRAM_RACK: Equipment = {
+  ...DEFAULT_EQUIPMENT,
+  plateUnit: 'kg',
+  barId: 'olympic-20',
+  customBar: { amount: 20, unit: 'kg' },
+};
 
 /**
  * One store per story, built once at module load.
@@ -69,9 +86,7 @@ const TUESDAY: readonly LiftEntry[] = [
  * interactive doc is for.
  */
 const SESSION_STORE = deviceRemembering(DEFAULT_EQUIPMENT, TUESDAY);
-const POUND_STORE = deviceRemembering({ ...DEFAULT_EQUIPMENT, plateUnit: 'lb' }, [
-  { ...SQUAT, weight: '315' },
-]);
+const KILOGRAM_STORE = deviceRemembering(KILOGRAM_RACK, [{ ...SQUAT, weight: '100' }]);
 const FRESH_STORE = createPreferenceStore(memoryPreferenceStorage());
 
 /** A device that refuses storage, which is the third-party iframe case. */
@@ -106,9 +121,17 @@ export const RememberedSession: Story = {
   args: { settings: SESSION_STORE },
 };
 
-/** The same tool in pounds, which is a different set of plate denominations and not a label. */
-export const InPounds: Story = {
-  args: { settings: POUND_STORE },
+/**
+ * The same tool in kilograms, which is a different set of plate denominations
+ * and a different bar, not a label.
+ *
+ * This is the configured state rather than the shipped one. The tool defaults to
+ * pounds on a 45 lb bar because the lifter who never opens the equipment section
+ * is the one training in pounds; a lifter in kilograms is the one who goes and
+ * says so, which is what this story shows the result of.
+ */
+export const InKilograms: Story = {
+  args: { settings: KILOGRAM_STORE },
 };
 
 /**

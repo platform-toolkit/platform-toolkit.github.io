@@ -26,22 +26,37 @@
  * mark therefore records the total it was made under and is discarded when that
  * total changes -- which also means marks cannot survive into next Tuesday's
  * session by accident, on top of living in per-tab storage.
+ *
+ * AN ADJUSTED WARM-UP IS PINNED TO THE RAMP TOO, BUT NOT TO THE SAME THINGS
+ *
+ * An adjustment names a position in `plan.warmups`, so it survives exactly as
+ * long as that position means the same set. The working weight and the bar
+ * decide the whole ramp, so changing either discards the adjustments on that
+ * row; the set and rep counts decide only how many times each rung is performed,
+ * so changing those keeps them. Getting that backwards in either direction is a
+ * silent failure -- too eager and a lifter who fixes a typo in their rep count
+ * loses the ramp they built, too lax and yesterday's 65 lb reappears partway up
+ * a ramp for a heavier day.
  */
 import {
   LIFTS,
   LOADING_TOLERANCE,
+  adjustWarmups,
   convertWeight,
   findLift,
   formatWeight,
   planWarmup,
   roundForDisplay,
+  warmupSteps,
   type BarbellSetup,
   type Loading,
   type PlateChange,
+  type WarmupAdjustment,
   type WarmupFamily,
   type WarmupPlan,
   type WarmupPlanResult,
   type WarmupStage,
+  type WarmupStep,
   type WeightUnit,
 } from '@platform-toolkit/domain';
 import {
@@ -73,6 +88,14 @@ export interface LiftEntry {
   readonly weight: string;
   readonly sets: string;
   readonly reps: string;
+  /**
+   * Warm-up sets the lifter has given their own weight for, by ramp position.
+   *
+   * Numbers rather than strings, unlike every field above, because these are
+   * never typed: a stepper answers with a weight the rack can already build, so
+   * there is no half-finished value to hold on to.
+   */
+  readonly adjustments: readonly WarmupAdjustment[];
 }
 
 const CUSTOM_KEY_PREFIX = 'custom-';
@@ -116,6 +139,7 @@ export function addLift(entries: readonly LiftEntry[], liftId: string): readonly
       weight: '',
       sets: String(lift.defaultSets),
       reps: String(lift.defaultReps),
+      adjustments: [],
     },
   ];
 }
@@ -141,6 +165,7 @@ export function addCustomLift(
       // programme these ramps come from. Never written over afterwards.
       sets: '3',
       reps: '5',
+      adjustments: [],
     },
   ];
 }
@@ -173,13 +198,31 @@ export function moveEntry(
   return moved;
 }
 
-/** Changes one field on one row. Unknown keys are left alone rather than appended. */
+/**
+ * Changes one field on one row. Unknown keys are left alone rather than appended.
+ *
+ * Changing the working weight or the bar throws away that row's adjustments,
+ * because both of them rebuild the ramp from the bottom: an adjustment names a
+ * position, and after either change position three is a different set. Keeping
+ * them would put a weight the lifter chose for last week's 100 lb somewhere in
+ * the middle of today's 135, which is worse than the calculated figure it
+ * replaced and looks like the calculator being wrong. The set and rep counts are
+ * deliberately not on that list -- they change how many times each rung is
+ * performed and never what the rungs are.
+ */
 export function updateEntry(
   entries: readonly LiftEntry[],
   key: string,
-  patch: Partial<Pick<LiftEntry, 'barId' | 'weight' | 'sets' | 'reps'>>,
+  patch: Partial<Pick<LiftEntry, 'barId' | 'weight' | 'sets' | 'reps' | 'adjustments'>>,
 ): readonly LiftEntry[] {
-  return entries.map((entry) => (entry.key === key ? { ...entry, ...patch } : entry));
+  return entries.map((entry) => {
+    if (entry.key !== key) return entry;
+    const next = { ...entry, ...patch };
+    // A patch that names the adjustments is the caller setting them, so it wins.
+    if (patch.adjustments !== undefined) return next;
+    const rebuilt = next.weight !== entry.weight || next.barId !== entry.barId;
+    return rebuilt ? { ...next, adjustments: [] } : next;
+  });
 }
 
 /*
@@ -270,13 +313,19 @@ export function planFor(entry: LiftEntry, equipment: Equipment): WarmupPlanResul
   const reps = parseCount(entry.reps, 'reps');
   if (!sets.ok || !reps.ok) return null;
 
-  return planWarmup({
+  const result = planWarmup({
     setup: setupFor(entry, equipment),
     family: entry.family,
     workingWeight: weight.value,
     workingSets: sets.value,
     workingReps: reps.value,
   });
+  // Applied here rather than in the card, so every reader of a plan -- the
+  // checklist, the stored marks, the narrow-layout check -- sees the same ramp.
+  // A card that adjusted its own copy would tick rows against one ramp and pin
+  // them to another.
+  if (!result.ok) return result;
+  return { ok: true, plan: adjustWarmups(result.plan, entry.adjustments) };
 }
 
 /** The barbell for one row: the lift's own bar when it has one, the default otherwise. */
@@ -304,6 +353,12 @@ export function setupFor(entry: LiftEntry, equipment: Equipment): BarbellSetup {
  * conversion each way and not a drift that accumulates per toggle -- the number
  * shown after a return trip is the display rounding of the original, not the
  * rounding of a rounding.
+ *
+ * An adjusted warm-up is carried over with its weight converted, not discarded.
+ * The rack is the same rack -- only the unit the lifter reads it in changed --
+ * and a converted total is safe to keep because an adjustment is resolved to the
+ * nearest loadable weight when it is applied, so an inexact conversion lands on
+ * whatever the plates can actually build rather than on a fractional figure.
  */
 export function convertEntryWeights(
   entries: readonly LiftEntry[],
@@ -312,10 +367,14 @@ export function convertEntryWeights(
 ): readonly LiftEntry[] {
   if (from === to) return entries;
   return entries.map((entry) => {
+    const adjustments = entry.adjustments.map((adjustment) => ({
+      ...adjustment,
+      total: convertWeight({ amount: adjustment.total, unit: from }, to).amount,
+    }));
     const reading = parseWeight(entry.weight, from);
-    if (!reading.ok) return entry;
+    if (!reading.ok) return { ...entry, adjustments };
     const converted = convertWeight({ amount: reading.value, unit: from }, to);
-    return { ...entry, weight: String(roundForDisplay(converted.amount)) };
+    return { ...entry, weight: String(roundForDisplay(converted.amount)), adjustments };
   });
 }
 
@@ -331,6 +390,15 @@ export interface SessionRow {
   readonly index: number;
   readonly kind: 'warm-up' | 'working';
   readonly stage: WarmupStage | null;
+  /**
+   * Which set of `plan.warmups` this row performs, or `null` for a working set.
+   *
+   * Not the same number as `index`: a repeated set is two rows of one warm-up.
+   * It is here because an adjustment names a warm-up and the checklist has to
+   * say which rows carry one, and deriving it in the card would be a second
+   * copy of the expansion below.
+   */
+  readonly warmupIndex: number | null;
   /** The plates, or `null` for a working set whose weight cannot be built. */
   readonly loading: Loading | null;
   /** The total to put on the bar, in the plate unit. */
@@ -351,12 +419,13 @@ export interface SessionRow {
 export function sessionRows(plan: WarmupPlan): readonly SessionRow[] {
   const rows: SessionRow[] = [];
 
-  for (const set of plan.warmups) {
+  for (const [warmupIndex, set] of plan.warmups.entries()) {
     for (let repeat = 0; repeat < set.count; repeat += 1) {
       rows.push({
         index: rows.length,
         kind: 'warm-up',
         stage: set.stage,
+        warmupIndex,
         loading: set.loading,
         total: set.loading.total,
         reps: set.reps,
@@ -375,6 +444,7 @@ export function sessionRows(plan: WarmupPlan): readonly SessionRow[] {
       index: rows.length,
       kind: 'working',
       stage: null,
+      warmupIndex: null,
       loading,
       total: working.total,
       reps: working.reps,
@@ -383,6 +453,71 @@ export function sessionRows(plan: WarmupPlan): readonly SessionRow[] {
   }
 
   return rows;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * The weights a lifter chose instead of the calculated ones.
+ * ---------------------------------------------------------------------------
+ */
+
+/** One warm-up the lifter may move, as the control that offers to move it needs it. */
+export interface AdjustableWarmup extends WarmupStep {
+  /**
+   * Its place among the movable warm-ups, counting from one.
+   *
+   * Not `index`, which counts the bar-only sets nobody can move -- so a ramp
+   * that starts with two bar sets would otherwise offer to adjust "warm-up 3"
+   * as its first row. This is the number the checklist prints too, which is the
+   * only thing tying a row in the fold to the row a lifter ticks.
+   */
+  readonly ordinal: number;
+  /** Whether this one is currently carrying a weight of the lifter's own. */
+  readonly adjusted: boolean;
+}
+
+/**
+ * The warm-ups of a plan that a lifter may give their own weight to.
+ *
+ * Derived from the plan rather than from the ramp rules, so a family that adds
+ * a stage or a rack that collapses two of them is described correctly without
+ * anything here being told about it. Each row arrives with both of its steps
+ * already found, so drawing the control costs one search of the rack rather
+ * than two per row -- see `warmupSteps`.
+ *
+ * `adjusted` asks whether the lifter *named* this set, not whether the answer
+ * differs from the calculated one. Somebody who steps a set up and back down
+ * has still chosen its weight, and a mark that vanished when the two figures
+ * happened to coincide would make the reset button look broken.
+ */
+export function adjustableWarmups(
+  plan: WarmupPlan,
+  adjustments: readonly WarmupAdjustment[],
+): readonly AdjustableWarmup[] {
+  const named = new Set(adjustments.map((adjustment) => adjustment.index));
+  return warmupSteps(plan).map((step, position) => ({
+    ...step,
+    ordinal: position + 1,
+    adjusted: named.has(step.index),
+  }));
+}
+
+/**
+ * The adjustment list with one set given a weight, replacing any it already had.
+ *
+ * Sorted by position, which nothing reading it requires -- `adjustWarmups`
+ * builds a map -- but which the storage cap does: `saveEntries` stops at the
+ * limit, so an append-ordered list would drop whichever sets happened to be
+ * adjusted last rather than the ones furthest up the ramp.
+ */
+export function withAdjustment(
+  adjustments: readonly WarmupAdjustment[],
+  index: number,
+  total: number,
+): readonly WarmupAdjustment[] {
+  return [...adjustments.filter((adjustment) => adjustment.index !== index), { index, total }].sort(
+    (left, right) => left.index - right.index,
+  );
 }
 
 /**
@@ -418,6 +553,15 @@ interface StoredMark {
   readonly lift: string;
   readonly row: number;
   readonly total: number;
+}
+
+/** A warm-up the lifter set the weight of, per lift and ramp position. */
+interface StoredAdjustment {
+  readonly lift: string;
+  readonly row: number;
+  readonly total: number;
+  /** As with an entry: a stored figure is never re-read as the other unit. */
+  readonly unit: WeightUnit;
 }
 
 function nonEmpty(values: readonly string[]): readonly [string, ...string[]] {
@@ -468,6 +612,19 @@ const MARK_SHAPE = PreferenceValue.shape({
   total: PreferenceValue.quantity({ min: 0, max: MAX_WEIGHT }),
 });
 
+/** Higher than any ramp this builds, and low enough that the list stays bounded. */
+const MAX_ADJUSTED_ROW = 40;
+
+const ADJUSTMENT_SHAPE = PreferenceValue.shape({
+  lift: PreferenceValue.choice(LIFT_IDS),
+  row: PreferenceValue.count({ min: 0, max: MAX_ADJUSTED_ROW }),
+  total: PreferenceValue.quantity({ min: 0, max: MAX_WEIGHT }),
+  unit: PreferenceValue.choice(['kg', 'lb']),
+});
+
+/** Every rung of every row's ramp, with room to spare. A ramp is at most seven. */
+const ADJUSTMENT_LIMIT = ORDER_LIMIT * 10;
+
 /**
  * Where each of these two lives is a decision, not an accident.
  *
@@ -477,11 +634,23 @@ const MARK_SHAPE = PreferenceValue.shape({
  * because a tick means "I did that set today" -- it has to survive a phone
  * locking and the tab reloading an hour later, and it must be gone next week.
  * The caller chooses; these definitions only say what the shapes are.
+ *
+ * The adjustments are a third preference rather than a field on an entry, and
+ * that is a decision about upgrades rather than about tidiness. A shape rejects
+ * a row with a *missing* key (§5.12), and one rejected row fails the whole list
+ * -- so adding a field to `ENTRY_SHAPE` would make every lifter's remembered
+ * working weights vanish on the first read after this ships. A new key that
+ * nothing has written yet simply reads as its fallback.
  */
 export const SESSION_PREFERENCES = {
   entries: definePreference<readonly StoredEntry[]>({
     name: 'warm-up.entries',
     value: PreferenceValue.listOf(ENTRY_SHAPE, { maxLength: ORDER_LIMIT }),
+    fallback: [],
+  }),
+  adjustments: definePreference<readonly StoredAdjustment[]>({
+    name: 'warm-up.adjustments',
+    value: PreferenceValue.listOf(ADJUSTMENT_SHAPE, { maxLength: ADJUSTMENT_LIMIT }),
     fallback: [],
   }),
   marks: definePreference<readonly StoredMark[]>({
@@ -501,6 +670,14 @@ export const SESSION_PREFERENCES = {
  * screen to indicate it.
  */
 export function loadEntries(store: PreferenceStore, unit: WeightUnit): readonly LiftEntry[] {
+  const adjustments = new Map<string, WarmupAdjustment[]>();
+  for (const stored of store.read(SESSION_PREFERENCES.adjustments)) {
+    const total = convertWeight({ amount: stored.total, unit: stored.unit }, unit).amount;
+    const forLift = adjustments.get(stored.lift) ?? [];
+    forLift.push({ index: stored.row, total });
+    adjustments.set(stored.lift, forLift);
+  }
+
   const rows: LiftEntry[] = [];
   for (const stored of store.read(SESSION_PREFERENCES.entries)) {
     const lift = findLift(stored.lift);
@@ -520,6 +697,9 @@ export function loadEntries(store: PreferenceStore, unit: WeightUnit): readonly 
       weight: stored.weight === 0 ? '' : String(roundForDisplay(converted)),
       sets: String(stored.sets),
       reps: String(stored.reps),
+      // Not filtered against the ramp, because there is no ramp yet -- the plan
+      // is built from this entry. `adjustWarmups` drops what does not fit.
+      adjustments: adjustments.get(lift.id) ?? [],
     });
   }
   return rows;
@@ -540,10 +720,27 @@ export function saveEntries(
   unit: WeightUnit,
 ): void {
   const stored: StoredEntry[] = [];
+  const adjustments: StoredAdjustment[] = [];
   for (const entry of entries.slice(0, ORDER_LIMIT)) {
     // Custom lifts are absent from here, not blanked: their name is free text
     // and there is deliberately nowhere to put it. See the top of the file.
     if (entry.liftId === null) continue;
+    for (const adjustment of entry.adjustments) {
+      if (adjustments.length >= ADJUSTMENT_LIMIT) break;
+      const candidate = {
+        lift: entry.liftId,
+        row: adjustment.index,
+        total: adjustment.total,
+        unit,
+      };
+      // Asked of the shape rather than re-tested by hand, so the two cannot
+      // drift (§5.12), and dropped rather than clamped, unlike the fields below:
+      // a clamped weight would put a warm-up somewhere the lifter never chose
+      // and the checklist would present it as their own figure. Dropping it
+      // shows the calculated set, which is the honest answer here.
+      if (!ADJUSTMENT_SHAPE.accepts(candidate)) continue;
+      adjustments.push(candidate);
+    }
     const weight = parseWeight(entry.weight, unit);
     const sets = parseCount(entry.sets, 'sets');
     const reps = parseCount(entry.reps, 'reps');
@@ -560,6 +757,7 @@ export function saveEntries(
     });
   }
   store.write(SESSION_PREFERENCES.entries, stored);
+  store.write(SESSION_PREFERENCES.adjustments, adjustments);
 }
 
 /** Which rows of which lifts have been ticked, keyed for lookup. */

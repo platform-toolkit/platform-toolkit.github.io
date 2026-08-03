@@ -219,6 +219,44 @@ const WARM_UP_FILL = [
 ];
 
 /**
+ * The adjust fold, which cannot be opened until there is a ramp to adjust.
+ *
+ * `#renderAdjust` returns nothing while no set can be moved, so this fold does
+ * not exist in the DOM until a working weight has been typed -- which is why it
+ * is a `clickAfter` rather than another entry in `WARM_UP_CLICK`. What is inside
+ * it is the densest row in the tool: a weight, a unit, a "Your weight" mark and
+ * two 44px steppers on one line, per warm-up set, in a 320px column. The
+ * checklist above it wraps freely; this row cannot, so it is the first thing
+ * here that scrolls sideways.
+ *
+ * Named by label like the two folds above, and for the same reason -- the card
+ * draws a second disclosure for the bar, and `.first()` over a bare
+ * `ptk-disclosure` would open that one and leave this measured shut.
+ *
+ * **This press is not what makes those rows measurable, and the tempting comment
+ * saying it is would be false.** Unlike `CONVERT_CLICK`'s chart fold -- which
+ * renders no body at all while closed, so the press genuinely conjures the
+ * table -- this one is a native `<details>` whose contents are always in the
+ * DOM, and Chromium lays out the contents of a shut `<details>`. Measured on the
+ * built site: a stepper reports one client rect and the same 44.22 x 44 box
+ * before and after the summary is pressed, differing only in `y`. So the two
+ * obvious ways to prove this step non-vacuous both fail to bite -- a `settle`
+ * selector inside the fold matches either way because `count()` asks about
+ * attachment, and raising `TAP_TARGET_MIN` names the steppers either way because
+ * `MEASURE` skips only what has no client rects. Removing the press produced
+ * byte-identical output.
+ *
+ * It is kept for the two things it does do. `tap` fails with "nothing matched"
+ * rather than skipping, so the entry asserts that the fold still exists and is
+ * still called this -- which is how it was proven non-vacuous: renaming the
+ * label here produced one failure per warm-up route per width, eight in all. And
+ * it makes the measurement independent of an engine behaviour that is not
+ * guaranteed; the day an engine stops laying out shut-fold contents, the press
+ * is what keeps these rows measured instead of silently dropping them.
+ */
+const WARM_UP_CLICK_AFTER = ['ptk-disclosure[label="Adjust the warm-up weights"] summary'];
+
+/**
  * What has to be tapped before the converter's dense sections exist.
  *
  * Both are folded on arrival and a folded section measures one line. The chart
@@ -467,9 +505,17 @@ const ROUTES = [
     click: WARM_UP_CLICK,
     reveal: [],
     fill: WARM_UP_FILL,
+    clickAfter: WARM_UP_CLICK_AFTER,
     // The checklist rows, not the field just typed into: a filled field says the
     // keystroke landed, which it did before the plan was computed. A row exists
     // only once the ramp has been worked out and rendered.
+    //
+    // Deliberately *not* also naming the stepper rows behind the fold above.
+    // `settled` asks `count()`, which is attachment, and a shut `<details>`
+    // keeps its contents attached -- so such a selector matches whether or not
+    // the fold was ever pressed, and would sit here reading as proof of a press
+    // it cannot see. What proves that step is the mutation described in
+    // `WARM_UP_CLICK_AFTER`'s header, not anything in this list.
     settle: ['ptk-lift-card li'],
   },
   {
@@ -477,6 +523,7 @@ const ROUTES = [
     click: WARM_UP_CLICK,
     reveal: [],
     fill: WARM_UP_FILL,
+    clickAfter: WARM_UP_CLICK_AFTER,
     settle: ['ptk-lift-card li'],
   },
   {

@@ -58,9 +58,12 @@ import {
   CUSTOM_BAR_ID,
   CUSTOM_COLLAR_ID,
   DENOMINATIONS,
+  MICRO_DENOMINATIONS,
   barLabel,
   denomination,
   describeEquipment,
+  microPlateState,
+  setMicroPlates,
   toggleDenomination,
   updateDenomination,
   type Equipment,
@@ -341,6 +344,8 @@ export class PtkEquipmentSetup extends LitElement {
       label: `${weight} ${unit}`,
     }));
     const selected = this.equipment.inventory[unit];
+    const micro = microPlateState(this.equipment, unit);
+    const largestMicro = MICRO_DENOMINATIONS[unit][0];
     return html`
       <div>
         <ptk-toggle-group
@@ -350,6 +355,26 @@ export class PtkEquipmentSetup extends LitElement {
           .values=${selected.map((plate) => String(plate.weight))}
           empty-message="No plate denominations are offered for this unit."
         ></ptk-toggle-group>
+        <label class="switch">
+          <input
+            type="checkbox"
+            data-field="micro-all"
+            .checked=${micro !== 'none'}
+            .indeterminate=${micro === 'some'}
+            @change=${(event: Event) => {
+              this.#onMicroPlates(unit, event);
+            }}
+          />
+          <span
+            >All fractional
+            plates${
+              largestMicro === undefined ? nothing : html` (${largestMicro} ${unit} and under)`
+            }</span
+          >
+        </label>
+        <p class="note">
+          The small plates sold as a bagged set. Untick any one above that is not in the bag.
+        </p>
         ${
           selected.length === 0
             ? html`<p class="note">
@@ -481,6 +506,19 @@ export class PtkEquipmentSetup extends LitElement {
       null,
     );
   };
+
+  /**
+   * The whole fractional set at once.
+   *
+   * Partly on reads as on, so the switch clears the remainder rather than
+   * refusing to move. The individual chips above stay the authority -- this is
+   * a shortcut past four taps, not a mode.
+   */
+  #onMicroPlates(unit: WeightUnit, event: Event): void {
+    const input = event.currentTarget;
+    if (!(input instanceof HTMLInputElement)) return;
+    this.#report(setMicroPlates(this.equipment, unit, input.checked), null);
+  }
 
   #onFullDiameter(unit: WeightUnit, weight: number, event: Event): void {
     const input = event.currentTarget;

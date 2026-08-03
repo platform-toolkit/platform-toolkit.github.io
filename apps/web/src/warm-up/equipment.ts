@@ -61,6 +61,12 @@ export const BAR_PRESETS: readonly BarPreset[] = [
   { id: 'squat-25', name: 'Squat bar', weight: { amount: 25, unit: 'kg' } },
   { id: 'safety-squat-65', name: 'Safety squat bar', weight: { amount: 65, unit: 'lb' } },
   { id: 'technique-10', name: 'Technique bar', weight: { amount: 10, unit: 'kg' } },
+  // The bar a great many home racks came with, and the one a lot of lifters --
+  // women more often than not -- are actually standing under while the tool
+  // assumes forty-five. It is near enough to the ten-kilogram technique bar to
+  // look like a duplicate and is not one: a lifter loading in pounds should not
+  // have to accept a bar quoted in kilograms to get the right number.
+  { id: 'training-22', name: 'Training bar', weight: { amount: 22, unit: 'lb' } },
   { id: 'light-technique-15', name: 'Light technique bar', weight: { amount: 15, unit: 'lb' } },
 ];
 
@@ -85,10 +91,30 @@ export const COLLAR_PRESETS: readonly CollarPreset[] = [
 
 export const CUSTOM_COLLAR_ID = 'custom';
 
+/**
+ * The fractional plates, which are a set a lifter either owns or does not.
+ *
+ * They are singled out from the rest of the catalogue because that is how they
+ * are sold and how they are thought about -- a bag of small plates that lives in
+ * a gym bag, not part of the rack -- and because the useful control over them is
+ * one switch rather than four. The individual switches remain, since the set
+ * gets split and lost and lent out, and a lifter with three of the four should
+ * not have to choose between claiming a plate they cannot find and giving up the
+ * other three.
+ *
+ * They earn their keep on two lifts in particular: an odd bar, where a round
+ * warm-up target is not reachable with two-and-a-halves, and the working weight,
+ * which is the number the lifter typed and the one place a pound matters.
+ */
+export const MICRO_DENOMINATIONS: Readonly<Record<WeightUnit, readonly number[]>> = {
+  kg: [1, 0.5, 0.25],
+  lb: [1, 0.75, 0.5, 0.25],
+};
+
 /** Every denomination a lifter may select, heaviest first. */
 export const DENOMINATIONS: Readonly<Record<WeightUnit, readonly number[]>> = {
-  kg: [25, 20, 15, 10, 5, 2.5, 1, 0.5],
-  lb: [45, 35, 25, 20, 15, 10, 5, 2.5, 1.25],
+  kg: [25, 20, 15, 10, 5, 2.5, 1, 0.5, 0.25],
+  lb: [45, 35, 25, 20, 15, 10, 5, 2.5, 1.25, 1, 0.75, 0.5, 0.25],
 };
 
 /**
@@ -108,13 +134,21 @@ const FULL_DIAMETER_BY_DEFAULT: Readonly<Record<WeightUnit, readonly number[]>> 
 /**
  * What a broadly equipped gym has out on the rack.
  *
- * Not every denomination: the change plates below a kilogram are a competition
- * item, and offering a ramp built on them to somebody who does not own them is
- * a plan that cannot be loaded.
+ * Not every denomination -- the odd sizes between are a specialty rack, and
+ * offering a ramp built on plates nobody owns is a plan that cannot be loaded.
+ *
+ * The fractional plates are here anyway, which used to be the opposite of what
+ * this list said. The old reasoning was that a ramp built on quarter-pound
+ * plates is unloadable in most gyms, and it was right; what changed is that the
+ * ramp is no longer built on them. Warm-up targets are rounded to a readable
+ * step before the plates are searched, so a fractional plate can only ever be
+ * called for by an odd bar or by the working weight -- the number the lifter
+ * typed, where being told 102 instead of 102.5 is the tool getting it wrong.
+ * Being wrong in the other direction costs a switch to find.
  */
 const STOCKED_BY_DEFAULT: Readonly<Record<WeightUnit, readonly number[]>> = {
-  kg: [25, 20, 15, 10, 5, 2.5],
-  lb: [45, 25, 10, 5, 2.5],
+  kg: [25, 20, 15, 10, 5, 2.5, ...MICRO_DENOMINATIONS.kg],
+  lb: [45, 25, 10, 5, 2.5, ...MICRO_DENOMINATIONS.lb],
 };
 
 function defaultInventory(unit: WeightUnit): readonly PlateDenomination[] {
@@ -139,10 +173,21 @@ export interface Equipment {
   readonly inventory: Readonly<Record<WeightUnit, readonly PlateDenomination[]>>;
 }
 
+/**
+ * What the calculator assumes before anybody tells it anything.
+ *
+ * Pounds and a forty-five, which is not the unit the sport is scored in and is
+ * the unit this screen is most often read in. The two populations sort
+ * themselves: a lifter who competes in kilograms already knows the difference
+ * between a twenty and a forty-five and will open the setup to say so, and a
+ * lifter meeting a barbell calculator for the first time is in a pound gym and
+ * will believe whatever the first screen says. Defaults should be right for the
+ * person least equipped to notice they are wrong.
+ */
 export const DEFAULT_EQUIPMENT: Equipment = {
-  plateUnit: 'kg',
-  barId: 'olympic-20',
-  customBar: { amount: 20, unit: 'kg' },
+  plateUnit: 'lb',
+  barId: 'standard-45',
+  customBar: { amount: 45, unit: 'lb' },
   collarId: 'none',
   customCollars: { amount: 5, unit: 'kg' },
   inventory: { kg: defaultInventory('kg'), lb: defaultInventory('lb') },
@@ -229,6 +274,32 @@ export function toggleDenomination(
       ].sort((left, right) => right.weight - left.weight);
 
   return { ...equipment, inventory: { ...equipment.inventory, [unit]: next } };
+}
+
+/** How much of the fractional set is on the rack. */
+export type MicroPlateState = 'all' | 'some' | 'none';
+
+export function microPlateState(equipment: Equipment, unit: WeightUnit): MicroPlateState {
+  const owned = MICRO_DENOMINATIONS[unit].filter(
+    (weight) => denomination(equipment, unit, weight) !== null,
+  ).length;
+  if (owned === 0) return 'none';
+  return owned === MICRO_DENOMINATIONS[unit].length ? 'all' : 'some';
+}
+
+/**
+ * Selects or deselects the whole fractional set at once.
+ *
+ * Idempotent per denomination, so the caller may pass the state it wants rather
+ * than the change it wants and a half-selected set resolves either way in one
+ * action. A plate already in the requested state is left alone, which keeps the
+ * list order stable instead of removing and reinserting it.
+ */
+export function setMicroPlates(equipment: Equipment, unit: WeightUnit, on: boolean): Equipment {
+  return MICRO_DENOMINATIONS[unit].reduce((current, weight) => {
+    const present = denomination(current, unit, weight) !== null;
+    return present === on ? current : toggleDenomination(current, unit, weight);
+  }, equipment);
 }
 
 /**

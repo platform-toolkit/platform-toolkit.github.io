@@ -48,6 +48,7 @@ import {
   type LoadingTable,
   type PlateChange,
 } from './plates.js';
+import { roundToIncrement } from './rounding.js';
 import type { WeightUnit } from './weight.js';
 
 /**
@@ -217,14 +218,60 @@ const DEADLIFT_START_PLATES: Readonly<Record<WeightUnit, readonly number[]>> = {
 /** Above this share of the working weight, one full plate is too heavy to open with. */
 const SQUAT_PRESS_FIRST_CAP = 0.4;
 
-/** What the first weighted set aims at instead, when a full plate is too heavy. */
-const SQUAT_PRESS_FIRST_ALTERNATIVE = 1 / 3;
-
 /** Above this share of the working weight, the pull opens on a smaller plate. */
 const DEADLIFT_FIRST_CAP = 0.5;
 
 /** The last warm-up, everywhere it exists. */
 const FINAL_WARMUP_SHARE = 0.9;
+
+/**
+ * HOW THE BARBELL RAMPS ARE SPACED, AND WHY IT IS NOT A LIST OF PERCENTAGES
+ *
+ * The slow lifts and the pulls used to warm up in a fixed three sets aimed at
+ * shares of the working weight. That is right in the middle of the range and
+ * wrong at both ends, because a share of the working weight is not a share of
+ * the work: the bar is already on the lifter's back before the first plate goes
+ * on. A 100 lb working weight on a 45 lb bar has 55 lb of ramp in it, and
+ * dividing the 100 into thirds names openers below the bar. A 400 lb working
+ * weight has 355 lb of ramp and three sets leave 80 lb jumps in it.
+ *
+ * So the ramp is spaced over what is actually being ramped -- the distance from
+ * the empty implement to the last warm-up -- and the number of sets is drawn
+ * from how far that is in full plates. Three sets for a short ramp, seven for
+ * the longest one, and the bounds are there because a warm-up with two sets has
+ * not warmed anything up and one with eight has become the workout.
+ *
+ * The spacing itself is deliberately uneven. Jumps get smaller as the weight
+ * gets heavier, which is what every lifter does by hand and the reason is
+ * mechanical rather than aesthetic: the ramp exists to prepare for the top set,
+ * so the sets near the top are the informative ones. An exponent below one bends
+ * the even spacing that way; 0.7 is the value that reproduces the ladders
+ * lifters write for themselves at the weights they most often write them for.
+ */
+const RAMP_CURVE_EXPONENT = 0.7;
+
+/** Fewer than this and nothing has been warmed up; more and it is the session. */
+const MIN_RAMP_SETS = 3;
+const MAX_RAMP_SETS = 7;
+
+/**
+ * The step every warm-up target is rounded to before the plates are searched.
+ *
+ * A warm-up is a round number. Nobody loads 65.75 lb on the way to a hundred,
+ * and the reason is not fussiness -- a ramp is read and loaded between sets, and
+ * every extra digit is a plate to find and a sum to check while the previous set
+ * is still being recovered from. The percentages that generate these targets are
+ * accurate to nothing much anyway, so rounding them costs no information.
+ *
+ * It matters more than it used to. Fractional plates make almost every weight
+ * loadable, so without this the search would answer each percentage exactly and
+ * a lifter who bought a set of quarter-pound plates would be punished for it
+ * with a ramp of 65.75 and 78.75. The plates are for the working weight, which
+ * is the number the lifter chose and the one place a pound matters.
+ *
+ * The working weight itself is never rounded. It is what the lifter typed.
+ */
+const RAMP_STEP: Readonly<Record<WeightUnit, number>> = { kg: 2.5, lb: 5 };
 
 interface RampShare {
   readonly share: number;
@@ -327,6 +374,16 @@ interface StageRequest {
   readonly count: number;
   readonly bound: LoadingBound;
   readonly fullDiameter: boolean;
+  /**
+   * The weight this stage must stay under.
+   *
+   * The working weight for almost every stage, and the whole reason guarantee 3
+   * holds. An intermediate set passes the last warm-up instead, because
+   * `nearest` is allowed to round up and a middle set that rounds past 90% of
+   * the working weight leaves the last warm-up with nowhere above it to sit --
+   * which drops the one set the ramp exists to arrive at.
+   */
+  readonly below: number;
 }
 
 interface Ramp {
@@ -347,12 +404,7 @@ interface Ramp {
  * would read the same and behave the same right up until somebody compared
  * against it.
  */
-function createRamp(
-  table: LoadingTable,
-  workingWeight: number,
-  emptyLoading: Loading,
-  maxJump: number | null,
-): Ramp {
+function createRamp(table: LoadingTable, emptyLoading: Loading, maxJump: number | null): Ramp {
   const sets: WarmupSet[] = [];
   const advisories: WarmupAdvisory[] = [];
   const seenAdvisories = new Set<WarmupAdvisoryCode>();
@@ -371,7 +423,7 @@ function createRamp(
     previous = loading;
   };
 
-  const insertUpTo = (target: number): void => {
+  const insertUpTo = (target: number, below: number): void => {
     if (maxJump === null) return;
     let inserted = 0;
     while (target - previous.total > maxJump + LOADING_TOLERANCE) {
@@ -382,7 +434,7 @@ function createRamp(
       const step = findLoading(table, previous.total + maxJump, {
         bound: 'at-most',
         above: previous.total,
-        below: workingWeight,
+        below,
         fullDiameter: false,
       });
       // Nothing loadable between here and a full plate up: the plates are too
@@ -400,7 +452,7 @@ function createRamp(
   const add = (request: StageRequest): Loading | null => {
     const constraints = {
       bound: request.bound,
-      below: workingWeight,
+      below: request.below,
       fullDiameter: request.fullDiameter,
     };
 
@@ -412,7 +464,7 @@ function createRamp(
       return null;
     }
 
-    insertUpTo(request.target);
+    insertUpTo(request.target, request.below);
     const from = previous.total;
     const found = findLoading(table, request.target, { ...constraints, above: previous.total });
 
@@ -451,18 +503,82 @@ function createRamp(
 }
 
 /**
- * The first weighted set for the squat, bench press, and overhead press.
+ * How many warm-up sets a ramp gets, counting its opener and its last set.
  *
- * One full plate a side is the preferred opener and is what most lifters
- * actually do. It stops being an opener when it is most of the working weight,
- * which is the case the cap catches: a 90 kg squatter opening at 70 kg has done
- * a working set, not a warm-up.
+ * Measured in full plates of ramp, not in kilograms or in percentages, because
+ * one plate a side is the unit a lifter thinks and loads in. Two sets for the
+ * first plate of range and one for each plate after it, then clamped.
  */
-function squatPressFirstTarget(setup: BarbellSetup, base: number, workingWeight: number): number {
-  const fullPlate = base + 2 * FULL_PLATE[setup.plateUnit];
-  return fullPlate <= workingWeight * SQUAT_PRESS_FIRST_CAP
-    ? fullPlate
-    : workingWeight * SQUAT_PRESS_FIRST_ALTERNATIVE;
+function rampSetCount(range: number, fullPlate: number): number {
+  const wanted = 2 + Math.round(range / (2 * fullPlate));
+  return Math.min(MAX_RAMP_SETS, Math.max(MIN_RAMP_SETS, wanted));
+}
+
+/**
+ * Reps for one warm-up set, counted back from the last one.
+ *
+ * Counted from the end because the end is the part that is fixed: the last
+ * warm-up is a single and the one before it is light enough to be a triple, no
+ * matter how many sets came before. Everything earlier is a set of five, which
+ * is where a ramp does its actual warming.
+ *
+ * A three-set ramp skips the double. There is no room for a 3 - 2 - 1 ladder
+ * when the whole ramp is 3 - 2 - 1, and 5 - 3 - 1 is what a short ramp has
+ * always been here.
+ */
+function rampReps(fromEnd: number, count: number): number {
+  if (fromEnd === 0) return 1;
+  if (fromEnd === 1) return count >= 4 ? 2 : 3;
+  if (fromEnd === 2 && count >= 4) return 3;
+  return EMPTY_IMPLEMENT_REPS;
+}
+
+/**
+ * The sets between the opener and the last warm-up, and the last warm-up itself.
+ *
+ * `first` is the opening set if one was placed, and `null` if there was none or
+ * none would load -- in which case the ramp is spread from the empty implement
+ * instead and the first set it places becomes the opener. Either way the ramp
+ * ends up with `rampSetCount` sets, so the two cases differ in where the spread
+ * starts and not in how much of it there is.
+ */
+function addGradedRamp(
+  ramp: Ramp,
+  first: Loading | null,
+  base: number,
+  workingWeight: number,
+  unit: WeightUnit,
+): void {
+  const fullPlate = FULL_PLATE[unit];
+  const step = RAMP_STEP[unit];
+  const finalTarget = roundToIncrement(workingWeight * FINAL_WARMUP_SHARE, step);
+  const count = rampSetCount(workingWeight - base, fullPlate);
+  const from = first?.total ?? base;
+  const placed = first === null ? 0 : 1;
+  const middles = count - placed - 1;
+
+  for (let index = 0; index < middles; index += 1) {
+    const share = ((index + 1) / (middles + 1)) ** RAMP_CURVE_EXPONENT;
+    ramp.add({
+      stage: placed + index === 0 ? 'first' : 'middle',
+      target: roundToIncrement(from + share * (finalTarget - from), step),
+      reps: rampReps(count - 1 - (placed + index), count),
+      count: 1,
+      bound: 'nearest',
+      fullDiameter: false,
+      below: finalTarget,
+    });
+  }
+
+  ramp.add({
+    stage: 'final',
+    target: finalTarget,
+    reps: rampReps(0, count),
+    count: 1,
+    bound: 'nearest',
+    fullDiameter: false,
+    below: workingWeight,
+  });
 }
 
 function hasFullDiameterPlate(setup: BarbellSetup, weight: number): boolean {
@@ -490,10 +606,11 @@ function addPullFirstSet(
       const found = ramp.add({
         stage: 'first',
         target,
-        reps: 5,
+        reps: EMPTY_IMPLEMENT_REPS,
         count: 1,
         bound: 'nearest',
         fullDiameter: true,
+        below: workingWeight,
       });
       if (found !== null) return found;
     }
@@ -504,10 +621,11 @@ function addPullFirstSet(
     const capped = ramp.add({
       stage: 'first',
       target: workingWeight * DEADLIFT_FIRST_CAP,
-      reps: 5,
+      reps: EMPTY_IMPLEMENT_REPS,
       count: 1,
       bound: 'at-most',
       fullDiameter: true,
+      below: workingWeight,
     });
     if (capped !== null) return capped;
     ramp.warn('full-diameter-unavailable');
@@ -516,10 +634,41 @@ function addPullFirstSet(
   return ramp.add({
     stage: 'first',
     target: Math.min(base + 2 * FULL_PLATE[setup.plateUnit], workingWeight * DEADLIFT_FIRST_CAP),
-    reps: 5,
+    reps: EMPTY_IMPLEMENT_REPS,
     count: 1,
     bound: 'at-most',
     fullDiameter: false,
+    below: workingWeight,
+  });
+}
+
+/**
+ * The opener for the squat, bench press, and overhead press.
+ *
+ * One full plate a side is the preferred opener and is what most lifters
+ * actually do. It stops being an opener when it is most of the working weight,
+ * which is the case the cap catches: a 90 kg squatter opening at 70 kg has done
+ * a working set, not a warm-up. `null` there rather than a smaller invented
+ * opener, because the graded ramp already knows how to start from the bar and
+ * will space the whole thing rather than bolt a lighter first set onto a shape
+ * built for a heavier one.
+ */
+function addSquatPressFirstSet(
+  ramp: Ramp,
+  setup: BarbellSetup,
+  base: number,
+  workingWeight: number,
+): Loading | null {
+  const target = base + 2 * FULL_PLATE[setup.plateUnit];
+  if (target > workingWeight * SQUAT_PRESS_FIRST_CAP) return null;
+  return ramp.add({
+    stage: 'first',
+    target,
+    reps: EMPTY_IMPLEMENT_REPS,
+    count: 1,
+    bound: 'nearest',
+    fullDiameter: false,
+    below: workingWeight,
   });
 }
 
@@ -530,38 +679,8 @@ function addSquatPressRamp(
   workingWeight: number,
 ): void {
   ramp.addEmptyImplement(EMPTY_IMPLEMENT_REPS, EMPTY_IMPLEMENT_SETS);
-
-  const first = ramp.add({
-    stage: 'first',
-    target: squatPressFirstTarget(setup, base, workingWeight),
-    reps: 5,
-    count: 1,
-    bound: 'nearest',
-    fullDiameter: false,
-  });
-
-  if (first !== null) {
-    ramp.add({
-      stage: 'middle',
-      // Halfway from the opener to the working weight. Not halfway to 90%: the
-      // middle set exists to halve what is left, and what the lifter has left is
-      // the gap up to the weight they are about to do.
-      target: (first.total + workingWeight) / 2,
-      reps: 3,
-      count: 1,
-      bound: 'nearest',
-      fullDiameter: false,
-    });
-  }
-
-  ramp.add({
-    stage: 'final',
-    target: workingWeight * FINAL_WARMUP_SHARE,
-    reps: 1,
-    count: 1,
-    bound: 'nearest',
-    fullDiameter: false,
-  });
+  const first = addSquatPressFirstSet(ramp, setup, base, workingWeight);
+  addGradedRamp(ramp, first, base, workingWeight, setup.plateUnit);
 }
 
 function addPullRamp(
@@ -572,30 +691,7 @@ function addPullRamp(
   requireFullDiameter: boolean,
 ): void {
   const first = addPullFirstSet(ramp, setup, base, workingWeight, requireFullDiameter);
-  const finalTarget = workingWeight * FINAL_WARMUP_SHARE;
-
-  if (first !== null) {
-    ramp.add({
-      stage: 'middle',
-      // Halfway between the opener and the last warm-up, which is where the
-      // requirements put it for the pull -- unlike the slow lifts, whose middle
-      // set aims at the working weight itself.
-      target: (first.total + finalTarget) / 2,
-      reps: 3,
-      count: 1,
-      bound: 'nearest',
-      fullDiameter: false,
-    });
-  }
-
-  ramp.add({
-    stage: 'final',
-    target: finalTarget,
-    reps: 1,
-    count: 1,
-    bound: 'nearest',
-    fullDiameter: false,
-  });
+  addGradedRamp(ramp, first, base, workingWeight, setup.plateUnit);
 }
 
 function shareStage(index: number, length: number): WarmupStage {
@@ -604,15 +700,24 @@ function shareStage(index: number, length: number): WarmupStage {
   return 'middle';
 }
 
-function addSharesRamp(ramp: Ramp, workingWeight: number, shares: readonly RampShare[]): void {
+function addSharesRamp(
+  ramp: Ramp,
+  workingWeight: number,
+  unit: WeightUnit,
+  shares: readonly RampShare[],
+): void {
   for (const [index, step] of shares.entries()) {
     ramp.add({
       stage: shareStage(index, shares.length),
-      target: workingWeight * step.share,
+      // The shares themselves are untouched -- they are the product decision.
+      // Only the weight they name is made loadable-and-readable, for the reason
+      // given at `RAMP_STEP`.
+      target: roundToIncrement(workingWeight * step.share, RAMP_STEP[unit]),
       reps: step.reps,
       count: 1,
       bound: 'nearest',
       fullDiameter: false,
+      below: workingWeight,
     });
   }
 }
@@ -687,10 +792,14 @@ export function planWarmup(request: WarmupRequest): WarmupPlanResult {
 
   const table = buildLoadingTable(setup, workingWeight + TABLE_HEADROOM_PLATES * 2 * fullPlate);
 
-  // The pull's jump cap. The slow lifts have none: their ramp is three sets by
-  // construction, and capping it would insert singles nobody asked for.
+  // The pull's jump cap, which is a fact about pulling a bar off the floor and
+  // not a spacing rule -- the graded ramp already keeps the jumps sane. It stays
+  // as the backstop for the case the spacing cannot help with: plates so coarse
+  // that the nearest loadable set is a long way from where the ramp asked for
+  // one. The slow lifts have no cap, because a squatter who has to take a bigger
+  // jump takes it out of the rack rather than off the floor.
   const maxJump = family === 'deadlift' || family === 'pull' ? 2 * fullPlate : null;
-  const ramp = createRamp(table, workingWeight, emptyLoading, maxJump);
+  const ramp = createRamp(table, emptyLoading, maxJump);
   const emptyReps = family === 'olympic' ? OLYMPIC_EMPTY_IMPLEMENT_REPS : EMPTY_IMPLEMENT_REPS;
 
   // At or below the bar there is nothing to ramp through, and inventing weighted
@@ -713,10 +822,10 @@ export function planWarmup(request: WarmupRequest): WarmupPlanResult {
         break;
       case 'olympic':
         ramp.addEmptyImplement(OLYMPIC_EMPTY_IMPLEMENT_REPS, EMPTY_IMPLEMENT_SETS);
-        addSharesRamp(ramp, workingWeight, OLYMPIC_SHARES);
+        addSharesRamp(ramp, workingWeight, setup.plateUnit, OLYMPIC_SHARES);
         break;
       case 'assistance':
-        addSharesRamp(ramp, workingWeight, ASSISTANCE_SHARES);
+        addSharesRamp(ramp, workingWeight, setup.plateUnit, ASSISTANCE_SHARES);
         break;
     }
   }
