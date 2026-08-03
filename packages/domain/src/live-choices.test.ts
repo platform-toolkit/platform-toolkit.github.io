@@ -584,6 +584,68 @@ describe('targets', () => {
     });
     expect(onTheSquat.choices.every((choice) => choice.reaches.length === 0)).toBe(true);
   });
+
+  it('reaches a lift target only on the lift it names', () => {
+    // A squat record, asked about while the lifter is on the deadlift. The
+    // deadlift is simply the heavier bar, so a target that did not say which
+    // lift it sits on would be reported as reached by a lift nobody claimed it
+    // with.
+    const squatRecord: LiveTarget = {
+      kind: 'record',
+      measure: 'lift',
+      lift: 'squat',
+      kilograms: 100,
+      label: 'the squat record',
+    };
+    const options = { lift: 'deadlift', plan, targets: [squatRecord] } as const;
+    const onTheDeadlift = choicesFor(meetWithLifter(), options);
+
+    // The control: the same figure with no lift on it belongs to whichever lift
+    // is being asked about, and is reached. Without this the assertion below
+    // would pass just as well against a target nothing could reach.
+    const anyLift = choicesFor(meetWithLifter(), {
+      ...options,
+      targets: [{ ...squatRecord, lift: null }],
+    });
+
+    expect(onTheDeadlift.choices.every((choice) => choice.reaches.length === 0)).toBe(true);
+    expect(anyLift.choices.some((choice) => choice.reaches.length > 0)).toBe(true);
+  });
+
+  it('does not jump at a target sitting on another lift', () => {
+    // A grind is the branch that offers a target as a tactical decision (§13.4),
+    // so it is the branch that would raise the deadlift to chase a squat figure.
+    const kilograms = plannedAt(plan, 1) + STEP * 2 - 1;
+    const squatRecord: LiveTarget = {
+      kind: 'record',
+      measure: 'lift',
+      lift: 'squat',
+      kilograms,
+      label: 'the squat record',
+    };
+    const timeline = take(meetWithLifter(), 'deadlift', 1, plannedAt(plan, 1), {
+      outcome: 'good',
+      effort: 'grind',
+    });
+    const tactical = (choices: LiveChoices): boolean =>
+      choices.choices.some((choice) => choice.reason === 'reaches-a-target');
+
+    const chasingTheSquat = choicesFor(timeline, {
+      lift: 'deadlift',
+      plan,
+      targets: [squatRecord],
+    });
+    // The same control: unqualified, the figure does produce the tactical jump.
+    const anyLift = choicesFor(timeline, {
+      lift: 'deadlift',
+      plan,
+      targets: [{ ...squatRecord, lift: null }],
+    });
+
+    expect(chasingTheSquat.trigger).toBe('grind');
+    expect(tactical(chasingTheSquat)).toBe(false);
+    expect(tactical(anyLift)).toBe(true);
+  });
 });
 
 describe('§8.1 the lifter’s ceiling', () => {

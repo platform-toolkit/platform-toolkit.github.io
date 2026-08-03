@@ -168,8 +168,15 @@ function triggerFor(attempt: LiveAttempt | null): LiveTrigger {
 // Targets
 // -----------------------------------------------------------------------------
 
-/** The four kinds of thing §13 says a choice must report reaching. */
-export type LiveTargetKind = 'personal-record' | 'qualification' | 'placing' | 'record';
+/** The kinds of thing §13 and §17 say a choice must report reaching. */
+export type LiveTargetKind =
+  | 'personal-record'
+  | 'qualification'
+  | 'classification'
+  | 'placing'
+  | 'record'
+  /** §17's best-lifter or coefficient figure, expressed as the total that reaches it. */
+  | 'best-lifter';
 
 /**
  * Something the lifter is trying to reach, supplied by whatever knows about it.
@@ -182,11 +189,26 @@ export type LiveTargetKind = 'personal-record' | 'qualification' | 'placing' | '
  */
 export interface LiveTarget {
   readonly kind: LiveTargetKind;
-  /** Whether the figure is a weight on this lift or a competition total. */
+  /** Whether the figure is a weight on one lift or a competition total. */
   readonly measure: 'lift' | 'total';
+  /**
+   * Which lift a lift-measured target sits on.
+   *
+   * Omitted or `null` means whichever lift is being asked about, which is what a
+   * caller with one lift in front of it wants. §17 asks about all three at once
+   * and has to say, or a squat personal record would be reported as reached by a
+   * deadlift that happened to be heavier. Ignored on a total.
+   */
+  readonly lift?: PlatformLift | null | undefined;
   readonly kilograms: number;
   /** How the interface names it, in the caller's words. Never logged. */
   readonly label: string;
+}
+
+/** Whether a lift-measured target belongs to the lift being asked about. */
+export function targetAppliesToLift(target: LiveTarget, lift: PlatformLift): boolean {
+  if (target.measure !== 'lift') return true;
+  return target.lift == null || target.lift === lift;
 }
 
 // -----------------------------------------------------------------------------
@@ -860,7 +882,9 @@ function reachedBy(
   if (targets.length === 0) return [];
   const projected = projectedTotalWith(document, lifter, lift, kilograms);
   return targets.filter((target) => {
-    if (target.measure === 'lift') return isAtLeast(kilograms, target.kilograms);
+    if (target.measure === 'lift') {
+      return targetAppliesToLift(target, lift) && isAtLeast(kilograms, target.kilograms);
+    }
     // A total target is only reached by a total. A lifter two lifts in has a
     // subtotal, and a subtotal that happens to clear a qualifying figure has
     // qualified for nothing -- they bomb the deadlift and place nowhere.
@@ -901,7 +925,9 @@ function weightNeededFor(
   lift: PlatformLift,
   target: LiveTarget,
 ): number | null {
-  if (target.measure === 'lift') return target.kilograms;
+  if (target.measure === 'lift') {
+    return targetAppliesToLift(target, lift) ? target.kilograms : null;
+  }
   let banked = 0;
   for (const other of liftsInFormat(document.format)) {
     if (other === lift) continue;

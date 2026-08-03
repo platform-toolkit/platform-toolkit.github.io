@@ -111,6 +111,7 @@ export {
 } from './lifts.js';
 export {
   liveChoicesFor,
+  targetAppliesToLift,
   type LiveAdvisory,
   type LiveAdvisoryCode,
   type LiveAdvisorySeverity,
