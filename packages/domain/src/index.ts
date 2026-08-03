@@ -251,6 +251,27 @@ export {
   type TotalsAdvisorySeverity,
 } from './meet-totals.js';
 export {
+  DEFAULT_FINAL_WARMUP_LEAD,
+  DEFAULT_REST_SECONDS,
+  DEFAULT_SET_SECONDS,
+  meetWarmup,
+  type DelayAdvice,
+  type DelayPreference,
+  type EquipmentPrep,
+  type FinalWarmupLead,
+  type MeetWarmupAdvisory,
+  type MeetWarmupAdvisoryCode,
+  type MeetWarmupAdvisorySeverity,
+  type MeetWarmupCustomisation,
+  type MeetWarmupRequest,
+  type MeetWarmupResult,
+  type MeetWarmupSchedule,
+  type ScheduledItem,
+  type ScheduledItemKind,
+  type SharedRack,
+  type TimeRange,
+} from './meet-warmup.js';
+export {
   LOADING_TOLERANCE,
   buildLoadingTable,
   emptyImplement,
