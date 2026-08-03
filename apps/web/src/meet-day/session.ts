@@ -246,9 +246,9 @@ export interface PlannerExtras {
    *
    * Its own answer rather than a fourth `Readiness` value, because it is a
    * different question -- a lifter can be cutting hard and still expect a normal
-   * day, and the requirements list the two separately. `view.ts` is where the two
-   * are folded together for the confidence grade, and that fold is a judgement
-   * with a comment on it rather than a shape forced by this type.
+   * day, and the requirements list the two separately. `plan.ts` is where the two
+   * are folded together for the confidence grade (`readinessWith`), and that fold
+   * is a judgement with a comment on it rather than a shape forced by this type.
    */
   readonly hardCut: Answer;
   /** §8.1's custom jump limits, in the display unit. */
