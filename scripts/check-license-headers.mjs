@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Requires every first-party source file to carry a copyright and SPDX header,
  * and can insert the missing ones.

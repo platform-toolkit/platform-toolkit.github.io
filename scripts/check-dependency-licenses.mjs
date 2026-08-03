@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Fails the build when a dependency arrives under a licence this project cannot
  * accept, and regenerates the published dependency-licence report.
