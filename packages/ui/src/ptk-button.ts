@@ -43,6 +43,20 @@ export class PtkButton extends LitElement {
   static override styles = css`
     :host {
       display: inline-block;
+      /* Without this a long label does not wrap -- it widens the whole page.
+         A form control is not sized like a div: Chromium gives a button a
+         min-content inline size equal to its *max-content* size, so shrink-to-fit
+         hands the host the full width of the label however narrow the column is,
+         and the surplus becomes document scroll. It cost a deploy. "Use the
+         calculated weights", inside three nested rem paddings, measured 227px in
+         a 114px fold at 200% text and the warm-up page scrolled sideways on CI --
+         and only on CI, because this machine's fonts are narrower. Capping the
+         host is what turns the inner width declaration below from an intrinsic
+         size into a definite one, which is what lets the words wrap.
+
+         A maximum rather than a fixed width: a button should still be as wide as
+         its label, which is most of them, and only stop at the column. */
+      max-width: 100%;
     }
 
     button {

@@ -57,6 +57,42 @@ import { serveDirectory } from './lib/static-server.mjs';
 const OUTPUT_DIRECTORY = fileURLToPath(new URL('../apps/web/dist', import.meta.url));
 
 /**
+ * How much wider than the requirement the last pass is, and why there is one.
+ *
+ * 200% is the requirement. 220% is margin, and the margin exists because this
+ * check is a *measurement* and the thing it measures is not the same on every
+ * machine. Fonts are not: the runner's Linux faces set the same sentence wider
+ * than this laptop's do, by something in the region of a tenth. Three deploys
+ * have now failed on a layout that cleared 320px here and did not there --
+ * `ptk-conversion-table` at 326px, `/one-rep-max/` at 341px, and the warm-up
+ * card at 350px -- and each time the local run before the push said pass.
+ *
+ * So the last pass is not a stricter standard anybody has to design to. It is
+ * the same standard asked with enough slack that clearing it here means
+ * clearing it there. A failure that appears only in this pass is not a bug in
+ * the layout at 220%; it is a warning that the layout has no room left at 200%.
+ *
+ * Do not raise it further to chase a stubborn screen. Past about 250% a 320px
+ * column genuinely cannot hold two words of English, and the failures stop
+ * being about margin and start being about arithmetic.
+ */
+const HEADROOM_SCALE = 2.2;
+
+/**
+ * A text scale as a percentage, rounded.
+ *
+ * `2.2 * 100` is `220.00000000000003` in binary floating point, and a check
+ * whose passing line reads like that invites somebody to go looking for the bug
+ * that is not there.
+ *
+ * @param {number} scale
+ * @returns {string}
+ */
+function percent(scale) {
+  return String(Math.round(scale * 100));
+}
+
+/**
  * The passes worth running, each one a viewport width and a text size.
  *
  * 320 is the narrowest phone still in service and also narrower than most
@@ -85,12 +121,17 @@ const OUTPUT_DIRECTORY = fileURLToPath(new URL('../apps/web/dist', import.meta.u
  * Do not add a separate 400%-zoom pass to cover that. Chromium's page zoom
  * scales the viewport as well, so it would measure a 160px layout that no
  * reader has, and 1.4.10 is already answered by the pass above.
+ *
+ * The fifth pass is the same 320px column past the requirement, at
+ * `HEADROOM_SCALE`. It is margin against the runner's wider fonts rather than a
+ * standard of its own -- see the constant.
  */
 const PASSES = [
   { width: 320, textScale: 1 },
   { width: 390, textScale: 1 },
   { width: 430, textScale: 1 },
   { width: 320, textScale: 2 },
+  { width: 320, textScale: HEADROOM_SCALE },
 ];
 
 /**
@@ -900,7 +941,7 @@ function textSizeExpression(scale) {
  * @returns {string}
  */
 function whereOf(route, pass) {
-  const text = pass.textScale === 1 ? '' : ` at ${String(pass.textScale * 100)}% text`;
+  const text = pass.textScale === 1 ? '' : ` at ${percent(pass.textScale)}% text`;
   return `${String(pass.width)}px${text} ${route.label ?? route.path}`;
 }
 
@@ -1076,7 +1117,7 @@ async function main() {
   console.log(
     `Narrow-layout check passed: ${String(measured)} screens at ${PASSES.map(
       (pass) =>
-        `${String(pass.width)}px${pass.textScale === 1 ? '' : `/${String(pass.textScale * 100)}% text`}`,
+        `${String(pass.width)}px${pass.textScale === 1 ? '' : `/${percent(pass.textScale)}% text`}`,
     ).join(', ')}.`,
   );
 }

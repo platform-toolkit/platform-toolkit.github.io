@@ -304,6 +304,15 @@ export class PtkLiftCard extends LitElement {
       display: flex;
       gap: var(--ptk-space-xs);
     }
+
+    /* A stepper is a glyph, which is exactly the dense case the knob exists for.
+       At the default padding the two of them are a single unbreakable 190px pair
+       -- wider, at 200% text, than the whole fold they sit in. The 44px floor
+       still decides how big they are to a thumb; this only stops the padding
+       from deciding it instead. */
+    .tweak-steps ptk-button {
+      --ptk-button-padding-inline: var(--ptk-space-sm);
+    }
   `;
 
   @property({ attribute: false }) entry!: LiftEntry;

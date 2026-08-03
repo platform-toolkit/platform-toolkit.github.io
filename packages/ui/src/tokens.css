@@ -69,12 +69,32 @@
   --ptk-font-size-xl: 1.75rem;
   --ptk-line-height: 1.5;
 
-  /* Space */
-  --ptk-space-xs: 0.25rem;
-  --ptk-space-sm: 0.5rem;
-  --ptk-space-md: 1rem;
-  --ptk-space-lg: 1.5rem;
-  --ptk-space-xl: 2.5rem;
+  /*
+   * Space, in rem but with a ceiling.
+   *
+   * The rem is what makes a gap look right beside the words next to it, and it
+   * is also what makes a reader who has set a larger default font get a little
+   * more air rather than the same gap around bigger text. Both are worth
+   * keeping, so the unit stays.
+   *
+   * The ceiling is there because at 320px those two facts turn hostile. Padding
+   * nests, and every level of it doubles at 200% text: on the warm-up card the
+   * page gutter, the card and the fold are all one -md, so at 200% they take
+   * 102px off each side of a 320px column and leave 114px of content -- 36% of
+   * the phone for the thing the reader came for. That is how a fold with three
+   * short rows in it started scrolling sideways.
+   *
+   * WCAG 1.4.4 asks for the *text* at 200%, not the gutters, and this is the
+   * line between the two: type scales without limit, space stops at 1.5x its
+   * default. Nothing changes for a reader at the default size -- 1rem is 16px,
+   * which is under every ceiling here -- so this is invisible until the point
+   * where it is the difference between a readable column and a sideways scroll.
+   */
+  --ptk-space-xs: min(0.25rem, 6px);
+  --ptk-space-sm: min(0.5rem, 12px);
+  --ptk-space-md: min(1rem, 24px);
+  --ptk-space-lg: min(1.5rem, 36px);
+  --ptk-space-xl: min(2.5rem, 60px);
 
   /* Shape */
   --ptk-radius-sm: 4px;

@@ -143,6 +143,15 @@ export class PtkEquipmentSetup extends LitElement {
       cursor: pointer;
     }
 
+    /* The label beside a box has to be allowed to wrap, and a flex item will not
+       shrink under its longest word without being told to. "Full diameter" sits
+       four levels of padding deep in the plate details, and at 200% text one word
+       of it is wider than the box it is in. */
+    .switch > span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
     .note {
       margin: 0;
       color: var(--ptk-color-text-muted);
