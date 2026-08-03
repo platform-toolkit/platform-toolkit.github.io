@@ -49,6 +49,15 @@ export {
   type StrategyPercentages,
 } from './attempt-plan.js';
 export {
+  attemptWeightFor,
+  enterAttemptWeight,
+  type AttemptEntry,
+  type AttemptEntryAdvisory,
+  type AttemptEntryAdvisoryCode,
+  type AttemptWeight,
+  type PublishedPoundsReason,
+} from './attempt-pounds.js';
+export {
   admitsAge,
   competitionAge,
   eligibleAgeDivisions,
