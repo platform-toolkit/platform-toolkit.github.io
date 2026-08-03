@@ -39,12 +39,29 @@
  * means "could reach a consumer", which is the conservative reading and the one
  * a gate should use.
  *
+ * WHY THE REPORT LEAVES OUT NATIVE BINARIES
+ *
+ * A handful of build tools ship their compiled half as one package per platform
+ * and let the package manager install the single variant that matches the
+ * machine. A developer on an Apple laptop gets the darwin-arm64 builds; CI on
+ * Linux gets different packages with different names. Both are correct, and a
+ * report generated from either one is wrong on the other -- which is exactly how
+ * this gate first failed: green locally, red in CI, with nothing wrong.
+ *
+ * So the enumerated table covers only the packages every host installs, and
+ * host-specific binaries are excluded from it. They are still checked. The
+ * licence rules run over everything installed, on whichever machine runs them,
+ * so an unacceptable licence on a native binary fails the build for the person
+ * who has it. What is dropped is the pretence that a committed document can
+ * describe a set that is a property of the machine rather than of the project.
+ *
  * USAGE
  *
  *   node scripts/check-dependency-licenses.mjs            check only
  *   node scripts/check-dependency-licenses.mjs --write    also rewrite the report
  */
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -88,10 +105,35 @@ for (const license of BUILD_ONLY) {
 }
 
 /**
+ * True when a package declares that it only installs on some machines.
+ *
+ * `os`, `cpu` and `libc` are npm's own way of saying "this artifact is for one
+ * platform". Reading them beats matching names against a list of platform words:
+ * the package itself is the authority on whether it is host-specific, and a name
+ * pattern would both miss `fsevents` and eventually catch something innocent.
+ *
+ * @param {string | undefined} path
+ * @returns {boolean}
+ */
+function isHostSpecific(path) {
+  if (path === undefined) return false;
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(`${path}/package.json`, 'utf8'));
+  } catch {
+    // A package pnpm listed but whose manifest will not read is not a place to
+    // guess. Treating it as host-independent keeps it in the report, where a
+    // human sees it, rather than silently dropping it.
+    return false;
+  }
+  return Array.isArray(manifest.os) || Array.isArray(manifest.cpu) || Array.isArray(manifest.libc);
+}
+
+/**
  * Reads one of pnpm's licence listings.
  *
  * @param {boolean} productionOnly
- * @returns {Map<string, { license: string, versions: string[], homepage: string }>}
+ * @returns {Map<string, { license: string, versions: string[], homepage: string, hostSpecific: boolean }>}
  */
 function readLicenses(productionOnly) {
   const args = ['licenses', 'list', '--json'];
@@ -110,7 +152,9 @@ function readLicenses(productionOnly) {
     throw new Error('`pnpm licenses list` failed. Run `pnpm install` first.', { cause: error });
   }
 
-  /** @type {Record<string, Array<{ name: string, versions?: string[], homepage?: string }>>} */
+  /**
+   * @type {Record<string, Array<{ name: string, versions?: string[], homepage?: string, paths?: string[] }>>}
+   */
   const grouped = JSON.parse(raw);
   const packages = new Map();
   for (const [license, entries] of Object.entries(grouped)) {
@@ -119,6 +163,7 @@ function readLicenses(productionOnly) {
         license,
         versions: entry.versions ?? [],
         homepage: entry.homepage ?? '',
+        hostSpecific: isHostSpecific(entry.paths?.[0]),
       });
     }
   }
@@ -126,13 +171,22 @@ function readLicenses(productionOnly) {
 }
 
 /**
- * @param {Map<string, { license: string }>} all
+ * @param {Map<string, { license: string, hostSpecific: boolean }>} all
  * @param {Set<string>} shipped
  * @returns {string[]}
  */
 function findViolations(all, shipped) {
   const violations = [];
-  for (const [name, { license }] of all) {
+  for (const [name, { license, hostSpecific }] of all) {
+    // The report tells readers that no native binary reaches them, which is a
+    // claim and therefore has to be a check. If one ever enters the production
+    // closure, the document is wrong before anybody reads it.
+    if (hostSpecific && shipped.has(name)) {
+      violations.push(
+        `${name} is a host-specific native binary, which the licence report says never ships, but it is in the production closure`,
+      );
+    }
+
     if (PERMISSIVE.has(license)) continue;
 
     if (BUILD_ONLY.has(license)) {
@@ -154,12 +208,14 @@ function findViolations(all, shipped) {
 }
 
 /**
- * @param {Map<string, { license: string, versions: string[], homepage: string }>} all
+ * @param {Map<string, { license: string, versions: string[], homepage: string, hostSpecific: boolean }>} all
  * @param {Set<string>} shipped
  * @returns {string}
  */
 function renderReport(all, shipped) {
-  const rows = [...all.entries()].sort(([left], [right]) => left.localeCompare(right));
+  const rows = [...all.entries()]
+    .filter(([, entry]) => !entry.hostSpecific)
+    .sort(([left], [right]) => left.localeCompare(right));
 
   const byLicense = new Map();
   for (const [, { license }] of rows) byLicense.set(license, (byLicense.get(license) ?? 0) + 1);
@@ -195,6 +251,20 @@ build-tooling-only licence turns up in the shipped column.
 
 Attribution for the shipped packages is reproduced in
 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
+
+## What this table leaves out
+
+Several build tools publish their compiled half as one package per operating
+system and processor, and the package manager installs only the variant matching
+the machine. Those packages are excluded from the table below, because the set of
+them is a fact about a computer rather than about this project: a Linux CI runner
+and an Apple laptop install different ones from the same lockfile, and a
+committed list would be wrong on one of them by construction.
+
+They are still checked. The licence rules run over everything actually installed,
+wherever the check runs, so an unacceptable licence on a native binary fails the
+build for whoever has it. None of them are in the production closure — no build
+of this site or of any published package contains a native binary.
 
 ## Counts by licence
 

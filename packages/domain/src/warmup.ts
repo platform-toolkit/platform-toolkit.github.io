@@ -4,7 +4,7 @@
 /**
  * Warm-up ramps: turning a planned working weight into sets a lifter can load.
  *
- * The rules here are product rules. Published Starting Strength material varies
+ * The rules here are product rules. Published warm-up guidance varies widely
  * -- some examples finish on a double, some on a single -- and the requirements
  * settle those variations deliberately rather than leaving the calculator to
  * pick differently on different days. Where this file names a percentage, that

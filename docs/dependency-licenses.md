@@ -18,14 +18,28 @@ build-tooling-only licence turns up in the shipped column.
 Attribution for the shipped packages is reproduced in
 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
 
+## What this table leaves out
+
+Several build tools publish their compiled half as one package per operating
+system and processor, and the package manager installs only the variant matching
+the machine. Those packages are excluded from the table below, because the set of
+them is a fact about a computer rather than about this project: a Linux CI runner
+and an Apple laptop install different ones from the same lockfile, and a
+committed list would be wrong on one of them by construction.
+
+They are still checked. The licence rules run over everything actually installed,
+wherever the check runs, so an unacceptable licence on a native binary fails the
+build for whoever has it. None of them are in the production closure — no build
+of this site or of any published package contains a native binary.
+
 ## Counts by licence
 
-- MIT — 186
+- MIT — 181
 - Apache-2.0 — 17
 - BSD-3-Clause — 8
 - ISC — 8
 - BSD-2-Clause — 7
-- MPL-2.0 — 3
+- MPL-2.0 — 2
 - BlueOak-1.0.0 — 2
 - 0BSD — 1
 
@@ -41,7 +55,6 @@ Attribution for the shipped packages is reproduced in
 | @emnapi/core | 2.0.0-alpha.3 | MIT | build |
 | @emnapi/runtime | 2.0.0-alpha.3 | MIT | build |
 | @emnapi/wasi-threads | 2.0.1 | MIT | build |
-| @esbuild/darwin-arm64 | 0.28.1 | MIT | build |
 | @eslint-community/eslint-plugin-eslint-comments | 4.7.2 | MIT | build |
 | @eslint-community/eslint-utils | 4.10.1 | MIT | build |
 | @eslint-community/regexpp | 4.12.2 | MIT | build |
@@ -64,11 +77,8 @@ Attribution for the shipped packages is reproduced in
 | @lit-labs/ssr-dom-shim | 1.6.0 | BSD-3-Clause | shipped |
 | @lit/reactive-element | 2.1.2 | BSD-3-Clause | shipped |
 | @napi-rs/wasm-runtime | 1.2.1 | MIT | build |
-| @oxc-parser/binding-darwin-arm64 | 0.127.0 | MIT | build |
 | @oxc-project/types | 0.127.0, 0.142.0 | MIT | build |
-| @oxc-resolver/binding-darwin-arm64 | 11.24.2 | MIT | build |
 | @polka/url | 1.0.0-next.29 | MIT | build |
-| @rolldown/binding-darwin-arm64 | 1.2.1 | MIT | build |
 | @rolldown/binding-wasm32-wasi | 1.2.1 | MIT | build |
 | @rolldown/pluginutils | 1.0.1 | MIT | build |
 | @standard-schema/spec | 1.1.0 | MIT | build |
@@ -159,7 +169,6 @@ Attribution for the shipped packages is reproduced in
 | find-up | 5.0.0 | MIT | build |
 | flat-cache | 4.0.1 | MIT | build |
 | flatted | 3.4.4 | ISC | build |
-| fsevents | 2.3.2, 2.3.3 | MIT | build |
 | glob-parent | 6.0.2 | ISC | build |
 | globals | 17.8.0 | MIT | build |
 | ignore | 5.3.2, 7.0.6 | MIT | build |
@@ -180,7 +189,6 @@ Attribution for the shipped packages is reproduced in
 | keyv | 4.5.4 | MIT | build |
 | levn | 0.4.1 | MIT | build |
 | lightningcss | 1.33.0 | MPL-2.0 | build |
-| lightningcss-darwin-arm64 | 1.33.0 | MPL-2.0 | build |
 | lit | 3.3.3 | BSD-3-Clause | shipped |
 | lit-element | 4.2.2 | BSD-3-Clause | shipped |
 | lit-html | 3.3.3 | BSD-3-Clause | shipped |
