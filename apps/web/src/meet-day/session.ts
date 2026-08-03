@@ -48,6 +48,7 @@
  * a whole plan is its own piece of work with its own consent question (§24.1).
  */
 import {
+  MEET_GOALS,
   convertWeight,
   liftsInFormat,
   roundForDisplay,
@@ -626,6 +627,135 @@ export function evidenceAgeFor(session: PlannerSession, lift: PlatformLift): Evi
     if (age !== 'unstated') return age;
   }
   return session.extras.evidenceAge;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Reading a control's value.
+ *
+ * A radio's value and a `data-*` attribute are both strings out of the DOM, so
+ * every crossing back into the session's vocabulary happens here and every one
+ * of these is total. Tool 3's reasoning: an unrecognised value has to land on
+ * the answer that claims nothing, because the alternative is a state no control
+ * on screen can show back -- a group with nothing selected, which reads as a
+ * question the lifter has not reached rather than as an answer that was lost.
+ *
+ * They are here rather than in `copy.ts` because they are the inverse of the
+ * option lists and the type is the contract; `copy.ts` decides what an option is
+ * *called*, which is the part that changes for reasons of wording alone.
+ * ---------------------------------------------------------------------------
+ */
+
+function oneOf<T extends string>(values: readonly T[], value: string, fallback: T): T {
+  return (values as readonly string[]).includes(value) ? (value as T) : fallback;
+}
+
+const MEET_FORMATS: readonly MeetFormat[] = [
+  'full-power',
+  'push-pull',
+  'bench-only',
+  'deadlift-only',
+];
+
+export function formatFromValue(value: string): MeetFormat {
+  return oneOf(MEET_FORMATS, value, 'full-power');
+}
+
+export function unitFromValue(value: string): WeightUnit {
+  return value === 'lb' ? 'lb' : 'kg';
+}
+
+export function goalFromValue(value: string): MeetGoal {
+  return oneOf(MEET_GOALS, value, 'balanced');
+}
+
+export function methodFromValue(value: string): PlanMethod {
+  return oneOf(PLAN_METHODS, value, 'expected-max');
+}
+
+export function answerFromValue(value: string): Answer {
+  return oneOf(['yes', 'no', 'unstated'] as const, value, 'unstated');
+}
+
+export function readinessFromValue(value: string): Readiness {
+  return oneOf(['normal', 'uncertain', 'reduced', 'unstated'] as const, value, 'unstated');
+}
+
+export function equipmentFromValue(value: string): EquipmentCategory {
+  return oneOf(EQUIPMENT_CATEGORIES, value, 'unstated');
+}
+
+export function comparisonFromValue(value: string): ResearchComparison {
+  return oneOf(['male', 'female', 'none'] as const, value, 'none');
+}
+
+export function evidenceAgeFromValue(value: string): EvidenceAge {
+  return oneOf(
+    ['within-eight-weeks', 'within-six-months', 'older', 'unstated'] as const,
+    value,
+    'unstated',
+  );
+}
+
+export function maximumSourceFromValue(value: string): MaximumSource {
+  return oneOf(
+    [
+      'competition-single',
+      'competition-standard-single',
+      'low-repetition-estimate',
+      'high-repetition-estimate',
+      'lifetime-best',
+      'unstated',
+    ] as const,
+    value,
+    'unstated',
+  );
+}
+
+/**
+ * §6.2's first-meet question, which has three states and only two answers.
+ *
+ * `null` is "not asked yet" and is what §6.3's default rule keys off, so it needs
+ * a value a radio can carry rather than the absence of one. Spelled `unstated`
+ * to match every other three-way answer on the screen.
+ */
+export function firstMeetValueOf(firstMeet: boolean | null): string {
+  if (firstMeet === null) return 'unstated';
+  return firstMeet ? 'yes' : 'no';
+}
+
+export function firstMeetFromValue(value: string): boolean | null {
+  return asBoolean(answerFromValue(value));
+}
+
+/**
+ * §7.2's repetitions in reserve, which is a number in the domain and a string on
+ * a radio.
+ *
+ * Tool 3 hit this and named it a trap worth repeating: `RepsInReserve` is
+ * `0 | 1 | 2 | 3 | 'four-or-more' | 'unknown'`, so a control's value assigned
+ * straight across produces `'2'`, which is not `2`, and the estimator answers --
+ * with the wrong figure, silently. These two functions are the only crossing.
+ */
+export function reserveValueOf(reserve: RepsInReserve): string {
+  return String(reserve);
+}
+
+export function reserveFromValue(value: string): RepsInReserve {
+  switch (value) {
+    case '0':
+      return 0;
+    case '1':
+      return 1;
+    case '2':
+      return 2;
+    case '3':
+      return 3;
+    case 'four-or-more':
+      return 'four-or-more';
+    default:
+      return 'unknown';
+  }
 }
 
 /*

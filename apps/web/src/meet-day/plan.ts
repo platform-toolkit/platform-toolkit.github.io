@@ -189,6 +189,26 @@ export interface PlannerView {
   readonly complete: boolean;
 }
 
+/**
+ * The view of a session nobody has answered anything in.
+ *
+ * Exported so an element can default its `view` property to a real value rather
+ * than to `null`, which would put a "there is no view yet" branch in every
+ * template that reads one -- a branch reachable only by a wiring mistake, and
+ * therefore one nothing tests. `buildPlan(EMPTY_SESSION, …)` would produce this
+ * shape for every method, but it needs a `MeetRules` to do it, and requiring a
+ * rule book to render an unanswered form is exactly the coupling the property
+ * exists to avoid.
+ */
+export const EMPTY_VIEW: PlannerView = {
+  lifts: [],
+  proposal: null,
+  proposalProblems: [],
+  plannedTotalKilograms: null,
+  readiness: 'unstated',
+  complete: false,
+};
+
 /** What the plan is built against, beyond the lifter's own answers. */
 export interface PlanContext {
   readonly rules: MeetRules;
