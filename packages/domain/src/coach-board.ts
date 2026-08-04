@@ -93,8 +93,8 @@ import {
   type RunningTotal,
   type SubmissionState,
 } from './meet-document.js';
-import type { MeetWarmupSchedule, ScheduledItem } from './meet-warmup.js';
 import type { MeetRules } from './meet-rules.js';
+import { nextWindow, type TimelineWindow, type WarmupTimeline } from './warmup-timeline.js';
 
 /**
  * How far ahead of a start time something counts as needing the coach now.
@@ -167,20 +167,6 @@ export type HandlerResponsibility =
 export interface HandlerAssignment {
   readonly name: string;
   readonly responsibilities: readonly HandlerResponsibility[];
-}
-
-/**
- * A warm-up schedule and the instant its seconds were counted from.
- *
- * `meet-warmup.ts` is deliberately clock-free and reports everything as seconds
- * from now; this pairs a schedule with the "now" it meant, so the board can age
- * it. Rebuilding the schedule every paint instead would be correct and would
- * re-run the ramp, the plate maths and the platform estimate four times a
- * second for every lifter on the board.
- */
-export interface WarmupTimeline {
-  readonly schedule: MeetWarmupSchedule;
-  readonly builtAt: number;
 }
 
 /** What this device knows about a lifter that the meet document does not. */
@@ -366,45 +352,13 @@ function attemptsLeftOn(lifter: LiveLifter, lift: PlatformLift): number {
   ).length;
 }
 
-interface DueItem {
-  readonly item: ScheduledItem;
-  /** Seconds until it should start. Negative once that moment has passed. */
-  readonly dueInSeconds: number;
-}
-
-/**
- * The first thing on the warm-up schedule that is not behind the lifter.
- *
- * "Behind" is measured against the item's **latest** possible finish rather than
- * its earliest, so an item stays on the board for as long as it could still be
- * the thing the lifter is doing. The due figure that comes back is the
- * **earliest** start, for the opposite reason: being ready early costs a lifter
- * a few minutes standing about, and being ready late costs the attempt.
- *
- * `null` once even the platform estimate has run out, which says nothing about
- * where the lifter actually is -- the two things that do know, the declaration
- * clock and the call, are both checked above this.
- */
-function nextDueItem(timeline: WarmupTimeline, now: number): DueItem | null {
-  const elapsedSeconds = (now - timeline.builtAt) / 1000;
-  for (const item of timeline.schedule.items) {
-    const latestFinish = item.startsInSeconds.latestSeconds + item.seconds - elapsedSeconds;
-    if (latestFinish > 0) {
-      return { item, dueInSeconds: item.startsInSeconds.earliestSeconds - elapsedSeconds };
-    }
-  }
-  return null;
-}
-
 /** Which level a due schedule item sits at. */
-function urgencyOfItem(item: ScheduledItem, timeline: WarmupTimeline): CoachBoardUrgency {
-  switch (item.kind) {
+function urgencyOfItem(window: TimelineWindow): CoachBoardUrgency {
+  switch (window.item.kind) {
     case 'equipment':
       return 'equipment-or-wrapping';
     case 'warm-up-set':
-      return item.warmupIndex === timeline.schedule.plan.warmups.length - 1
-        ? 'final-warm-up'
-        : 'other-warm-ups';
+      return window.isFinalWarmup ? 'final-warm-up' : 'other-warm-ups';
     case 'platform':
       // The ramp is finished and the lifter is waiting to be called. That the
       // schedule expects them on the platform is not the same as somebody having
@@ -481,16 +435,19 @@ function placementOf(
     return { urgency: 'non-urgent-preparation', seconds: null };
   }
 
-  const due = nextDueItem(timeline, now);
+  // `null` once even the platform estimate has run out, which says nothing about
+  // where the lifter actually is -- the two things that do know, the declaration
+  // clock and the call, are both checked above this.
+  const due = nextWindow(timeline, now);
   if (due === null) {
     return { urgency: 'upcoming-flight', seconds: null };
   }
 
-  const seconds = Math.floor(due.dueInSeconds);
-  if (due.dueInSeconds > attentionLeadSeconds) {
+  const seconds = Math.floor(due.startsInSeconds);
+  if (due.startsInSeconds > attentionLeadSeconds) {
     return { urgency: 'upcoming-flight', seconds };
   }
-  return { urgency: urgencyOfItem(due.item, timeline), seconds };
+  return { urgency: urgencyOfItem(due), seconds };
 }
 
 /**

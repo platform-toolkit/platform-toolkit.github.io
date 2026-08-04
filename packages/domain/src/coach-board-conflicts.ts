@@ -85,7 +85,6 @@ import {
   type CoachBoardEntry,
   type HandlerResponsibility,
   type PlatformCall,
-  type WarmupTimeline,
 } from './coach-board.js';
 import {
   attemptsOn,
@@ -98,6 +97,7 @@ import {
 } from './meet-document.js';
 import type { ScheduledItem } from './meet-warmup.js';
 import type { MeetRules } from './meet-rules.js';
+import { timelineWindows, type TimelineWindow } from './warmup-timeline.js';
 
 /**
  * How long it takes to get a weight to the table and come back.
@@ -227,19 +227,6 @@ const CALL_ORDER: Readonly<Record<PlatformCall, number>> = {
   'in-the-hole': 2,
 };
 
-/** A scheduled item, aged against the instant its schedule was counted from. */
-interface DueWindow {
-  readonly item: ScheduledItem;
-  /** Earliest start, from now. Negative once that moment has passed. */
-  readonly startsInSeconds: number;
-  /** Latest finish, from now. Always above zero: an item past it is dropped. */
-  readonly endsInSeconds: number;
-  /** The bar weight for a warm-up set, or `null` for anything else. */
-  readonly kilograms: number | null;
-  /** Whether this is the last single before the platform. */
-  readonly isFinalWarmup: boolean;
-}
-
 /** Something that wants the coach, or a handler, at a particular moment. */
 interface Demand {
   readonly responsibility: HandlerResponsibility;
@@ -253,7 +240,7 @@ interface Standing {
   /** Live, unanswered and not yet lapsed, or `null`. */
   readonly submission: SubmissionState | null;
   readonly call: PlatformCall | null;
-  readonly due: readonly DueWindow[];
+  readonly due: readonly TimelineWindow[];
   readonly demands: readonly Demand[];
   readonly rackId: string | null;
 }
@@ -274,27 +261,6 @@ function stillLifting(document: MeetDocument, lifter: LiveLifter): boolean {
   return false;
 }
 
-/** Everything on the schedule that has not gone past, aged and priced. */
-function dueWindows(timeline: WarmupTimeline, now: number): DueWindow[] {
-  const elapsedSeconds = (now - timeline.builtAt) / 1000;
-  const finalIndex = timeline.schedule.plan.warmups.length - 1;
-  const windows: DueWindow[] = [];
-  for (const item of timeline.schedule.items) {
-    const endsInSeconds = item.startsInSeconds.latestSeconds + item.seconds - elapsedSeconds;
-    if (endsInSeconds <= 0) continue;
-    const set =
-      item.warmupIndex === null ? undefined : timeline.schedule.plan.warmups[item.warmupIndex];
-    windows.push({
-      item,
-      startsInSeconds: item.startsInSeconds.earliestSeconds - elapsedSeconds,
-      endsInSeconds,
-      kilograms: set?.loading.total ?? null,
-      isFinalWarmup: item.kind === 'warm-up-set' && item.warmupIndex === finalIndex,
-    });
-  }
-  return windows;
-}
-
 function standingsOf(request: CoachBoardConflictRequest, proximitySeconds: number): Standing[] {
   const { rules, document, now } = request;
   const byLifter = new Map<string, CoachBoardEntry>();
@@ -310,7 +276,7 @@ function standingsOf(request: CoachBoardConflictRequest, proximitySeconds: numbe
     const submission = state !== null && !state.submitted && !state.lapsed ? state : null;
     const call = lifting ? (entry.platformCall ?? null) : null;
     const timeline = lifting ? (entry.warmup ?? null) : null;
-    const due = timeline === null ? [] : dueWindows(timeline, now);
+    const due = timeline === null ? [] : timelineWindows(timeline, now);
 
     const demands: Demand[] = [];
     if (submission !== null) {
@@ -350,7 +316,7 @@ function dueOfKind(
   standing: Standing,
   kind: ScheduledItem['kind'],
   proximitySeconds: number,
-): DueWindow | null {
+): TimelineWindow | null {
   for (const window of standing.due) {
     if (window.item.kind !== kind) continue;
     if (window.startsInSeconds > proximitySeconds) continue;
@@ -592,7 +558,9 @@ function rackClash(
   const a = dueOfKind(left, 'warm-up-set', proximitySeconds);
   const b = dueOfKind(right, 'warm-up-set', proximitySeconds);
   if (a === null || b === null) return null;
-  if (a.kilograms === null || b.kilograms === null || a.kilograms === b.kilograms) return null;
+  const weightA = a.set?.loading.total ?? null;
+  const weightB = b.set?.loading.total ?? null;
+  if (weightA === null || weightB === null || weightA === weightB) return null;
   if (!atOnce(a, b, proximitySeconds)) return null;
 
   // Whoever is on the platform first gets the bar first: their warm-up is the one

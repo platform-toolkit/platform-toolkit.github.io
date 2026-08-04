@@ -122,8 +122,13 @@ export {
   type HandlerAssignment,
   type HandlerResponsibility,
   type PlatformCall,
-  type WarmupTimeline,
 } from './coach-board.js';
+export {
+  nextWindow,
+  timelineWindows,
+  type TimelineWindow,
+  type WarmupTimeline,
+} from './warmup-timeline.js';
 export {
   COACH_BOARD_CONFLICTS,
   DEFAULT_HANDOVER_SECONDS,

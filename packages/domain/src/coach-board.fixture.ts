@@ -19,7 +19,7 @@
  */
 import type { MeetFormat, PlatformLift } from '@platform-toolkit/data-contracts';
 
-import type { WarmupTimeline } from './coach-board.js';
+import type { WarmupTimeline } from './warmup-timeline.js';
 import {
   applyMeetAction,
   attemptsOn,

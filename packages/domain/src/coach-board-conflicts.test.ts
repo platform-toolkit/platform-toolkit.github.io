@@ -33,6 +33,7 @@ import type { CoachBoardEntry } from './coach-board.js';
 import {
   AT,
   RULES,
+  WARM_UP_SETS,
   declare,
   equipmentAt,
   finalWarmupAt,
@@ -698,6 +699,30 @@ describe("a last single during another lifter's attempt", () => {
 
     expect(conflict.lifterIds).toEqual([lifterId(document, 0), lifterId(document, 1)]);
     expect(conflict.priority.lifterId).toBe(lifterId(document, 0));
+  });
+
+  it('says nothing about wraps that happen to point at the last warm-up', () => {
+    // This is the one place that asks a due window whether it is the final
+    // warm-up without first asking what kind of thing it is, so it is the one
+    // place where an item of another kind carrying a `warmupIndex` could be
+    // mistaken for a single. `ScheduledItem` says the index belongs to a warm-up
+    // set and to nothing else, but it is a plain number on a plain interface and
+    // this module does not build the schedules it reads. Putting wraps on while
+    // somebody else is called is not a clash: the wraps can go on in the corner.
+    const document = meetWith(['Ama', 'Bo']).present;
+    const wraps = item('equipment', 1, {
+      equipmentId: 'knee-wraps',
+      warmupIndex: WARM_UP_SETS - 1,
+    });
+
+    expect(
+      codes(
+        found(document, [
+          { lifterId: lifterId(document, 0), warmup: timelineOf([wraps]) },
+          { lifterId: lifterId(document, 1), platformCall: 'called' },
+        ]),
+      ),
+    ).toEqual([]);
   });
 
   it('says nothing about an earlier warm-up', () => {
