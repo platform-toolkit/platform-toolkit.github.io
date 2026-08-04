@@ -108,6 +108,23 @@ export {
   type ClassificationTableSelection,
 } from './classification.js';
 export {
+  DEFAULT_ATTENTION_LEAD_SECONDS,
+  URGENCY_LADDER,
+  coachBoard,
+  type CoachBoard,
+  type CoachBoardActionCode,
+  type CoachBoardEntry,
+  type CoachBoardRemaining,
+  type CoachBoardRequest,
+  type CoachBoardRow,
+  type CoachBoardUrgency,
+  type CurrentAttempt,
+  type HandlerAssignment,
+  type HandlerResponsibility,
+  type PlatformCall,
+  type WarmupTimeline,
+} from './coach-board.js';
+export {
   chartColumnFor,
   convertAgainstChart,
   convertMilestones,
