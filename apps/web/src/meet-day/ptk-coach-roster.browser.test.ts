@@ -4,12 +4,14 @@
 /**
  * §21's roster, and the four things a real browser is needed to prove.
  *
- * 1. **Two axes on one path.** Every other element in this tool tags an answer
- *    with `data-field` alone; a row here also carries `data-lifter`, and the
- *    root reads both off the same `composedPath()`. A test in an emulated DOM
- *    can assert the attribute is in the template and still miss that it never
- *    reaches the listener, which is the failure that puts one lifter's lot
- *    number on another lifter's row.
+ * 1. **Two axes on one path, and on a handler row three.** Every other element
+ *    in this tool tags an answer with `data-field` alone; a row here also
+ *    carries `data-lifter`, and a control on one of §21.3's handlers carries
+ *    `data-handler` on top of that. The root reads all of them off the same
+ *    `composedPath()`. A test in an emulated DOM can assert the attributes are
+ *    in the template and still miss that they never reach the listener, which
+ *    is the failure that puts one lifter's lot number on another lifter's row,
+ *    or one handler's duties onto the person standing next to them.
  * 2. **The event carries the name.** `ROSTER_ADD_EVENT` reports the name the
  *    element was showing rather than leaving the root to read its own state
  *    back -- the two are different instants, and the second one is after a Lit
@@ -30,6 +32,8 @@ import {
   type ChoiceChangeDetail,
   TEXT_FIELD_CHANGE_EVENT,
   type TextFieldChangeDetail,
+  TOGGLE_GROUP_CHANGE_EVENT,
+  type ToggleGroupChangeDetail,
 } from '@platform-toolkit/ui';
 // Padding, gaps and the 44px tap-target floor all read custom properties, and a
 // declaration referencing an undefined one is dropped -- so without this the
@@ -41,16 +45,31 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { deepText } from '../testing/deep-text.js';
 import {
   COLOUR_CHOICES,
+  HANDLER_RESPONSIBILITY_CHOICES,
   NO_COLOUR,
   ROSTER_EMPTY,
+  ROSTER_HANDLERS_EMPTY,
   ROSTER_NEEDS_A_FEDERATION,
   ROSTER_STARTS_THE_MEET,
 } from './copy.js';
-import { ROSTER_COLOUR_FIELD, ROSTER_IDENTIFIER_FIELD, ROSTER_NAME_FIELD } from './fields.js';
+import {
+  ROSTER_COLOUR_FIELD,
+  ROSTER_HANDLER_ADD_FIELD,
+  ROSTER_HANDLER_DUTIES_FIELD,
+  ROSTER_HANDLER_NAME_FIELD,
+  ROSTER_HANDLER_REMOVE_FIELD,
+  ROSTER_IDENTIFIER_FIELD,
+  ROSTER_NAME_FIELD,
+  ROSTER_RACK_FIELD,
+} from './fields.js';
 import {
   ROSTER_ADD_EVENT,
+  ROSTER_HANDLER_ADD_EVENT,
+  ROSTER_HANDLER_REMOVE_EVENT,
   type PtkCoachRoster,
   type RosterAddDetail,
+  type RosterHandlerAddDetail,
+  type RosterHandlerRemoveDetail,
   type RosterLifter,
 } from './ptk-coach-roster.js';
 import './ptk-coach-roster.js';
@@ -77,10 +96,48 @@ function colour(position: number): string {
   return choice.value;
 }
 
+/**
+ * Three lifters, and the three shapes §21.3 and §21.4 have to render.
+ *
+ * The first is a lifter with two handlers on a shared bar, the second has one
+ * handler and no bar, the third has neither. That spread is what the assertions
+ * below are built on: a fixture where every row carried a handler could not tell
+ * a summary that always says "1 handler" from one that counts, and a fixture
+ * where none did would leave every binding on the handler row untested.
+ *
+ * The first handler's responsibilities are deliberately two of the seven and
+ * deliberately not the default a new row is created with -- a group bound to
+ * `['general']` and a group ignoring the property entirely look identical
+ * against a row that was never edited.
+ */
 const THREE: readonly RosterLifter[] = [
-  { lifterId: 'lifter-1', name: 'Quintero', identifier: '14', colour: colour(1) },
-  { lifterId: 'lifter-2', name: 'Okonkwo', identifier: '15', colour: colour(2) },
-  { lifterId: 'lifter-3', name: 'Beaulieu', identifier: '', colour: null },
+  {
+    lifterId: 'lifter-1',
+    name: 'Quintero',
+    identifier: '14',
+    colour: colour(1),
+    handlers: [
+      { name: 'Rae', responsibilities: ['attempt-submission', 'platform-escort'] },
+      { name: 'Devi', responsibilities: ['warm-up-loading'] },
+    ],
+    rackId: '1',
+  },
+  {
+    lifterId: 'lifter-2',
+    name: 'Okonkwo',
+    identifier: '15',
+    colour: colour(2),
+    handlers: [{ name: 'Rae', responsibilities: ['general'] }],
+    rackId: '',
+  },
+  {
+    lifterId: 'lifter-3',
+    name: 'Beaulieu',
+    identifier: '',
+    colour: null,
+    handlers: [],
+    rackId: '',
+  },
 ];
 
 async function mount(options: Options = {}): Promise<PtkCoachRoster> {
@@ -146,6 +203,15 @@ async function add(element: PtkCoachRoster): Promise<void> {
 interface Answer {
   readonly field: string | null;
   readonly lifterId: string | null;
+  /**
+   * The third axis, `null` on the answers that are about the lifter themselves.
+   *
+   * Recorded on every answer rather than only on the handler ones, so that the
+   * identifier and the bar assert they are *not* tagged with a position: a
+   * `data-handler` that leaked onto a row-level control would be read by the
+   * root as an answer about whichever handler happened to be first.
+   */
+  readonly handler: string | null;
   readonly value: string;
 }
 
@@ -156,12 +222,48 @@ function watch(eventName: string): Answer[] {
     seen.push({
       field: tagOf(event, 'field'),
       lifterId: tagOf(event, 'lifter'),
+      handler: tagOf(event, 'handler'),
       value: detail.value,
     });
   };
   document.body.addEventListener(eventName, listener);
   teardown.push(() => {
     document.body.removeEventListener(eventName, listener);
+  });
+  return seen;
+}
+
+/**
+ * The same thing for `ptk-toggle-group`, which reports a whole selection.
+ *
+ * A separate shape rather than a `values` field on `Answer`: the toggle group
+ * deliberately reports the set and not the one box that moved, because a
+ * report of one tick applied over a stored list is how a coach loses the other
+ * six (`CHECKLIST_GROUP_FIELD` in `fields.ts` records the same failure). A
+ * watcher recording only `detail.value` here would pass against a group that
+ * had forgotten every other answer.
+ */
+interface Selection {
+  readonly field: string | null;
+  readonly lifterId: string | null;
+  readonly handler: string | null;
+  readonly values: readonly string[];
+}
+
+function watchSelections(): Selection[] {
+  const seen: Selection[] = [];
+  const listener = (event: Event): void => {
+    const detail = (event as CustomEvent<ToggleGroupChangeDetail>).detail;
+    seen.push({
+      field: tagOf(event, 'field'),
+      lifterId: tagOf(event, 'lifter'),
+      handler: tagOf(event, 'handler'),
+      values: detail.values,
+    });
+  };
+  document.body.addEventListener(TOGGLE_GROUP_CHANGE_EVENT, listener);
+  teardown.push(() => {
+    document.body.removeEventListener(TOGGLE_GROUP_CHANGE_EVENT, listener);
   });
   return seen;
 }
@@ -202,6 +304,91 @@ function checkedColour(element: PtkCoachRoster, lifterId: string): string | null
  */
 function rows(element: PtkCoachRoster): Element[] {
   return [...(element.shadowRoot?.querySelectorAll('ul > li') ?? [])];
+}
+
+/** The one control answering a field for one handler on one lifter. */
+function handlerControl(
+  element: PtkCoachRoster,
+  field: string,
+  lifterId: string,
+  index: number,
+): Element {
+  const selector = `[data-field="${field}"][data-lifter="${lifterId}"][data-handler="${String(index)}"]`;
+  const found = element.shadowRoot?.querySelector(selector);
+  if (found === null || found === undefined) {
+    throw new Error(`No "${field}" for handler ${String(index)} of "${lifterId}".`);
+  }
+  return found;
+}
+
+/** Presses the native control inside any of this element's buttons. */
+async function press(element: PtkCoachRoster, host: Element): Promise<void> {
+  const button = host.shadowRoot?.querySelector('button');
+  if (!(button instanceof HTMLButtonElement))
+    throw new Error(`No button inside ${host.localName}.`);
+  button.click();
+  await element.updateComplete;
+}
+
+/**
+ * Which responsibilities are showing as ticked for one handler.
+ *
+ * Read off the boxes rather than off the property that was bound to them, for
+ * the reason §13.13 records against the colour tiles: a group that ignored
+ * `.values` entirely satisfies every assertion written through an event, and
+ * the cost is paid on the second visit to a fold -- seven blank tiles under a
+ * summary line saying two handlers, and a coach re-ticking answers they gave.
+ */
+function ticked(element: PtkCoachRoster, lifterId: string, index: number): string[] {
+  const host = handlerControl(element, ROSTER_HANDLER_DUTIES_FIELD, lifterId, index);
+  return [...(host.shadowRoot?.querySelectorAll('input') ?? [])]
+    .filter((input) => input.checked)
+    .map((input) => input.value);
+}
+
+/** The native input behind one handler's name box. */
+function handlerNameBox(
+  element: PtkCoachRoster,
+  lifterId: string,
+  index: number,
+): HTMLInputElement {
+  const host = handlerControl(element, ROSTER_HANDLER_NAME_FIELD, lifterId, index);
+  const input = host.shadowRoot?.querySelector('input');
+  if (!(input instanceof HTMLInputElement)) throw new Error('No name box on the handler.');
+  return input;
+}
+
+/** Ticks one responsibility by clicking its box, the way a coach does. */
+async function tick(
+  element: PtkCoachRoster,
+  lifterId: string,
+  index: number,
+  value: string,
+): Promise<void> {
+  const host = handlerControl(element, ROSTER_HANDLER_DUTIES_FIELD, lifterId, index);
+  const box = [...(host.shadowRoot?.querySelectorAll('input') ?? [])].find(
+    (input) => input.value === value,
+  );
+  if (box === undefined) throw new Error(`No responsibility "${value}" to tick.`);
+  box.click();
+  await element.updateComplete;
+}
+
+/** One row's summary line, as the fold was handed it. */
+function summaryOf(element: PtkCoachRoster, position: number): string | null {
+  const fold = rows(element)[position]?.querySelector('ptk-disclosure');
+  if (fold === null || fold === undefined) throw new Error(`No fold on row ${String(position)}.`);
+  return fold.getAttribute('summary');
+}
+
+/** The handler section of one lifter's row, which is what the presses land in. */
+function handlersOf(element: PtkCoachRoster, position: number): Element {
+  const row = rows(element)[position];
+  const section = row?.querySelector('.handlers');
+  if (section === null || section === undefined) {
+    throw new Error(`No handler section on row ${String(position)}.`);
+  }
+  return section;
 }
 
 describe('ptk-coach-roster', () => {
@@ -292,7 +479,9 @@ describe('ptk-coach-roster', () => {
 
     await enter(element, control(element, ROSTER_IDENTIFIER_FIELD, 'lifter-2'), '99');
 
-    expect(seen).toEqual([{ field: ROSTER_IDENTIFIER_FIELD, lifterId: 'lifter-2', value: '99' }]);
+    expect(seen).toEqual([
+      { field: ROSTER_IDENTIFIER_FIELD, lifterId: 'lifter-2', handler: null, value: '99' },
+    ]);
   });
 
   it('reports an identifier untrimmed, because it is what the coach typed', async () => {
@@ -318,7 +507,9 @@ describe('ptk-coach-roster', () => {
 
     await choose(element, 'lifter-1', NO_COLOUR);
 
-    expect(seen).toEqual([{ field: ROSTER_COLOUR_FIELD, lifterId: 'lifter-1', value: NO_COLOUR }]);
+    expect(seen).toEqual([
+      { field: ROSTER_COLOUR_FIELD, lifterId: 'lifter-1', handler: null, value: NO_COLOUR },
+    ]);
   });
 
   it('shows an answered colour as answered, and an unanswered one as none', async () => {
@@ -394,6 +585,257 @@ describe('ptk-coach-roster', () => {
     ]);
   });
 
+  it('shows what each handler was already asked to cover', async () => {
+    // The binding `#renderHandler`'s doc names as the one this directory's
+    // tests are weakest against, and §13.13 records the same failure against
+    // the colour tiles: a group that ignored `.values` passes every assertion
+    // written through an event. What it costs is the second visit to a fold --
+    // seven blank tiles under a summary line saying two handlers, and a coach
+    // re-ticking answers they already gave. Two handlers with different
+    // answers, because a group hard-wired to the first handler's set would
+    // satisfy either row on its own.
+    const element = await mount();
+
+    expect(ticked(element, 'lifter-1', 0)).toEqual(['attempt-submission', 'platform-escort']);
+    expect(ticked(element, 'lifter-1', 1)).toEqual(['warm-up-loading']);
+  });
+
+  it('shows each handler under the name the coach gave them', async () => {
+    // The other bound property on a handler row, and the same argument. A name
+    // box that dropped its binding would empty itself every time the row was
+    // re-rendered, which on this screen is every keystroke anywhere in it.
+    const element = await mount();
+
+    expect(handlerNameBox(element, 'lifter-1', 0).value).toBe('Rae');
+    expect(handlerNameBox(element, 'lifter-1', 1).value).toBe('Devi');
+  });
+
+  it('names every responsibility in words', async () => {
+    // §21.3's seven, written to be read after a name. Seven unlabelled boxes
+    // is the colour rule (§21) arriving at a different control: a tile a coach
+    // cannot read is one they tick by position and get wrong under pressure.
+    const element = await mount();
+    const tiles = deepText(handlerControl(element, ROSTER_HANDLER_DUTIES_FIELD, 'lifter-1', 0));
+
+    for (const choice of HANDLER_RESPONSIBILITY_CHOICES) {
+      expect(tiles).toContain(choice.label);
+    }
+  });
+
+  it('tags a handler name with the lifter and the position, not one or the other', async () => {
+    // Three axes on one path. Either tag missing is an answer the root cannot
+    // place: without the lifter it lands on whoever was handled last, and
+    // without the position it overwrites the first handler on the row.
+    const element = await mount();
+    const seen = watch(TEXT_FIELD_CHANGE_EVENT);
+
+    await enter(
+      element,
+      handlerControl(element, ROSTER_HANDLER_NAME_FIELD, 'lifter-1', 1),
+      'Devinder',
+    );
+
+    expect(seen).toEqual([
+      {
+        field: ROSTER_HANDLER_NAME_FIELD,
+        lifterId: 'lifter-1',
+        handler: '1',
+        value: 'Devinder',
+      },
+    ]);
+  });
+
+  it('reports the whole selection when one responsibility is ticked', async () => {
+    // `ptk-toggle-group` reports the set rather than the box that moved, and
+    // the root writes the set back -- so a watcher reading `detail.value`
+    // alone would pass against a group that had forgotten the other six.
+    // Ticked in choices order and not tap order, which is the assertion: video
+    // sits above general in `HANDLER_RESPONSIBILITIES`, so a group appending
+    // the new tick would come back the other way round.
+    const element = await mount();
+    const seen = watchSelections();
+
+    await tick(element, 'lifter-2', 0, 'video');
+
+    expect(seen).toEqual([
+      {
+        field: ROSTER_HANDLER_DUTIES_FIELD,
+        lifterId: 'lifter-2',
+        handler: '0',
+        values: ['video', 'general'],
+      },
+    ]);
+  });
+
+  it('asks to add a handler to the lifter whose button was pressed', async () => {
+    // Pressed on the row with nobody on it, which is the row a coach actually
+    // presses: the add button has to be reachable from the empty state, not
+    // only from underneath a list that already exists.
+    const element = await mount();
+    const seen: RosterHandlerAddDetail[] = [];
+    const listener = (event: CustomEvent<RosterHandlerAddDetail>): void => {
+      seen.push(event.detail);
+    };
+    document.body.addEventListener(ROSTER_HANDLER_ADD_EVENT, listener);
+    teardown.push(() => {
+      document.body.removeEventListener(ROSTER_HANDLER_ADD_EVENT, listener);
+    });
+
+    await press(element, control(element, ROSTER_HANDLER_ADD_FIELD, 'lifter-3'));
+
+    expect(seen).toEqual([{ lifterId: 'lifter-3' }]);
+  });
+
+  it('asks to remove the handler whose button was pressed, by position', async () => {
+    // The second handler, deliberately. Removing the first is what a handler
+    // that reported a constant zero also does, and the two rows are otherwise
+    // indistinguishable from outside -- which is the whole hazard of keying a
+    // list by position, and why `fields.ts` argues the case at length.
+    const element = await mount();
+    const seen: RosterHandlerRemoveDetail[] = [];
+    const listener = (event: CustomEvent<RosterHandlerRemoveDetail>): void => {
+      seen.push(event.detail);
+    };
+    document.body.addEventListener(ROSTER_HANDLER_REMOVE_EVENT, listener);
+    teardown.push(() => {
+      document.body.removeEventListener(ROSTER_HANDLER_REMOVE_EVENT, listener);
+    });
+
+    await press(element, handlerControl(element, ROSTER_HANDLER_REMOVE_FIELD, 'lifter-1', 1));
+
+    expect(seen).toEqual([{ lifterId: 'lifter-1', index: 1 }]);
+  });
+
+  it('names a remove button after the person it removes, and by position until then', async () => {
+    // Two named handlers would give a row two buttons reading "Remove", which
+    // on a fold holding three people is a coach removing the wrong one. The
+    // unnamed row is the state Add creates and cannot be skipped: a blank name
+    // has nothing to name the button after, so it falls back to the position
+    // the button is keyed on anyway.
+    const element = await mount({
+      lifters: [
+        {
+          lifterId: 'lifter-1',
+          name: 'Quintero',
+          identifier: '14',
+          colour: colour(1),
+          handlers: [
+            { name: 'Rae', responsibilities: ['general'] },
+            { name: '', responsibilities: ['general'] },
+          ],
+          rackId: '',
+        },
+      ],
+    });
+    const text = deepText(rows(element)[0] ?? element);
+
+    expect(text).toContain('Remove Rae');
+    expect(text).toContain('Remove handler 2');
+  });
+
+  it('says so on a row where nobody is helping yet', async () => {
+    // Scoped to the row, because the sentence is on screen somewhere as long
+    // as any lifter has nobody on them -- an element-wide assertion passes
+    // against a version that printed it on every row, including the two with
+    // handlers listed above it.
+    const element = await mount();
+
+    expect(deepText(handlersOf(element, 2))).toContain(ROSTER_HANDLERS_EMPTY);
+    expect(deepText(handlersOf(element, 0))).not.toContain(ROSTER_HANDLERS_EMPTY);
+  });
+
+  it('shows the bar each lifter is on, and an empty box where there is none', async () => {
+    // §21.4. Both states, because a field that ignored the property entirely
+    // satisfies the second assertion on its own -- and the empty one is what
+    // most rows look like, so it is the one a mutation hides behind.
+    const element = await mount();
+    const onABar = control(element, ROSTER_RACK_FIELD, 'lifter-1').shadowRoot?.querySelector(
+      'input',
+    );
+    const onNone = control(element, ROSTER_RACK_FIELD, 'lifter-3').shadowRoot?.querySelector(
+      'input',
+    );
+
+    expect(onABar?.value).toBe('1');
+    expect(onNone?.value).toBe('');
+  });
+
+  it('tags the bar with the lifter and with no handler', async () => {
+    // A bar belongs to the lifter, not to whoever is loading it. A stray
+    // `data-handler` here would be read by the root as an answer about the
+    // first handler on the row, and the bar would never be recorded at all.
+    const element = await mount();
+    const seen = watch(TEXT_FIELD_CHANGE_EVENT);
+
+    await enter(element, control(element, ROSTER_RACK_FIELD, 'lifter-2'), '2');
+
+    expect(seen).toEqual([
+      { field: ROSTER_RACK_FIELD, lifterId: 'lifter-2', handler: null, value: '2' },
+    ]);
+  });
+
+  it('ignores a press inside the handlers that answers no field', async () => {
+    // The delegated listener's two guards, exercised from inside the container
+    // it is attached to -- §13.14 records both tests passing with both guards
+    // deleted when the event was fired at the fold instead, because the
+    // handler was never entered and "nothing was reported" is what a listener
+    // that did not run also produces. The real press afterwards is the control
+    // that catches exactly that.
+    const element = await mount();
+    const added: RosterHandlerAddDetail[] = [];
+    const removed: RosterHandlerRemoveDetail[] = [];
+    const onAdd = (event: CustomEvent<RosterHandlerAddDetail>): void => {
+      added.push(event.detail);
+    };
+    const onRemove = (event: CustomEvent<RosterHandlerRemoveDetail>): void => {
+      removed.push(event.detail);
+    };
+    document.body.addEventListener(ROSTER_HANDLER_ADD_EVENT, onAdd);
+    document.body.addEventListener(ROSTER_HANDLER_REMOVE_EVENT, onRemove);
+    teardown.push(() => {
+      document.body.removeEventListener(ROSTER_HANDLER_ADD_EVENT, onAdd);
+      document.body.removeEventListener(ROSTER_HANDLER_REMOVE_EVENT, onRemove);
+    });
+
+    const section = handlersOf(element, 0);
+    // No field on the path at all, which is the gap between two buttons.
+    const bare = document.createElement('div');
+    section.append(bare);
+    bare.click();
+    // A field the handler section does not answer, which is the second guard.
+    const foreign = document.createElement('div');
+    foreign.dataset['field'] = ROSTER_IDENTIFIER_FIELD;
+    foreign.dataset['lifter'] = 'lifter-1';
+    section.append(foreign);
+    foreign.click();
+
+    expect(added).toEqual([]);
+    expect(removed).toEqual([]);
+
+    await press(element, control(element, ROSTER_HANDLER_ADD_FIELD, 'lifter-1'));
+
+    expect(added).toEqual([{ lifterId: 'lifter-1' }]);
+  });
+
+  it('counts the handlers and names the bar on the summary line', async () => {
+    // The fold's justification again (§5.7): four answers per lifter now, and
+    // the whole roster still has to be readable shut. Both of the new parts
+    // are omitted rather than reported absent -- an identifier and a colour
+    // are asked of every lifter, a bar and a handler only of a room that has
+    // them, and "no bar, no handlers" on every row of a solo coach's roster is
+    // three quarters of the line saying nothing.
+    // Read off the fold's own `summary` rather than through `deepText`: the
+    // row below it holds a "Handlers" heading and an "Add a handler" button,
+    // so an omission assertion written over the whole row is satisfied by the
+    // controls and can never fail. The test above already proves the summary
+    // reaches the screen.
+    const element = await mount();
+
+    expect(summaryOf(element, 0)).toBe('14, orange, bar 1, 2 handlers');
+    expect(summaryOf(element, 1)).toBe('15, blue, 1 handler');
+    expect(summaryOf(element, 2)).toBe('No identifier, no colour');
+  });
+
   it('has no accessibility violations with a flight on screen', async () => {
     const element = await mount();
     const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
@@ -403,9 +845,12 @@ describe('ptk-coach-roster', () => {
   it('has no accessibility violations with a row open', async () => {
     // The controls are the half of this screen axe cannot see while it is
     // folded: `<details>` hides its contents from the accessibility tree, so
-    // the labelled text field and the seven radios below it are only reachable
-    // here. Opened by setting `open` rather than by pressing the summary --
-    // `toggle` fires asynchronously (§13.6).
+    // the two text fields, the seven radios and -- since §21.3 -- two handlers'
+    // name boxes, tile groups and remove buttons are only reachable here. The
+    // first row is opened deliberately: it is the only one with a handler on
+    // it, and an empty row would leave that whole fieldset unaudited. Opened
+    // by setting `open` rather than by pressing the summary -- `toggle` fires
+    // asynchronously (§13.6).
     const element = await mount();
     const fold = element.shadowRoot?.querySelector('ptk-disclosure');
     if (fold === null || fold === undefined) throw new Error('No lifter row to open.');
@@ -417,9 +862,12 @@ describe('ptk-coach-roster', () => {
   });
 
   it('fits a phone-width column with a row open', async () => {
-    // Open, because shut is the easy case: the seven colour tiles and the
-    // identifier field are what has to fit, and §27 forbids sideways scrolling
-    // on any urgent workflow outright.
+    // Open, because shut is the easy case: the seven colour tiles, the two
+    // text fields and two handlers' worth of seven-tile groups and full-width
+    // buttons are what has to fit, and §27 forbids sideways scrolling on any
+    // urgent workflow outright. The first row again, for the same reason the
+    // audit above opens it -- the handler rows are three levels of box deep
+    // and are the narrowest thing on the screen.
     const frame = document.createElement('div');
     frame.style.width = '320px';
     document.body.append(frame);

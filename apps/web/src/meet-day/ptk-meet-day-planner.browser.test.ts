@@ -61,6 +61,7 @@ import {
   COACH_MODE,
   COLOUR_CHOICES,
   CONVERT_ANSWER,
+  HANDLER_PACK_NO_HANDLERS,
   KEEP_ANSWER,
   MEET_IS_RUNNING_NOTE,
   ROSTER_NEEDS_A_FEDERATION,
@@ -85,8 +86,13 @@ import {
   PREP_NOTES_FIELD,
   REMOVE_CUSTOM_ITEM_FIELD,
   ROSTER_COLOUR_FIELD,
+  ROSTER_HANDLER_ADD_FIELD,
+  ROSTER_HANDLER_DUTIES_FIELD,
+  ROSTER_HANDLER_NAME_FIELD,
+  ROSTER_HANDLER_REMOVE_FIELD,
   ROSTER_IDENTIFIER_FIELD,
   ROSTER_NAME_FIELD,
+  ROSTER_RACK_FIELD,
   UNIT_FIELD,
 } from './fields.js';
 import { aShelf, aShelfOfHistory } from './library-fixture.js';
@@ -1737,6 +1743,109 @@ describe('ptk-meet-day-planner', () => {
       return board(element)?.shadowRoot?.querySelector('.who')?.textContent.trim() ?? '';
     }
 
+    /**
+     * One of a handler's three controls, keyed by position within the row.
+     *
+     * `controls` rather than a walk of every shadow root: the roster is a direct
+     * child of this element's shadow root, so its controls are one level down
+     * and already reachable. No `data-lifter` in the selector, because every
+     * test below has exactly one lifter -- and the throw on a count other than
+     * one is what would catch a second row appearing under a later change,
+     * rather than the helper quietly reading the first of two.
+     */
+    function handlerControl(element: PtkMeetDayPlanner, field: string, index: number): Element {
+      const selector = `[data-field="${field}"][data-handler="${String(index)}"]`;
+      const found = controls(element, selector);
+      const only = found[0];
+      if (found.length !== 1 || only === undefined) {
+        throw new Error(
+          `Expected one "${field}" for handler ${String(index)}, found ${String(found.length)}.`,
+        );
+      }
+      return only;
+    }
+
+    /** Presses "Add a handler" on the roster's one row. */
+    async function addHandler(element: PtkMeetDayPlanner): Promise<void> {
+      const host = controls(element, `[data-field="${ROSTER_HANDLER_ADD_FIELD}"]`)[0];
+      if (host === undefined) throw new Error('No way to add a handler.');
+      await press(element, host);
+    }
+
+    /** Types into one handler's name box. */
+    async function nameHandler(
+      element: PtkMeetDayPlanner,
+      index: number,
+      name: string,
+    ): Promise<void> {
+      await enter(element, handlerControl(element, ROSTER_HANDLER_NAME_FIELD, index), name);
+    }
+
+    /** Ticks one responsibility on one handler, the way a coach does. */
+    async function tickDuty(
+      element: PtkMeetDayPlanner,
+      index: number,
+      value: string,
+    ): Promise<void> {
+      const host = handlerControl(element, ROSTER_HANDLER_DUTIES_FIELD, index);
+      const box = [...(host.shadowRoot?.querySelectorAll('input') ?? [])].find(
+        (input) => input.value === value,
+      );
+      if (box === undefined) throw new Error(`No responsibility "${value}" to tick.`);
+      box.click();
+      await settled(element);
+    }
+
+    /** Presses one handler's own remove button. */
+    async function removeHandler(element: PtkMeetDayPlanner, index: number): Promise<void> {
+      await press(element, handlerControl(element, ROSTER_HANDLER_REMOVE_FIELD, index));
+    }
+
+    /**
+     * One roster row's summary line, read off the fold's attribute.
+     *
+     * The attribute rather than the row's text, because the two answer different
+     * questions and only this one is derived from the record. A row holds the
+     * rack box itself -- bound to `.value`, so it keeps what was typed whether or
+     * not the report came back (§13.14) -- and it holds a "Handlers" heading and
+     * an "Add a handler" button, so any assertion that a row does *not* mention a
+     * handler is satisfied by the control that adds one. `rosterSummary` omits
+     * the bar and the count when they are unset, which is what makes the two
+     * readings genuinely different sentences.
+     */
+    function rosterSummaryOf(element: PtkMeetDayPlanner, position: number): string | null {
+      const fold = roster(element)?.shadowRoot?.querySelectorAll('ul > li')[position];
+      const summary = fold?.querySelector('ptk-disclosure');
+      if (summary === null || summary === undefined) {
+        throw new Error(`No fold on roster row ${String(position)}.`);
+      }
+      return summary.getAttribute('summary');
+    }
+
+    /**
+     * §21.3's handlers as the board prints them.
+     *
+     * Scoped past `.facts`, which the row already uses for the attempts-left and
+     * banked-total list three lines above -- §13.12's `.weight` lesson on a
+     * second class. The handler block is the only `div.stack` in a row carrying
+     * an `<h4>`.
+     */
+    function boardHandlerLines(element: PtkMeetDayPlanner): string[] {
+      const lines =
+        board(element)?.shadowRoot?.querySelectorAll(
+          'article.row div.stack:has(> h4) > ul.facts > li',
+        ) ?? [];
+      return [...lines].map((line) => line.textContent.trim());
+    }
+
+    /** §23.2's printed roster, which names the handlers and not their duties. */
+    function packHandlersText(element: PtkMeetDayPlanner): string {
+      const sheet = element.shadowRoot?.querySelector('ptk-handler-pack');
+      const names = sheet?.shadowRoot?.querySelector('.lifter .handlers');
+      if (names === null || names === undefined) throw new Error('No handler line on the sheet.');
+      return names.textContent.trim();
+    }
+
     it('opens on §6.1 and takes the branch away once either meet is running', async () => {
       // Both halves of the guard in one test, because the solo half is the one
       // nothing else here reaches: a live meet hides the chooser for the same
@@ -1847,6 +1956,110 @@ describe('ptk-meet-day-planner', () => {
       expect(board(element)?.shadowRoot?.querySelector('.swatch')).not.toBeNull();
       // §21 again: never the sole cue, so the roster still says it in words.
       expect(deepText(roster(element) ?? element)).toContain(chosen.label.toLowerCase());
+    });
+
+    it('keeps a handler with no name on the roster and off the board', async () => {
+      // §21.3's blank row, which is the cost `ROSTER_HANDLER_ADD_EVENT` records
+      // paying: a coach presses Add and goes to ask somebody their surname, so
+      // the row has to survive being empty. `namedHandlers` in the domain is what
+      // keeps it off the board and off §23.2's sheet in the meantime, and both of
+      // those are the places a nameless line would be read aloud.
+      const element = await running();
+      expect(boardHandlerLines(element)).toEqual([]);
+      const before = rosterSummaryOf(element, 0);
+
+      await addHandler(element);
+
+      expect(boardHandlerLines(element)).toEqual([]);
+      expect(packHandlersText(element)).toBe(HANDLER_PACK_NO_HANDLERS);
+      // The control the press was for. Without this the two assertions above are
+      // also satisfied by a press that did nothing at all, which is the same
+      // screen from the outside -- and by the root dropping the report, which is
+      // what the summary line is derived from and the name box is not (§13.14).
+      expect(rosterSummaryOf(element, 0)).not.toBe(before);
+    });
+
+    it('carries a named handler and what they cover onto the board', async () => {
+      // The whole round trip: `#onHandlerAdd` appends, `#patchHandler` names,
+      // `asResponsibilities` narrows the tick list, `namedHandlers` lets it
+      // through and `handlerLine` writes it out. No element test can see it --
+      // the roster reports and the board reads, and nothing between them is on
+      // either element.
+      const element = await running();
+      await addHandler(element);
+      await nameHandler(element, 0, 'Rae');
+
+      expect(boardHandlerLines(element)).toHaveLength(1);
+      expect(boardHandlerLines(element)[0]).toContain('Rae');
+      const named = boardHandlerLines(element)[0];
+
+      await tickDuty(element, 0, 'platform-escort');
+
+      // Pinned to the literal as well as to the difference, per §13.8: an
+      // assertion reading `handlerResponsibilityLabel` back would move with the
+      // code it is meant to be holding still.
+      expect(boardHandlerLines(element)[0]).not.toBe(named);
+      expect(boardHandlerLines(element)[0]).toContain('the walk out');
+      // §23.2 prints who, never what they cover, so the sheet is a second reader
+      // of the same record and not a copy of the line above.
+      expect(packHandlersText(element)).toContain('Rae');
+    });
+
+    it('removes the handler the press named, not the last one added', async () => {
+      // `#onHandlerRemove` splices by the index on the button, which is the one
+      // place in this tool that identifies a thing by position -- so the failure
+      // it has to be tested against is the off-by-one that takes the wrong
+      // person off. Two named handlers, because removing the only one leaves an
+      // empty list either way.
+      const element = await running();
+      await addHandler(element);
+      await nameHandler(element, 0, 'Rae');
+      await addHandler(element);
+      await nameHandler(element, 1, 'Devi');
+      expect(boardHandlerLines(element)).toHaveLength(2);
+
+      await removeHandler(element, 0);
+
+      expect(boardHandlerLines(element)).toHaveLength(1);
+      expect(boardHandlerLines(element)[0]).toContain('Devi');
+    });
+
+    it("puts §21.4's shared bar on the row's summary line", async () => {
+      // The rack is the one per-lifter answer with nothing downstream of it yet
+      // -- `ptk-coach-board`'s panel needs `view.racks`, which needs the warm-up
+      // screen (#81) -- so the summary line is the only thing derived from the
+      // record rather than bound to the box the coach typed in (§13.14).
+      const element = await running();
+      const before = rosterSummaryOf(element, 0);
+
+      await type(element, ROSTER_RACK_FIELD, '1');
+
+      expect(rosterSummaryOf(element, 0)).not.toBe(before);
+      expect(rosterSummaryOf(element, 0)).toContain('bar 1');
+    });
+
+    it('keeps the handlers and the bar in what §24 saves', async () => {
+      // Read off the store rather than off the screen, because `savedEntry`
+      // builds its object key by key and omits anything undefined: a field left
+      // out of it is a coach reopening tomorrow's meet with their handlers gone,
+      // and every on-screen assertion above still passes.
+      //
+      // Named first, deliberately. `#save` needs an open meet id, so a handler
+      // typed before the meet is named is only written by the save the naming
+      // itself triggers -- which would pass here and prove nothing about the
+      // per-change saves that carry the rest of the day.
+      const store = sessionMeets();
+      const element = await running({ store });
+      await nameMeet(element, 'Saturday');
+
+      await addHandler(element);
+      await nameHandler(element, 0, 'Rae');
+      await type(element, ROSTER_RACK_FIELD, '1');
+      await afterStorage(element);
+
+      const entry = (await stored(store)).meets[0]?.state.entries[0];
+      expect(entry?.handlers?.map((handler) => handler.name)).toEqual(['Rae']);
+      expect(entry?.rackId).toBe('1');
     });
 
     it('opens one lifter on their own platform screen, and comes back', async () => {

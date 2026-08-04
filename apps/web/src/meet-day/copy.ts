@@ -24,6 +24,7 @@
  * or an explanation of why a weight was withheld.
  */
 import {
+  HANDLER_RESPONSIBILITIES,
   MAX_WEIGHT_INPUT,
   MEETS_BEFORE_A_TREND,
   RPE_BOUNDS,
@@ -2341,10 +2342,147 @@ export function colourLabel(colour: string | null): string {
   return COLOUR_CHOICES.find((choice) => choice.value === colour)?.label ?? colour;
 }
 
-/** The fold's one visible line: what this phone calls the lifter inside it. */
-export function rosterSummary(identifier: string, colour: string | null): string {
+/*
+ * §21.3's handlers and §21.4's bar, as the roster asks for them.
+ *
+ * Both are answers about the room rather than about the lifter, which is why
+ * they are worded as arrangements and not as attributes: a bar is shared, and a
+ * handler is a person who may be standing behind somebody else's row as well.
+ * That is the whole reason the board can warn about either.
+ */
+
+export const ROSTER_HANDLERS_HEADING = 'Handlers';
+
+/**
+ * Said where a lifter has nobody on them yet.
+ *
+ * Present rather than an empty space above the add button, because §21.3 makes
+ * handlers optional and "nobody yet" and "this screen has not finished loading"
+ * look the same when both are blank.
+ */
+export const ROSTER_HANDLERS_EMPTY = 'Nobody is helping this lifter yet.';
+
+export const ROSTER_ADD_HANDLER_LABEL = 'Add a handler';
+
+export const ROSTER_HANDLER_NAME_LABEL = 'Name';
+
+/**
+ * What a handler name is for, said once per lifter rather than once per handler.
+ *
+ * Above the list and not as a hint on each name field, because it is the same
+ * sentence three times over on a lifter with three handlers -- on a fold inside
+ * a fold on a phone (§5.7).
+ *
+ * It is here at all because it is what makes §21.2 work: handlers are matched
+ * between rows by name, so a coach who types "Sam" on one lifter and "Sam W" on
+ * the next is never warned that one person is wanted in two places, and nothing
+ * on the screen would say why. §21.3's "no user accounts" is the other half --
+ * nobody is invited by typing a name here, and a control that looks like it
+ * might be is one somebody hesitates over.
+ */
+export const ROSTER_HANDLERS_NOTE =
+  'Names are for reading on this phone; nobody is invited. Spell one the same way ' +
+  'on every lifter they are helping, and the board can warn you when they are ' +
+  'wanted in two places at once.';
+
+export const ROSTER_HANDLER_DUTIES_LABEL = 'Covering';
+
+/**
+ * §21.3's seven, in the requirement's order, off the domain's own tuple.
+ *
+ * Mapped rather than written out, so the option a coach can tick, the value §24
+ * validates on import and the words the board prints all come from one list.
+ * `handlerResponsibilityLabel` is the same function the board's handler line
+ * uses, which is what stops a tick reading "the walk out" here and "escort"
+ * there for the same answer.
+ *
+ * The labels are lower case because they are written to be read *after* a name
+ * -- "Rae: wraps and kit, the walk out" is the board's line -- and a tile
+ * capitalised for its own sake would be the only place in the tool where the
+ * same string is cased two ways.
+ */
+export const HANDLER_RESPONSIBILITY_CHOICES: readonly Choice[] = HANDLER_RESPONSIBILITIES.map(
+  (responsibility) => ({
+    value: responsibility,
+    label: handlerResponsibilityLabel(responsibility),
+  }),
+);
+
+/**
+ * The remove button's own label, which names the handler rather than the row.
+ *
+ * §22.2's `removeCustomItemLabel` and the same reason: several of these sit in a
+ * column and a screen reader reads them one at a time, so seven buttons all
+ * saying "Remove" is seven identical announcements over seven different
+ * consequences. The unnamed case is real and not a fallback -- the row is added
+ * blank and named afterwards -- so it says which row rather than pretending to a
+ * name.
+ */
+export function removeHandlerLabel(name: string, position: number): string {
+  const called = name.trim();
+  if (called === '') return `Remove handler ${String(position + 1)}`;
+  return `Remove ${called}`;
+}
+
+export const ROSTER_RACK_LABEL = 'Warm-up bar';
+
+/**
+ * Why naming a bar is worth the keystroke, said in terms of what it buys.
+ *
+ * §21.4's sequencing only exists for lifters who are on one bar, and the tool
+ * cannot infer that: a room with four bars in it and nothing typed here is
+ * indistinguishable from a room with one. So the hint states the arrangement it
+ * is asking about rather than describing the field, and says that the answer has
+ * to match -- an exact, trimmed match is how `rackSequences` decides two people
+ * are queueing for the same plates.
+ */
+export const ROSTER_RACK_HINT =
+  'Only if lifters are sharing one. Give the same bar the same name on each of ' +
+  'them, and the board can work out a loading order.';
+
+/** How many people are on a lifter, for the line that stays visible folded. */
+function handlerCountText(count: number): string {
+  if (count === 1) return '1 handler';
+  return `${String(count)} handlers`;
+}
+
+/**
+ * `rackLabel` mid-list: the tool's word lower case, the coach's name untouched.
+ *
+ * Derived from `rackLabel` rather than spelled again, because §21.4's panel and
+ * this line have to call one bar one thing -- and lower-casing only the first
+ * character rather than the string, because the rest of it is a name somebody
+ * typed and `toLowerCase()` over the whole of it would report bar `2B` as `2b`.
+ */
+function barText(rackId: string): string {
+  const label = rackLabel(rackId);
+  return label.charAt(0).toLowerCase() + label.slice(1);
+}
+
+/**
+ * The fold's one visible line: what this phone calls the lifter inside it.
+ *
+ * Four answers and not two since §21.3 and §21.4 arrived, and the last two are
+ * omitted when they are unset rather than reported as absent. That is the
+ * opposite of what the first two do, deliberately: an identifier and a colour
+ * are asked of every lifter and a row missing them is a row to go back to, so
+ * "No identifier, no colour" is information. A bar and a handler are asked only
+ * of a room that has them, so a roster of eight solo lifters would otherwise
+ * carry sixteen words saying that a question does not apply -- on the line whose
+ * whole job is to be readable at a glance on a phone (§5.7).
+ */
+export function rosterSummary(
+  identifier: string,
+  colour: string | null,
+  rackId: string,
+  handlerCount: number,
+): string {
   const called = identifier.trim() === '' ? 'No identifier' : identifier.trim();
-  return `${called}, ${colourLabel(colour).toLowerCase()}`;
+  const parts = [called, colourLabel(colour).toLowerCase()];
+  const bar = rackId.trim();
+  if (bar !== '') parts.push(barText(bar));
+  if (handlerCount > 0) parts.push(handlerCountText(handlerCount));
+  return parts.join(', ');
 }
 
 /** §21.1's way back from a lifter's own screen to the room. */

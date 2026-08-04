@@ -189,6 +189,44 @@ export const ROSTER_IDENTIFIER_FIELD = 'roster-identifier';
 export const ROSTER_COLOUR_FIELD = 'roster-colour';
 
 /**
+ * §21.4's bar, which is a fifth text field the root listens for on one host.
+ *
+ * Carries `data-lifter` like the two above it. Deliberately not folded into the
+ * identifier: they read alike -- both are a short string somebody types on a row
+ * -- and they mean opposite things. An identifier distinguishes this lifter from
+ * every other, and a bar is the one value several lifters are meant to share, so
+ * one field name covering both would have `rackSequences` grouping the room by
+ * lot number and finding that nobody shares anything.
+ */
+export const ROSTER_RACK_FIELD = 'roster-rack';
+
+/*
+ * §21.3's handlers, which are the first *list* a row holds.
+ *
+ * Three fields and a fourth attribute name, because a lifter can have more than
+ * one handler and the three controls on a handler have to say which one they
+ * belong to. So a handler control carries `data-lifter` and `data-handler`, and
+ * the root reads both off the same path -- the same two-axis walk `data-lift`
+ * needs on §7's figures, arriving on a second screen.
+ *
+ * `data-handler` is a *position* in the entry's list, and it is the one place in
+ * this file that uses one. Every other list here is keyed by something stable
+ * because it is rebuilt while somebody is pointing at it -- a board re-sorting
+ * by urgency, a choice list rebuilt off the clock seam. A handler list is not:
+ * nothing reorders it, and the only two things that change its length are the
+ * add and remove presses below, both of which are the coach's own. There is also
+ * nothing else to key on -- a handler is a name and a set, the name is blank for
+ * as long as it takes to type one, and two blank rows are indistinguishable by
+ * value. An id would have to be invented, stored in the exported file, and
+ * validated on the way back in, to identify a row whose position cannot move.
+ */
+export const ROSTER_HANDLER_NAME_FIELD = 'roster-handler-name';
+export const ROSTER_HANDLER_DUTIES_FIELD = 'roster-handler-duties';
+export const ROSTER_HANDLER_ADD_FIELD = 'roster-handler-add';
+export const ROSTER_HANDLER_REMOVE_FIELD = 'roster-handler-remove';
+export const ROSTER_HANDLER_INDEX_FIELD = 'handler';
+
+/**
  * §14's guard against the correct weight going in for the wrong athlete.
  *
  * The one field in this tool whose answer is never written to the session and

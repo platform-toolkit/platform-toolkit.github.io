@@ -34,26 +34,47 @@
  * reported as the shared components' own composed events tagged with
  * `data-field` (§5.8).
  */
+import type { HandlerAssignment } from '@platform-toolkit/domain';
 import '@platform-toolkit/ui';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 
 import {
   COLOUR_CHOICES,
+  HANDLER_RESPONSIBILITY_CHOICES,
   NO_COLOUR,
+  ROSTER_ADD_HANDLER_LABEL,
   ROSTER_ADD_LABEL,
   ROSTER_COLOUR_LABEL,
   ROSTER_EMPTY,
+  ROSTER_HANDLERS_EMPTY,
+  ROSTER_HANDLERS_HEADING,
+  ROSTER_HANDLERS_NOTE,
+  ROSTER_HANDLER_DUTIES_LABEL,
+  ROSTER_HANDLER_NAME_LABEL,
   ROSTER_HEADING,
   ROSTER_IDENTIFIER_HINT,
   ROSTER_IDENTIFIER_LABEL,
   ROSTER_NAME_HINT,
   ROSTER_NAME_LABEL,
   ROSTER_NEEDS_A_FEDERATION,
+  ROSTER_RACK_HINT,
+  ROSTER_RACK_LABEL,
   ROSTER_STARTS_THE_MEET,
+  removeHandlerLabel,
   rosterSummary,
 } from './copy.js';
-import { ROSTER_COLOUR_FIELD, ROSTER_IDENTIFIER_FIELD, ROSTER_NAME_FIELD } from './fields.js';
+import {
+  ROSTER_COLOUR_FIELD,
+  ROSTER_HANDLER_ADD_FIELD,
+  ROSTER_HANDLER_DUTIES_FIELD,
+  ROSTER_HANDLER_INDEX_FIELD,
+  ROSTER_HANDLER_NAME_FIELD,
+  ROSTER_HANDLER_REMOVE_FIELD,
+  ROSTER_IDENTIFIER_FIELD,
+  ROSTER_NAME_FIELD,
+  ROSTER_RACK_FIELD,
+} from './fields.js';
 
 /** One lifter, as the meet document and this phone's entry together describe them. */
 export interface RosterLifter {
@@ -63,6 +84,17 @@ export interface RosterLifter {
   /** §21's identifier as the coach typed it. `''` is a real answer. */
   readonly identifier: string;
   readonly colour: string | null;
+  /**
+   * §21.3's handlers, in the order they were added and never re-sorted.
+   *
+   * The raw entry's list rather than the board's: `coachBoard` drops the ones
+   * with no name yet, and this is the screen a name is typed on, so a row that
+   * disappeared as soon as it was added would be unusable. The board's filter and
+   * this element are looking at the same list for two different reasons.
+   */
+  readonly handlers: readonly HandlerAssignment[];
+  /** §21.4's bar as typed. `''` means this lifter is not on a shared one. */
+  readonly rackId: string;
 }
 
 /**
@@ -77,6 +109,41 @@ export const ROSTER_ADD_EVENT = 'ptk-meet-day-roster-add';
 
 export interface RosterAddDetail {
   readonly name: string;
+}
+
+/**
+ * A press of "Add a handler", which appends a blank assignment to one lifter.
+ *
+ * Blank rather than a name typed into a box first, which is the other way this
+ * could go and would put a second "add" box inside a fold that already has one
+ * above it. A row's own name field is the box either way, so the alternative is
+ * a box that exists to be emptied into another box.
+ *
+ * The cost of a blank row is that it is briefly a handler with no name, and it
+ * is paid one layer down rather than here: `coachBoard` drops an unnamed handler
+ * from the board and from §23's pack, so nothing outside this fold ever renders
+ * the empty line. Refusing to create one instead -- disabling Add, or dropping
+ * the row on blur -- would mean a coach cannot leave a row half-typed while they
+ * go and ask somebody their surname, which is what the roster is for.
+ */
+export const ROSTER_HANDLER_ADD_EVENT = 'ptk-meet-day-roster-handler-add';
+
+export interface RosterHandlerAddDetail {
+  readonly lifterId: string;
+}
+
+/**
+ * A press of one of the remove buttons, carrying who and which.
+ *
+ * By position, which every other list in this tool refuses to do, and `fields.ts`
+ * records the reason at `ROSTER_HANDLER_INDEX_FIELD`: nothing re-sorts a handler
+ * list, and two unnamed rows have no other way to be told apart.
+ */
+export const ROSTER_HANDLER_REMOVE_EVENT = 'ptk-meet-day-roster-handler-remove';
+
+export interface RosterHandlerRemoveDetail {
+  readonly lifterId: string;
+  readonly index: number;
 }
 
 @customElement('ptk-coach-roster')
@@ -133,6 +200,42 @@ export class PtkCoachRoster extends LitElement {
     .entry {
       display: grid;
       gap: var(--ptk-space-md);
+    }
+
+    .handlers {
+      display: grid;
+      gap: var(--ptk-space-sm);
+    }
+
+    h3 {
+      margin: 0;
+      font-size: var(--ptk-font-size-sm);
+      font-weight: 600;
+      color: var(--ptk-color-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    /*
+     * A rule above each handler rather than a border around it. Three of these
+     * nested inside a fold inside a card is three levels of box on a 320px
+     * column, and every level costs padding on both sides (§5.7); a line says
+     * "a new person starts here" for nothing.
+     */
+    .handler {
+      display: grid;
+      gap: var(--ptk-space-sm);
+      padding-top: var(--ptk-space-sm);
+      border-top: 1px solid var(--ptk-color-border);
+    }
+
+    /*
+     * Full width, like the add button above. A remove control sized to its own
+     * label lands wherever the handler's name happens to end, which is a button
+     * that moves as somebody types.
+     */
+    .handlers ptk-button {
+      width: 100%;
     }
   `;
 
@@ -204,16 +307,26 @@ export class PtkCoachRoster extends LitElement {
   /**
    * One lifter's fold.
    *
-   * Both controls carry `data-lifter` and never a row index. The roster does not
-   * re-sort today, so an index would work -- and the board beside it does, four
-   * times a second, so one attribute meaning one thing on both screens is what
-   * keeps the two handlers in the root from drifting. See `fields.ts`.
+   * Every control carries `data-lifter` and never a row index. The roster does
+   * not re-sort today, so an index would work -- and the board beside it does,
+   * four times a second, so one attribute meaning one thing on both screens is
+   * what keeps the two handlers in the root from drifting. See `fields.ts`.
+   *
+   * The order is the order the answers are wanted in. The identifier and the
+   * colour are asked of every lifter and are asked first (§21); the handlers and
+   * the bar are asked of a room that has them, and a coach running two people
+   * off one bar scrolls past two controls to reach them rather than four.
    */
   #renderLifter(lifter: RosterLifter): TemplateResult {
     return html`
       <ptk-disclosure
         label=${lifter.name}
-        summary=${rosterSummary(lifter.identifier, lifter.colour)}
+        summary=${rosterSummary(
+          lifter.identifier,
+          lifter.colour,
+          lifter.rackId,
+          lifter.handlers.length,
+        )}
       >
         <div class="entry">
           <ptk-text-field
@@ -232,10 +345,135 @@ export class PtkCoachRoster extends LitElement {
             .choices=${COLOUR_CHOICES}
             .value=${lifter.colour ?? NO_COLOUR}
           ></ptk-choice-group>
+
+          ${this.#renderHandlers(lifter)}
+
+          <ptk-text-field
+            data-field=${ROSTER_RACK_FIELD}
+            data-lifter=${lifter.lifterId}
+            label=${ROSTER_RACK_LABEL}
+            hint=${ROSTER_RACK_HINT}
+            autocomplete="off"
+            .value=${lifter.rackId}
+          ></ptk-text-field>
         </div>
       </ptk-disclosure>
     `;
   }
+
+  /**
+   * §21.3's people, and the two presses that change how many there are.
+   *
+   * The add press is below the list rather than beside the heading, so that the
+   * thing a coach reaches for after typing a name is under their thumb rather
+   * than back up the screen. The removes are inside the list for the same
+   * reason -- a row's own remove is the last control on that row.
+   *
+   * Both presses are delegated to one listener on the section rather than bound
+   * per button, so that the number of listeners does not grow with the number of
+   * handlers on a screen that repaints while a meet is running.
+   */
+  #renderHandlers(lifter: RosterLifter): TemplateResult {
+    return html`
+      <div class="handlers" @click=${this.#onHandlerPress}>
+        <h3>${ROSTER_HANDLERS_HEADING}</h3>
+        <p class="note">${ROSTER_HANDLERS_NOTE}</p>
+        ${
+          lifter.handlers.length === 0
+            ? html`<p class="note">${ROSTER_HANDLERS_EMPTY}</p>`
+            : lifter.handlers.map((handler, index) =>
+                this.#renderHandler(lifter.lifterId, handler, index),
+              )
+        }
+        <ptk-button
+          variant="secondary"
+          data-field=${ROSTER_HANDLER_ADD_FIELD}
+          data-lifter=${lifter.lifterId}
+          >${ROSTER_ADD_HANDLER_LABEL}</ptk-button
+        >
+      </div>
+    `;
+  }
+
+  /**
+   * One handler: who they are, what they are on, and a way to take them off.
+   *
+   * The toggle group is bound to `handler.responsibilities` and not left to its
+   * own default, which §13.13 records as the mutation this directory's tests are
+   * weakest against: a group that ignored the property would show seven blank
+   * tiles the second time a fold is opened, and a coach would re-tick answers
+   * they already gave. There is a test that reads the boxes back for that reason.
+   */
+  #renderHandler(lifterId: string, handler: HandlerAssignment, index: number): TemplateResult {
+    return html`
+      <div class="handler">
+        <ptk-text-field
+          data-field=${ROSTER_HANDLER_NAME_FIELD}
+          data-lifter=${lifterId}
+          data-handler=${index}
+          label=${ROSTER_HANDLER_NAME_LABEL}
+          capitalize="words"
+          autocomplete="off"
+          .value=${handler.name}
+        ></ptk-text-field>
+
+        <ptk-toggle-group
+          data-field=${ROSTER_HANDLER_DUTIES_FIELD}
+          data-lifter=${lifterId}
+          data-handler=${index}
+          label=${ROSTER_HANDLER_DUTIES_LABEL}
+          .choices=${HANDLER_RESPONSIBILITY_CHOICES}
+          .values=${handler.responsibilities}
+        ></ptk-toggle-group>
+
+        <ptk-button
+          variant="secondary"
+          data-field=${ROSTER_HANDLER_REMOVE_FIELD}
+          data-lifter=${lifterId}
+          data-handler=${index}
+          >${removeHandlerLabel(handler.name, index)}</ptk-button
+        >
+      </div>
+    `;
+  }
+
+  /**
+   * The two presses inside the handler section, told apart by `data-field`.
+   *
+   * One delegated listener rather than two bound handlers, and it reads the tags
+   * off `composedPath()` the way the root does -- a press landing on the gap
+   * between two buttons arrives with no field on the path and is ignored, which
+   * is the same rule §22.2's removals follow.
+   */
+  readonly #onHandlerPress = (event: Event): void => {
+    const lifterId = tagOf(event, 'lifter');
+    if (lifterId === null) return;
+    const field = tagOf(event, 'field');
+    if (field === ROSTER_HANDLER_ADD_FIELD) {
+      this.dispatchEvent(
+        new CustomEvent<RosterHandlerAddDetail>(ROSTER_HANDLER_ADD_EVENT, {
+          detail: { lifterId },
+          bubbles: true,
+          composed: true,
+        }),
+      );
+      return;
+    }
+    if (field !== ROSTER_HANDLER_REMOVE_FIELD) return;
+    // Parsed rather than trusted: the attribute is written from a number here,
+    // and read back as the string the DOM stores. A `NaN` would go on to splice
+    // nothing out of the entry, which is a press that visibly does nothing --
+    // so it is refused here where the reason is legible.
+    const position = Number.parseInt(tagOf(event, ROSTER_HANDLER_INDEX_FIELD) ?? '', 10);
+    if (!Number.isInteger(position)) return;
+    this.dispatchEvent(
+      new CustomEvent<RosterHandlerRemoveDetail>(ROSTER_HANDLER_REMOVE_EVENT, {
+        detail: { lifterId, index: position },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
 
   readonly #onAdd = (): void => {
     this.dispatchEvent(
@@ -263,6 +501,23 @@ export class PtkCoachRoster extends LitElement {
   }
 }
 
+/**
+ * The nearest `data-` tag of that name on the path a press took.
+ *
+ * The same walk the root does for `data-field` and `data-lifter`, written here
+ * because a press inside this element is answered here: `composedPath()` crosses
+ * the shadow boundary of the `ptk-button` the coach actually hit, and
+ * `event.target` is the native control inside it.
+ */
+function tagOf(event: Event, name: string): string | null {
+  for (const node of event.composedPath()) {
+    if (node instanceof HTMLElement && node.dataset[name] !== undefined) {
+      return node.dataset[name];
+    }
+  }
+  return null;
+}
+
 declare global {
   interface HTMLElementTagNameMap {
     'ptk-coach-roster': PtkCoachRoster;
@@ -270,5 +525,7 @@ declare global {
 
   interface HTMLElementEventMap {
     [ROSTER_ADD_EVENT]: CustomEvent<RosterAddDetail>;
+    [ROSTER_HANDLER_ADD_EVENT]: CustomEvent<RosterHandlerAddDetail>;
+    [ROSTER_HANDLER_REMOVE_EVENT]: CustomEvent<RosterHandlerRemoveDetail>;
   }
 }

@@ -79,6 +79,8 @@ import type {
   CalibrationReport,
   CoachBoardEntry,
   ConversionChart,
+  HandlerAssignment,
+  HandlerResponsibility,
   LiveTarget,
   MeetAction,
   MeetActionProblem,
@@ -87,6 +89,7 @@ import type {
   WeightUnit,
 } from '@platform-toolkit/domain';
 import {
+  HANDLER_RESPONSIBILITIES,
   MeetRules,
   applyMeetAction,
   createMeetDocument,
@@ -226,8 +229,12 @@ import {
   QUALIFYING_TOTAL_FIELD,
   READINESS_FIELD,
   ROSTER_COLOUR_FIELD,
+  ROSTER_HANDLER_DUTIES_FIELD,
+  ROSTER_HANDLER_INDEX_FIELD,
+  ROSTER_HANDLER_NAME_FIELD,
   ROSTER_IDENTIFIER_FIELD,
   ROSTER_NAME_FIELD,
+  ROSTER_RACK_FIELD,
   STRETCH_TOTAL_FIELD,
   TARGET_TOTAL_FIELD,
   UNIT_FIELD,
@@ -264,7 +271,15 @@ import {
   type BoardOpenDetail,
   type BoardPinDetail,
 } from './ptk-coach-board.js';
-import { ROSTER_ADD_EVENT, type RosterAddDetail, type RosterLifter } from './ptk-coach-roster.js';
+import {
+  ROSTER_ADD_EVENT,
+  ROSTER_HANDLER_ADD_EVENT,
+  ROSTER_HANDLER_REMOVE_EVENT,
+  type RosterAddDetail,
+  type RosterHandlerAddDetail,
+  type RosterHandlerRemoveDetail,
+  type RosterLifter,
+} from './ptk-coach-roster.js';
 import { LIVE_CHOICE_EVENT, type LiveChoiceDetail } from './ptk-live-choices.js';
 import { UNDO_REQUEST_EVENT, type UndoRequestDetail } from './ptk-live-screen.js';
 import {
@@ -934,6 +949,8 @@ export class PtkMeetDayPlanner extends LitElement {
     this.addEventListener(ATTEMPT_RESULT_EVENT, this.#onAttemptResult);
     this.addEventListener(UNDO_REQUEST_EVENT, this.#onUndoRequest);
     this.addEventListener(ROSTER_ADD_EVENT, this.#onRosterAdd);
+    this.addEventListener(ROSTER_HANDLER_ADD_EVENT, this.#onHandlerAdd);
+    this.addEventListener(ROSTER_HANDLER_REMOVE_EVENT, this.#onHandlerRemove);
     this.addEventListener(BOARD_OPEN_EVENT, this.#onBoardOpen);
     this.addEventListener(BOARD_PIN_EVENT, this.#onBoardPin);
     this.addEventListener(MEET_COMMAND_EVENT, this.#onMeetCommand);
@@ -956,6 +973,8 @@ export class PtkMeetDayPlanner extends LitElement {
     this.removeEventListener(ATTEMPT_RESULT_EVENT, this.#onAttemptResult);
     this.removeEventListener(UNDO_REQUEST_EVENT, this.#onUndoRequest);
     this.removeEventListener(ROSTER_ADD_EVENT, this.#onRosterAdd);
+    this.removeEventListener(ROSTER_HANDLER_ADD_EVENT, this.#onHandlerAdd);
+    this.removeEventListener(ROSTER_HANDLER_REMOVE_EVENT, this.#onHandlerRemove);
     this.removeEventListener(BOARD_OPEN_EVENT, this.#onBoardOpen);
     this.removeEventListener(BOARD_PIN_EVENT, this.#onBoardPin);
     this.removeEventListener(MEET_COMMAND_EVENT, this.#onMeetCommand);
@@ -1209,6 +1228,11 @@ export class PtkMeetDayPlanner extends LitElement {
         name: lifter.name,
         identifier: entry?.identifier ?? '',
         colour: entry?.colour ?? null,
+        // The entry's own list, unfiltered, unlike the board's. A handler is
+        // added blank and named afterwards, so the screen the name is typed on
+        // is the one screen that has to show a nameless row.
+        handlers: entry?.handlers ?? [],
+        rackId: entry?.rackId ?? '',
       };
     });
   }
@@ -1827,7 +1851,7 @@ export class PtkMeetDayPlanner extends LitElement {
   };
 
   /**
-   * §7's confirmation and §22.2's checklist, the two toggle groups in the tool.
+   * §7's confirmation, §22.2's checklist and §21.3's responsibilities.
    *
    * The confirmation is read as "is the one choice among the values" rather than
    * as "did the values change", because a toggle group reports its whole set and
@@ -1848,7 +1872,17 @@ export class PtkMeetDayPlanner extends LitElement {
       this.#tickChecklist(group, event.detail.values);
       return;
     }
-    if (fieldOf(event) !== CONFIRM_FIELD) return;
+    const field = fieldOf(event);
+    if (field === ROSTER_HANDLER_DUTIES_FIELD) {
+      // Narrowed rather than cast. The values come off a control this element
+      // rendered from `HANDLER_RESPONSIBILITIES`, but they arrive as strings out
+      // of the DOM, and a cast would write an unrecognised one into a
+      // `HandlerAssignment` that §24 exports -- where the schema built from the
+      // same tuple refuses it, on the next device rather than on this one.
+      this.#patchHandler(event, { responsibilities: asResponsibilities(event.detail.values) });
+      return;
+    }
+    if (field !== CONFIRM_FIELD) return;
     const lift = this.#liftOf(event);
     if (lift === null) return;
     this.#setSession(
@@ -1934,6 +1968,26 @@ export class PtkMeetDayPlanner extends LitElement {
       if (!(node instanceof HTMLElement)) continue;
       const value = node.dataset[BOARD_LIFTER_FIELD];
       if (value !== undefined) return value;
+    }
+    return null;
+  }
+
+  /**
+   * Which of a lifter's handlers a control belongs to (§21.3).
+   *
+   * The second axis on the roster's rows, read off the same path as the first.
+   * Parsed rather than trusted: it is written from a number and read back as a
+   * string, and a value that is not one lands on `null`, which `#patchHandler`
+   * turns into writing nothing. Silently taking the first handler instead is the
+   * failure worth ruling out -- one person's name typed onto another's row.
+   */
+  #handlerOf(event: Event): number | null {
+    for (const node of event.composedPath()) {
+      if (!(node instanceof HTMLElement)) continue;
+      const value = node.dataset[ROSTER_HANDLER_INDEX_FIELD];
+      if (value === undefined) continue;
+      const position = Number.parseInt(value, 10);
+      return Number.isInteger(position) ? position : null;
     }
     return null;
   }
@@ -2246,6 +2300,16 @@ export class PtkMeetDayPlanner extends LitElement {
         // Untrimmed, deliberately: it is a lot number as the coach typed it, and
         // `rosterSummary` trims only to decide whether there is one.
         this.#patchEntry(this.#lifterOf(event), { identifier: value });
+        return;
+      case ROSTER_RACK_FIELD:
+        // Untrimmed for the same reason and with the same reader downstream:
+        // `rackSequences` and §21.2 both trim before matching, so a trailing
+        // space cannot split one bar into two, and the box still shows the coach
+        // what they typed.
+        this.#patchEntry(this.#lifterOf(event), { rackId: value });
+        return;
+      case ROSTER_HANDLER_NAME_FIELD:
+        this.#patchHandler(event, { name: value });
         return;
       case CUSTOM_ITEM_FIELD:
         this.customItemText = value;
@@ -2683,6 +2747,67 @@ export class PtkMeetDayPlanner extends LitElement {
       : [...run.entries, { lifterId, ...patch }];
     this.coach = { ...run, entries };
   }
+
+  /**
+   * One lifter's handlers, as the entry holds them and never as the board does.
+   *
+   * `coachBoard` drops the unnamed ones (§21.3's rows are created blank), so a
+   * writer reading the board's list back would renumber every position after the
+   * first unnamed row -- and the symptom is a coach typing a name into row three
+   * and watching row four change.
+   */
+  #handlersOf(lifterId: string): readonly HandlerAssignment[] {
+    return this.coach?.entries.find((entry) => entry.lifterId === lifterId)?.handlers ?? [];
+  }
+
+  /**
+   * One field of one handler, found by the two tags on the control's path.
+   *
+   * Refuses a position that is not in the list rather than growing one. A stale
+   * `data-handler` -- a press landing after a remove has rebuilt the fold -- is
+   * the case, and appending in that situation would add a handler nobody asked
+   * for, carrying half of one they had just deleted.
+   */
+  #patchHandler(event: Event, patch: Partial<HandlerAssignment>): void {
+    const lifterId = this.#lifterOf(event);
+    const index = this.#handlerOf(event);
+    if (lifterId === null || index === null) return;
+    const handlers = this.#handlersOf(lifterId);
+    if (handlers[index] === undefined) return;
+    this.#patchEntry(lifterId, {
+      handlers: handlers.map((handler, at) => (at === index ? { ...handler, ...patch } : handler)),
+    });
+  }
+
+  /**
+   * §21.3's add, which appends somebody with no name and everything to cover.
+   *
+   * `general` rather than nothing, and it is the one default in this file worth
+   * arguing about. `covers` in §21.2 treats an empty list as covering nothing, so
+   * a handler added and left untouched could never appear in a warning -- the
+   * feature would be on the screen and off the board, which is the shape of a
+   * bug rather than of a default. A second pair of hands on a lifter is
+   * "anything" until somebody says otherwise, and the seven tiles are right
+   * there to narrow it.
+   */
+  readonly #onHandlerAdd = (event: CustomEvent<RosterHandlerAddDetail>): void => {
+    const lifterId = event.detail.lifterId;
+    this.#patchEntry(lifterId, {
+      handlers: [...this.#handlersOf(lifterId), { name: '', responsibilities: ['general'] }],
+    });
+  };
+
+  readonly #onHandlerRemove = (event: CustomEvent<RosterHandlerRemoveDetail>): void => {
+    const { lifterId, index } = event.detail;
+    const handlers = this.#handlersOf(lifterId);
+    // The same refusal `#patchHandler` makes, and the reason it cannot be shared
+    // with it: this one has no field to write, so there is nothing to patch --
+    // out of range here means removing the last handler instead of none.
+    if (handlers[index] === undefined) return;
+    const remaining = [...handlers];
+    remaining.splice(index, 1);
+    this.#patchEntry(lifterId, { handlers: remaining });
+  };
 
   /*
    * ---------------------------------------------------------------------------
@@ -3304,6 +3429,21 @@ export class PtkMeetDayPlanner extends LitElement {
  */
 function fieldOf(event: Event): string | null {
   return attributeOf(event, 'field');
+}
+
+/**
+ * §21.3's ticks, narrowed against the tuple the tiles were built from.
+ *
+ * Filtered rather than cast, for the reason `isSetupField` is checked rather
+ * than cast: a `ToggleGroupChangeDetail` is a list of strings out of the DOM, and
+ * writing an unrecognised one into a `HandlerAssignment` would put it in §24's
+ * export -- where the schema, built from this same tuple, refuses the whole file
+ * on the next device rather than on this one. Dropping it here loses a tick
+ * nothing could have produced; keeping it loses a meet.
+ */
+function asResponsibilities(values: readonly string[]): readonly HandlerResponsibility[] {
+  const known: readonly string[] = HANDLER_RESPONSIBILITIES;
+  return values.filter((value): value is HandlerResponsibility => known.includes(value));
 }
 
 /**

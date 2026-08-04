@@ -109,6 +109,7 @@ export {
 } from './classification.js';
 export {
   DEFAULT_ATTENTION_LEAD_SECONDS,
+  HANDLER_RESPONSIBILITIES,
   URGENCY_LADDER,
   coachBoard,
   type CoachBoard,

@@ -616,14 +616,24 @@ const MEET_DAY_COACH_FILL = [
 const MEET_DAY_COACH_CLICK_AFTER = ['ptk-coach-roster .add ptk-button button'];
 
 /**
- * The lifter's own fold, where the identifier field and seven colour tiles are.
+ * The lifter's own fold, then §21.3's Add a handler inside it.
  *
- * They are laid out whether or not the fold is open -- Chromium lays out the
- * contents of a shut `<details>`, which is why `apps/web/CLAUDE.md` says a
- * press-style step cannot be proven by measurement -- so this buys the live
- * assertion that a row still renders a fold, not the measurement itself.
+ * The fold's contents are laid out whether or not it is open -- Chromium lays
+ * out the contents of a shut `<details>`, which is why `apps/web/CLAUDE.md` says
+ * a press-style step cannot be proven by measurement -- so the first press buys
+ * the live assertion that a row still renders a fold, not the measurement.
+ *
+ * The second one is different, and is the reason this is now two steps: a
+ * handler's three controls do not exist until somebody has been added. Seven
+ * responsibility tiles and a remove button naming the handler are the widest
+ * things in the fold, and a roster with nobody helping anybody renders none of
+ * them -- so without this press the coach route measures the empty sentence that
+ * stands in for them and reports a clean pass on the part nobody reached.
  */
-const MEET_DAY_COACH_CLICK_LAST = ['ptk-coach-roster ptk-disclosure summary'];
+const MEET_DAY_COACH_CLICK_LAST = [
+  'ptk-coach-roster ptk-disclosure summary',
+  'ptk-coach-roster [data-field="roster-handler-add"] button',
+];
 
 /**
  * The report shows one lift and one target type at a time, so the widest thing
@@ -1037,9 +1047,14 @@ const ROUTES = [
     // measured on both because the two screens are different widths above it and
     // a shelf row is the same width on each -- so a column that has run out of
     // room by the time §24 is reached runs out on one screen and not the other.
+    //
+    // And §21.3's tiles, which arrive a render after the press that adds a
+    // handler -- a separate stage again, and the one carrying the seven
+    // responsibility labels the fold is widest for.
     settle: [
       'ptk-coach-board article.row',
       'ptk-coach-roster ptk-choice-group[data-field="roster-colour"]',
+      'ptk-coach-roster ptk-toggle-group[data-field="roster-handler-duties"]',
       'ptk-handler-pack .lifter',
       'ptk-meet-library li.meet',
     ],

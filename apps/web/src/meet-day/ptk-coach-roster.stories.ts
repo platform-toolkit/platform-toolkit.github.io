@@ -2,16 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * §21's roster, in the four states a coach's phone passes through.
+ * §21's roster, in the states a coach's phone passes through.
  *
  * Hand-written `RosterLifter` lists here, deliberately unlike the board's
  * stories next door, which play a real flight through `applyMeetAction` because
  * the board's rows are *ranked* by the domain and a literal could document an
  * order the ladder would never produce. Nothing on this screen is ranked,
- * computed or graded: a row is a name the coach typed and two answers about it,
+ * computed or graded: a row is a name the coach typed and four answers about it,
  * in the order they were added. A literal is therefore the honest fixture, and
- * a timeline here would be scaffolding standing between a reviewer and the four
- * facts the screen is made of.
+ * a timeline here would be scaffolding standing between a reviewer and the facts
+ * the screen is made of.
  *
  * The identifiers are lot numbers rather than names-as-numbers, and the colours
  * come from `COLOUR_CHOICES` rather than being written out, so a change to the
@@ -39,11 +39,65 @@ function colour(position: number): string {
   return choice.value;
 }
 
-/** Three lifters, set up the way a coach who has done this before sets up. */
+/**
+ * Opens the first lifter's fold, which is where every per-lifter answer lives.
+ *
+ * By setting `open` on the fold rather than by pressing its summary:
+ * `<details>` fires `toggle` asynchronously, so a press leaves the story racing
+ * the browser for the screenshot (§13.6). The throw names the cause on the first
+ * line of the log rather than publishing a shut roster under a title saying a row
+ * is open -- `smoke-stories.mjs` fails any story whose page logs, so a thrown
+ * error is already the reporting channel.
+ */
+async function openTheFirstRow({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> {
+  const roster = canvasElement.querySelector('ptk-coach-roster');
+  if (roster === null) throw new Error('The roster did not render.');
+  await roster.updateComplete;
+  const fold = roster.shadowRoot?.querySelector('ptk-disclosure');
+  if (fold === null || fold === undefined) throw new Error('No lifter row to open.');
+  fold.open = true;
+  await roster.updateComplete;
+}
+
+/**
+ * Three lifters, set up the way a coach who has done this before sets up.
+ *
+ * Two of them share bar 1 and the third is on their own, which is §21.4's
+ * arrangement rather than a decoration: a room where everybody is on one bar and
+ * a room where nobody is are both rooms the sequencing has nothing to say about.
+ * Rae is on two of the three, spelled the same way both times, because that is
+ * the fact §21.2's handler warning is looking for -- and a story where every
+ * handler appears once would document the screen without documenting the reason
+ * the screen exists.
+ */
 const THREE: readonly RosterLifter[] = [
-  { lifterId: 'lifter-1', name: 'Quintero', identifier: '14', colour: colour(1) },
-  { lifterId: 'lifter-2', name: 'Okonkwo', identifier: '15', colour: colour(2) },
-  { lifterId: 'lifter-3', name: 'Beaulieu', identifier: '16', colour: colour(3) },
+  {
+    lifterId: 'lifter-1',
+    name: 'Quintero',
+    identifier: '14',
+    colour: colour(1),
+    handlers: [
+      { name: 'Rae', responsibilities: ['attempt-submission', 'platform-escort'] },
+      { name: 'Devi', responsibilities: ['warm-up-loading'] },
+    ],
+    rackId: '1',
+  },
+  {
+    lifterId: 'lifter-2',
+    name: 'Okonkwo',
+    identifier: '15',
+    colour: colour(2),
+    handlers: [{ name: 'Rae', responsibilities: ['general'] }],
+    rackId: '1',
+  },
+  {
+    lifterId: 'lifter-3',
+    name: 'Beaulieu',
+    identifier: '16',
+    colour: colour(3),
+    handlers: [],
+    rackId: '',
+  },
 ];
 
 const meta: Meta<PtkCoachRoster> = {
@@ -95,37 +149,59 @@ export const TheFirstLifter: Story = {
 /**
  * Three lifters and nothing typed about any of them.
  *
- * Both per-lifter answers are optional and this is what declining both looks
- * like. The summary line still says something -- "No identifier, no colour" --
- * rather than collapsing to a bare name, because a fold with an empty summary
- * reads as a row that failed to load rather than as one nobody has filled in.
+ * All four per-lifter answers are optional and this is what declining every one
+ * of them looks like. The summary line still says something -- "No identifier,
+ * no colour" -- rather than collapsing to a bare name, because a fold with an
+ * empty summary reads as a row that failed to load rather than as one nobody has
+ * filled in. The bar and the handler count are *omitted* rather than answered
+ * with a "none", which is the other half of the same rule: a room with no shared
+ * bars in it should not read as a room where somebody declined to say.
  */
 export const NobodySetUp: Story = {
   args: {
-    lifters: THREE.map((lifter) => ({ ...lifter, identifier: '', colour: null })),
+    lifters: THREE.map((lifter) => ({
+      ...lifter,
+      identifier: '',
+      colour: null,
+      handlers: [],
+      rackId: '',
+    })),
   },
 };
 
 /**
- * One row open, which is where the two per-lifter answers actually live.
+ * A handler added and not yet named, which is a normal state and not a broken one.
  *
- * Opened by setting `open` on the fold rather than by pressing its summary:
- * `<details>` fires `toggle` asynchronously, so a press leaves the story racing
- * the browser for the screenshot (§13.6). The throw names the cause on the
- * first line of the log rather than publishing a shut roster under a title
- * saying a row is open -- `smoke-stories.mjs` fails any story whose page logs,
- * so a thrown error is already the reporting channel.
+ * §21.3's Add appends a blank assignment and the name is typed into it
+ * afterwards, so this is every handler for the second or two before somebody
+ * finishes typing -- and for as long as it takes a coach to go and ask a person
+ * their surname, which is the case the design is actually for. The row is fully
+ * usable here: the responsibilities can be ticked before the name is known.
+ *
+ * What the summary line says is the part worth documenting. It counts this
+ * handler, because the coach added them; the board and §23's printed pack both
+ * drop them, because `namedHandlers` will not print an empty bullet. Two
+ * readings of one list, and this screen is the one that has to keep it.
+ */
+export const AHandlerBeingTyped: Story = {
+  args: {
+    lifters: THREE.map((lifter, index) =>
+      index === 0 ? { ...lifter, handlers: [{ name: '', responsibilities: ['general'] }] } : lifter,
+    ),
+  },
+  play: openTheFirstRow,
+};
+
+/**
+ * One row open, which is where all four per-lifter answers actually live.
+ *
+ * The widest state this element has: two named handlers, seven responsibility
+ * tiles apiece and a remove button carrying each name. `check-narrow-layout.mjs`
+ * presses Add on the coach route for exactly this reason -- a roster with nobody
+ * helping anybody renders none of it, and measures the empty sentence instead.
  */
 export const OneRowOpen: Story = {
-  play: async ({ canvasElement }) => {
-    const roster = canvasElement.querySelector('ptk-coach-roster');
-    if (roster === null) throw new Error('The roster did not render.');
-    await roster.updateComplete;
-    const fold = roster.shadowRoot?.querySelector('ptk-disclosure');
-    if (fold === null || fold === undefined) throw new Error('No lifter row to open.');
-    fold.open = true;
-    await roster.updateComplete;
-  },
+  play: openTheFirstRow,
 };
 
 /**

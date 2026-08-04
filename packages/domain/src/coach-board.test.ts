@@ -640,6 +640,34 @@ describe('what a row carries', () => {
     ]);
   });
 
+  it('drops a handler with no name yet, and trims the ones that have one', () => {
+    // §21.3's control adds a blank assignment and the name is typed into it
+    // afterwards, so a half-filled row reaches here on every meet a coach sets
+    // up on the day. Unfiltered it is an empty bullet on the board and an empty
+    // item in a pack somebody printed.
+    //
+    // Trimming is asserted in the same test because the two are one pass, and
+    // because the failure it prevents is only visible against a second row:
+    // §21.2 matches names to warn that one person is on two lifters, and " Rae"
+    // beside "Rae" is that warning silently not being raised.
+    const document = meetWith(['Ama']).present;
+
+    const row = rowFor(
+      board(document, [
+        {
+          lifterId: lifterId(document, 0),
+          handlers: [
+            { name: '  Rae  ', responsibilities: ['platform-escort'] },
+            { name: '   ', responsibilities: ['general'] },
+          ],
+        },
+      ]),
+      'Ama',
+    );
+
+    expect(row.handlers).toEqual([{ name: 'Rae', responsibilities: ['platform-escort'] }]);
+  });
+
   it('leaves the handlers empty rather than absent when nobody was assigned', () => {
     const document = meetWith(['Ama']).present;
 

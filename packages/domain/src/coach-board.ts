@@ -146,15 +146,31 @@ function urgencyRank(urgency: CoachBoardUrgency): number {
  */
 export type PlatformCall = 'called' | 'on-deck' | 'in-the-hole';
 
-/** §21.3's list of what a handler can be asked to cover. */
-export type HandlerResponsibility =
-  | 'attempt-submission'
-  | 'warm-up-loading'
-  | 'wrapping-or-equipment'
-  | 'platform-escort'
-  | 'food-or-hydration'
-  | 'video'
-  | 'general';
+/**
+ * §21.3's list of what a handler can be asked to cover, in the order it is asked.
+ *
+ * A tuple with the type derived from it rather than a union with a tuple written
+ * out beside it, because three places need the values at run time and not just
+ * the type: the control that offers them (§21.3's roster fold), the schema that
+ * validates an imported file (§24), and the copy that names each one. Written
+ * twice, the day an eighth responsibility arrives it is a control offering an
+ * option the importer rejects -- and the file that rejects it is somebody else's
+ * export of the same meet.
+ *
+ * The order is the requirement's own. It is not alphabetical and should not be
+ * sorted: `attempt-submission` is first because it is the one with a clock on it.
+ */
+export const HANDLER_RESPONSIBILITIES = [
+  'attempt-submission',
+  'warm-up-loading',
+  'wrapping-or-equipment',
+  'platform-escort',
+  'food-or-hydration',
+  'video',
+  'general',
+] as const;
+
+export type HandlerResponsibility = (typeof HANDLER_RESPONSIBILITIES)[number];
 
 /**
  * A person, on this device only.
@@ -352,6 +368,39 @@ function attemptsLeftOn(lifter: LiveLifter, lift: PlatformLift): number {
   ).length;
 }
 
+/**
+ * The handlers who have a name, trimmed.
+ *
+ * §21.3's control adds a blank assignment and the name is typed into it
+ * afterwards, so a half-filled row is a normal intermediate state of the roster
+ * rather than a corrupt entry -- and every reader of this list prints the name.
+ * The board draws one line per handler and §23's pack lists them beside the
+ * lifter, so an unfinished row unfiltered is an empty bullet on a board and an
+ * empty item in a pack somebody printed.
+ *
+ * Not a new rule: §21.2's `handlerClash` already skips a blank name, because a
+ * person with no name cannot be shown to be in two places. This is that rule
+ * reaching the two places that *render* rather than the one that warns, and it
+ * is here rather than in each of them because `handlers` is built once.
+ *
+ * Trimmed for the reason the identifier above it is not: an identifier is shown
+ * back to the coach who typed it, and a handler name is matched against another
+ * row's (case- and space-insensitively, in §21.2) to decide whether two lifters
+ * are relying on one person. A name reported to the board untrimmed would draw
+ * " Sam" on one row and "Sam" on the next, which reads as two people.
+ */
+function namedHandlers(
+  handlers: readonly HandlerAssignment[] | undefined,
+): readonly HandlerAssignment[] {
+  const named: HandlerAssignment[] = [];
+  for (const handler of handlers ?? []) {
+    const name = handler.name.trim();
+    if (name === '') continue;
+    named.push({ name, responsibilities: handler.responsibilities });
+  }
+  return named;
+}
+
 /** Which level a due schedule item sits at. */
 function urgencyOfItem(window: TimelineWindow): CoachBoardUrgency {
   switch (window.item.kind) {
@@ -494,7 +543,7 @@ export function coachBoard(request: CoachBoardRequest): CoachBoard {
       },
       submission,
       total: totalSoFar(document, lifter),
-      handlers: entry.handlers ?? [],
+      handlers: namedHandlers(entry.handlers),
     } satisfies CoachBoardRow;
   });
 

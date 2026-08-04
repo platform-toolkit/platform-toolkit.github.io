@@ -43,6 +43,7 @@
  * rulebook. This checks shape, bounds on free text, and that a number is a
  * number -- and then the document layer refuses actions on it as it always does.
  */
+import { HANDLER_RESPONSIBILITIES } from '@platform-toolkit/domain';
 import * as v from 'valibot';
 
 import { CUSTOM_ITEM_MAX, PREP_NOTES_MAX, SETUP_LABEL_MAX, SETUP_NOTE_MAX } from './prep.js';
@@ -356,17 +357,14 @@ const SavedCoachEntrySchema = v.object({
     v.array(
       v.object({
         name: text(80),
-        responsibilities: v.array(
-          v.picklist([
-            'attempt-submission',
-            'warm-up-loading',
-            'wrapping-or-equipment',
-            'platform-escort',
-            'food-or-hydration',
-            'video',
-            'general',
-          ] as const),
-        ),
+        /*
+         * The domain's own tuple rather than the seven strings written out
+         * again. This file used to spell them, and a list spelled twice is a
+         * control offering an option the importer rejects the day an eighth
+         * arrives -- with the rejected file being somebody else's export of the
+         * same meet.
+         */
+        responsibilities: v.array(v.picklist(HANDLER_RESPONSIBILITIES)),
       }),
     ),
   ),
