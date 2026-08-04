@@ -454,6 +454,50 @@ const MEET_DAY_FILL_AFTER = [
 const MEET_DAY_CLICK_LAST = ['section.start ptk-button button'];
 
 /**
+ * §6.1's other branch, then the rule book the meet is created against.
+ *
+ * The mode tile is named by the value inside it rather than by `.first()`, which
+ * is the one place in this file a control is picked by identity: the two options
+ * are two different screens, and taking whichever the template happens to put
+ * first would measure the solo path twice while reporting a coach route. The
+ * value is `mode`'s own vocabulary and not published data, so the `pick` rule --
+ * never name a published identifier -- does not reach it.
+ *
+ * The federation press comes second because the question does not exist until
+ * the branch is taken: the coach path draws its own setup panel.
+ */
+const MEET_DAY_COACH_CLICK = [
+  'ptk-choice-group[data-field="mode"] label:has(input[value="coach"])',
+  'ptk-choice-group[data-field="federation"] label',
+];
+
+/**
+ * One lifter's name, which is what creates the meet document (§21).
+ *
+ * One rather than a flight of eight: every row is the same row, so a longer list
+ * measures the same widest line more times, and this is already the slowest
+ * route in the file. Invented (§5.1) and one word, for the reason the solo
+ * route's is -- the name is echoed onto the board, so a deliberately wide one
+ * would measure a string this check chose rather than the layout.
+ */
+const MEET_DAY_COACH_FILL = [
+  { selector: 'ptk-text-field[data-field="roster-name"] input', value: 'Quintero' },
+];
+
+/** Add, which is the press that turns a name into a board. */
+const MEET_DAY_COACH_CLICK_AFTER = ['ptk-coach-roster .add ptk-button button'];
+
+/**
+ * The lifter's own fold, where the identifier field and seven colour tiles are.
+ *
+ * They are laid out whether or not the fold is open -- Chromium lays out the
+ * contents of a shut `<details>`, which is why `apps/web/CLAUDE.md` says a
+ * press-style step cannot be proven by measurement -- so this buys the live
+ * assertion that a row still renders a fold, not the measurement itself.
+ */
+const MEET_DAY_COACH_CLICK_LAST = ['ptk-coach-roster ptk-disclosure summary'];
+
+/**
  * The report shows one lift and one target type at a time, so the widest thing
  * on it has to be navigated to before it can be measured.
  *
@@ -737,6 +781,43 @@ const ROUTES = [
     // here that cannot match before the meet starts, so it is what makes the
     // press above load-bearing.
     settle: ['ptk-live-choices li.card'],
+  },
+  /*
+   * The same path a third time, down §6.1's other branch (§21).
+   *
+   * A separate entry for the reason the live one is separate: the coach screen
+   * replaces the plan rather than appending to it, so no single entry could
+   * settle on both. It is also the widest thing this tool draws -- a row carries
+   * a name, an identifier, a swatch, a countdown, an attempt weight and a banked
+   * total on one line, above a roster of folds -- and §27 forbids sideways
+   * scrolling on an urgent workflow outright, which a coach reading a board
+   * between flights is.
+   *
+   * Standalone only, on the same reasoning as the live entry: the embed gives
+   * the element more room, so this is the conservative width.
+   */
+  {
+    path: '/meet-day/',
+    label: '/meet-day/ (coach)',
+    click: MEET_DAY_COACH_CLICK,
+    reveal: [],
+    fill: MEET_DAY_COACH_FILL,
+    clickAfter: MEET_DAY_COACH_CLICK_AFTER,
+    clickLast: MEET_DAY_COACH_CLICK_LAST,
+    // A board row and the widest thing inside the fold below it, because the
+    // screen paints in two stages and both halves are measured: the row exists
+    // only if the press above created a meet document, and the colour tiles
+    // exist only if the roster re-rendered with a lifter in it. Settling on the
+    // row alone would measure a roster that had not caught up.
+    //
+    // The tiles and not the identifier field beside them: `settled` asks an
+    // `input` to hold a *value*, and nobody has typed an identifier -- so that
+    // selector would wait out its hundred polls and fail on a screen that had
+    // rendered perfectly.
+    settle: [
+      'ptk-coach-board article.row',
+      'ptk-coach-roster ptk-choice-group[data-field="roster-colour"]',
+    ],
   },
   {
     path: '/meet-day/embed/',

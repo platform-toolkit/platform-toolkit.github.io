@@ -10,11 +10,14 @@ import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 
 import { manualClock } from '../clock.js';
+import { COACH_MODE } from './copy.js';
 import {
   CONFIRM_FIELD,
   EXPECTED_MAXIMUM_FIELD,
   FEDERATION_FIELD,
   LIFTER_NAME_FIELD,
+  MODE_FIELD,
+  ROSTER_NAME_FIELD,
 } from './fields.js';
 import { MEET_PROFILE_FIXTURE } from './meet-rules.fixture.js';
 import { PROFILE_FIXTURES, plannerSession } from './planner-fixture.js';
@@ -93,6 +96,8 @@ const NARROW = createPreferenceStore(memoryPreferenceStorage());
 const RUNNING = createPreferenceStore(memoryPreferenceStorage());
 const RUNNING_BEHIND = createPreferenceStore(memoryPreferenceStorage());
 const NARROW_RUNNING = createPreferenceStore(memoryPreferenceStorage());
+const COACH = createPreferenceStore(memoryPreferenceStorage());
+const NARROW_COACH = createPreferenceStore(memoryPreferenceStorage());
 
 /**
  * One fixed instant for every story, and deliberately a fake one.
@@ -215,6 +220,61 @@ async function startAMeet(canvasElement: HTMLElement): Promise<PtkMeetDayPlanner
   // publish the planning screen under a name saying the meet is up.
   const live = element.shadowRoot?.querySelector('ptk-live-screen') ?? null;
   if (live === null) throw new Error('The meet did not start.');
+  return element;
+}
+
+/** Answers a choice group by pressing the radio carrying that value. */
+async function chooseOption(
+  element: PtkMeetDayPlanner,
+  field: string,
+  value: string,
+): Promise<void> {
+  const radio = [...(control(element, field).shadowRoot?.querySelectorAll('input') ?? [])].find(
+    (input) => input.value === value,
+  );
+  if (radio === undefined) throw new Error(`No "${field}" option "${value}".`);
+  radio.click();
+  await settled(element);
+}
+
+/**
+ * A mode, a rule book, a name and a press: §6.1's other branch, end to end.
+ *
+ * The same argument as `startAMeet` above and one step shorter, because a coach
+ * board needs no plan -- a row is a lifter, not nine attempts off a confirmed
+ * maximum. What it does need is the *order*: the mode tile is only on screen
+ * until a meet is running, the setup questions are only there until the first
+ * lifter creates the document, and the add box only exists once a federation has
+ * been chosen. So none of these four steps can be seeded and none can be
+ * reordered, which is the same reason this is a play function rather than args.
+ *
+ * The press on Add is two shadow roots down and `pressButton` above cannot reach
+ * it: that helper looks in the root's own tree, and the button belongs to
+ * `ptk-coach-roster`. Reaching through the roster explicitly rather than
+ * widening the shared helper keeps the live stories' selector unambiguous.
+ */
+async function startACoachMeet(canvasElement: HTMLElement): Promise<PtkMeetDayPlanner> {
+  const element = canvasElement.querySelector('ptk-meet-day-planner');
+  if (element === null) throw new Error('No planner rendered.');
+  await settled(element);
+
+  await chooseOption(element, MODE_FIELD, COACH_MODE);
+  await chooseFederation(canvasElement, MEET_PROFILE_FIXTURE.id);
+  await typeInto(element, ROSTER_NAME_FIELD, 'Quintero');
+
+  const roster = element.shadowRoot?.querySelector('ptk-coach-roster');
+  const add = roster?.shadowRoot
+    ?.querySelector('.add ptk-button')
+    ?.shadowRoot?.querySelector('button');
+  if (add === null || add === undefined) throw new Error('No way to add a lifter.');
+  add.click();
+  await settled(element);
+
+  // The positive control, for the reason `startAMeet` has one: the board is what
+  // the press is supposed to conjure, and a play function that quietly refused
+  // the add would publish the setup questions under a title saying a meet is up.
+  const board = element.shadowRoot?.querySelector('ptk-coach-board') ?? null;
+  if (board === null) throw new Error('The board did not appear.');
   return element;
 }
 
@@ -446,5 +506,56 @@ export const NarrowRunning: Story = {
   `,
   play: async ({ canvasElement }) => {
     await startAMeet(canvasElement);
+  },
+};
+
+/**
+ * §6.1's other branch: one coach, a board and the roster under it (§21).
+ *
+ * The mode question is gone by the time this screenshot is taken, and that is
+ * the point rather than an omission -- the first lifter creates the meet
+ * document, and a control offering to switch to the solo path over a running
+ * board would offer to abandon it. What replaces it is the unit picker, because
+ * the one planning answer that still means something here is which unit the
+ * board's weights are read in.
+ *
+ * One lifter, deliberately, where `ptk-coach-board`'s own stories run a flight.
+ * Every row on the board is the same row, so a second one documents nothing this
+ * root can be wrong about -- what only this level can get wrong is whether the
+ * press reached the document at all, and that is what the play function's throw
+ * is for. The board's ranking, its urgency headings and §21.4's shared-bar plan
+ * are documented next door, against a timeline rather than against four presses.
+ */
+export const ACoachBoard: Story = {
+  args: { settings: COACH },
+  play: async ({ canvasElement }) => {
+    await startACoachMeet(canvasElement);
+  },
+};
+
+/**
+ * The board and the roster in a phone-width column (§5.7).
+ *
+ * The hardest case on this path and the one a coach actually holds: a countdown
+ * per row, the lifter's name and identifier, the attempt, and a fold per lifter
+ * under it, in 320 pixels, read one-handed beside a platform. Constrained by a
+ * wrapper rather than by a viewport setting, because the wrapper is what the
+ * element's container queries respond to.
+ */
+export const NarrowCoachBoard: Story = {
+  args: { settings: NARROW_COACH },
+  render: (args) => html`
+    <div style="width: 320px; outline: 1px dashed currentColor;">
+      <ptk-meet-day-planner
+        .settings=${args.settings}
+        .profiles=${args.profiles}
+        status=${args.status}
+        .chart=${args.chart}
+        .clock=${args.clock}
+      ></ptk-meet-day-planner>
+    </div>
+  `,
+  play: async ({ canvasElement }) => {
+    await startACoachMeet(canvasElement);
   },
 };

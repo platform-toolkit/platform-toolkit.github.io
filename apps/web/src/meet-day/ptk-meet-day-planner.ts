@@ -55,10 +55,28 @@
  *
  * The one thing live mode still reads live is the conversion chart, because a
  * pound figure is a reading of a kilogram attempt (§16) and not a decision.
+ *
+ * §6.1'S TWO BRANCHES ARE TWO RUN OBJECTS, NOT ONE WIDENED ONE
+ *
+ * A coach running eight people has no plan for any of them -- no maximum was
+ * agreed here, no §7 was walked through -- so three of `LiveRun`'s five fields
+ * have nothing to hold. Widening it would make `lifterId`, `planning` and
+ * `targets` optional and break the sentence its own header rests on, that the
+ * fields are set at one instant and are meaningless apart. `CoachRun` sits
+ * beside it instead, and the two are mutually exclusive by construction: the
+ * §6.1 choice comes off the screen the moment either meet exists, so there is
+ * never a device with both.
+ *
+ * What the two share is a document and a rule book, which is exactly what an
+ * action needs. `#current` and `#commit` are that shared pair, so every §12 and
+ * §13 handler below works in both modes without a second copy -- and a second
+ * copy is precisely how one of the two would end up applying an action against
+ * a stale timeline.
  */
 import type { MeetRuleProfile, PlatformLift } from '@platform-toolkit/data-contracts';
 import type {
   AttemptRefusalCode,
+  CoachBoardEntry,
   ConversionChart,
   LiveTarget,
   MeetAction,
@@ -70,7 +88,9 @@ import type {
 import {
   MeetRules,
   applyMeetAction,
+  createMeetDocument,
   findAttempt,
+  startTimeline,
   takenOn,
   undo,
   undoableAction,
@@ -92,24 +112,34 @@ import { customElement, property, state } from 'lit/decorators.js';
 
 import { systemClock, type Clock } from '../clock.js';
 
+import './ptk-coach-board.js';
+import './ptk-coach-roster.js';
 import './ptk-live-screen.js';
 import './ptk-plan-extras.js';
 import './ptk-plan-method.js';
 import './ptk-plan-screen.js';
 import './ptk-planner-setup.js';
 
+import { buildBoardView } from './board.js';
 import {
+  BACK_TO_BOARD_LABEL,
   BACK_TO_PLAN_LABEL,
+  COACH_MODE,
   CONVERSION_CONFIRMATION_NOTE,
   CONVERT_ANSWER,
   LIFTER_NAME_HINT,
   LIFTER_NAME_LABEL,
   MEET_IS_RUNNING_NOTE,
+  MODE_CHOICES,
+  MODE_LABEL,
+  NO_COLOUR,
   RETURN_TO_MEET_LABEL,
   START_MEET_HEADING,
   START_MEET_LABEL,
   START_MEET_NEEDS_A_PLAN,
   START_MEET_NOTE,
+  UNIT_CHOICES,
+  UNIT_LABEL,
   conversionChoices,
   conversionQuestion,
   meetProblemSentence,
@@ -117,6 +147,7 @@ import {
 import {
   AGE_FIELD,
   ATTEMPT_FIELDS,
+  BOARD_LIFTER_FIELD,
   BODYWEIGHT_FIELD,
   CEILING_FIELD,
   COMPARISON_FIELD,
@@ -142,6 +173,7 @@ import {
   METHOD_FIELD,
   MINIMUM_JUMP_FIELD,
   MINIMUM_TOTAL_FIELD,
+  MODE_FIELD,
   OPENER_FIELD,
   OPENER_TESTED_FIELD,
   PERSONAL_RECORD_FIELD,
@@ -149,13 +181,29 @@ import {
   PRIOR_MEETS_FIELD,
   QUALIFYING_TOTAL_FIELD,
   READINESS_FIELD,
+  ROSTER_COLOUR_FIELD,
+  ROSTER_IDENTIFIER_FIELD,
+  ROSTER_NAME_FIELD,
   STRETCH_TOTAL_FIELD,
   TARGET_TOTAL_FIELD,
   UNIT_FIELD,
 } from './fields.js';
-import { EMPTY_LIVE_VIEW, NOTHING_OBSERVED, buildLiveView, type LivePlanning } from './live.js';
+import {
+  EMPTY_LIVE_VIEW,
+  NOTHING_OBSERVED,
+  NO_PLANNING_AT_ALL,
+  buildLiveView,
+  type LivePlanning,
+} from './live.js';
 import { livePlanningFrom, liveTargetsFrom, seedLiveMeet } from './live-session.js';
 import { ATTEMPT_RESULT_EVENT, type AttemptResultDetail } from './ptk-attempt-result.js';
+import {
+  BOARD_OPEN_EVENT,
+  BOARD_PIN_EVENT,
+  type BoardOpenDetail,
+  type BoardPinDetail,
+} from './ptk-coach-board.js';
+import { ROSTER_ADD_EVENT, type RosterAddDetail, type RosterLifter } from './ptk-coach-roster.js';
 import { LIVE_CHOICE_EVENT, type LiveChoiceDetail } from './ptk-live-choices.js';
 import { UNDO_REQUEST_EVENT, type UndoRequestDetail } from './ptk-live-screen.js';
 import { CONFIRM_VALUE } from './ptk-plan-method.js';
@@ -202,6 +250,21 @@ export interface FederationChangeDetail {
   readonly federationId: string;
 }
 
+/** §6.1's opening choice, which decides which of the two runs below can exist. */
+type PlannerMode = 'solo' | 'coach';
+
+/**
+ * What every §12 and §13 action needs, whichever branch produced the meet.
+ *
+ * The rule book is part of it rather than read from the session, and that is the
+ * whole point of the pair: an action is checked against the rules the meet was
+ * created under, not against whatever federation is currently selected.
+ */
+interface RunningMeet {
+  readonly rules: MeetRules;
+  readonly timeline: MeetTimeline;
+}
+
 /**
  * A meet in progress: the document, and everything it is being run against.
  *
@@ -215,12 +278,32 @@ export interface FederationChangeDetail {
  * open behind live mode, and a weight already on the board does not move because
  * somebody corrected a figure that produced it.
  */
-interface LiveRun {
-  readonly rules: MeetRules;
+interface LiveRun extends RunningMeet {
   readonly lifterId: string;
   readonly planning: LivePlanning;
   readonly targets: readonly LiveTarget[];
-  readonly timeline: MeetTimeline;
+}
+
+/**
+ * §6.1's other branch: a room, rather than a lifter.
+ *
+ * `entries` is the per-device context §21 asks for -- what this phone calls each
+ * lifter, and which of them are pinned. It is deliberately *not* in the meet
+ * document: none of it is a fact about the meet, and after §24 the document is
+ * something two phones share while the entries are not.
+ *
+ * The entries are also not persisted (§2.3, §13.4). An identifier is a lot
+ * number and a colour is a coach's own shorthand, but the list they are keyed to
+ * is a list of athletes' names, and a shared phone at a meet is exactly the
+ * device this project does not leave that on.
+ *
+ * `openLifterId` is which screen is up rather than which lifter matters. The
+ * board's own focus row is computed by the domain and changes as clocks run
+ * down; this only moves when a coach taps §21.1's switch.
+ */
+interface CoachRun extends RunningMeet {
+  readonly entries: readonly CoachBoardEntry[];
+  readonly openLifterId: string | null;
 }
 
 @customElement('ptk-meet-day-planner')
@@ -331,8 +414,22 @@ export class PtkMeetDayPlanner extends LitElement {
 
   @state() private session: PlannerSession = EMPTY_SESSION;
 
+  /**
+   * §6.1's answer, held here and written nowhere.
+   *
+   * Every other setup answer is a setting on a device (§13.4) and this one is
+   * not, deliberately: a phone that opened straight onto a coach board because
+   * it ran a flight last month would give a lifter a screen with no plan on it
+   * and no obvious way back to one. It is a single tap at the top of the first
+   * screen, which is cheaper than the state where the tool opens wrong.
+   */
+  @state() private mode: PlannerMode = 'solo';
+
   /** The meet, once one has started. `null` is the planning-only state. */
   @state() private live: LiveRun | null = null;
+
+  /** §6.1's other meet. Never non-null at the same time as `live`. */
+  @state() private coach: CoachRun | null = null;
 
   /**
    * Whether the lifter has stepped back to the planning screens mid-meet.
@@ -352,6 +449,16 @@ export class PtkMeetDayPlanner extends LitElement {
    * athlete's name on a shared phone.
    */
   @state() private lifterName = '';
+
+  /**
+   * §21's roster box, held for the same reason and cleared the same way.
+   *
+   * A second field rather than reusing `lifterName`: both are a name in a text
+   * box, they are on two different screens, and the root listens for both on the
+   * same host. One field for the two means a coach's half-typed roster entry is
+   * also the name a solo meet would start under.
+   */
+  @state() private rosterName = '';
 
   /**
    * Why the last weight was not accepted, in the rule set's own reason codes.
@@ -386,6 +493,9 @@ export class PtkMeetDayPlanner extends LitElement {
     this.addEventListener(SUBMISSION_MARKED_EVENT, this.#onSubmissionMarked);
     this.addEventListener(ATTEMPT_RESULT_EVENT, this.#onAttemptResult);
     this.addEventListener(UNDO_REQUEST_EVENT, this.#onUndoRequest);
+    this.addEventListener(ROSTER_ADD_EVENT, this.#onRosterAdd);
+    this.addEventListener(BOARD_OPEN_EVENT, this.#onBoardOpen);
+    this.addEventListener(BOARD_PIN_EVENT, this.#onBoardPin);
     this.#syncClock();
   }
 
@@ -398,6 +508,9 @@ export class PtkMeetDayPlanner extends LitElement {
     this.removeEventListener(SUBMISSION_MARKED_EVENT, this.#onSubmissionMarked);
     this.removeEventListener(ATTEMPT_RESULT_EVENT, this.#onAttemptResult);
     this.removeEventListener(UNDO_REQUEST_EVENT, this.#onUndoRequest);
+    this.removeEventListener(ROSTER_ADD_EVENT, this.#onRosterAdd);
+    this.removeEventListener(BOARD_OPEN_EVENT, this.#onBoardOpen);
+    this.removeEventListener(BOARD_PIN_EVENT, this.#onBoardPin);
     // Dropped rather than left running. An interval outliving the element is a
     // repaint request against a detached tree four times a second, for as long
     // as the page is open.
@@ -425,10 +538,161 @@ export class PtkMeetDayPlanner extends LitElement {
     this.#syncClock();
   }
 
-  /** Planning, or the platform. Never both, and never neither. */
+  /** One of four screens: the room, one of its lifters, the plan, or the platform. */
   override render(): TemplateResult {
+    if (this.mode === 'coach') return this.#renderCoach(this.coach);
     const run = this.live;
     return run !== null && !this.viewingPlan ? this.#renderLive(run) : this.#renderPlanning();
+  }
+
+  /**
+   * §6.1's opening choice, while there is still a choice to make.
+   *
+   * Off the screen the moment either meet exists. Switching branch abandons a
+   * document -- a coach's whole flight, or a lifter's four recorded attempts --
+   * and it would be one tap on the control a thumb reaches first. There is no
+   * confirmation here instead, because the answer to "are you sure" on a phone
+   * held in one hand at a meet is yes, always, and the meet is still gone.
+   */
+  #renderMode(): TemplateResult | typeof nothing {
+    if (this.live !== null || this.coach !== null) return nothing;
+    return html`
+      <ptk-choice-group
+        data-field=${MODE_FIELD}
+        label=${MODE_LABEL}
+        .choices=${MODE_CHOICES}
+        .value=${this.mode}
+      ></ptk-choice-group>
+    `;
+  }
+
+  /**
+   * §6.1's coach branch: the board, and who is on it.
+   *
+   * The setup questions are replaced by the unit question alone once the meet
+   * exists, rather than left on screen doing nothing. `createMeetDocument` takes
+   * the rules and the meet type once and they are fixed from then on -- which is
+   * what `ROSTER_STARTS_THE_MEET` says before the first lifter is added -- and a
+   * federation tile that still highlights while changing nothing is a promise
+   * the tool would be breaking silently.
+   *
+   * The conversion question is rendered here as well as on the planning screens
+   * because it is about the session's figures rather than about a screen: a
+   * device that planned a solo meet and then switched to coach mode still has
+   * typed weights, and a question raised with nowhere to appear would sit
+   * unanswered until the lifter went back and found it waiting.
+   */
+  #renderCoach(run: CoachRun | null): TemplateResult {
+    if (run !== null && run.openLifterId !== null) {
+      return this.#renderCoachLifter(run, run.openLifterId);
+    }
+    return html`
+      ${this.#renderMode()}
+      ${
+        run === null
+          ? html`
+              <ptk-planner-setup
+                .session=${this.session}
+                .profiles=${this.profiles}
+                status=${this.status}
+                scope="coach"
+              ></ptk-planner-setup>
+            `
+          : html`
+              <ptk-choice-group
+                data-field=${UNIT_FIELD}
+                label=${UNIT_LABEL}
+                .choices=${UNIT_CHOICES}
+                .value=${this.session.setup.unit}
+              ></ptk-choice-group>
+            `
+      }
+      ${this.#renderConversion()} ${this.#renderProblems('problems')}
+      ${
+        run === null
+          ? nothing
+          : html`
+              <ptk-coach-board
+                .view=${buildBoardView(run.timeline.present, {
+                  rules: run.rules,
+                  chart: this.chart,
+                  entries: run.entries,
+                  // Read once, here. Twice in one paint is two instants on one
+                  // screen, and this screen is nothing but countdowns.
+                  now: this.clock.now(),
+                })}
+                .unit=${this.session.setup.unit}
+              ></ptk-coach-board>
+            `
+      }
+
+      <ptk-coach-roster
+        .lifters=${this.#rosterLifters(run)}
+        name=${this.rosterName}
+        ?ready=${this.#context() !== null}
+      ></ptk-coach-roster>
+    `;
+  }
+
+  /**
+   * §21.1's one-tap switch: one lifter's own platform screen, off the board.
+   *
+   * The same element the solo path uses, with `NO_PLANNING_AT_ALL` and no
+   * targets. That is not a stub -- a coach has agreed no maximum for this
+   * athlete and set no goal for their day, so §13's cards carry the legal
+   * choices and the rounding note and say nothing about a plan. Inventing a
+   * planning context from the coach's own session would put the coach's targets
+   * on somebody else's screen.
+   *
+   * `buildLiveView` answers `null` only for a lifter who is not in the document,
+   * which `#onBoardOpen` has already checked against the same document. The
+   * fallback is here because the return type says it can (§5.8: a property
+   * binding assigns null over the child's own default).
+   */
+  #renderCoachLifter(run: CoachRun, lifterId: string): TemplateResult {
+    const view = buildLiveView(run.timeline, lifterId, {
+      rules: run.rules,
+      chart: this.chart,
+      planning: NO_PLANNING_AT_ALL,
+      targets: [],
+      observed: NOTHING_OBSERVED,
+      now: this.clock.now(),
+    });
+    return html`
+      <ptk-button class="back" variant="secondary" @click=${this.#onBackToBoard}>
+        ${BACK_TO_BOARD_LABEL}
+      </ptk-button>
+
+      ${this.#renderProblems('live-problems')}
+
+      <ptk-live-screen
+        .view=${view ?? EMPTY_LIVE_VIEW}
+        .chart=${this.chart}
+        .unit=${this.session.setup.unit}
+        .refusals=${this.refusals}
+      ></ptk-live-screen>
+    `;
+  }
+
+  /**
+   * The meet's lifters, each with whatever this phone knows about them.
+   *
+   * Driven off the document rather than off the entries, so a lifter who has
+   * been added and never set up still has a row to type an identifier into --
+   * the entry is created by the first answer, which is what keeps an untouched
+   * roster from carrying eight empty objects into §24's export.
+   */
+  #rosterLifters(run: CoachRun | null): readonly RosterLifter[] {
+    if (run === null) return [];
+    return run.timeline.present.lifters.map((lifter) => {
+      const entry = run.entries.find((candidate) => candidate.lifterId === lifter.id);
+      return {
+        lifterId: lifter.id,
+        name: lifter.name,
+        identifier: entry?.identifier ?? '',
+        colour: entry?.colour ?? null,
+      };
+    });
   }
 
   /**
@@ -449,7 +713,7 @@ export class PtkMeetDayPlanner extends LitElement {
   #renderPlanning(): TemplateResult {
     const view = this.#view();
     return html`
-      ${this.#renderRunning()}
+      ${this.#renderRunning()} ${this.#renderMode()}
 
       <ptk-planner-setup
         .session=${this.session}
@@ -699,8 +963,11 @@ export class PtkMeetDayPlanner extends LitElement {
   readonly #onChoice = (event: CustomEvent<ChoiceChangeDetail>): void => {
     const field = fieldOf(event);
     if (field === null) return;
-    const lift = this.#liftOf(event);
-    this.#applyChoice(field, event.detail.value, lift);
+    // Both axes are read here rather than in the branch that wants one, because
+    // a control carries at most one of them and reading is cheap; a branch that
+    // reached back for the event would be the only one able to, and the next
+    // per-lifter field would be written without it.
+    this.#applyChoice(field, event.detail.value, this.#liftOf(event), this.#lifterOf(event));
   };
 
   readonly #onNumber = (event: CustomEvent<NumberFieldChangeDetail>): void => {
@@ -744,15 +1011,41 @@ export class PtkMeetDayPlanner extends LitElement {
   }
 
   /**
+   * Which lifter a roster control belongs to, read and not yet checked.
+   *
+   * `#liftOf` validates against the lifts on screen and this deliberately does
+   * not validate against the meet, because the one thing worth checking -- that
+   * the id names somebody in the document -- is checked in `#patchEntry`, which
+   * every writer goes through. Doing it in both places is one rule written
+   * twice, and the copy that gets forgotten is the one on the next handler.
+   */
+  #lifterOf(event: Event): string | null {
+    for (const node of event.composedPath()) {
+      if (!(node instanceof HTMLElement)) continue;
+      const value = node.dataset[BOARD_LIFTER_FIELD];
+      if (value !== undefined) return value;
+    }
+    return null;
+  }
+
+  /**
    * Applies one chosen option.
    *
    * `dataset` and a choice value are both strings out of the DOM, and every
    * mapper below is total: an unrecognised value lands on the answer that claims
    * nothing rather than on a state no control can show back.
    */
-  #applyChoice(field: string, value: string, lift: PlatformLift | null): void {
+  #applyChoice(
+    field: string,
+    value: string,
+    lift: PlatformLift | null,
+    lifterId: string | null,
+  ): void {
     const session = this.session;
     switch (field) {
+      case MODE_FIELD:
+        this.#chooseMode(value);
+        return;
       case FEDERATION_FIELD:
         this.#chooseFederation(value);
         return;
@@ -791,6 +1084,13 @@ export class PtkMeetDayPlanner extends LitElement {
         return;
       case EVIDENCE_AGE_FIELD:
         this.#setSession(withExtras(session, { evidenceAge: evidenceAgeFromValue(value) }));
+        return;
+      case ROSTER_COLOUR_FIELD:
+        // `NO_COLOUR` is a real option and not an absent answer -- a coach taking
+        // a colour back off a row has said something, and mapping it to `null`
+        // here is what lets the board fall back to the identifier (§21) rather
+        // than go on drawing a swatch nobody asked for.
+        this.#patchEntry(lifterId, { colour: value === NO_COLOUR ? null : value });
         return;
       default:
         this.#applyLiftChoice(field, value, lift);
@@ -954,6 +1254,22 @@ export class PtkMeetDayPlanner extends LitElement {
     this.typedIn = null;
   }
 
+  /**
+   * §6.1's branch, refused once either meet exists.
+   *
+   * The control is off the screen by then (`#renderMode`), so this cannot be
+   * reached by a tap -- and it is checked anyway, because the listener is on the
+   * host and a composed choice event carrying `data-field="mode"` from anywhere
+   * would otherwise switch the screen out from under a running meet. Nothing is
+   * destroyed by that: both runs are still in memory. What is destroyed is the
+   * lifter's ability to find them, because the branch that renders the way back
+   * is the one that just went away.
+   */
+  #chooseMode(value: string): void {
+    if (this.live !== null || this.coach !== null) return;
+    this.mode = value === COACH_MODE ? 'coach' : 'solo';
+  }
+
   /*
    * ---------------------------------------------------------------------------
    * Live mode.
@@ -961,18 +1277,39 @@ export class PtkMeetDayPlanner extends LitElement {
    */
 
   /**
-   * §14's name, held in memory and nowhere else.
+   * §14's name and §21's two per-lifter answers, all held in memory.
    *
-   * Guarded on the field although this is, today, the only `ptk-text-field` in
-   * the tool -- §12's note is a `ptk-text-area` and reports through a different
-   * event entirely. So the guard is not defending against the note; it is
-   * defending against the next text field somebody adds, and against a composed
-   * event arriving from a child that is not one of this element's own controls.
-   * The listener is on the host, so anything bubbling up through it lands here.
+   * The switch is exhaustive by default rather than by omission: a composed
+   * event arriving from a child that is not one of this element's own controls
+   * lands here too, because the listener is on the host. The tool had exactly
+   * one text field when this was written and dropping the guard passed the whole
+   * suite -- the test that bites is a foreign composed event dispatched at the
+   * host, not a second control -- and it now has four, three of which would have
+   * been renaming the lifter.
+   *
+   * None of the three writes to the session or reaches the preference store.
+   * §13.4's rule is that the setup answers are settings on a device and a
+   * person's own facts are not; a lifter's name is the plainest instance, and a
+   * coach's roster is a list of *other* people's names on a shared phone, which
+   * is the same rule with more of it at stake (§2.3).
    */
   readonly #onText = (event: CustomEvent<TextFieldChangeDetail>): void => {
-    if (fieldOf(event) !== LIFTER_NAME_FIELD) return;
-    this.lifterName = event.detail.value;
+    const value = event.detail.value;
+    switch (fieldOf(event)) {
+      case LIFTER_NAME_FIELD:
+        this.lifterName = value;
+        return;
+      case ROSTER_NAME_FIELD:
+        this.rosterName = value;
+        return;
+      case ROSTER_IDENTIFIER_FIELD:
+        // Untrimmed, deliberately: it is a lot number as the coach typed it, and
+        // `rosterSummary` trims only to decide whether there is one.
+        this.#patchEntry(this.#lifterOf(event), { identifier: value });
+        return;
+      default:
+        return;
+    }
   };
 
   /**
@@ -1099,7 +1436,7 @@ export class PtkMeetDayPlanner extends LitElement {
    * see.
    */
   readonly #onUndoRequest = (event: CustomEvent<UndoRequestDetail>): void => {
-    const run = this.live;
+    const run = this.#current();
     if (run === null) return;
     if (undoableAction(run.timeline) !== event.detail.action) return;
     const result = undo(run.timeline);
@@ -1107,22 +1444,44 @@ export class PtkMeetDayPlanner extends LitElement {
       this.problems = result.problems.map((problem) => problem.code);
       return;
     }
-    this.live = { ...run, timeline: result.timeline };
+    this.#commit(result.timeline);
     this.#clearFeedback();
   };
 
   /** One action onto the document, and whatever came back if it was refused. */
   #applyLive(action: MeetAction): boolean {
-    const run = this.live;
+    const run = this.#current();
     if (run === null) return false;
     const result = applyMeetAction(run.rules, run.timeline, action, this.clock.now());
     if (!result.ok) {
       this.#refuse(run, action, result.problems);
       return false;
     }
-    this.live = { ...run, timeline: result.timeline };
+    this.#commit(result.timeline);
     this.#clearFeedback();
     return true;
+  }
+
+  /**
+   * Whichever meet the mode says is running, or neither.
+   *
+   * The two are mutually exclusive by construction, not by discipline: the §6.1
+   * choice comes off the screen the moment either exists, so nothing can start
+   * the second one. This pair is what lets §12's result flow, §13's choices,
+   * §14.1's mark and §13.9's undo be written once and reached from both screens
+   * -- a coach recording an attempt on one of their lifters goes through exactly
+   * the handlers a lifter recording their own does.
+   */
+  #current(): RunningMeet | null {
+    return this.mode === 'coach' ? this.coach : this.live;
+  }
+
+  #commit(timeline: MeetTimeline): void {
+    if (this.mode === 'coach') {
+      if (this.coach !== null) this.coach = { ...this.coach, timeline };
+      return;
+    }
+    if (this.live !== null) this.live = { ...this.live, timeline };
   }
 
   /**
@@ -1135,7 +1494,7 @@ export class PtkMeetDayPlanner extends LitElement {
    * with it. Deriving them instead of pre-checking is deliberate: the document
    * decides, and this only asks why.
    */
-  #refuse(run: LiveRun, action: MeetAction, problems: readonly MeetActionProblem[]): void {
+  #refuse(run: RunningMeet, action: MeetAction, problems: readonly MeetActionProblem[]): void {
     if (action.kind === 'set-attempt-weight') {
       const illegal = problems.some((problem) => problem.code === 'weight-not-legal');
       if (illegal) {
@@ -1150,7 +1509,11 @@ export class PtkMeetDayPlanner extends LitElement {
     this.problems = problems.map((problem) => problem.code);
   }
 
-  #refusalsFor(run: LiveRun, attemptId: string, kilograms: number): readonly AttemptRefusalCode[] {
+  #refusalsFor(
+    run: RunningMeet,
+    attemptId: string,
+    kilograms: number,
+  ): readonly AttemptRefusalCode[] {
     const found = findAttempt(run.timeline.present, attemptId);
     if (found === null) return [];
     const legality = run.rules.isLegalNextAttempt(
@@ -1170,6 +1533,109 @@ export class PtkMeetDayPlanner extends LitElement {
   #clearFeedback(): void {
     this.refusals = [];
     this.problems = [];
+  }
+
+  /*
+   * ---------------------------------------------------------------------------
+   * Coach mode.
+   * ---------------------------------------------------------------------------
+   */
+
+  /**
+   * A fresh run, deliberately not assigned to `this.coach` by this function.
+   *
+   * The caller assigns it only once `add-lifter` has been accepted, so a refused
+   * first name leaves the federation and the meet-type questions still on the
+   * screen and still answerable. Assigning here instead would fix the rule book
+   * on a press that added nobody -- the coach corrects the name, and the meet
+   * they are correcting it into is one they can no longer change the format of.
+   */
+  #startCoachMeet(): CoachRun | null {
+    const context = this.#context();
+    if (context === null) return null;
+    return {
+      rules: context.rules,
+      timeline: startTimeline(createMeetDocument(context.rules, this.session.setup.format)),
+      entries: [],
+      openLifterId: null,
+    };
+  }
+
+  /**
+   * §21's roster, and the press that starts the meet if nothing has yet.
+   *
+   * Not guarded on a blank name, for the reason `#onStart` is not: a press
+   * landing on the `ptk-button` host's own padding runs the listener whatever
+   * the inner control's state, and `add-lifter` refuses an empty name with
+   * `lifter-name-required`, which this screen already knows how to say. The
+   * refusal reaches the coach through `problems`, and the run is dropped on the
+   * floor rather than kept -- see `#startCoachMeet`.
+   */
+  readonly #onRosterAdd = (event: CustomEvent<RosterAddDetail>): void => {
+    const run = this.coach ?? this.#startCoachMeet();
+    if (run === null) return;
+    const result = applyMeetAction(
+      run.rules,
+      run.timeline,
+      { kind: 'add-lifter', name: event.detail.name },
+      this.clock.now(),
+    );
+    if (!result.ok) {
+      this.problems = result.problems.map((problem) => problem.code);
+      return;
+    }
+    this.coach = { ...run, timeline: result.timeline };
+    this.rosterName = '';
+    this.#clearFeedback();
+  };
+
+  /**
+   * §21.1's one tap from the board to one lifter's own platform screen.
+   *
+   * The id is re-checked against the document rather than trusted, the way
+   * `ptk-coach-board` re-checks it against its own view: the board is re-sorted
+   * by urgency four times a second, so the row under a thumb at the start of a
+   * press is not necessarily the row under it at the end (§13.6). An id that no
+   * longer names anybody would open a screen `buildLiveView` answers `null` for,
+   * which renders as a meet that is over.
+   */
+  readonly #onBoardOpen = (event: CustomEvent<BoardOpenDetail>): void => {
+    const run = this.coach;
+    if (run === null) return;
+    const lifterId = event.detail.lifterId;
+    if (!run.timeline.present.lifters.some((lifter) => lifter.id === lifterId)) return;
+    this.coach = { ...run, openLifterId: lifterId };
+    this.#clearFeedback();
+  };
+
+  readonly #onBoardPin = (event: CustomEvent<BoardPinDetail>): void => {
+    this.#patchEntry(event.detail.lifterId, { pinned: event.detail.pinned });
+  };
+
+  readonly #onBackToBoard = (): void => {
+    const run = this.coach;
+    if (run === null) return;
+    this.coach = { ...run, openLifterId: null };
+  };
+
+  /**
+   * One lifter's per-device entry, created by whichever answer arrives first.
+   *
+   * Every writer comes through here, which is what makes one validity check
+   * enough: an id that does not name somebody in the document writes nothing.
+   * Without it a stale `data-lifter` would grow an entry for a lifter who is not
+   * in the meet, and `buildBoardView` matches entries to lifters by id -- so it
+   * would sit in the list, invisible, until §24 exported it.
+   */
+  #patchEntry(lifterId: string | null, patch: Partial<Omit<CoachBoardEntry, 'lifterId'>>): void {
+    const run = this.coach;
+    if (run === null || lifterId === null) return;
+    if (!run.timeline.present.lifters.some((lifter) => lifter.id === lifterId)) return;
+    const known = run.entries.some((entry) => entry.lifterId === lifterId);
+    const entries = known
+      ? run.entries.map((entry) => (entry.lifterId === lifterId ? { ...entry, ...patch } : entry))
+      : [...run.entries, { lifterId, ...patch }];
+    this.coach = { ...run, entries };
   }
 
   /*
@@ -1194,8 +1660,19 @@ export class PtkMeetDayPlanner extends LitElement {
     this.requestUpdate();
   };
 
+  /**
+   * Attached while something on screen is counting, which on the board is always.
+   *
+   * The solo path stops the clock behind the plan screens because nothing there
+   * counts down. The coach path has no such state: the board *is* the countdown
+   * -- every row carries one and the ladder re-sorts on them -- so it watches
+   * from the moment the first lifter is added, including while one lifter's own
+   * screen is open, because that screen is a live screen too.
+   */
   #syncClock(): void {
-    const wanted = this.live !== null && !this.viewingPlan ? this.clock : null;
+    const running =
+      this.mode === 'coach' ? this.coach !== null : this.live !== null && !this.viewingPlan;
+    const wanted = running ? this.clock : null;
     if (wanted === this.#watched) return;
     this.#stopWatching();
     if (wanted === null) return;

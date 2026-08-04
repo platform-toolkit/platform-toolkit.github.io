@@ -20,6 +20,16 @@
  * compiler cannot check against `PlatformLift`.
  */
 
+/**
+ * §6.1's opening choice: one lifter, or a room full of them.
+ *
+ * Above the setup rather than inside `ptk-planner-setup`, because it decides
+ * which of that element's questions are even asked -- the first-meet answer and
+ * the goal are about the person holding the phone, and a coach running other
+ * people's meets has no answer to either.
+ */
+export const MODE_FIELD = 'mode';
+
 /*
  * §6.2's one-minute setup, and §7's method chooser.
  */
@@ -140,7 +150,7 @@ export const CHOICE_SLOT_FIELD = 'slot';
 export const OTHER_WEIGHT_FIELD = 'other-weight';
 
 /**
- * §21's board, which is the second attribute *name* in this file.
+ * §21's board and §21's roster, which is the second attribute *name* here.
  *
  * Same shape as `CHOICE_SLOT_FIELD` and the same reason, arriving on a screen
  * with several lifters on it rather than several cards: a row's controls carry
@@ -151,8 +161,30 @@ export const OTHER_WEIGHT_FIELD = 'other-weight';
  * whichever lifter had moved into that position between the press starting and
  * the handler running. The failure is a pin, or a switch to a live screen,
  * landing on the wrong athlete.
+ *
+ * The roster shares the attribute rather than declaring one of its own. Its
+ * rows are in document order and do not re-sort, so an index would work there
+ * today -- and one attribute meaning one thing on both screens is what stops
+ * the two handlers in the root drifting into reading different keys off the
+ * same path.
  */
 export const BOARD_LIFTER_FIELD = 'lifter';
+
+/*
+ * §21's per-device setup: what this phone calls each lifter it is running.
+ *
+ * `ROSTER_NAME_FIELD` is the box a new lifter is typed into and is deliberately
+ * not `LIFTER_NAME_FIELD`. Both are a name in a text field and they go to
+ * different places -- one starts a solo meet, the other adds a row to a board
+ * already running -- and the root listens for both on the same host, so one
+ * name for the two would put a coach's roster entry into the solo start panel.
+ *
+ * The other two carry `data-lifter`: they are answers about a lifter who is
+ * already in the meet, and there is one of each per row.
+ */
+export const ROSTER_NAME_FIELD = 'roster-name';
+export const ROSTER_IDENTIFIER_FIELD = 'roster-identifier';
+export const ROSTER_COLOUR_FIELD = 'roster-colour';
 
 /**
  * §14's guard against the correct weight going in for the wrong athlete.

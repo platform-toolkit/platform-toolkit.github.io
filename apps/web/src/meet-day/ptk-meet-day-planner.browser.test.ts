@@ -36,6 +36,8 @@ import {
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
 import {
+  CHOICE_CHANGE_EVENT,
+  type ChoiceChangeDetail,
   NUMBER_FIELD_CHANGE_EVENT,
   type NumberFieldChangeDetail,
   TEXT_FIELD_CHANGE_EVENT,
@@ -51,9 +53,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { manualClock, type ManualClock } from '../clock.js';
 import { deepText } from '../testing/deep-text.js';
 import {
+  COACH_MODE,
+  COLOUR_CHOICES,
   CONVERT_ANSWER,
   KEEP_ANSWER,
   MEET_IS_RUNNING_NOTE,
+  ROSTER_NEEDS_A_FEDERATION,
+  SOLO_MODE,
   START_MEET_NEEDS_A_PLAN,
 } from './copy.js';
 import {
@@ -63,11 +69,16 @@ import {
   FEDERATION_FIELD,
   FORMAT_FIELD,
   LIFTER_NAME_FIELD,
+  MODE_FIELD,
   OTHER_WEIGHT_FIELD,
+  ROSTER_COLOUR_FIELD,
+  ROSTER_IDENTIFIER_FIELD,
+  ROSTER_NAME_FIELD,
   UNIT_FIELD,
 } from './fields.js';
 import { MEET_PROFILE_FIXTURE } from './meet-rules.fixture.js';
 import { PROBABILITY_WORDS, PROFILE_FIXTURES, plannerSession } from './planner-fixture.js';
+import { BOARD_OPEN_EVENT, type BoardOpenDetail } from './ptk-coach-board.js';
 import { UNDO_REQUEST_EVENT, type UndoRequestDetail } from './ptk-live-screen.js';
 import { CONFIRM_VALUE } from './ptk-plan-method.js';
 import type { ProfilesStatus } from './ptk-planner-setup.js';
@@ -980,6 +991,320 @@ describe('ptk-meet-day-planner', () => {
       await startMeet(element);
 
       expect(liveScreen(element)).not.toBeNull();
+      expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
+    });
+  });
+
+  /**
+   * §6.1's other branch, from the root (§21).
+   *
+   * The board and the roster each have their own browser test and neither can
+   * fail for any of the reasons here. What is only wrong at this level is the
+   * wiring between the two: which screen is showing, whether the first press of
+   * Add is what creates the meet document, whether a per-lifter answer reaches
+   * the entry it was tagged for, and whether the clock is running -- the coach
+   * path watches it from the first lifter onwards, unlike the solo path, because
+   * every row on the board is a countdown.
+   */
+  describe('coach mode', () => {
+    /** The planning screen, with §6.1 answered "Manage multiple lifters". */
+    async function coachMode(options: Options = {}): Promise<PtkMeetDayPlanner> {
+      const element = await mount(options);
+      await choose(element, MODE_FIELD, COACH_MODE);
+      return element;
+    }
+
+    /** The same, with a rule book to create a meet against. */
+    async function coachChosen(options: Options = {}): Promise<PtkMeetDayPlanner> {
+      const element = await coachMode(options);
+      await choose(element, FEDERATION_FIELD, (options.profiles ?? PROFILE_FIXTURES)[0]?.id ?? '');
+      return element;
+    }
+
+    function board(element: PtkMeetDayPlanner): Element | null {
+      return element.shadowRoot?.querySelector('ptk-coach-board') ?? null;
+    }
+
+    function roster(element: PtkMeetDayPlanner): Element | null {
+      return element.shadowRoot?.querySelector('ptk-coach-roster') ?? null;
+    }
+
+    /** Types a name into the roster and presses its Add button. */
+    async function addLifter(element: PtkMeetDayPlanner, name: string): Promise<void> {
+      if (name !== '') await type(element, ROSTER_NAME_FIELD, name);
+      const host = roster(element)?.shadowRoot?.querySelector('.add ptk-button');
+      if (host === null || host === undefined) throw new Error('No way to add a lifter.');
+      await press(element, host);
+    }
+
+    /** A board with one lifter on it, which is the smallest running meet. */
+    async function running(options: Options = {}): Promise<PtkMeetDayPlanner> {
+      const element = await coachChosen(options);
+      await addLifter(element, LIFTER_NAME);
+      // Positive control for everything below: the press really did create a
+      // document. Without it an assertion about a row passes against a screen
+      // that refused the add and drew no board at all.
+      if (board(element) === null) throw new Error('No board was drawn.');
+      return element;
+    }
+
+    /** The native input behind the roster's name field, two shadow roots down. */
+    function rosterNameBox(element: PtkMeetDayPlanner): HTMLInputElement {
+      const input = control(element, ROSTER_NAME_FIELD).shadowRoot?.querySelector('input');
+      if (!(input instanceof HTMLInputElement)) throw new Error('No name box on the roster.');
+      return input;
+    }
+
+    /** One row's name and identifier, which is the only place both are printed. */
+    function whoText(element: PtkMeetDayPlanner): string {
+      return board(element)?.shadowRoot?.querySelector('.who')?.textContent.trim() ?? '';
+    }
+
+    it('opens on §6.1 and takes the branch away once either meet is running', async () => {
+      // Both halves of the guard in one test, because the solo half is the one
+      // nothing else here reaches: a live meet hides the chooser for the same
+      // reason a board does, and a version that only checked `coach` would leave
+      // a lifter mid-meet one tap from a screen with no way back to it.
+      const element = await mount();
+      expect(controls(element, `[data-field="${MODE_FIELD}"]`)).toHaveLength(1);
+
+      const solo = await planned();
+      await startMeet(solo);
+
+      expect(controls(solo, `[data-field="${MODE_FIELD}"]`)).toEqual([]);
+    });
+
+    it('offers nowhere to add a lifter before there is a rule book', async () => {
+      // The roster is on screen from the first paint saying which question to
+      // answer, rather than appearing when the federation is chosen: a control
+      // materialising under a thumb is the same failure the start panel avoids
+      // on the solo path.
+      const element = await coachMode();
+
+      expect(roster(element)).not.toBeNull();
+      expect(controls(element, `[data-field="${ROSTER_NAME_FIELD}"]`)).toEqual([]);
+      expect(deepText(element)).toContain(ROSTER_NEEDS_A_FEDERATION);
+    });
+
+    it('creates the meet on the first lifter, and takes the setup questions away', async () => {
+      // `createMeetDocument` takes the rules and the meet type once and they are
+      // fixed from then on, which is what `ROSTER_STARTS_THE_MEET` promises
+      // before the press. A federation tile still on screen and still
+      // highlighting would be that promise broken in silence.
+      const element = await coachChosen();
+      expect(element.shadowRoot?.querySelector('ptk-planner-setup')).not.toBeNull();
+      expect(board(element)).toBeNull();
+
+      await addLifter(element, LIFTER_NAME);
+
+      expect(board(element)).not.toBeNull();
+      expect(deepText(element)).toContain(LIFTER_NAME);
+      expect(element.shadowRoot?.querySelector('ptk-planner-setup')).toBeNull();
+      expect(controls(element, `[data-field="${FEDERATION_FIELD}"]`)).toEqual([]);
+      // The unit question survives on its own, because it is about how every
+      // figure on the board is read rather than about what the meet is.
+      expect(controls(element, `[data-field="${UNIT_FIELD}"]`)).toHaveLength(1);
+      // And the box is empty for the next name. A coach adds a flight one after
+      // another, so a box that kept the last name means clearing it by hand
+      // eight times -- or adding Quintero twice, which the rules allow.
+      expect(rosterNameBox(element).value).toBe('');
+    });
+
+    it('adds the second lifter to the meet the first one started', async () => {
+      // The press that starts the meet and the press that adds to it are the
+      // same press, so the run has to be reused once it exists. Building a fresh
+      // document each time passes every single-lifter assertion in this file
+      // while wiping the board on every add -- a coach types eight names and
+      // reads one row, with no error anywhere to explain it.
+      const element = await running();
+
+      await addLifter(element, 'Okonkwo');
+
+      expect(board(element)?.shadowRoot?.querySelectorAll('article.row')).toHaveLength(2);
+      expect(deepText(element)).toContain(LIFTER_NAME);
+      expect(deepText(element)).toContain('Okonkwo');
+    });
+
+    it('reports a blank name rather than starting a meet nobody is in', async () => {
+      // The Add button is deliberately not disabled (a press on the `ptk-button`
+      // host's own padding runs the listener whatever the inner control's
+      // state), so this path is reachable with a real thumb. What must not
+      // happen is the half-started meet: `#startCoachMeet` builds a document,
+      // `add-lifter` refuses, and keeping that document would fix the federation
+      // and the meet type on a press that added nobody.
+      const element = await coachChosen();
+
+      await addLifter(element, '');
+
+      expect(deepText(element)).toContain('A meet needs a lifter name');
+      expect(board(element)).toBeNull();
+      // Still answerable: the federation was not fixed by a press that failed.
+      expect(controls(element, `[data-field="${FEDERATION_FIELD}"]`)).toHaveLength(1);
+    });
+
+    it('puts an identifier on the row of the lifter it was typed for', async () => {
+      // §21's distinctive identifier, through `#patchEntry` and out again in
+      // `buildBoardView`. Blank, the domain falls back to the row's position, so
+      // the two readings of this row are genuinely different sentences.
+      const element = await running();
+      const before = whoText(element);
+
+      await type(element, ROSTER_IDENTIFIER_FIELD, '14');
+
+      expect(whoText(element)).toContain('14');
+      expect(whoText(element)).not.toBe(before);
+    });
+
+    it('puts a chosen colour on the board as well as on the roster', async () => {
+      // The swatch is the only thing on the board that a colour produces, and it
+      // is drawn from the entry -- so its absence beforehand and presence after
+      // is the round trip through `#patchEntry` and `buildBoardView`, which no
+      // element test can see.
+      const element = await running();
+      expect(board(element)?.shadowRoot?.querySelector('.swatch')).toBeNull();
+
+      const chosen = COLOUR_CHOICES[1];
+      if (chosen === undefined) throw new Error('No colour to choose.');
+      await choose(element, ROSTER_COLOUR_FIELD, chosen.value);
+
+      expect(board(element)?.shadowRoot?.querySelector('.swatch')).not.toBeNull();
+      // §21 again: never the sole cue, so the roster still says it in words.
+      expect(deepText(roster(element) ?? element)).toContain(chosen.label.toLowerCase());
+    });
+
+    it('opens one lifter on their own platform screen, and comes back', async () => {
+      // §21.1's one tap. The board goes away rather than sitting behind the
+      // screen: they are two screens, and a coach scrolling past a live screen
+      // to reach the board they were just on is the §11 layout undone.
+      const element = await running();
+      const open = board(element)?.shadowRoot?.querySelector('ptk-button.open');
+      if (open === null || open === undefined) throw new Error('No way to open a lifter.');
+
+      await press(element, open);
+
+      expect(liveScreen(element)).not.toBeNull();
+      expect(board(element)).toBeNull();
+      expect(roster(element)).toBeNull();
+
+      await press(element, button(element, 'ptk-button.back'));
+
+      expect(board(element)).not.toBeNull();
+      expect(liveScreen(element)).toBeNull();
+    });
+
+    it('will not open a lifter the meet document has never heard of', async () => {
+      // The board re-sorts on the countdowns four times a second, so the row
+      // under a thumb at the start of a press is not necessarily the row under
+      // it at the end (§13.6). An id that no longer names anybody would open a
+      // screen `buildLiveView` answers null for, which renders as a meet that
+      // is over -- on a coach's phone, mid-flight, for a lifter who is fine.
+      const element = await running();
+
+      const forged = document.createElement('div');
+      element.append(forged);
+      teardown.push(() => {
+        forged.remove();
+      });
+      forged.dispatchEvent(
+        new CustomEvent<BoardOpenDetail>(BOARD_OPEN_EVENT, {
+          detail: { lifterId: 'nobody' },
+          bubbles: true,
+          composed: true,
+        }),
+      );
+      await settled(element);
+
+      expect(board(element)).not.toBeNull();
+      expect(liveScreen(element)).toBeNull();
+    });
+
+    it('will not switch branch out from under a running meet', async () => {
+      // `#renderMode` takes the control away once either meet exists, so this is
+      // unreachable by a tap -- and the listener is on the host, so a composed
+      // choice event tagged `mode` from anywhere else lands on it. Nothing is
+      // destroyed by the switch: both runs are still in memory. What is
+      // destroyed is the coach's way back to them, because the branch that
+      // renders it is the one that just went away.
+      const element = await running();
+      expect(controls(element, `[data-field="${MODE_FIELD}"]`)).toEqual([]);
+
+      const forged = document.createElement('div');
+      forged.dataset['field'] = MODE_FIELD;
+      element.append(forged);
+      teardown.push(() => {
+        forged.remove();
+      });
+      forged.dispatchEvent(
+        new CustomEvent<ChoiceChangeDetail>(CHOICE_CHANGE_EVENT, {
+          detail: { value: SOLO_MODE },
+          bubbles: true,
+          composed: true,
+        }),
+      );
+      await settled(element);
+
+      expect(board(element)).not.toBeNull();
+    });
+
+    it('asks what to do with figures typed before the branch was switched', async () => {
+      // The conversion question is rendered on the coach path as well as on the
+      // planning screens because it is about the session's figures rather than
+      // about a screen. A device that planned a solo meet and then switched
+      // still has typed weights, and a question raised with nowhere to appear
+      // would sit unanswered until the lifter went back and found it waiting.
+      const element = await mountChosen();
+      await type(element, EXPECTED_MAXIMUM_FIELD, '200', 'squat');
+
+      await choose(element, MODE_FIELD, COACH_MODE);
+      await choose(element, UNIT_FIELD, 'lb');
+
+      expect(deepText(element)).toContain('were typed in kilograms');
+    });
+
+    it('watches the clock from the first lifter onwards, including on a lifter', async () => {
+      // Unlike the solo path, which stops the clock behind the planning screens.
+      // The board *is* the countdown -- every row carries one and the ladder
+      // re-sorts on them -- so the only state with nothing moving is the one
+      // before there is a document at all.
+      const clock = manualClock(FIXED_INSTANT);
+      const element = await coachChosen({ clock });
+      expect(clock.watchers).toBe(0);
+
+      await addLifter(element, LIFTER_NAME);
+      expect(clock.watchers).toBe(1);
+
+      const open = board(element)?.shadowRoot?.querySelector('ptk-button.open');
+      if (open === null || open === undefined) throw new Error('No way to open a lifter.');
+      await press(element, open);
+      // One lifter's own screen is a live screen too, so it keeps counting.
+      expect(clock.watchers).toBe(1);
+
+      await press(element, button(element, 'ptk-button.back'));
+      expect(clock.watchers).toBe(1);
+    });
+
+    it('has no accessibility violations with the board on screen', async () => {
+      const element = await running();
+
+      const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
+      expect(results.violations.map((violation) => violation.id)).toEqual([]);
+    });
+
+    it('fits a phone-width column with the board and the roster on screen', async () => {
+      // Two screens' worth of content on one route: §21's rows and their
+      // controls above §21's roster and its folds, at 320 pixels (§5.7). §27
+      // forbids sideways scrolling on an urgent workflow outright, and a coach
+      // reading a board between flights is the definition of one.
+      const frame = document.createElement('div');
+      frame.style.width = '320px';
+      document.body.append(frame);
+      teardown.push(() => {
+        frame.remove();
+      });
+
+      const element = await running({ within: frame });
+
+      expect(board(element)).not.toBeNull();
       expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
     });
   });

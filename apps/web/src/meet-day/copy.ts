@@ -160,6 +160,35 @@ export function problemSentence(problem: PlanProblem): string {
  * ---------------------------------------------------------------------------
  */
 
+/**
+ * §6.1's opening choice, and the two branches that exist.
+ *
+ * The requirement names three: plan for one lifter, manage multiple lifters,
+ * and resume the active meet -- with the third the most prominent when there is
+ * one to resume. Nothing persists a meet across a reload yet (#52), so there is
+ * never an active meet to resume and the branch is deliberately absent rather
+ * than present and inert: a control that cannot do anything is never on screen
+ * (§5.11), and one that says "resume" and starts an empty meet is worse than
+ * one that is not there.
+ */
+export const SOLO_MODE = 'solo';
+export const COACH_MODE = 'coach';
+
+export const MODE_LABEL = 'What is this phone doing today?';
+
+export const MODE_CHOICES: readonly Choice[] = [
+  {
+    value: SOLO_MODE,
+    label: 'Plan for one lifter',
+    description: 'Your own nine attempts, from the plan to the platform.',
+  },
+  {
+    value: COACH_MODE,
+    label: 'Manage multiple lifters',
+    description: 'A board of everybody you are running, ordered by who needs you next.',
+  },
+];
+
 /** §6.2's meet type. */
 export const FORMAT_CHOICES: readonly Choice[] = [
   { value: 'full-power', label: 'Full power', description: 'Squat, bench and deadlift.' },
@@ -192,6 +221,18 @@ export const UNIT_CHOICES: readonly Choice[] = [
   { value: 'kg', label: 'Kilograms' },
   { value: 'lb', label: 'Pounds' },
 ];
+
+/**
+ * The unit question's own label, asked from two places.
+ *
+ * `ptk-planner-setup` asks it as one of §6.2's four, and the coach screen asks
+ * it on its own once the meet has started -- the federation and the meet type
+ * are fixed by then and come off the screen, and the unit is a reading rather
+ * than a decision (§16), so it keeps working. Written once because a control
+ * that changes the same setting under two different names is two settings as
+ * far as anybody reading the screen is concerned.
+ */
+export const UNIT_LABEL = 'Show weights in';
 
 /** The unit as a word in a sentence, where "kg" beside prose reads as a label. */
 export function unitWord(unit: WeightUnit): string {
@@ -2149,3 +2190,104 @@ export const PINNED_ONLY_LABEL = 'Pinned only';
 
 /** Said where the filter is on and has hidden everybody. */
 export const NO_PINNED_LIFTERS = 'No lifters are pinned.';
+
+/*
+ * ---------------------------------------------------------------------------
+ * §21's roster: who is on the board, and what this phone calls them.
+ *
+ * Two different kinds of answer live on one screen here and the wording has to
+ * keep them apart. A name goes into the meet document and is a fact about the
+ * meet; an identifier and a colour go into a `CoachBoardEntry` and are facts
+ * about this phone. Only the first is shared with anybody, which is why only
+ * the first is asked for in a sentence about the meet.
+ * ---------------------------------------------------------------------------
+ */
+
+export const ROSTER_HEADING = 'Lifters';
+
+export const ROSTER_NAME_LABEL = 'Add a lifter';
+
+export const ROSTER_NAME_HINT = 'Goes on the board and on every weight handed to the table.';
+
+export const ROSTER_ADD_LABEL = 'Add to the meet';
+
+/** Said before there is a rule book to check a weight against. */
+export const ROSTER_NEEDS_A_FEDERATION =
+  'Choose a federation above and lifters can be added to the board.';
+
+/** Said where the meet exists and nobody is in it. */
+export const ROSTER_EMPTY = 'Nobody has been added yet.';
+
+/**
+ * What adding the first lifter fixes, said before it is done.
+ *
+ * The same promise `MEET_IS_RUNNING_NOTE` makes on the solo path and for the
+ * same reason: the rules and the meet type are taken once, when the document is
+ * created, and a coach who changed the federation halfway through a flight would
+ * otherwise have the rest of it checked against a rule book the first attempts
+ * were never checked against. So the two questions come off the screen instead
+ * of staying on it saying nothing.
+ */
+export const ROSTER_STARTS_THE_MEET =
+  'Adding the first lifter starts the meet. The federation and the meet type are ' +
+  'fixed from that point, and everything else can still be changed.';
+
+export const ROSTER_IDENTIFIER_LABEL = 'Identifier';
+
+/**
+ * Why a lot number is worth typing, in the case that makes it worth typing.
+ *
+ * §21 requires a distinctive identifier per lifter and `coachBoard` fills a
+ * blank one with the row's position -- which is a number that moves as the board
+ * re-sorts. That is fine for a coach running two people and useless for one
+ * running eight, and the hint is where the difference is stated.
+ */
+export const ROSTER_IDENTIFIER_HINT =
+  'A lot number or a bib. Left blank, the board numbers the row instead, and that ' +
+  'number moves as the order changes.';
+
+export const ROSTER_COLOUR_LABEL = 'Colour';
+
+/**
+ * §21's colour, which is never the only cue and is therefore never required.
+ *
+ * The values are literal colours rather than design tokens: the swatch is drawn
+ * inside the board's shadow root and a custom property that failed to resolve
+ * there would pass `CSS.supports` and paint nothing, which is a swatch that is
+ * missing for a reason nobody can see. Every option is also named in words, so
+ * the choice itself is readable to somebody who cannot tell two of them apart --
+ * which is the whole reason the identifier sits beside it on the row.
+ */
+export const NO_COLOUR = 'none';
+
+export const COLOUR_CHOICES: readonly Choice[] = [
+  { value: NO_COLOUR, label: 'None' },
+  { value: '#c2410c', label: 'Orange' },
+  { value: '#1d4ed8', label: 'Blue' },
+  { value: '#15803d', label: 'Green' },
+  { value: '#7e22ce', label: 'Purple' },
+  { value: '#0f766e', label: 'Teal' },
+  { value: '#be185d', label: 'Pink' },
+];
+
+/**
+ * The colour as a word, for the line that stays visible when a row is folded.
+ *
+ * Falls back to the value itself rather than to "None", because a colour that is
+ * not on the list came from somewhere -- an import (§24), or a list that changed
+ * under a stored entry -- and saying "None" over a row that is drawing a swatch
+ * is the one answer that is definitely wrong.
+ */
+export function colourLabel(colour: string | null): string {
+  if (colour === null) return 'No colour';
+  return COLOUR_CHOICES.find((choice) => choice.value === colour)?.label ?? colour;
+}
+
+/** The fold's one visible line: what this phone calls the lifter inside it. */
+export function rosterSummary(identifier: string, colour: string | null): string {
+  const called = identifier.trim() === '' ? 'No identifier' : identifier.trim();
+  return `${called}, ${colourLabel(colour).toLowerCase()}`;
+}
+
+/** §21.1's way back from a lifter's own screen to the room. */
+export const BACK_TO_BOARD_LABEL = 'Back to the board';

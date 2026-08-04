@@ -32,7 +32,13 @@ import '@platform-toolkit/ui';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 
-import { FIRST_MEET_CHOICES, FORMAT_CHOICES, GOAL_CHOICES, UNIT_CHOICES } from './copy.js';
+import {
+  FIRST_MEET_CHOICES,
+  FORMAT_CHOICES,
+  GOAL_CHOICES,
+  UNIT_CHOICES,
+  UNIT_LABEL,
+} from './copy.js';
 import {
   FEDERATION_FIELD,
   FIRST_MEET_FIELD,
@@ -44,6 +50,20 @@ import { EMPTY_SESSION, firstMeetValueOf, type PlannerSession } from './session.
 
 /** Where the published rule profiles have got to. */
 export type ProfilesStatus = 'loading' | 'ready' | 'failed';
+
+/**
+ * Whose meet the answers are about (§6.1).
+ *
+ * Two of the four questions are about the person holding the phone rather than
+ * about the meet: whether this is their first one, and what the day is for.
+ * A coach running other people's attempts has no answer to either, and the goal
+ * in particular is load-bearing -- it decides how much §7 asks of a third
+ * attempt, so a coach's own untouched answer would quietly shape nine other
+ * people's plans. Dropping the two questions is what stops that, and it is a
+ * property rather than a second element because the other two questions, their
+ * four read states and the profile note under them are identical in both.
+ */
+export type SetupScope = 'solo' | 'coach';
 
 @customElement('ptk-planner-setup')
 export class PtkPlannerSetup extends LitElement {
@@ -84,47 +104,61 @@ export class PtkPlannerSetup extends LitElement {
 
   @property({ type: String }) status: ProfilesStatus = 'loading';
 
+  @property({ type: String }) scope: SetupScope = 'solo';
+
   override render(): TemplateResult {
-    const setup = this.session.setup;
     return html`
       <div class="questions">
-        ${this.#renderFederation()}
+        ${this.#renderFederation()} ${this.#renderMeet()} ${this.#renderLifter()}
+      </div>
+    `;
+  }
 
-        <div class="pair">
-          <ptk-choice-group
-            data-field=${FORMAT_FIELD}
-            label="Meet type"
-            .choices=${FORMAT_CHOICES}
-            .value=${setup.format}
-          ></ptk-choice-group>
-
-          <ptk-choice-group
-            data-field=${UNIT_FIELD}
-            label="Show weights in"
-            .choices=${UNIT_CHOICES}
-            .value=${setup.unit}
-          ></ptk-choice-group>
-        </div>
-
+  /** The two questions every scope asks: which lifts, and in which unit. */
+  #renderMeet(): TemplateResult {
+    const setup = this.session.setup;
+    return html`
+      <div class="pair">
         <ptk-choice-group
-          data-field=${FIRST_MEET_FIELD}
-          label="Is this your first meet?"
-          .choices=${FIRST_MEET_CHOICES}
-          .value=${firstMeetValueOf(setup.firstMeet)}
+          data-field=${FORMAT_FIELD}
+          label="Meet type"
+          .choices=${FORMAT_CHOICES}
+          .value=${setup.format}
         ></ptk-choice-group>
 
-        <div>
-          <ptk-choice-group
-            data-field=${GOAL_FIELD}
-            label="What is the day for?"
-            .choices=${GOAL_CHOICES}
-            .value=${setup.goal}
-          ></ptk-choice-group>
-          <p class="note">
-            Every goal opens conservatively. The goal decides how much is asked of the third
-            attempt, and nothing here makes an opener a gamble.
-          </p>
-        </div>
+        <ptk-choice-group
+          data-field=${UNIT_FIELD}
+          label=${UNIT_LABEL}
+          .choices=${UNIT_CHOICES}
+          .value=${setup.unit}
+        ></ptk-choice-group>
+      </div>
+    `;
+  }
+
+  /** The two questions only the lifter themselves can answer. */
+  #renderLifter(): TemplateResult | typeof nothing {
+    if (this.scope !== 'solo') return nothing;
+    const setup = this.session.setup;
+    return html`
+      <ptk-choice-group
+        data-field=${FIRST_MEET_FIELD}
+        label="Is this your first meet?"
+        .choices=${FIRST_MEET_CHOICES}
+        .value=${firstMeetValueOf(setup.firstMeet)}
+      ></ptk-choice-group>
+
+      <div>
+        <ptk-choice-group
+          data-field=${GOAL_FIELD}
+          label="What is the day for?"
+          .choices=${GOAL_CHOICES}
+          .value=${setup.goal}
+        ></ptk-choice-group>
+        <p class="note">
+          Every goal opens conservatively. The goal decides how much is asked of the third attempt,
+          and nothing here makes an opener a gamble.
+        </p>
       </div>
     `;
   }
