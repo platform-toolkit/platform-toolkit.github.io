@@ -116,8 +116,10 @@ import { systemClock, type Clock } from '../clock.js';
 
 import './ptk-coach-board.js';
 import './ptk-coach-roster.js';
+import './ptk-handler-pack.js';
 import './ptk-live-screen.js';
 import './ptk-meet-checklist.js';
+import './ptk-meet-pack.js';
 import './ptk-meet-prep.js';
 import './ptk-plan-extras.js';
 import './ptk-plan-method.js';
@@ -131,12 +133,21 @@ import {
   COACH_MODE,
   CONVERSION_CONFIRMATION_NOTE,
   CONVERT_ANSWER,
+  HANDLER_PACK_HEADING,
+  HANDLER_PACK_HIDE_LABEL,
+  HANDLER_PACK_SHOW_LABEL,
+  HANDLER_PACK_SUMMARY,
   LIFTER_NAME_HINT,
   LIFTER_NAME_LABEL,
   MEET_IS_RUNNING_NOTE,
   MODE_CHOICES,
   MODE_LABEL,
   NO_COLOUR,
+  PACK_HEADING,
+  PACK_HIDE_LABEL,
+  PACK_PRINT_NOTE,
+  PACK_SHOW_LABEL,
+  PACK_SUMMARY,
   PREP_HEADING,
   PREP_SUMMARY,
   RETURN_TO_MEET_LABEL,
@@ -240,6 +251,7 @@ import {
   SUBMISSION_MARKED_EVENT,
   type SubmissionMarkedDetail,
 } from './ptk-submission-countdown.js';
+import { buildHandlerPack, buildMeetPack, type HandlerPack, type MeetPack } from './pack.js';
 import { EMPTY_VIEW, buildPlan, type PlanContext, type PlannerView } from './plan.js';
 import {
   EMPTY_SESSION,
@@ -403,6 +415,85 @@ export class PtkMeetDayPlanner extends LitElement {
       padding: 0;
       list-style: none;
     }
+
+    /*
+     * Everything on this element except §23's sheet, in one box that is not a
+     * box.
+     *
+     * display: contents means the wrapper draws nothing and its children are
+     * the host grid's own items, so the screen lays out exactly as it did
+     * before it existed. What it buys is the print rule below: one selector
+     * takes the whole interactive screen off the paper, instead of a list of
+     * controls that goes stale the next time one is added. A div with no role
+     * is also the one element display: contents is uncontroversial on -- it
+     * contributes nothing to the accessibility tree either way.
+     *
+     * It is rendered only where a sheet is rendered beside it. Otherwise the
+     * print rule would empty a page and put nothing in its place, which on the
+     * platform screen is a lifter pressing Print and getting a blank sheet.
+     */
+    .screen {
+      display: contents;
+    }
+
+    .pack {
+      display: grid;
+      gap: var(--ptk-space-sm);
+    }
+
+    .pack h2 {
+      margin: 0;
+    }
+
+    /*
+     * Full width for the reason the Start control is (above): a control sized
+     * to its own label lands wherever the label happens to end.
+     */
+    .pack ptk-button {
+      width: 100%;
+    }
+
+    /*
+     * Shut on screen, and note that this is the *only* thing that shuts it. The
+     * sheet is in the DOM from the first paint whatever the toggle says, which
+     * is what makes PACK_PRINT_NOTE true: a template branch would give a blank
+     * page to every lifter who never pressed Show, with nothing on screen
+     * saying why.
+     *
+     * data-shut rather than the hidden attribute because tokens.css writes
+     * hidden as display: none !important, and no print rule can outrank that.
+     */
+    ptk-meet-pack[data-shut],
+    ptk-handler-pack[data-shut] {
+      display: none;
+    }
+
+    /*
+     * Paper. One of the three files §23 has to be written across, and the only
+     * one that can see this element's own children -- the page stylesheet
+     * cannot reach in here and this block cannot reach out.
+     */
+    @media print {
+      .screen {
+        display: none;
+      }
+
+      /*
+       * The heading, the summary, the toggle and the note are all about the
+       * screen. The sheet carries its own title and the rulebook it was built
+       * against, which is the part that has to survive a photocopy.
+       */
+      .pack h2,
+      .pack .note,
+      .pack ptk-button {
+        display: none;
+      }
+
+      ptk-meet-pack[data-shut],
+      ptk-handler-pack[data-shut] {
+        display: block;
+      }
+    }
   `;
 
   /**
@@ -529,6 +620,35 @@ export class PtkMeetDayPlanner extends LitElement {
   @state() private customItemRefusal: CustomItemRefusal | null = null;
 
   /**
+   * Whether §23's sheet is on the screen. It is on the paper either way.
+   *
+   * Two things about this are decisions rather than details, and both were
+   * arrived at from the same constraint -- that a print rule cannot cross a
+   * shadow boundary in either direction:
+   *
+   * **Not a `ptk-disclosure`.** Every other long thing on this screen is behind
+   * one, and this cannot be: a `<details>` inside the fold's own shadow root is
+   * reachable by neither this element's `static styles` nor the page's
+   * stylesheet, so nothing could force it open for printing. A shut fold prints
+   * shut or prints open depending on the engine, and either way the choice was
+   * made by whoever last tapped it. So the section is a heading, a button and
+   * the sheet, all in *this* shadow root, where the `@media print` block above
+   * can reach every one of them.
+   *
+   * **The sheet is always rendered and hidden with CSS, never dropped from the
+   * template.** `PACK_PRINT_NOTE` promises that the browser's own Print command
+   * produces the sheet whatever else is on the screen, and a template branch
+   * would make that false for the state the screen opens in -- Print would give
+   * a blank page and there would be nothing on screen saying why. The attribute
+   * is `data-shut` rather than `hidden` because `tokens.css` writes
+   * `[hidden] { display: none !important }`, which no print rule can outrank.
+   */
+  @state() private showingPack = false;
+
+  /** §23.2's roster sheet on the coach board. Same reasoning as `showingPack`. */
+  @state() private showingRoster = false;
+
+  /**
    * The unit the figures on screen were typed in, while that differs from the
    * unit they are being read in.
    *
@@ -648,7 +768,18 @@ export class PtkMeetDayPlanner extends LitElement {
     if (run !== null && run.openLifterId !== null) {
       return this.#renderCoachLifter(run, run.openLifterId);
     }
-    return html`
+    // Read once, here, and shared with §23.2's sheet below. Twice in one paint
+    // is two instants on one screen, and this screen is nothing but countdowns.
+    const board =
+      run === null
+        ? null
+        : buildBoardView(run.timeline.present, {
+            rules: run.rules,
+            chart: this.chart,
+            entries: run.entries,
+            now: this.clock.now(),
+          });
+    const screen = html`
       ${this.#renderMode()}
       ${
         run === null
@@ -671,20 +802,10 @@ export class PtkMeetDayPlanner extends LitElement {
       }
       ${this.#renderConversion()} ${this.#renderProblems('problems')}
       ${
-        run === null
+        board === null
           ? nothing
           : html`
-              <ptk-coach-board
-                .view=${buildBoardView(run.timeline.present, {
-                  rules: run.rules,
-                  chart: this.chart,
-                  entries: run.entries,
-                  // Read once, here. Twice in one paint is two instants on one
-                  // screen, and this screen is nothing but countdowns.
-                  now: this.clock.now(),
-                })}
-                .unit=${this.session.setup.unit}
-              ></ptk-coach-board>
+              <ptk-coach-board .view=${board} .unit=${this.session.setup.unit}></ptk-coach-board>
             `
       }
 
@@ -693,6 +814,11 @@ export class PtkMeetDayPlanner extends LitElement {
         name=${this.rosterName}
         ?ready=${this.#context() !== null}
       ></ptk-coach-roster>
+    `;
+    if (run === null || board === null) return screen;
+    return html`
+      <div class="screen">${screen}</div>
+      ${this.#renderRoster(buildHandlerPack(run.timeline.present, board, this.chart, run.rules))}
     `;
   }
 
@@ -774,7 +900,7 @@ export class PtkMeetDayPlanner extends LitElement {
    */
   #renderPlanning(): TemplateResult {
     const view = this.#view();
-    return html`
+    const screen = html`
       ${this.#renderRunning()} ${this.#renderMode()}
 
       <ptk-planner-setup
@@ -790,6 +916,82 @@ export class PtkMeetDayPlanner extends LitElement {
       <ptk-plan-extras .session=${this.session}></ptk-plan-extras>
 
       ${this.#renderPlan(view)} ${this.#renderStart(view)} ${this.#renderPrep()}
+    `;
+    const pack = this.#meetPack(view);
+    if (pack === null) return screen;
+    return html`
+      <div class="screen">${screen}</div>
+      ${this.#renderPack(pack)}
+    `;
+  }
+
+  /**
+   * §23.1's sheet, or `null` before there is a rule book to build it against.
+   *
+   * Built on every paint of the planning screen and never memoised, for the
+   * reason `liveChoicesFor` and `buildLiveView` are not (§13.1, §13.5): a
+   * remembered sheet is free to disagree with the plan printed above it, and
+   * the disagreement would be discovered on paper, in a gym bag, where it
+   * cannot be corrected. It is not on the clock -- the solo planning screen
+   * repaints on a keystroke and nothing else -- so the scratch timeline
+   * `buildMeetPack` walks is built at the rate a lifter types.
+   *
+   * `at` is stamped on those scratch actions and never printed, which is what
+   * makes reading the clock here safe where `apps/web/CLAUDE.md` says not to:
+   * nothing on the sheet is a time, so two instants in one paint could not show
+   * up as two.
+   */
+  #meetPack(view: PlannerView | null): MeetPack | null {
+    const context = this.#context();
+    if (context === null || view === null) return null;
+    return buildMeetPack({
+      rules: context.rules,
+      chart: this.chart,
+      session: this.session,
+      view,
+      prep: this.prep,
+      checklistContext: this.#checklistContext(),
+      lifterName: this.lifterName,
+      at: this.clock.now(),
+    });
+  }
+
+  /**
+   * §23.1 on the screen: a heading, a toggle, and the sheet under both.
+   *
+   * Deliberately not a `ptk-disclosure`, which is what everything else this
+   * long on this screen is. A `<details>` lives inside the fold's own shadow
+   * root, where neither this element's `static styles` nor the page stylesheet
+   * can reach it -- so nothing could force it open for printing, and a fold
+   * prints in whatever state the last tap left it in. The heading and the
+   * button do the fold's job in a place the print rules can see.
+   */
+  #renderPack(pack: MeetPack): TemplateResult {
+    return html`
+      <section class="pack">
+        <h2>${PACK_HEADING}</h2>
+        <p class="note">${PACK_SUMMARY}</p>
+        <ptk-button variant="secondary" @click=${this.#onTogglePack}>
+          ${this.showingPack ? PACK_HIDE_LABEL : PACK_SHOW_LABEL}
+        </ptk-button>
+        <p class="note">${PACK_PRINT_NOTE}</p>
+        <ptk-meet-pack .pack=${pack} ?data-shut=${!this.showingPack}></ptk-meet-pack>
+      </section>
+    `;
+  }
+
+  /** §23.2 on the coach board. The same arrangement, for the same reasons. */
+  #renderRoster(pack: HandlerPack): TemplateResult {
+    return html`
+      <section class="pack">
+        <h2>${HANDLER_PACK_HEADING}</h2>
+        <p class="note">${HANDLER_PACK_SUMMARY}</p>
+        <ptk-button variant="secondary" @click=${this.#onToggleRoster}>
+          ${this.showingRoster ? HANDLER_PACK_HIDE_LABEL : HANDLER_PACK_SHOW_LABEL}
+        </ptk-button>
+        <p class="note">${PACK_PRINT_NOTE}</p>
+        <ptk-handler-pack .pack=${pack} ?data-shut=${!this.showingRoster}></ptk-handler-pack>
+      </section>
     `;
   }
 
@@ -1614,6 +1816,19 @@ export class PtkMeetDayPlanner extends LitElement {
 
   readonly #onBackToPlan = (): void => {
     this.viewingPlan = true;
+  };
+
+  /*
+   * Both toggles move a screen state and nothing else. Neither one decides
+   * whether the sheet is printed -- that is `@media print`, unconditionally --
+   * so pressing Hide before pressing Print still produces the sheet.
+   */
+  readonly #onTogglePack = (): void => {
+    this.showingPack = !this.showingPack;
+  };
+
+  readonly #onToggleRoster = (): void => {
+    this.showingRoster = !this.showingRoster;
   };
 
   readonly #onReturnToMeet = (): void => {

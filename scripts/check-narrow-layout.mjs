@@ -474,6 +474,30 @@ const MEET_DAY_CLICK_LAST = ['section.start ptk-button button'];
 const MEET_DAY_PREP_CLICK = ['ptk-disclosure.prep summary'];
 
 /**
+ * Show the printable sheet (§23), which both meet-day screens carry.
+ *
+ * Unlike every other press in this file, this one really is what puts the rows
+ * on the page: a shut sheet is `display: none` in the root's own styles rather
+ * than a folded `<details>`, so it generates no box at all and `MEASURE` skips
+ * it -- `ptk-meet-day-planner.browser.test.ts` asserts exactly that computed
+ * value. So the sheet would otherwise be the one panel in the tool that ships
+ * unmeasured, which matters more here than anywhere else: it is the widest thing
+ * either screen draws (a twelve-lifter roster is a name, an identifier, a
+ * handler and nine cells across, and the single-lifter sheet carries the
+ * longest labels in the tool over a written-on line).
+ *
+ * The native control inside the host, for the reason Start is pressed that way.
+ *
+ * Named by `section.pack` and not by the element inside it because the two
+ * screens hang different sheets off the same section -- one selector drives both
+ * routes, and a sheet moved out of that section fails here rather than quietly
+ * going unmeasured. Prove it by renaming the selector; measurement cannot say
+ * whether the press ran, because a sheet that fits contributes no finding
+ * either way.
+ */
+const MEET_DAY_PACK_CLICK = ['section.pack ptk-button button'];
+
+/**
  * §6.1's other branch, then the rule book the meet is created against.
  *
  * The mode tile is named by the value inside it rather than by `.first()`, which
@@ -759,7 +783,7 @@ const ROUTES = [
     reveal: [],
     fill: MEET_DAY_FILL,
     clickAfter: MEET_DAY_CLICK_AFTER,
-    clickLast: MEET_DAY_PREP_CLICK,
+    clickLast: [...MEET_DAY_PREP_CLICK, ...MEET_DAY_PACK_CLICK],
     // An attempt card, not a field and not the plan element itself. The element
     // is in the DOM from the first paint carrying one sentence about a
     // federation nobody has chosen; a card exists only once all three
@@ -774,10 +798,18 @@ const ROUTES = [
     // a 44px tap target carrying a whole sentence. Both are listed because the
     // fold holds two independent elements and neither one arriving implies the
     // other.
+    //
+    // Then §23.1's sheet, named by an attempt row rather than by the element:
+    // `ptk-meet-pack` is in the DOM from the first paint that has a view, so it
+    // would settle against a sheet holding nothing but a heading. A row exists
+    // only once the plan behind it does, which is the same gate the first
+    // selector names -- and it is the line the sheet is widest on, an attempt
+    // number, a weight, the published pounds and a subtotal in 320px.
     settle: [
       'ptk-plan-screen li.attempt',
       'ptk-meet-prep ptk-text-area[data-field="deadliftNotes"]',
       'ptk-meet-checklist ptk-toggle-group[data-group="bring"]',
+      'ptk-meet-pack li.attempt',
     ],
   },
   /*
@@ -835,7 +867,7 @@ const ROUTES = [
     reveal: [],
     fill: MEET_DAY_COACH_FILL,
     clickAfter: MEET_DAY_COACH_CLICK_AFTER,
-    clickLast: MEET_DAY_COACH_CLICK_LAST,
+    clickLast: [...MEET_DAY_COACH_CLICK_LAST, ...MEET_DAY_PACK_CLICK],
     // A board row and the widest thing inside the fold below it, because the
     // screen paints in two stages and both halves are measured: the row exists
     // only if the press above created a meet document, and the colour tiles
@@ -846,9 +878,16 @@ const ROUTES = [
     // `input` to hold a *value*, and nobody has typed an identifier -- so that
     // selector would wait out its hundred polls and fail on a screen that had
     // rendered perfectly.
+    //
+    // Then §23.2's roster, named by a lifter block for the reason the plan
+    // route names an attempt row: the sheet exists from the paint that has a
+    // board, and what has to have arrived is a lifter on it. This is the widest
+    // thing the tool draws on paper or on screen -- a name, a board identifier,
+    // who is handling, and three lift rows of three cells each.
     settle: [
       'ptk-coach-board article.row',
       'ptk-coach-roster ptk-choice-group[data-field="roster-colour"]',
+      'ptk-handler-pack .lifter',
     ],
   },
   {

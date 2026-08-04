@@ -55,6 +55,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { manualClock, type ManualClock } from '../clock.js';
 import { deepText } from '../testing/deep-text.js';
+import { printRule } from '../testing/print-rules.js';
 import {
   CHECKLIST_HEADING,
   COACH_MODE,
@@ -93,7 +94,7 @@ import type { ProfilesStatus } from './ptk-planner-setup.js';
 import {
   FEDERATION_CHANGE_EVENT,
   type FederationChangeDetail,
-  type PtkMeetDayPlanner,
+  PtkMeetDayPlanner,
 } from './ptk-meet-day-planner.js';
 import './ptk-meet-day-planner.js';
 import { MEET_DAY_PREFERENCES, loadSession, saveSession } from './session.js';
@@ -1439,6 +1440,27 @@ describe('ptk-meet-day-planner', () => {
       expect(clock.watchers).toBe(1);
     });
 
+    it('draws §23.2 only once there is a lifter to print, and draws them shut', async () => {
+      // The roster is built from the board, so before the first Add there is
+      // nothing to print -- and an empty sheet under a heading saying "Printable
+      // roster" is worse than no section, because a coach who prints it finds
+      // out at the expeditor's table. Both halves, because a section that never
+      // appears at all satisfies the first assertion perfectly.
+      const element = await coachChosen();
+      expect(element.shadowRoot?.querySelector('ptk-handler-pack')).toBeNull();
+
+      await addLifter(element, LIFTER_NAME);
+      const sheet = element.shadowRoot?.querySelector('ptk-handler-pack');
+      if (sheet === null || sheet === undefined) throw new Error('No roster sheet on the board.');
+
+      expect(sheet.hasAttribute('data-shut')).toBe(true);
+      // Rendered rather than merely present: the sheet is in the DOM from the
+      // first paint whatever the toggle says, which is the whole reason the
+      // print rule can reach it. A template branch here would print blank.
+      expect(sheet.shadowRoot?.querySelectorAll('.lifter')).toHaveLength(1);
+      expect(sheet.shadowRoot?.textContent).toContain(LIFTER_NAME);
+    });
+
     it('has no accessibility violations with the board on screen', async () => {
       const element = await running();
 
@@ -1794,6 +1816,121 @@ describe('ptk-meet-day-planner', () => {
 
       expect(deepText(element)).toContain(CHECKLIST_HEADING);
       expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
+    });
+  });
+
+  describe('the printable sheets (§23)', () => {
+    /**
+     * The sheet itself, which is a child of this element and not of a fold.
+     *
+     * Read off the root's own shadow root rather than through {@link controls},
+     * because where it sits in that tree is the thing under test: a sheet
+     * nested inside a `ptk-disclosure` would be unreachable from the print
+     * block, which is the arrangement `#renderPack`'s header rules out.
+     */
+    function packSheet(element: PtkMeetDayPlanner): Element {
+      const found = element.shadowRoot?.querySelector('ptk-meet-pack');
+      if (found === null || found === undefined) throw new Error('No printable sheet on screen.');
+      return found;
+    }
+
+    /** The one control that opens and shuts it. */
+    function packToggle(element: PtkMeetDayPlanner): Element {
+      const found = element.shadowRoot?.querySelector('section.pack ptk-button');
+      if (found === null || found === undefined) throw new Error('No way to show the sheet.');
+      return found;
+    }
+
+    it('wraps the screen only where a sheet is rendered beside it', async () => {
+      // The wrapper exists to be blanked on paper, so drawing one with nothing
+      // to put in its place is a lifter pressing Print and getting an empty
+      // page. Both states, because a root that never wraps anything satisfies
+      // the first half and prints the screens over the sheet.
+      const bare = await mount();
+      expect(bare.shadowRoot?.querySelector('ptk-meet-pack')).toBeNull();
+      expect(bare.shadowRoot?.querySelector('.screen')).toBeNull();
+
+      const element = await mountChosen();
+      const wrapper = element.shadowRoot?.querySelector('.screen');
+      if (wrapper === null || wrapper === undefined) throw new Error('The screen is not wrapped.');
+      expect(printRule(PtkMeetDayPlanner.styles, '.screen').getPropertyValue('display')).toBe(
+        'none',
+      );
+      // And on screen the wrapper generates no box at all, so every child goes
+      // on laying out against the host exactly as it did before §23 existed.
+      // A `div` here would put a block between the host's grid and its rows.
+      expect(getComputedStyle(wrapper).display).toBe('contents');
+    });
+
+    it('renders the whole sheet before anybody presses Show', async () => {
+      // The claim `PACK_PRINT_NOTE` makes to the lifter: print works whether or
+      // not the sheet was ever on screen. A template branch behind the toggle
+      // would satisfy every other assertion in this block and hand a blank page
+      // to everyone who never pressed it -- and paper is where that is found.
+      const element = await mountChosen();
+      const sheet = packSheet(element);
+
+      expect(sheet.hasAttribute('data-shut')).toBe(true);
+      expect(sheet.shadowRoot?.querySelectorAll('section.lift')).toHaveLength(3);
+      expect(getComputedStyle(sheet).display).toBe('none');
+    });
+
+    it('opens the sheet and renames the control that opened it', async () => {
+      const element = await mountChosen();
+      const toggle = packToggle(element);
+      const shut = toggle.textContent.trim();
+
+      await press(element, toggle);
+      const open = toggle.textContent.trim();
+      expect(packSheet(element).hasAttribute('data-shut')).toBe(false);
+
+      // Asserted as a difference plus one pinned fragment rather than against
+      // `PACK_SHOW_LABEL` and `PACK_HIDE_LABEL`, per §13.8: an expected value
+      // computed by the module under test moves with the code. A control that
+      // never renames itself is a lifter pressing Show twice and hiding the
+      // sheet they just asked for.
+      expect(open).not.toBe(shut);
+      expect(shut).toContain('Show');
+      expect(open).toContain('Hide');
+
+      await press(element, toggle);
+      expect(packSheet(element).hasAttribute('data-shut')).toBe(true);
+    });
+
+    it('prints a sheet the lifter left shut, which is the only reason data-shut is not hidden', async () => {
+      // The one promise that lives nowhere but here. `ptk-meet-pack` owns its
+      // own paper half and `check:narrow` presses the toggle, so a rule that
+      // printed only what was on screen would break no other test in the
+      // repository -- and the failure is a blank page in a gym bag.
+      const element = await mountChosen();
+      expect(packSheet(element).hasAttribute('data-shut')).toBe(true);
+
+      // Named with the whole comma-separated selector because that is what the
+      // CSSOM calls a grouped rule; matching one half would be the substring
+      // search `print-rules.ts` exists to avoid.
+      expect(
+        printRule(
+          PtkMeetDayPlanner.styles,
+          'ptk-meet-pack[data-shut], ptk-handler-pack[data-shut]',
+        ).getPropertyValue('display'),
+      ).toBe('block');
+    });
+
+    it('leaves the screen chrome off the paper, heading and toggle alike', async () => {
+      const element = await mountChosen();
+      const section = element.shadowRoot?.querySelector('section.pack');
+
+      // The DOM half names all three: `printRule` proves the rule exists and
+      // sets what it claims, and cannot see whether anything matches it.
+      expect(section?.querySelector('h2')).not.toBeNull();
+      expect(section?.querySelectorAll('.note').length).toBeGreaterThan(0);
+      expect(section?.querySelector('ptk-button')).not.toBeNull();
+      expect(
+        printRule(
+          PtkMeetDayPlanner.styles,
+          '.pack h2, .pack .note, .pack ptk-button',
+        ).getPropertyValue('display'),
+      ).toBe('none');
     });
   });
 

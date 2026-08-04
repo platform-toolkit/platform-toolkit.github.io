@@ -148,3 +148,53 @@ body[data-embedded='true'] > main {
   padding-inline: max(var(--ptk-space-sm), env(safe-area-inset-left))
     max(var(--ptk-space-sm), env(safe-area-inset-right));
 }
+
+/*
+ * Paper, and the site's third of the job.
+ *
+ * §23's Meet Pack is the first thing in the collection anybody prints, and the
+ * rules for it have to be written in three files because neither direction
+ * crosses a shadow boundary: this sheet can reach the page chrome and nothing
+ * inside a tool, a tool's `static styles` can reach its own children and nothing
+ * outside. So this file hides the header and the gutters, the planner hides its
+ * own other children, and `ptk-meet-pack` styles the sheet. A single stylesheet
+ * would be tidier and would not work.
+ *
+ * It is unconditional rather than scoped to the one page that is printed. No
+ * other page in the collection has printing as a use case, so hiding the site
+ * chrome everywhere costs nothing and cannot be forgotten by the next tool that
+ * grows a sheet.
+ */
+@media print {
+  /*
+   * Black on white whatever the theme. A dark theme printed as authored is light
+   * text on white paper -- a blank sheet with the toner spent on the borders --
+   * and neither of `tokens.css`'s two dark blocks is reset by print media, since
+   * `prefers-color-scheme` is about the display and says nothing about paper.
+   * `color-scheme` goes with it, or the engine keeps drawing form controls and
+   * the canvas behind the page in dark.
+   */
+  :root {
+    color-scheme: light;
+  }
+
+  body {
+    color: #000;
+    background: #fff;
+  }
+
+  /*
+   * The site's own header is three lines of chrome -- a back link, the tool's
+   * name and a tagline -- on a sheet whose whole value is density. The pack
+   * carries its own heading and the rulebook it was built against, which is the
+   * part that has to survive a photocopy.
+   */
+  .page > header {
+    display: none;
+  }
+
+  .page {
+    max-width: none;
+    padding: 0;
+  }
+}

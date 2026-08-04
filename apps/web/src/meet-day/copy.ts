@@ -35,6 +35,7 @@ import {
   type AttemptWeight,
   type BombOutRisk,
   type CoachBoardActionCode,
+  type CoachBoardConflictCode,
   type CoachBoardRemaining,
   type CoachBoardUrgency,
   type CurrentAttempt,
@@ -45,6 +46,7 @@ import {
   type JumpEvidence,
   type LiveAttempt,
   type LiveChoice,
+  type LiveChoiceReason,
   type LiveChoiceSlot,
   type LiveTarget,
   type LiveTargetKind,
@@ -73,6 +75,7 @@ import { type Choice } from '@platform-toolkit/ui';
 
 import type { BoardLifterRef, BoardRowConflict } from './board.js';
 import type { LivePosition, NextActionCode, SubmissionUrgency, UrgentNote } from './live.js';
+import type { HandlerWriteInCode, PackOmissionCode } from './pack.js';
 import type { PlanProblem } from './plan.js';
 import {
   CUSTOM_ITEM_MAX,
@@ -83,6 +86,7 @@ import {
   type ChecklistGroup,
   type ChecklistItemId,
   type CustomItemRefusal,
+  type LifterSetup,
   type SetupProblem,
 } from './prep.js';
 import {
@@ -1687,7 +1691,7 @@ function liftListText(lifts: readonly PlatformLift[]): string {
 }
 
 /** "a", "a and b", "a, b and c". No serial comma, matching the rest of this file. */
-function listText(items: readonly string[]): string {
+export function listText(items: readonly string[]): string {
   if (items.length <= 1) return items.join('');
   const last = items[items.length - 1] ?? '';
   return `${items.slice(0, -1).join(', ')} and ${last}`;
@@ -2607,3 +2611,310 @@ export function checklistProgressText(done: number, total: number): string {
  */
 export const PREP_SCOPE_NOTE =
   'This is a packing and errand list. It says nothing about cutting weight, eating, drinking to a schedule, or anything you take -- ask your coach and the meet staff.';
+
+/*
+ * =============================================================================
+ * §23 -- THE MEET PACK, ON PAPER
+ * =============================================================================
+ *
+ * WHY THIS BLOCK IS WRITTEN FOR A READER WHO CANNOT ASK A FOLLOW-UP QUESTION
+ *
+ * Every other sentence in this file is read next to a control. A tap clarifies
+ * it, a fold expands it, and a wording that is 90% clear costs somebody two
+ * seconds. §23's reader has a dead phone. Nothing here can be clarified, so
+ * three rules apply to this block and to nothing above it:
+ *
+ *   - **A heading has to survive being read out of order.** A sheet comes out of
+ *     a bag folded, upside down, with one page missing. "Second attempt" is not a
+ *     heading; "If the opener went like this, take this" is, because it says what
+ *     the rows underneath are for without the page above it.
+ *   - **An omission is a sentence, never a gap.** A missing warm-up ramp reads as
+ *     a lost page, and a lifter who thinks they have lost a page spends their
+ *     warm-up looking for it. Each omission below says what is not here and why
+ *     in one line, in the place the section would have been.
+ *   - **The assumption the table is standing on is printed with the table.** The
+ *     third-attempt rows assume the second was made. On the live screen that
+ *     assumption is a fact the app knows; on paper it is a condition the reader
+ *     has to check, and an unchecked condition is how a lifter takes the wrong
+ *     weight after a miss they did not think counted.
+ *
+ * §10.2 still applies here and applies harder: this sheet is read alone, so a
+ * word like "should" that reads as advice on a screen reads as a prediction on
+ * paper. Nothing below says whether a lift will be made.
+ */
+
+/** The fold on the planning screen, and the button inside it. */
+export const PACK_HEADING = 'Printable pack';
+export const PACK_SUMMARY = 'Everything above on one sheet, for a dead battery';
+
+export const PACK_SHOW_LABEL = 'Show the printable pack';
+export const PACK_HIDE_LABEL = 'Hide the printable pack';
+
+/**
+ * How to get it onto paper, which is the browser's job and not this tool's.
+ *
+ * No Print button. A button would call `window.print()`, which is a native
+ * dialog a component cannot test around, and it would be the only control in
+ * this collection that takes over the browser. What the print stylesheet does
+ * instead is make the browser's own Print command produce this sheet and nothing
+ * else, from anywhere on the planning screen -- so the sentence names the command
+ * the reader already has rather than adding one they do not.
+ */
+export const PACK_PRINT_NOTE =
+  "Use your browser's Print command. Whatever else is on this screen, printing gives you this sheet.";
+
+/** The line under the heading of the printed sheet itself. */
+export function packRulesLine(
+  rulesLabel: string,
+  rulebookLabel: string,
+  revision: string,
+  verifiedOn: string,
+): string {
+  return `${rulesLabel} -- ${rulebookLabel}, revision ${revision}, read on ${verifiedOn}`;
+}
+
+/**
+ * The sheet's own title, which carries the name because paper gets separated.
+ *
+ * Two lifters in one flight print two packs and a handler puts both on the same
+ * table. Without a name on the first line the only thing distinguishing them is
+ * a rack height, which is exactly the number somebody is about to set a monolift
+ * to. A lifter who has typed no name gets the untitled form rather than a
+ * dangling dash.
+ */
+export function packTitle(lifterName: string): string {
+  return lifterName === '' ? 'Meet pack' : `Meet pack -- ${lifterName}`;
+}
+
+export const PACK_SETUP_HEADING = 'Rack and safety heights';
+
+/**
+ * What a blank row on the printed setup section is for.
+ *
+ * The blanks are kept on purpose (`pack.ts` says why), and without this line
+ * they read as a tool that failed to fill something in. A lifter finds out their
+ * rack height at the rack, and this sheet is what is in their hand there.
+ */
+export const PACK_SETUP_BLANK_NOTE = 'Blank rows are for the numbers you find at the rack.';
+
+export const PACK_SCHEDULE_HEADING = 'Flight, platform and times';
+
+export const PACK_ATTEMPTS_HEADING = 'Planned attempts';
+
+export const PACK_TARGETS_HEADING = 'What you came for';
+
+export const PACK_CHECKLIST_HEADING = 'Checklist';
+
+export const PACK_NOTES_HEADING = 'Your notes';
+
+/*
+ * There is deliberately no heading over the contingency area as a whole. One was
+ * written and removed: `packContingencyHeading` below already says "If the opener
+ * went like this, take this second attempt" over each block, so a heading above
+ * them reading the same thing in shorter words is the same sentence twice, and
+ * the outer one is the one a folded sheet hides.
+ */
+
+/**
+ * The heading over one attempt's worth of branches.
+ *
+ * Names both ends -- which attempt was taken and which one is being decided --
+ * because §23's reader has the sheet folded to one section and no way to see the
+ * heading above it. "Second attempt" over a block of weights is ambiguous in
+ * exactly the direction that costs one: it reads as "the second attempt is 185"
+ * to somebody who has just missed their opener.
+ */
+export function packContingencyHeading(attemptNumber: number): string {
+  return attemptNumber === 2
+    ? 'If the opener went like this, take this second attempt'
+    : 'If the second went like this, take this third attempt';
+}
+
+/**
+ * Why a branch is the weight it is, as a phrase rather than a sentence.
+ *
+ * The domain already writes one short sentence per reason and the live screen
+ * prints it. This is deliberately not that sentence, for the reason
+ * `packConflictLabel` is not `conflictSentence`: a contingency block is six rows
+ * of up to three branches, so eighteen sentences under one heading is a page of
+ * prose covering a table of six numbers. A phrase sits on the same line as the
+ * weight it explains. Total over the union, so a reason added later cannot print
+ * a bare weight with nothing saying what it is.
+ */
+export function packReasonPhrase(reason: LiveChoiceReason): string {
+  switch (reason) {
+    case 'continue-the-plan':
+      return 'the plan';
+    case 'upper-end-of-the-plan':
+      return 'top of the planned range';
+    case 'one-increment-above-the-plan':
+      return 'one step above the plan';
+    case 'one-increment-below-the-plan':
+      return 'one step under the plan';
+    case 'smallest-legal-increase':
+      return 'smallest legal increase';
+    case 'reduced-to-bank-the-lift':
+      return 'under the plan, to bank the lift';
+    case 'the-plan-unreduced':
+      return 'the plan, unchanged';
+    case 'repeat-the-same-weight':
+      return 'the same weight again';
+    case 'reaches-a-target':
+      return 'lightest weight that still reaches a target';
+    case 'pass-this-lift':
+      return 'take no further attempt on this lift';
+  }
+}
+
+/** Which branch §13 puts forward, said in words beside the mark that shows it. */
+export const PACK_HIGHLIGHTED_NOTE = 'Suggested';
+
+/** The subtotal under one lift, and the planned total under all of them. */
+export function packSubtotalText(kilograms: number, unit: WeightUnit): string {
+  return `Best case for this lift: ${weightText(kilograms, unit)}`;
+}
+
+export function packPlannedTotalText(kilograms: number, unit: WeightUnit): string {
+  return `Planned total: ${weightText(kilograms, unit)}`;
+}
+
+/** What a lift with no agreed plan prints, so the gap is a sentence (§23). */
+export const PACK_NO_PLAN = 'No plan agreed for this lift, so there is nothing to print.';
+
+/**
+ * The condition every third-attempt row is standing on.
+ *
+ * Printed beside the rows rather than once at the top of the sheet: the top of
+ * the sheet is not what somebody is looking at while they read a row, and a
+ * caveat that is one section away from the thing it qualifies is a caveat that
+ * does not exist.
+ */
+export const PACK_CONTINGENCY_ASSUMPTION = 'Assumes the attempts before this one were made.';
+
+/** The three column headings of a contingency row, from §13's own three slots. */
+export function packSlotHeading(slot: LiveChoiceSlot): string {
+  return slotLabel(slot);
+}
+
+/** What a branch offering no weight means, which is a decision and not a blank. */
+export const PACK_NO_WEIGHT = 'Pass / stop this lift';
+
+/**
+ * Why a section §23 asks for is not on the sheet.
+ *
+ * One sentence each, in the place the section would have been, and each one says
+ * what to do instead. Total over the union: a code with no sentence would print
+ * an empty heading, which is the lost-page failure this whole mechanism exists to
+ * avoid.
+ */
+export function packOmissionSentence(code: PackOmissionCode): string {
+  switch (code) {
+    case 'warm-up-ramp':
+      return 'No warm-up ramp is printed. This tool has not been told what bar and plates the warm-up room has, and a ramp against the wrong plate set is a set of weights that room cannot load.';
+    case 'records':
+      return 'No record list is printed. This tool has not read a record book for this meet; the figures under "What you came for" are the ones you typed in.';
+    case 'qualifying-standards':
+      return 'No qualifying totals are printed, for the same reason. If you are chasing one, it is the total you typed in.';
+  }
+}
+
+export const PACK_OMISSIONS_HEADING = 'Not on this sheet';
+
+/*
+ * -----------------------------------------------------------------------------
+ * §23.2 -- the handler's roster sheet.
+ * -----------------------------------------------------------------------------
+ */
+
+export const HANDLER_PACK_HEADING = 'Printable roster';
+export const HANDLER_PACK_SUMMARY = 'Every lifter on one sheet, for a dead battery';
+
+export const HANDLER_PACK_SHOW_LABEL = 'Show the printable roster';
+export const HANDLER_PACK_HIDE_LABEL = 'Hide the printable roster';
+
+export function handlerPackTitle(format: MeetFormat): string {
+  return `Handler roster -- ${formatLabel(format)}`;
+}
+
+export const HANDLER_PACK_LIFTERS_HEADING = 'Lifters';
+export const HANDLER_PACK_CONFLICTS_HEADING = 'Clashes';
+export const HANDLER_PACK_NO_HANDLERS = 'Nobody assigned';
+
+/**
+ * A column with no data behind it, which is a column to write in.
+ *
+ * Not an omission sentence: an omission says a section is absent, and these
+ * sections are present and empty on purpose. Nothing in this tool holds a flight
+ * or a rack height *per lifter* -- §22.1 is one lifter's own answers, typed on
+ * their own phone -- so a handler fills these in from the sheet on the wall, and
+ * the sheet has to leave them room rather than pretend it asked.
+ */
+export function handlerWriteInLabel(code: HandlerWriteInCode): string {
+  switch (code) {
+    case 'flight':
+      return 'Flight';
+    case 'platform':
+      return 'Platform';
+    case 'rack-settings':
+      return 'Rack';
+    case 'results':
+      return 'Result';
+  }
+}
+
+export const HANDLER_PACK_WRITE_IN_NOTE =
+  "The last columns are blank on purpose: this tool is not told the flight order, the platform, or each lifter's rack settings. Fill them in from the sheet on the wall.";
+
+/**
+ * One §21.2 warning, short enough to sit in a roster cell.
+ *
+ * Not `conflictSentence`, and the difference is the names. That function tells
+ * the clash from one row's point of view and lists the other lifters, which is
+ * right on a board read one row at a time and wrong on a roster where those
+ * lifters are the rows above and below -- twelve rows each naming two others is
+ * a page of names and no warnings. Total over the union for the reason
+ * `packOmissionSentence` is: a code with no label prints an empty bullet, and an
+ * empty bullet under "Clashes" reads as a line somebody tore off.
+ */
+export function packConflictLabel(code: CoachBoardConflictCode): string {
+  switch (code) {
+    case 'submission-deadlines-overlap':
+      return 'Declaration clocks close together';
+    case 'called-at-the-same-time':
+      return 'Called at the same time';
+    case 'handler-in-two-places':
+      return 'Handler wanted in two places';
+    case 'wrapping-at-the-same-time':
+      return 'Wrapping at the same time';
+    case 'shared-rack-loading-clash':
+      return 'Shared bar at a different weight';
+    case 'warm-up-during-another-attempt':
+      return 'Final warm-up lands during an attempt';
+    case 'change-moves-the-order':
+      return 'A change here moves the order';
+  }
+}
+
+/**
+ * A §22.1 answer as words, for a reader with no tile group in front of them.
+ *
+ * Three of the sixteen answers are stored as enum codes, and a sheet printing
+ * `own-handler` beside "Handoff" is a hyphenated identifier where a person
+ * expected an instruction. The mapping goes through the same choice lists the
+ * form draws, so the paper and the screen cannot come to say different things
+ * about one answer. Everything else is the lifter's own text and is passed
+ * through untouched -- reformatting what somebody wrote down for themselves is
+ * the one edit this sheet must not make.
+ */
+export function packSetupValue(field: keyof LifterSetup, value: string): string {
+  if (value === '') return '';
+  const choices = PACK_ENUM_CHOICES[field];
+  if (choices === undefined) return value;
+  return choices.find((choice) => choice.value === value)?.label ?? value;
+}
+
+const PACK_ENUM_CHOICES: Partial<Record<keyof LifterSetup, readonly Choice[]>> = {
+  squatStart: SQUAT_START_CHOICES,
+  handoff: HANDOFF_CHOICES,
+  footBlocks: FOOT_BLOCKS_CHOICES,
+};
