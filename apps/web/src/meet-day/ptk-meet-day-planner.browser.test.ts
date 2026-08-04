@@ -40,8 +40,11 @@ import {
   type ChoiceChangeDetail,
   NUMBER_FIELD_CHANGE_EVENT,
   type NumberFieldChangeDetail,
+  PtkDisclosure,
   TEXT_FIELD_CHANGE_EVENT,
   type TextFieldChangeDetail,
+  TOGGLE_GROUP_CHANGE_EVENT,
+  type ToggleGroupChangeDetail,
 } from '@platform-toolkit/ui';
 // Padding, gaps and the 44px tap-target floor all read custom properties, and a
 // declaration referencing an undefined one is dropped -- so without this the
@@ -53,6 +56,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { manualClock, type ManualClock } from '../clock.js';
 import { deepText } from '../testing/deep-text.js';
 import {
+  CHECKLIST_HEADING,
   COACH_MODE,
   COLOUR_CHOICES,
   CONVERT_ANSWER,
@@ -65,18 +69,22 @@ import {
 import {
   CONFIRM_FIELD,
   CONVERT_FIELD,
+  CUSTOM_ITEM_FIELD,
   EXPECTED_MAXIMUM_FIELD,
   FEDERATION_FIELD,
   FORMAT_FIELD,
   LIFTER_NAME_FIELD,
   MODE_FIELD,
   OTHER_WEIGHT_FIELD,
+  PREP_NOTES_FIELD,
+  REMOVE_CUSTOM_ITEM_FIELD,
   ROSTER_COLOUR_FIELD,
   ROSTER_IDENTIFIER_FIELD,
   ROSTER_NAME_FIELD,
   UNIT_FIELD,
 } from './fields.js';
 import { MEET_PROFILE_FIXTURE } from './meet-rules.fixture.js';
+import { CUSTOM_ITEM_MAX, PREP_NOTES_MAX } from './prep.js';
 import { PROBABILITY_WORDS, PROFILE_FIXTURES, plannerSession } from './planner-fixture.js';
 import { BOARD_OPEN_EVENT, type BoardOpenDetail } from './ptk-coach-board.js';
 import { UNDO_REQUEST_EVENT, type UndoRequestDetail } from './ptk-live-screen.js';
@@ -414,6 +422,154 @@ async function requestStaleUndo(element: PtkMeetDayPlanner): Promise<void> {
     }),
   );
   await settled(element);
+}
+
+/*
+ * -----------------------------------------------------------------------------
+ * §22's preparation fold.
+ *
+ * A DOM READ CANNOT DISTINGUISH "RECORDED" FROM "DROPPED"
+ *
+ * This is the trap the whole block below is arranged around, so it is stated
+ * once here rather than eleven times. Lit commits a property binding only when
+ * the *bound value* changes between renders. If the root drops a setup answer,
+ * `this.prep` never changes, nothing re-renders, and the native input keeps the
+ * text the lifter just typed -- so typing into a box and reading it back is
+ * vacuous under exactly the mutation it looks like it is testing. The same goes
+ * for clicking a tile and reading its `checked`.
+ *
+ * The observables that do work are the ones computed *from* `prep`: a refusal
+ * ({@link refusalUnder}), the checklist's progress line ({@link progressText}),
+ * and whether a custom row is on the list at all. For the three tile groups
+ * there is no such observable -- `appliesWhen` keys the rack row off the format
+ * rather than off `squatStart`, so none of the three feeds the checklist -- and
+ * the only honest route is a mode round trip, which destroys and rebuilds
+ * `ptk-meet-prep` so its first render binds the state's own answer.
+ * -----------------------------------------------------------------------------
+ */
+
+/**
+ * §22's fold, which the root draws itself.
+ *
+ * Scoped to the root's own shadow root rather than searched at depth: the
+ * checklist inside it draws a second `ptk-disclosure` for §22.2's removals, and
+ * a deep search would find whichever came first in tree order and go on
+ * "finding the fold" after this one stopped being rendered.
+ */
+function prepFold(element: PtkMeetDayPlanner): PtkDisclosure | null {
+  const found = element.shadowRoot?.querySelector('ptk-disclosure') ?? null;
+  return found instanceof PtkDisclosure ? found : null;
+}
+
+/**
+ * Opens the fold by setting `open`, never by pressing the summary.
+ *
+ * `<details>` fires `toggle` asynchronously, so a press leaves the test reading
+ * the state before the one it asked for -- the §13.6 rule, arriving again.
+ */
+async function openPrep(element: PtkMeetDayPlanner): Promise<PtkMeetDayPlanner> {
+  const fold = prepFold(element);
+  if (fold === null) throw new Error('No preparation fold to open.');
+  fold.open = true;
+  await settled(element);
+  return element;
+}
+
+/** The refusal under one field, or the empty string when it is not refusing. */
+function refusalUnder(element: PtkMeetDayPlanner, field: string): string {
+  return deepControl(element, field).shadowRoot?.querySelector('.error')?.textContent.trim() ?? '';
+}
+
+/** What one text box holds, read off the native control rather than the host. */
+function boxValue(element: PtkMeetDayPlanner, field: string): string {
+  const inner = deepControl(element, field).shadowRoot?.querySelector('input, textarea');
+  if (inner instanceof HTMLInputElement || inner instanceof HTMLTextAreaElement) return inner.value;
+  throw new Error(`No text box for "${field}".`);
+}
+
+/** {@link typeDeep} for a `ptk-text-area`, which holds no `input` to type into. */
+async function typeAreaDeep(
+  element: PtkMeetDayPlanner,
+  field: string,
+  text: string,
+): Promise<void> {
+  const area = deepControl(element, field).shadowRoot?.querySelector('textarea');
+  if (!(area instanceof HTMLTextAreaElement)) throw new Error(`No text area for "${field}".`);
+  area.value = text;
+  area.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+  await settled(element);
+}
+
+/** {@link choose}, at any depth. */
+async function chooseDeep(element: PtkMeetDayPlanner, field: string, value: string): Promise<void> {
+  const radio = [...(deepControl(element, field).shadowRoot?.querySelectorAll('input') ?? [])].find(
+    (input) => input.value === value,
+  );
+  if (radio === undefined) throw new Error(`No option "${value}" for "${field}".`);
+  radio.click();
+  await settled(element);
+}
+
+/** Which tile a group is showing as chosen. */
+function chosenUnder(element: PtkMeetDayPlanner, field: string): string | null {
+  const chosen = [
+    ...(deepControl(element, field).shadowRoot?.querySelectorAll('input') ?? []),
+  ].find((input) => input.checked);
+  return chosen?.value ?? null;
+}
+
+/** One checklist group, addressed by the attribute the root reads it back by. */
+function checklistGroup(element: PtkMeetDayPlanner, group: string): Element {
+  const [found] = deepControls(element, `[data-group="${group}"]`);
+  if (found === undefined) throw new Error(`No "${group}" group on the checklist.`);
+  return found;
+}
+
+/** Every row a group is offering, in the order it offers them. */
+function rowValues(element: PtkMeetDayPlanner, group: string): string[] {
+  return [...(checklistGroup(element, group).shadowRoot?.querySelectorAll('input') ?? [])].map(
+    (input) => input.value,
+  );
+}
+
+/** Ticks or unticks one row, by clicking its box the way a thumb does. */
+async function tickRow(element: PtkMeetDayPlanner, group: string, itemId: string): Promise<void> {
+  const box = [
+    ...(checklistGroup(element, group).shadowRoot?.querySelectorAll('input') ?? []),
+  ].find((input) => input.value === itemId);
+  if (box === undefined) throw new Error(`No "${itemId}" row under "${group}".`);
+  box.click();
+  await settled(element);
+}
+
+/** The checklist's own count of what is ticked, which is derived from `prep`. */
+function progressText(element: PtkMeetDayPlanner): string {
+  const [checklist] = deepControls(element, '.progress');
+  return checklist?.textContent.trim() ?? '';
+}
+
+/** Presses Add, beside the box a row is named in. */
+async function pressAdd(element: PtkMeetDayPlanner): Promise<void> {
+  const [add] = deepControls(element, '.add ptk-button');
+  if (add === undefined) throw new Error('No way to add a row.');
+  await press(element, add);
+}
+
+/** Opens the removal fold and presses the button for one row. */
+async function removeRow(element: PtkMeetDayPlanner, label: string): Promise<void> {
+  // Named by what it holds, because both folds on this screen are the same
+  // element and the removals one is not the one `prepFold` returns.
+  const [fold] = deepControls(element, 'ptk-disclosure:has(.removals)');
+  if (!(fold instanceof PtkDisclosure)) throw new Error('No removal fold.');
+  // The same rule as `openPrep`: `<details>` toggles asynchronously.
+  fold.open = true;
+  await settled(element);
+
+  const button = deepControls(element, `[data-field="${REMOVE_CUSTOM_ITEM_FIELD}"]`).find((row) =>
+    row.textContent.includes(label),
+  );
+  if (button === undefined) throw new Error(`No way to remove "${label}".`);
+  await press(element, button);
 }
 
 describe('ptk-meet-day-planner', () => {
@@ -1305,6 +1461,338 @@ describe('ptk-meet-day-planner', () => {
       const element = await running({ within: frame });
 
       expect(board(element)).not.toBeNull();
+      expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
+    });
+  });
+
+  describe('the preparation fold (§22)', () => {
+    it('is on the solo planning screen and on neither of the other two', async () => {
+      // The placement §22 asks for, stated as the two screens it is *not* on.
+      // A fold that followed the lifter into live mode would be the thing §22
+      // exists to prevent -- a packing list beside a sixty-second countdown --
+      // and one on the coach board would be one lifter's rack heights presented
+      // as the room's. §22.1 is one lifter's own settings; a per-lifter copy is
+      // task #52.
+      const solo = await mountChosen();
+      expect(prepFold(solo)).not.toBeNull();
+
+      await choose(solo, MODE_FIELD, COACH_MODE);
+      expect(prepFold(solo)).toBeNull();
+
+      const running = await planned();
+      await startMeet(running);
+      // The positive control for the third assertion: a meet that failed to
+      // start leaves the planning screen up, where the fold is *supposed* to be
+      // absent for no reason at all, and the assertion below passes on that.
+      expect(liveScreen(running)).not.toBeNull();
+      expect(prepFold(running)).toBeNull();
+    });
+
+    it('opens shut, because none of it is urgent', async () => {
+      const element = await mountChosen();
+
+      expect(prepFold(element)?.open).toBe(false);
+    });
+
+    it('records a typed setup answer under the key its control carries', async () => {
+      // The round trip that only the root can be wrong about. §22.1 names its
+      // fields by their `LifterSetup` key rather than by a constant per box, so
+      // fourteen of the sixteen reach `#onText`'s `default` -- the branch that
+      // used to be a bare return.
+      //
+      // Asserted through the refusal rather than by reading the box back. The
+      // box holds what was typed whether or not anything recorded it: nothing
+      // re-renders when the state does not change, so the obvious assertion
+      // passes against a root that drops every answer. The refusal is computed
+      // from `prep` and can only appear if the answer arrived.
+      const element = await openPrep(await mountChosen());
+      expect(refusalUnder(element, 'weighInTime')).toBe('');
+
+      await typeDeep(element, 'weighInTime', 'early doors');
+
+      expect(refusalUnder(element, 'weighInTime')).not.toBe('');
+      // The control: one field refusing is the requirement, sixteen refusing is
+      // a form that argues with a lifter who has answered one question.
+      expect(refusalUnder(element, 'liftingStartTime')).toBe('');
+    });
+
+    it('records a chosen setup tile, converted rather than stored as its text', async () => {
+      // Three of the sixteen answers are closed vocabularies, and a computed
+      // object key is checked by nothing -- TypeScript accepts a raw string
+      // against `Partial<LifterSetup>` for any key of it -- so the conversion in
+      // `withSetupAnswer` is what stands between a tile and §2.4's silent
+      // coercion.
+      //
+      // Read back after a trip through the coach branch, which is the only way
+      // to read it at all: a radio a lifter clicked stays visually checked
+      // whether or not anything recorded it, and no re-render can un-click it.
+      // Switching branch destroys the planning tree, so coming back builds a
+      // `ptk-meet-prep` whose first render is the state's own answer.
+      const element = await mountChosen();
+      await openPrep(element);
+      await chooseDeep(element, 'squatStart', 'monolift');
+
+      await choose(element, MODE_FIELD, COACH_MODE);
+      await choose(element, MODE_FIELD, SOLO_MODE);
+      await openPrep(element);
+
+      expect(chosenUnder(element, 'squatStart')).toBe('monolift');
+    });
+
+    it('records a note through the text-area event, which is a different event', async () => {
+      // §22.1's two prose boxes and §22.2's notes report `ptk-text-change`, not
+      // `ptk-text-field-change`. A root wired to only the field event loses the
+      // commands a lifter wrote out in full, and loses them silently -- the box
+      // goes on showing them until something else repaints.
+      const element = await openPrep(await mountChosen());
+      expect(refusalUnder(element, PREP_NOTES_FIELD)).toBe('');
+
+      await typeAreaDeep(element, PREP_NOTES_FIELD, 'x'.repeat(PREP_NOTES_MAX + 1));
+
+      expect(refusalUnder(element, PREP_NOTES_FIELD)).not.toBe('');
+    });
+
+    it('ticks a checklist row, and counts it', async () => {
+      const element = await openPrep(await mountChosen());
+      expect(progressText(element)).toContain('0 of');
+
+      await tickRow(element, 'bring', 'belt');
+
+      expect(progressText(element)).toContain('1 of');
+    });
+
+    it('unticks one group without clearing another', async () => {
+      // The reason `withCheckedRows` takes the rows it is allowed to touch as
+      // well as the ones that are ticked. A toggle group reports its *whole*
+      // selection, so "nothing under Do at the venue" and "nothing anywhere" are
+      // the same empty array arriving at the root; without the scope, unticking
+      // the last row of one group clears the whole bag.
+      const element = await openPrep(await mountChosen());
+      await tickRow(element, 'bring', 'belt');
+      await tickRow(element, 'do', 'weigh-in');
+      expect(progressText(element)).toContain('2 of');
+
+      await tickRow(element, 'do', 'weigh-in');
+
+      expect(progressText(element)).toContain('1 of');
+    });
+
+    it('adds a row of the lifter own, and empties the box that named it', async () => {
+      // Clearing the box is the root's job and nothing else can do it: the
+      // element reports the text with the press and holds no state. A box left
+      // full is the next row pre-filled with the last one, which `addCustomItem`
+      // then refuses as a duplicate.
+      const element = await openPrep(await mountChosen());
+      await typeDeep(element, CUSTOM_ITEM_FIELD, 'Mouthguard');
+      await pressAdd(element);
+
+      expect(deepText(element)).toContain('Mouthguard');
+      expect(boxValue(element, CUSTOM_ITEM_FIELD)).toBe('');
+    });
+
+    it('keeps the text where the lifter typed it when the row is refused', async () => {
+      // Shortening beats retyping, and the refusal sentence says to shorten it.
+      const tooLong = 'x'.repeat(CUSTOM_ITEM_MAX + 1);
+      const element = await openPrep(await mountChosen());
+      await typeDeep(element, CUSTOM_ITEM_FIELD, tooLong);
+      await pressAdd(element);
+
+      expect(refusalUnder(element, CUSTOM_ITEM_FIELD)).not.toBe('');
+      expect(boxValue(element, CUSTOM_ITEM_FIELD)).toBe(tooLong);
+    });
+
+    it('takes the refusal down as soon as the text it was about changes', async () => {
+      // The §13.11 shape, third time in this file: a sentence that outlives the
+      // thing it was about. The positive control is the refusal being up first,
+      // because a root that never refuses passes the second half on its own.
+      const element = await openPrep(await mountChosen());
+      await typeDeep(element, CUSTOM_ITEM_FIELD, 'x'.repeat(CUSTOM_ITEM_MAX + 1));
+      await pressAdd(element);
+      expect(refusalUnder(element, CUSTOM_ITEM_FIELD)).not.toBe('');
+
+      await typeDeep(element, CUSTOM_ITEM_FIELD, 'Mouthguard');
+
+      expect(refusalUnder(element, CUSTOM_ITEM_FIELD)).toBe('');
+    });
+
+    it('removes a row somebody added, and only that row', async () => {
+      const element = await openPrep(await mountChosen());
+      await typeDeep(element, CUSTOM_ITEM_FIELD, 'Mouthguard');
+      await pressAdd(element);
+      await typeDeep(element, CUSTOM_ITEM_FIELD, 'Spare singlet');
+      await pressAdd(element);
+
+      await removeRow(element, 'Mouthguard');
+
+      expect(deepText(element)).not.toContain('Mouthguard');
+      expect(deepText(element)).toContain('Spare singlet');
+    });
+
+    it('ignores a setup answer from a control this tool never rendered', async () => {
+      // §13.6, §13.11 and §13.13's guard lesson, arriving where it costs most:
+      // the `default` branch of `#onText` now writes rather than returning, so
+      // the only thing keeping it from accepting any tagged event on the host is
+      // `isSetupField`. The test that bites is a foreign composed event, not a
+      // second control -- and the positive control is a real field going in
+      // through the same handler afterwards.
+      const element = await openPrep(await mountChosen());
+      const forged = document.createElement('div');
+      forged.dataset['field'] = 'weighInTime-ish';
+      element.append(forged);
+      teardown.push(() => {
+        forged.remove();
+      });
+
+      forged.dispatchEvent(
+        new CustomEvent<TextFieldChangeDetail>(TEXT_FIELD_CHANGE_EVENT, {
+          detail: { value: 'early doors' },
+          bubbles: true,
+          composed: true,
+        }),
+      );
+      await settled(element);
+      expect(refusalUnder(element, 'weighInTime')).toBe('');
+
+      await typeDeep(element, 'weighInTime', 'early doors');
+      expect(refusalUnder(element, 'weighInTime')).not.toBe('');
+    });
+
+    it('ignores a tick reported for a group with no rows on this meet', async () => {
+      // The other half of the same guard, on the other attribute. `#tickChecklist`
+      // re-derives the rows rather than trusting the report, so a group name that
+      // reaches no rows -- a stale control, or a forged event -- writes nothing
+      // instead of clearing the tool's idea of a group it cannot see.
+      const element = await openPrep(await mountChosen());
+      await tickRow(element, 'bring', 'belt');
+      expect(progressText(element)).toContain('1 of');
+
+      const forged = document.createElement('div');
+      forged.dataset['group'] = 'own';
+      element.append(forged);
+      teardown.push(() => {
+        forged.remove();
+      });
+      forged.dispatchEvent(
+        new CustomEvent<ToggleGroupChangeDetail>(TOGGLE_GROUP_CHANGE_EVENT, {
+          detail: { value: 'belt', selected: false, values: [] },
+          bubbles: true,
+          composed: true,
+        }),
+      );
+      await settled(element);
+
+      expect(progressText(element)).toContain('1 of');
+    });
+
+    it('reads the group off the nearest element carrying it, not off the one that fired', async () => {
+      // `attributeOf` walks the composed path, and the walk is what a mutation
+      // found unexercised: both of its callers read an attribute that today sits
+      // on the element the event is dispatched from, so a version stopping at the
+      // first `HTMLElement` passed the whole suite. `#liftOf` is the same loop
+      // over `data-lift`, which `ptk-plan-method` *does* put on a wrapper -- so
+      // the shape below is not hypothetical, it is the shape the other two walks
+      // are already in, and the day a group heading owns the attribute this is
+      // the difference between a tick landing and nothing happening.
+      //
+      // Nested the wrong way round on purpose: an outer `do` around an inner
+      // `bring`, fired from a leaf inside both. Only the nearest one has "belt"
+      // among its rows, so a walk that ran to the end of the path would scope the
+      // write to the four `do` rows, find "belt" in none of them, and leave the
+      // count where it started -- which is also what stopping too early does.
+      const element = await openPrep(await mountChosen());
+      expect(progressText(element)).toContain('0 of');
+
+      const outer = document.createElement('div');
+      outer.dataset['group'] = 'do';
+      const inner = document.createElement('div');
+      inner.dataset['group'] = 'bring';
+      const leaf = document.createElement('span');
+      inner.append(leaf);
+      outer.append(inner);
+      element.append(outer);
+      teardown.push(() => {
+        outer.remove();
+      });
+      leaf.dispatchEvent(
+        new CustomEvent<ToggleGroupChangeDetail>(TOGGLE_GROUP_CHANGE_EVENT, {
+          detail: { value: 'belt', selected: true, values: ['belt'] },
+          bubbles: true,
+          composed: true,
+        }),
+      );
+      await settled(element);
+
+      expect(progressText(element)).toContain('1 of');
+    });
+
+    it('keeps every answer out of the store the setup answers go to', async () => {
+      // §13.4's line, and the reason none of this goes through `#setSession`. A
+      // rack height belongs to a venue and a lot number to one Saturday; saved,
+      // they would greet a lifter at their second meet as though they were
+      // theirs, which is worse than a blank form because it is wrong rather than
+      // empty. Persisting a whole meet is task #52 and comes with its own
+      // consent question.
+      // Read off the storage rather than off the six known keys: the claim is
+      // that none of this is written *anywhere*, and a `MEET_DAY_PREFERENCES`
+      // lookup can only ever confirm that the answers did not land in the six
+      // slots that were never going to hold them.
+      const storage = memoryPreferenceStorage();
+      const element = await openPrep(
+        await mountChosen({ settings: createPreferenceStore(storage) }),
+      );
+      await typeDeep(element, 'squatRackHeight', 'rack fourteen');
+      await typeDeep(element, CUSTOM_ITEM_FIELD, 'Mouthguard');
+      await pressAdd(element);
+      await tickRow(element, 'bring', 'belt');
+      // The control: the setup answers that *are* settings still get written, so
+      // this cannot pass against a tool that stores nothing at all.
+      await choose(element, UNIT_FIELD, 'lb');
+
+      // Joined rather than compared entry by entry: what is being asserted is
+      // that three strings are nowhere on the device, and the store encodes each
+      // value as JSON, so a key holding `"lb"` is not the string `lb`.
+      const written = storage.keys().map((key) => storage.read(key) ?? '');
+      expect(written.join(' ')).toContain('lb');
+      expect(written.join(' ')).not.toContain('rack fourteen');
+      expect(written.join(' ')).not.toContain('Mouthguard');
+      expect(written.join(' ')).not.toContain('belt');
+    });
+
+    it('asks the checklist about the meet the lifter answered for', async () => {
+      // The context is rebuilt from the session on every render rather than
+      // held, so a corrected format reaches the list. Bench-only contests no
+      // deadlift, and the socks are one of the four rows the change withdraws.
+      const element = await openPrep(await mountChosen());
+      expect(rowValues(element, 'bring')).toContain('deadlift-socks');
+
+      await choose(element, FORMAT_FIELD, 'bench-only');
+
+      expect(rowValues(element, 'bring')).not.toContain('deadlift-socks');
+      // The control: the list did not simply empty.
+      expect(rowValues(element, 'bring')).toContain('bench-shoes');
+    });
+
+    it('has no accessibility violations with the fold open', async () => {
+      const element = await openPrep(await mountChosen());
+      const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
+      expect(results.violations.map((violation) => violation.id)).toEqual([]);
+    });
+
+    it('fits a phone-width column with the fold open', async () => {
+      // Sixteen labelled boxes and twenty-three tick rows, at 320 pixels (§5.7),
+      // under everything else this screen already draws.
+      const frame = document.createElement('div');
+      frame.style.width = '320px';
+      document.body.append(frame);
+      teardown.push(() => {
+        frame.remove();
+      });
+
+      const element = await openPrep(await mountChosen({ within: frame }));
+      await typeDeep(element, CUSTOM_ITEM_FIELD, 'Spare singlet for the second session');
+      await pressAdd(element);
+
+      expect(deepText(element)).toContain(CHECKLIST_HEADING);
       expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
     });
   });

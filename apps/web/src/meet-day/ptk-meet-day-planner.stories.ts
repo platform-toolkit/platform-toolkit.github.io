@@ -9,6 +9,8 @@ import {
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 
+import { PtkDisclosure } from '@platform-toolkit/ui';
+
 import { manualClock } from '../clock.js';
 import { COACH_MODE } from './copy.js';
 import {
@@ -98,6 +100,8 @@ const RUNNING_BEHIND = createPreferenceStore(memoryPreferenceStorage());
 const NARROW_RUNNING = createPreferenceStore(memoryPreferenceStorage());
 const COACH = createPreferenceStore(memoryPreferenceStorage());
 const NARROW_COACH = createPreferenceStore(memoryPreferenceStorage());
+const PREP = createPreferenceStore(memoryPreferenceStorage());
+const NARROW_PREP = createPreferenceStore(memoryPreferenceStorage());
 
 /**
  * One fixed instant for every story, and deliberately a fake one.
@@ -221,6 +225,63 @@ async function startAMeet(canvasElement: HTMLElement): Promise<PtkMeetDayPlanner
   const live = element.shadowRoot?.querySelector('ptk-live-screen') ?? null;
   if (live === null) throw new Error('The meet did not start.');
   return element;
+}
+
+/**
+ * §22's fold, opened, with one answer typed and one row ticked.
+ *
+ * Opened by setting `open` and never by pressing the summary: `<details>` fires
+ * `toggle` asynchronously, so a press leaves the story racing the browser for
+ * the screenshot -- the same rule the tests here follow (§13.6).
+ *
+ * The fold is found in the root's own shadow root rather than at depth, because
+ * the checklist inside it draws a second `ptk-disclosure` for §22.2's removals
+ * and a deep search would find whichever came first in tree order.
+ *
+ * Both halves are answered rather than one, because what only this level can be
+ * wrong about is that the two elements share one `MeetPrep`: the setup form and
+ * the checklist are separate elements bound to the same object, and each of them
+ * reports upward and owns nothing. A story that opened the fold and stopped
+ * would document two blank panels, which is also what a root that dropped every
+ * report on the floor looks like.
+ */
+async function openThePrepFold(canvasElement: HTMLElement): Promise<PtkMeetDayPlanner> {
+  const element = canvasElement.querySelector('ptk-meet-day-planner');
+  if (element === null) throw new Error('No planner rendered.');
+  await settled(element);
+
+  const found = element.shadowRoot?.querySelector('ptk-disclosure') ?? null;
+  if (!(found instanceof PtkDisclosure)) throw new Error('No preparation fold.');
+  found.open = true;
+  await settled(element);
+
+  await typeInto(element, 'squatRackHeight', '14');
+
+  const before = progressLine(element);
+  const row = element.shadowRoot
+    ?.querySelector('ptk-meet-checklist')
+    ?.shadowRoot?.querySelector('[data-group="bring"]')
+    ?.shadowRoot?.querySelector('input');
+  if (row === null || row === undefined) throw new Error('No checklist row to tick.');
+  row.click();
+  await settled(element);
+
+  // The positive control, and read off the progress line rather than off the
+  // box: a native checkbox stays ticked whatever the root does with the report,
+  // so the ticked box is not evidence that anything was recorded. The count is
+  // derived from `prep.done`, so it moves only if the report came back down.
+  if (progressLine(element) === before) throw new Error('The tick did not reach the root.');
+  return element;
+}
+
+/** The checklist's own count, which is the one thing derived from `prep.done`. */
+function progressLine(element: PtkMeetDayPlanner): string {
+  return (
+    element.shadowRoot
+      ?.querySelector('ptk-meet-checklist')
+      ?.shadowRoot?.querySelector('.progress')
+      ?.textContent.trim() ?? ''
+  );
 }
 
 /** Answers a choice group by pressing the radio carrying that value. */
@@ -557,5 +618,61 @@ export const NarrowCoachBoard: Story = {
   `,
   play: async ({ canvasElement }) => {
     await startACoachMeet(canvasElement);
+  },
+};
+
+/**
+ * §22 open: the rack heights, the commands and the packing list.
+ *
+ * Below the plan and folded shut until it is asked for, which is the
+ * requirement rather than a layout preference -- §22 asks for the things that
+ * matter *at* the meet to be kept away from the decisions that matter *now*.
+ *
+ * Note what has not been answered above it. No federation, no maximum, no plan:
+ * §22 is the half of this tool a lifter fills in the night before, off the rack
+ * they trained on and out of the bag they are packing, and gating it behind
+ * §7's questions would put a rack height behind a decision about attempts. The
+ * fold is on screen from the first paint for exactly that reason.
+ *
+ * The two panels inside it are two elements over one `MeetPrep`, neither of
+ * which owns anything: the setup form reports sixteen answers tagged with the
+ * state key each one writes, the checklist reports a whole selection per group,
+ * and the root is the only thing here that holds a document. The count under the
+ * list is the visible proof of that -- it is derived from what the root recorded
+ * and not from what was pressed.
+ */
+export const ThePreparationFold: Story = {
+  args: { settings: PREP },
+  play: async ({ canvasElement }) => {
+    await openThePrepFold(canvasElement);
+  },
+};
+
+/**
+ * The same fold in a phone-width column (§5.7).
+ *
+ * The hardest widths in the tool are here rather than on the plan: "Deadlift bar
+ * or platform notes" is the longest label anywhere in the collection, the rack
+ * heights are paired two to a row and have to fold to one, and every checklist
+ * row is a 44px tap target carrying a full sentence -- pressed with chalk on,
+ * which is the case §5.7 names as the one that fails hardest. Constrained by a
+ * wrapper rather than by a viewport setting, because the wrapper is what the
+ * element's container queries respond to.
+ */
+export const NarrowPreparationFold: Story = {
+  args: { settings: NARROW_PREP },
+  render: (args) => html`
+    <div style="width: 320px; outline: 1px dashed currentColor;">
+      <ptk-meet-day-planner
+        .settings=${args.settings}
+        .profiles=${args.profiles}
+        status=${args.status}
+        .chart=${args.chart}
+        .clock=${args.clock}
+      ></ptk-meet-day-planner>
+    </div>
+  `,
+  play: async ({ canvasElement }) => {
+    await openThePrepFold(canvasElement);
   },
 };

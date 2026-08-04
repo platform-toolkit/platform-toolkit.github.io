@@ -99,10 +99,12 @@ import { createPreferenceStore, type PreferenceStore } from '@platform-toolkit/p
 import {
   CHOICE_CHANGE_EVENT,
   NUMBER_FIELD_CHANGE_EVENT,
+  TEXT_AREA_CHANGE_EVENT,
   TEXT_FIELD_CHANGE_EVENT,
   TOGGLE_GROUP_CHANGE_EVENT,
   type ChoiceChangeDetail,
   type NumberFieldChangeDetail,
+  type TextAreaChangeDetail,
   type TextFieldChangeDetail,
   type ToggleGroupChangeDetail,
 } from '@platform-toolkit/ui';
@@ -115,6 +117,8 @@ import { systemClock, type Clock } from '../clock.js';
 import './ptk-coach-board.js';
 import './ptk-coach-roster.js';
 import './ptk-live-screen.js';
+import './ptk-meet-checklist.js';
+import './ptk-meet-prep.js';
 import './ptk-plan-extras.js';
 import './ptk-plan-method.js';
 import './ptk-plan-screen.js';
@@ -133,6 +137,8 @@ import {
   MODE_CHOICES,
   MODE_LABEL,
   NO_COLOUR,
+  PREP_HEADING,
+  PREP_SUMMARY,
   RETURN_TO_MEET_LABEL,
   START_MEET_HEADING,
   START_MEET_LABEL,
@@ -150,9 +156,11 @@ import {
   BOARD_LIFTER_FIELD,
   BODYWEIGHT_FIELD,
   CEILING_FIELD,
+  CHECKLIST_GROUP_FIELD,
   COMPARISON_FIELD,
   CONFIRM_FIELD,
   CONVERT_FIELD,
+  CUSTOM_ITEM_FIELD,
   EQUIPMENT_FIELD,
   EVIDENCE_AGE_FIELD,
   EXPECTED_MAXIMUM_FIELD,
@@ -178,6 +186,7 @@ import {
   OPENER_TESTED_FIELD,
   PERSONAL_RECORD_FIELD,
   PERSONAL_RECORD_TOTAL_FIELD,
+  PREP_NOTES_FIELD,
   PRIOR_MEETS_FIELD,
   QUALIFYING_TOTAL_FIELD,
   READINESS_FIELD,
@@ -187,6 +196,7 @@ import {
   STRETCH_TOTAL_FIELD,
   TARGET_TOTAL_FIELD,
   UNIT_FIELD,
+  isSetupField,
 } from './fields.js';
 import {
   EMPTY_LIVE_VIEW,
@@ -196,6 +206,18 @@ import {
   type LivePlanning,
 } from './live.js';
 import { livePlanningFrom, liveTargetsFrom, seedLiveMeet } from './live-session.js';
+import {
+  EMPTY_PREP,
+  addCustomItem,
+  checklistFor,
+  removeCustomItem,
+  withCheckedRows,
+  withPrepNotes,
+  withSetupAnswer,
+  type ChecklistContext,
+  type CustomItemRefusal,
+  type MeetPrep,
+} from './prep.js';
 import { ATTEMPT_RESULT_EVENT, type AttemptResultDetail } from './ptk-attempt-result.js';
 import {
   BOARD_OPEN_EVENT,
@@ -206,6 +228,12 @@ import {
 import { ROSTER_ADD_EVENT, type RosterAddDetail, type RosterLifter } from './ptk-coach-roster.js';
 import { LIVE_CHOICE_EVENT, type LiveChoiceDetail } from './ptk-live-choices.js';
 import { UNDO_REQUEST_EVENT, type UndoRequestDetail } from './ptk-live-screen.js';
+import {
+  PREP_ADD_ITEM_EVENT,
+  PREP_REMOVE_ITEM_EVENT,
+  type PrepAddItemDetail,
+  type PrepRemoveItemDetail,
+} from './ptk-meet-checklist.js';
 import { CONFIRM_VALUE } from './ptk-plan-method.js';
 import type { ProfilesStatus } from './ptk-planner-setup.js';
 import {
@@ -473,6 +501,34 @@ export class PtkMeetDayPlanner extends LitElement {
   @state() private problems: readonly MeetActionProblemCode[] = [];
 
   /**
+   * §22's preparation document, held in memory and written to nothing.
+   *
+   * Deliberately not through `#setSession`, and this is the §13.4 line rather
+   * than an oversight. The setup answers that *are* saved are settings on a
+   * device -- a format, a unit, a goal -- and everything in here is a fact
+   * about one specific meet: the rack height at that venue, the flight, the lot
+   * number, and a bag packed for a Saturday. Saving them would mean a lifter
+   * arriving at their second meet to last meet's rack heights presented as
+   * theirs and half a checklist already ticked, which is worse than an empty
+   * form because it is wrong rather than blank. Persisting a whole meet is
+   * task #52, where it comes with the consent question it needs.
+   */
+  @state() private prep: MeetPrep = EMPTY_PREP;
+
+  /**
+   * §22.2's add box, owned here so that an accepted row can empty it.
+   *
+   * The same shape as `rosterName` next door and for the same reason: the
+   * element reports the text with the press, the root decides, and only the
+   * root can clear the box. A box the element owned would keep the row that was
+   * just added, and the next one typed over it would be refused as a duplicate.
+   */
+  @state() private customItemText = '';
+
+  /** Why the last row was refused, or `null`. Cleared by retyping, not by time. */
+  @state() private customItemRefusal: CustomItemRefusal | null = null;
+
+  /**
    * The unit the figures on screen were typed in, while that differs from the
    * unit they are being read in.
    *
@@ -488,7 +544,10 @@ export class PtkMeetDayPlanner extends LitElement {
     this.addEventListener(CHOICE_CHANGE_EVENT, this.#onChoice);
     this.addEventListener(NUMBER_FIELD_CHANGE_EVENT, this.#onNumber);
     this.addEventListener(TEXT_FIELD_CHANGE_EVENT, this.#onText);
+    this.addEventListener(TEXT_AREA_CHANGE_EVENT, this.#onTextArea);
     this.addEventListener(TOGGLE_GROUP_CHANGE_EVENT, this.#onToggle);
+    this.addEventListener(PREP_ADD_ITEM_EVENT, this.#onPrepAddItem);
+    this.addEventListener(PREP_REMOVE_ITEM_EVENT, this.#onPrepRemoveItem);
     this.addEventListener(LIVE_CHOICE_EVENT, this.#onLiveChoice);
     this.addEventListener(SUBMISSION_MARKED_EVENT, this.#onSubmissionMarked);
     this.addEventListener(ATTEMPT_RESULT_EVENT, this.#onAttemptResult);
@@ -503,7 +562,10 @@ export class PtkMeetDayPlanner extends LitElement {
     this.removeEventListener(CHOICE_CHANGE_EVENT, this.#onChoice);
     this.removeEventListener(NUMBER_FIELD_CHANGE_EVENT, this.#onNumber);
     this.removeEventListener(TEXT_FIELD_CHANGE_EVENT, this.#onText);
+    this.removeEventListener(TEXT_AREA_CHANGE_EVENT, this.#onTextArea);
     this.removeEventListener(TOGGLE_GROUP_CHANGE_EVENT, this.#onToggle);
+    this.removeEventListener(PREP_ADD_ITEM_EVENT, this.#onPrepAddItem);
+    this.removeEventListener(PREP_REMOVE_ITEM_EVENT, this.#onPrepRemoveItem);
     this.removeEventListener(LIVE_CHOICE_EVENT, this.#onLiveChoice);
     this.removeEventListener(SUBMISSION_MARKED_EVENT, this.#onSubmissionMarked);
     this.removeEventListener(ATTEMPT_RESULT_EVENT, this.#onAttemptResult);
@@ -727,7 +789,36 @@ export class PtkMeetDayPlanner extends LitElement {
 
       <ptk-plan-extras .session=${this.session}></ptk-plan-extras>
 
-      ${this.#renderPlan(view)} ${this.#renderStart(view)}
+      ${this.#renderPlan(view)} ${this.#renderStart(view)} ${this.#renderPrep()}
+    `;
+  }
+
+  /**
+   * §22, below everything and folded shut.
+   *
+   * The placement is the requirement rather than a layout preference: §22 asks
+   * for information that matters at the meet to be stored somewhere that keeps
+   * it away from urgent decisions until it is relevant. Rack heights and a
+   * packing list are the least urgent things on this screen and the plan is the
+   * most, so they go under the Start button, behind a summary that says what is
+   * inside.
+   *
+   * Only on the solo planning screen. Not on the coach board -- §22.1 is one
+   * lifter's own equipment settings and a per-lifter copy is task #52's problem
+   * -- and not in live mode, where the whole point of folding it away is that
+   * the lifter has something else to look at.
+   */
+  #renderPrep(): TemplateResult {
+    return html`
+      <ptk-disclosure class="prep" label=${PREP_HEADING} summary=${PREP_SUMMARY}>
+        <ptk-meet-prep .prep=${this.prep}></ptk-meet-prep>
+        <ptk-meet-checklist
+          .prep=${this.prep}
+          .context=${this.#checklistContext()}
+          custom-item-text=${this.customItemText}
+          .refusal=${this.customItemRefusal}
+        ></ptk-meet-checklist>
+      </ptk-disclosure>
     `;
   }
 
@@ -977,13 +1068,27 @@ export class PtkMeetDayPlanner extends LitElement {
   };
 
   /**
-   * §7's confirmation, which is the only toggle group in the tool.
+   * §7's confirmation and §22.2's checklist, the two toggle groups in the tool.
    *
-   * Read as "is the one choice among the values" rather than as "did the values
-   * change", because a toggle group reports its whole set and an untick is an
-   * event carrying an empty one -- the state that withdraws an agreement.
+   * The confirmation is read as "is the one choice among the values" rather than
+   * as "did the values change", because a toggle group reports its whole set and
+   * an untick is an event carrying an empty one -- the state that withdraws an
+   * agreement. The checklist works the same way for the same reason, over a
+   * whole group of rows at once.
+   *
+   * The checklist is asked about first, and it is found by a different attribute
+   * -- `data-group`, not `data-field`. That is not an inconsistency to tidy up:
+   * a checklist group is not a field with one answer, and giving it a
+   * `data-field` would put it in front of every `fieldOf` walk in this file,
+   * where the nearest one wins and a group name is not a field name any of them
+   * knows.
    */
   readonly #onToggle = (event: CustomEvent<ToggleGroupChangeDetail>): void => {
+    const group = attributeOf(event, CHECKLIST_GROUP_FIELD);
+    if (group !== null) {
+      this.#tickChecklist(group, event.detail.values);
+      return;
+    }
     if (fieldOf(event) !== CONFIRM_FIELD) return;
     const lift = this.#liftOf(event);
     if (lift === null) return;
@@ -991,6 +1096,52 @@ export class PtkMeetDayPlanner extends LitElement {
       confirmMaximum(this.session, lift, event.detail.values.includes(CONFIRM_VALUE)),
     );
   };
+
+  /**
+   * Records one group's ticks, scoped to the rows that group actually holds.
+   *
+   * `withCheckedRows` takes the rows it is allowed to touch as well as the ones
+   * that are ticked, and the scope is what makes an untick expressible: a group
+   * reports its whole set, so "nothing in this group" and "nothing anywhere" are
+   * the same array and only the scope tells them apart. Without it, unticking
+   * the last row of one group would clear every tick on the list.
+   *
+   * The rows are re-derived from `checklistFor` rather than trusted from the
+   * event, so a group name that no longer holds any rows -- a format corrected
+   * while the fold is open -- writes nothing rather than clearing the document's
+   * idea of a group it can no longer see.
+   *
+   * The empty-scope return is *not* what makes that safe, and the comment used
+   * to claim it was: `withCheckedRows` iterates the scope, so an empty one
+   * already writes nothing, and a mutation removing the line passed the whole
+   * suite. What it buys is the repaint -- without it every stale or foreign
+   * report replaces `prep` with an equal-but-new object, and `@state` compares
+   * by identity, so a screen that repaints off the clock four times a second
+   * would take a second render for each one.
+   */
+  #tickChecklist(group: string, checked: readonly string[]): void {
+    const within = checklistFor(this.prep, this.#checklistContext())
+      .filter((row) => row.group === group)
+      .map((row) => row.itemId);
+    if (within.length === 0) return;
+    this.prep = withCheckedRows(this.prep, within, checked);
+  }
+
+  /**
+   * The three answers §22.2 filters its rows by, read off the session.
+   *
+   * Rebuilt on demand rather than held, because all three are already state
+   * somewhere else and a fourth copy is one more thing to keep in step -- the
+   * failure being a checklist still asking about deadlift socks after the format
+   * was corrected to bench-only.
+   */
+  #checklistContext(): ChecklistContext {
+    return {
+      format: this.session.setup.format,
+      equipment: this.session.extras.equipment,
+      goal: this.session.setup.goal,
+    };
+  }
 
   /**
    * Which lift a control belongs to, checked against the lifts on screen.
@@ -1093,6 +1244,17 @@ export class PtkMeetDayPlanner extends LitElement {
         this.#patchEntry(lifterId, { colour: value === NO_COLOUR ? null : value });
         return;
       default:
+        // §22.1's three tile groups have no constant of their own -- their
+        // `data-field` is the `LifterSetup` key -- so they are caught here
+        // rather than by a case. Ahead of `#applyLiftChoice`, which is the
+        // other switch with no constants: it reads `data-lift`, and a setup
+        // tile carries none, so the order does not matter today. It is written
+        // this way round anyway, because the day a §22 answer becomes per-lift
+        // the other order would silently drop it into the wrong record.
+        if (isSetupField(field)) {
+          this.prep = withSetupAnswer(this.prep, field, value);
+          return;
+        }
         this.#applyLiftChoice(field, value, lift);
         return;
     }
@@ -1287,15 +1449,26 @@ export class PtkMeetDayPlanner extends LitElement {
    * host, not a second control -- and it now has four, three of which would have
    * been renaming the lifter.
    *
-   * None of the three writes to the session or reaches the preference store.
+   * None of these writes to the session or reaches the preference store.
    * §13.4's rule is that the setup answers are settings on a device and a
    * person's own facts are not; a lifter's name is the plainest instance, and a
    * coach's roster is a list of *other* people's names on a shared phone, which
-   * is the same rule with more of it at stake (§2.3).
+   * is the same rule with more of it at stake (§2.3). §22.1's fourteen boxes
+   * fall the same way and for a reason of their own -- a rack height belongs to
+   * a venue and a lot number to one Saturday, so remembering them would greet a
+   * lifter at their second meet with the first one's answers.
+   *
+   * The `default` is no longer a bare return, which is the one thing to be
+   * careful of here: §22.1 names its fields by their `LifterSetup` key rather
+   * than by a constant per box, so fourteen of them arrive with no case of their
+   * own. `#writeSetupAnswer` is what keeps that from being the same as
+   * accepting anything -- it asks `isSetupField` before writing, so a foreign
+   * composed event still falls through to nothing.
    */
   readonly #onText = (event: CustomEvent<TextFieldChangeDetail>): void => {
     const value = event.detail.value;
-    switch (fieldOf(event)) {
+    const field = fieldOf(event);
+    switch (field) {
       case LIFTER_NAME_FIELD:
         this.lifterName = value;
         return;
@@ -1307,9 +1480,79 @@ export class PtkMeetDayPlanner extends LitElement {
         // `rosterSummary` trims only to decide whether there is one.
         this.#patchEntry(this.#lifterOf(event), { identifier: value });
         return;
+      case CUSTOM_ITEM_FIELD:
+        this.customItemText = value;
+        // Cleared on the keystroke rather than on the next press. The refusal is
+        // about the text that was in the box, so leaving it up while the lifter
+        // shortens the row says the shortened row is refused too -- and the one
+        // sentence they are being asked to act on is the one that stops being
+        // true first.
+        this.customItemRefusal = null;
+        return;
       default:
+        this.#writeSetupAnswer(field, value);
         return;
     }
+  };
+
+  /**
+   * §22.1's two prose answers, plus §22.2's notes.
+   *
+   * A separate event from the one above (`ptk-text-change`, not
+   * `ptk-text-field-change`) and therefore a separate listener -- which is worth
+   * a handler of its own rather than a shared body, because the two events carry
+   * different detail types and folding them together would need a union nothing
+   * else in this file has.
+   */
+  readonly #onTextArea = (event: CustomEvent<TextAreaChangeDetail>): void => {
+    const field = fieldOf(event);
+    if (field === PREP_NOTES_FIELD) {
+      this.prep = withPrepNotes(this.prep, event.detail.value);
+      return;
+    }
+    this.#writeSetupAnswer(field, event.detail.value);
+  };
+
+  /**
+   * Writes one §22.1 answer, or nothing at all.
+   *
+   * The `isSetupField` guard is the whole of the routing: `fields.ts` makes a
+   * setup field name *be* a `LifterSetup` key, so there is no per-box constant
+   * to switch on and the check has to be against the tuple. It is also what
+   * stops the `default` branches above from accepting a `data-field` this
+   * element never rendered -- the listeners are on the host, so a composed event
+   * from anywhere in the tree reaches them.
+   *
+   * The conversion of the three closed-vocabulary answers happens in
+   * `withSetupAnswer`, beside the type, rather than here; a switch over
+   * `squatStart`, `footBlocks` and `handoff` in this file would be a §22
+   * vocabulary living in the module that knows about plans and platforms.
+   */
+  #writeSetupAnswer(field: string | null, value: string): void {
+    if (field === null || !isSetupField(field)) return;
+    this.prep = withSetupAnswer(this.prep, field, value);
+  }
+
+  /**
+   * §22.2's add box, decided here because only here can clear it.
+   *
+   * The element reports the text with the press and holds no opinion; the
+   * refusal codes come back from `addCustomItem` and are handed straight down.
+   */
+  readonly #onPrepAddItem = (event: CustomEvent<PrepAddItemDetail>): void => {
+    const result = addCustomItem(this.prep, event.detail.text);
+    if (!result.ok) {
+      this.customItemRefusal = result.refusal;
+      return;
+    }
+    this.prep = result.prep;
+    this.customItemText = '';
+    this.customItemRefusal = null;
+  };
+
+  /** §22.2's removal, which only ever reaches a row somebody added. */
+  readonly #onPrepRemoveItem = (event: CustomEvent<PrepRemoveItemDetail>): void => {
+    this.prep = removeCustomItem(this.prep, event.detail.itemId);
   };
 
   /**
@@ -1712,10 +1955,29 @@ export class PtkMeetDayPlanner extends LitElement {
  * (§5.8). The path is the only place the real element is still visible.
  */
 function fieldOf(event: Event): string | null {
+  return attributeOf(event, 'field');
+}
+
+/**
+ * The nearest `data-<name>` on the composed path, for a name that is not
+ * `field`.
+ *
+ * §22.2's checklist is the one control in the tool that answers a *group* of
+ * rows rather than a field, and it says so with `data-group`. Reading it needs
+ * the same walk `fieldOf` does and for the same reason, so the walk is written
+ * once here and `fieldOf` is now a call to it -- two copies of a loop this
+ * subtle is how one of them ends up stopping at the first `HTMLElement` rather
+ * than at the first one carrying the attribute.
+ *
+ * `dataset` keys are camel-cased from the attribute, so a name here is the
+ * dataset spelling. Every one in use is a single lower-case word, which is why
+ * the two spellings have not yet had to be told apart.
+ */
+function attributeOf(event: Event, name: string): string | null {
   for (const node of event.composedPath()) {
     if (!(node instanceof HTMLElement)) continue;
-    const field = node.dataset['field'];
-    if (field !== undefined) return field;
+    const value = node.dataset[name];
+    if (value !== undefined) return value;
   }
   return null;
 }

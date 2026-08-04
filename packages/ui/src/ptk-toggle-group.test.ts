@@ -227,6 +227,126 @@ describe('ptk-toggle-group', () => {
     expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
   });
 
+  it('stacks one option per row when it is asked for a list', async () => {
+    // Measured rather than asserted on the class, because the class is not the
+    // promise -- the promise is that two options never share a line. Wide
+    // enough for several tiles, so a grid that ignored the layout would put
+    // three across and fail here.
+    const frame = document.createElement('div');
+    frame.style.width = '600px';
+    document.body.append(frame);
+    teardown.push(() => {
+      frame.remove();
+    });
+
+    const element = mount(frame);
+    element.layout = 'list';
+    await element.updateComplete;
+
+    const tops = [...(element.shadowRoot?.querySelectorAll('.option') ?? [])].map(
+      (option) => option.getBoundingClientRect().top,
+    );
+
+    expect(new Set(tops).size).toBe(PLATES.length);
+  });
+
+  it('clears the comfortable tap target, because it is tapped with chalk on', async () => {
+    // A requirement floor rather than a proof of the declaration that states
+    // it: a row is 66px today and the padding alone is what gets it there, so
+    // deleting the `min-height` changes nothing measurable. Kept for the same
+    // reason `.option`'s 44px floor is -- it is the assertion that fails the
+    // day somebody tightens the space tokens, which is a change nobody would
+    // otherwise connect to a checklist being harder to hit.
+    const element = mount();
+    element.layout = 'list';
+    await element.updateComplete;
+
+    for (const option of element.shadowRoot?.querySelectorAll('.option') ?? []) {
+      expect(option.getBoundingClientRect().height).toBeGreaterThanOrEqual(48);
+    }
+  });
+
+  it('centres the box on a row whose label wraps', async () => {
+    // The declaration that is load-bearing in the list layout, as against the
+    // tap-target floor above which is not. A tile's label is one line and a
+    // baseline-aligned box sits on it correctly; a row's label is a sentence,
+    // and a box pinned to the first line of three sits near the top of a target
+    // the whole height of which is tappable -- which reads as the tick belonging
+    // to the line beside it rather than to the row.
+    const frame = document.createElement('div');
+    frame.style.width = '180px';
+    document.body.append(frame);
+    teardown.push(() => {
+      frame.remove();
+    });
+
+    const element = mount(frame);
+    element.choices = [{ value: 'membership', label: 'Membership card and photo identification' }];
+    element.layout = 'list';
+    await element.updateComplete;
+
+    const option = element.shadowRoot?.querySelector('.option');
+    const input = element.shadowRoot?.querySelector('input');
+    if (option === null || option === undefined || input === null || input === undefined) {
+      throw new Error('The group rendered no row.');
+    }
+
+    const row = option.getBoundingClientRect();
+    const box = input.getBoundingClientRect();
+    // Three lines at this width, so a top-aligned box is most of a line away
+    // from the middle; anything under a quarter of the row is centred.
+    expect(row.height).toBeGreaterThan(60);
+    expect(Math.abs(box.top + box.height / 2 - (row.top + row.height / 2))).toBeLessThan(
+      row.height / 4,
+    );
+  });
+
+  it('does not widen the track for a list of described options', async () => {
+    // `described` exists to give a tile room for a second line, and a row is
+    // already as wide as the group -- so the two are exclusive rather than
+    // additive. Applying both puts a 13rem track minimum back on the one layout
+    // that exists to have none, and on a 320px phone that overflows.
+    const frame = document.createElement('div');
+    frame.style.width = '288px';
+    document.body.append(frame);
+    teardown.push(() => {
+      frame.remove();
+    });
+
+    const element = mount(frame);
+    element.choices = [
+      { value: 'weigh-in', label: 'Weigh in', description: 'Two hours before the session' },
+      { value: 'rack', label: 'Confirm rack heights', description: 'At the equipment check' },
+    ];
+    element.layout = 'list';
+    await element.updateComplete;
+
+    const options = element.shadowRoot?.querySelector('.options');
+    expect(options?.classList.contains('described')).toBe(false);
+    expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
+  });
+
+  it('still puts short answers in a grid by default', async () => {
+    // The other half of the claim. Without this, a layout property that quietly
+    // stacked everything would pass the test above and silently make every
+    // existing caller's form three screens long.
+    const frame = document.createElement('div');
+    frame.style.width = '600px';
+    document.body.append(frame);
+    teardown.push(() => {
+      frame.remove();
+    });
+
+    const element = mount(frame);
+    await element.updateComplete;
+
+    const tops = [...(element.shadowRoot?.querySelectorAll('.option') ?? [])].map(
+      (option) => option.getBoundingClientRect().top,
+    );
+
+    expect(new Set(tops).size).toBeLessThan(PLATES.length);
+  });
+
   it('has no accessibility violations', async () => {
     const element = mount();
     await element.updateComplete;

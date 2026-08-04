@@ -1,6 +1,8 @@
 // Copyright 2026 Jason Smathers
 // SPDX-License-Identifier: Apache-2.0
 
+import type { LifterSetup } from './prep.js';
+
 /**
  * The `data-field` names, in one place because two files have to agree on them.
  *
@@ -196,3 +198,87 @@ export const ROSTER_COLOUR_FIELD = 'roster-colour';
  * meet starts and lives nowhere else.
  */
 export const LIFTER_NAME_FIELD = 'lifter-name';
+
+/*
+ * §22.1's sixteen setup answers.
+ *
+ * The field name is the `LifterSetup` key, deliberately, and this is the one
+ * place in the file where that is true. Every other group here names a control
+ * and the root's switch maps it onto state; a setup answer has no mapping to
+ * make -- thirteen text boxes and three tile groups all write one string into
+ * one key, so the handler is `withLifterSetup(prep, { [key]: value })` and a
+ * separate vocabulary would be sixteen rows of `case 'squat-rack': return
+ * 'squatRackHeight'` with nothing to check them against.
+ *
+ * It is a tuple over the keys rather than sixteen constants, so `keyof
+ * LifterSetup` is what the compiler checks the list against -- a renamed key
+ * that nothing here follows is a type error rather than a control that visibly
+ * responds while nothing is recorded. The order is the order of the form.
+ */
+export const SETUP_FIELDS = [
+  'squatRackHeight',
+  'squatSafetyHeight',
+  'monoliftSetting',
+  'squatStart',
+  'benchRackHeight',
+  'benchSafetyHeight',
+  'footBlocks',
+  'handoff',
+  'deadliftNotes',
+  'commands',
+  'flight',
+  'lot',
+  'platform',
+  'session',
+  'weighInTime',
+  'liftingStartTime',
+] as const satisfies readonly (keyof LifterSetup)[];
+
+/**
+ * Narrows a `data-field` string read off the DOM onto a `LifterSetup` key.
+ *
+ * The one place in this file that needs a runtime check, and it is a
+ * consequence of the decision above: because the field name *is* the key, the
+ * root's handler has a `string` where it needs a key and no switch to narrow it
+ * through. Checked against the list rather than cast -- a cast would write an
+ * arbitrary attribute straight into the setup, so a stray `data-field` anywhere
+ * inside this element's subtree would add a property to a document §23 prints
+ * and §24 saves, and nothing would ever say so.
+ *
+ * Total by construction: `SETUP_FIELDS` is `satisfies`-checked against the
+ * keys, so a key it does not list is caught at compile time and cannot reach
+ * here as a silent `false`.
+ */
+export function isSetupField(value: string): value is keyof LifterSetup {
+  return (SETUP_FIELDS as readonly string[]).includes(value);
+}
+
+/*
+ * §22.2's checklist.
+ *
+ * `CHECKLIST_GROUP_FIELD` is the third attribute *name* in this file, after
+ * `CHOICE_SLOT_FIELD` and `BOARD_LIFTER_FIELD`, and it is here for a reason
+ * particular to `ptk-toggle-group`: the element reports its *whole* selection,
+ * and the checklist is three of them. A report with no group on it would be
+ * applied over every tick in the prep, so ticking one row under "Bring" would
+ * clear everything under "Do at the venue". The handler reads `dataset.group`
+ * and writes back only the rows that group offered -- which is exactly what
+ * `withCheckedRows` in `prep.ts` takes its `within` argument for.
+ */
+export const CHECKLIST_GROUP_FIELD = 'group';
+
+/** §22.2's "allow reminders and user-authored notes". */
+export const CUSTOM_ITEM_FIELD = 'custom-item';
+export const PREP_NOTES_FIELD = 'prep-notes';
+
+/**
+ * The remove control on a row somebody added.
+ *
+ * Carries the item id rather than the row's position, for the reason
+ * `BOARD_LIFTER_FIELD` does: the list is rebuilt on every change, and an index
+ * would name whichever row had moved into that position. Less urgent here than
+ * on a board that re-sorts itself four times a second -- but the failure is the
+ * same one, and it is a row deleted that nobody asked to delete.
+ */
+export const REMOVE_CUSTOM_ITEM_FIELD = 'remove-custom-item';
+export const CUSTOM_ITEM_ID_FIELD = 'item';

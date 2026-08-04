@@ -75,6 +75,17 @@ import type { BoardLifterRef, BoardRowConflict } from './board.js';
 import type { LivePosition, NextActionCode, SubmissionUrgency, UrgentNote } from './live.js';
 import type { PlanProblem } from './plan.js';
 import {
+  CUSTOM_ITEM_MAX,
+  HANDOFF_PREFERENCES,
+  PREP_NOTES_MAX,
+  SETUP_NOTE_MAX,
+  SQUAT_STARTS,
+  type ChecklistGroup,
+  type ChecklistItemId,
+  type CustomItemRefusal,
+  type SetupProblem,
+} from './prep.js';
+import {
   EQUIPMENT_CATEGORIES,
   PLAN_METHODS,
   type EquipmentCategory,
@@ -2291,3 +2302,308 @@ export function rosterSummary(identifier: string, colour: string | null): string
 
 /** §21.1's way back from a lifter's own screen to the room. */
 export const BACK_TO_BOARD_LABEL = 'Back to the board';
+
+/*
+ * =============================================================================
+ * §22 -- MEET PREPARATION: THE SETUP ANSWERS AND THE CHECKLIST
+ * =============================================================================
+ *
+ * WHY THIS BLOCK IS WORDED MORE CAREFULLY THAN IT LOOKS
+ *
+ * Nothing here is computed and nothing here is graded, so it reads as the easy
+ * part of the tool. It is the part with the most rules about wording:
+ *
+ *   - §22.2 forbids prescriptive weight-cutting, medical, drug, supplement and
+ *     nutrition instruction outright. So "Food" and "Fluids" are things to pack
+ *     and are never things to consume in an amount. There is no gram, no litre,
+ *     no timing and no "make weight" anywhere below, and none may be added --
+ *     not even in a hint, which is exactly where advice of that kind tends to
+ *     arrive wearing the word "just".
+ *   - Two rows are conditional in the requirement on a fact no published
+ *     `MeetRuleProfile` carries: approved underwear "where applicable" and
+ *     chalk and baby powder "where permitted". The profile schema has no field
+ *     for either, so the rows are unconditional and the caveat rides in the
+ *     label. Dropping the caveat would state a federation's rule this tool has
+ *     not read; dropping the row would hide a bag check somebody fails at.
+ *   - A rack height is text and a weigh-in time is not. `prep.ts` says why in
+ *     full; the consequence here is that only two field names take a refusal
+ *     sentence, and neither of them says what format to type -- the parser
+ *     accepts both clocks and both separators, so a sentence naming one would
+ *     be a rule the code does not enforce.
+ */
+
+/** §22.1's fold, which is answered before the day and read on it. */
+export const PREP_HEADING = 'Your setup and your bag';
+export const PREP_SUMMARY = 'Rack heights, times, and what to pack';
+
+export const SETUP_HEADING = 'Rack heights, flight and times';
+export const SETUP_HINT =
+  'Whatever you want in front of you at the equipment check. Written down here it is the same on the platform as it was in the warm-up room.';
+
+export const CHECKLIST_HEADING = 'Checklist';
+export const CHECKLIST_HINT =
+  'Ticks are yours and the rows are the meet you told us about, so a bench-only day is not asked about deadlift socks. Add your own at the bottom.';
+
+/** The two group headings, and the third that only exists once somebody adds a row. */
+export function checklistGroupHeading(group: ChecklistGroup): string {
+  switch (group) {
+    case 'bring':
+      return 'Bring';
+    case 'do':
+      return 'Do at the venue';
+    case 'own':
+      return 'Yours';
+  }
+}
+
+/**
+ * The 23 default rows.
+ *
+ * Total over the id union rather than a lookup with a fallback: a row with no
+ * label is a tickable blank line, which is worse than a compile error the day
+ * §22.2 grows a row. The wording is the requirement's own, expanded only where
+ * a bag check needs a noun -- "Membership and identification" is what the
+ * expeditor asks for and "Membership card and photo identification" is what
+ * goes in the bag.
+ */
+export function checklistItemLabel(id: ChecklistItemId): string {
+  switch (id) {
+    case 'membership-and-identification':
+      return 'Membership card and photo identification';
+    case 'singlet':
+      return 'Singlet';
+    case 'approved-shirt':
+      return 'Approved shirt';
+    case 'approved-underwear':
+      return 'Approved underwear, where your federation requires it';
+    case 'belt':
+      return 'Belt';
+    case 'knee-sleeves-or-wraps':
+      return 'Knee sleeves or knee wraps';
+    case 'wrist-wraps':
+      return 'Wrist wraps';
+    case 'squat-shoes':
+      return 'Squat shoes';
+    case 'bench-shoes':
+      return 'Bench shoes';
+    case 'deadlift-shoes':
+      return 'Deadlift shoes or slippers';
+    case 'deadlift-socks':
+      return 'Deadlift socks';
+    case 'equipped-gear':
+      return 'Suit, briefs and any other equipped gear';
+    case 'chalk-and-powder':
+      return 'Chalk and baby powder, where they are permitted';
+    case 'food':
+      return 'Food you have eaten on a training day before';
+    case 'fluids':
+      return 'Fluids';
+    case 'attempt-plan-in-kilograms':
+      return 'Attempt plan written in kilograms';
+    case 'printed-backup':
+      return 'Printed backup of the plan';
+    case 'phone-charger':
+      return 'Phone charger or battery pack';
+    case 'record-documentation':
+      return 'Record paperwork and whatever the federation asks for';
+    case 'rack-height-confirmation':
+      return 'Confirm your rack heights on the competition rack';
+    case 'equipment-check':
+      return 'Equipment check';
+    case 'weigh-in':
+      return 'Weigh-in';
+    case 'rules-and-commands-review':
+      return 'Read the commands and the rules briefing';
+  }
+}
+
+/**
+ * §22.1's sixteen labels, and the hints that keep two of them honest.
+ *
+ * `SETUP_LABELS` is a record rather than a function because the element renders
+ * the whole form in one pass and the order of the fields is the order of the
+ * interface -- a switch would put the ordering in the template, where a lifter
+ * reading their bench height under the squat heading is a plausible edit.
+ */
+export interface SetupFieldCopy {
+  readonly label: string;
+  readonly hint?: string;
+}
+
+export const SETUP_LABELS = {
+  squatRackHeight: { label: 'Squat rack height', hint: 'Whatever the rack is numbered in.' },
+  squatSafetyHeight: { label: 'Squat safety height' },
+  monoliftSetting: { label: 'Monolift setting' },
+  squatStart: { label: 'Walkout or monolift' },
+  benchRackHeight: { label: 'Bench rack height' },
+  benchSafetyHeight: { label: 'Bench safety height' },
+  footBlocks: { label: 'Foot blocks' },
+  handoff: { label: 'Handoff' },
+  deadliftNotes: {
+    label: 'Deadlift bar or platform notes',
+    hint: 'Bar stiffness, the platform, anything you want to remember.',
+  },
+  commands: {
+    label: 'Commands and cues',
+    hint: 'The commands as this federation gives them, and the cues you want in your head.',
+  },
+  flight: { label: 'Flight' },
+  lot: { label: 'Lot number' },
+  platform: { label: 'Platform' },
+  session: { label: 'Session' },
+  weighInTime: { label: 'Weigh-in time' },
+  liftingStartTime: { label: 'Lifting starts' },
+} as const satisfies Record<string, SetupFieldCopy>;
+
+/**
+ * The five headings the sixteen answers are grouped under.
+ *
+ * A record keyed by a local vocabulary rather than by anything in `prep.ts`,
+ * because the grouping is a fact about the form and not about the data: the
+ * squat's four answers are asked together because a lifter sets the rack once,
+ * and nothing downstream of this screen cares which heading a rack height was
+ * typed under. `where` is last because it is the part filled in on the morning,
+ * from a sheet on a wall.
+ */
+export const SETUP_SECTION_HEADINGS = {
+  squat: 'Squat',
+  bench: 'Bench',
+  deadlift: 'Deadlift',
+  commands: 'Commands and cues',
+  where: 'Flight, platform and times',
+} as const;
+
+/** §22.1's walkout-or-monolift answer. `unstated` is a real answer and is first. */
+export const SQUAT_START_CHOICES: readonly Choice[] = SQUAT_STARTS.map((start) => {
+  switch (start) {
+    case 'walkout':
+      return { value: start, label: 'Walkout' };
+    case 'monolift':
+      return { value: start, label: 'Monolift' };
+    case 'unstated':
+      return { value: start, label: 'Not decided' };
+  }
+});
+
+/**
+ * §22.1's handoff answer.
+ *
+ * "No handoff" is a choice a lifter makes and not an absence of one, which is
+ * why it is on the list beside the other two rather than left to `unstated`.
+ * A handler reading a blank field cannot tell "they unrack it themselves" from
+ * "nobody has asked them", and those two send different people to the platform.
+ */
+export const HANDOFF_CHOICES: readonly Choice[] = HANDOFF_PREFERENCES.map((preference) => {
+  switch (preference) {
+    case 'own-handler':
+      return { value: preference, label: 'My own handler' };
+    case 'meet-spotter':
+      return { value: preference, label: 'A meet spotter' };
+    case 'no-handoff':
+      return { value: preference, label: 'No handoff' };
+    case 'unstated':
+      return { value: preference, label: 'Not decided' };
+  }
+});
+
+/**
+ * §22.1's foot blocks, which is `ANSWER_CHOICES` reworded and not reused.
+ *
+ * The same three values, and the third one has to read "Not decided" here
+ * rather than "Not sure": it sits between the two answers above with their own
+ * "Not decided", and three tile groups on one form where one of them hedges
+ * differently reads as a distinction somebody meant. There is nothing to be
+ * unsure about -- a lifter either wants blocks under their feet or has not
+ * settled it yet.
+ */
+export const FOOT_BLOCKS_CHOICES: readonly Choice[] = [
+  { value: 'yes', label: 'Yes' },
+  { value: 'no', label: 'No' },
+  { value: 'unstated', label: 'Not decided' },
+];
+
+/** §22.2's "user-authored notes", which is one box and not a second checklist. */
+export const PREP_NOTES_LABEL = 'Notes';
+export const PREP_NOTES_HINT = `Anything else you want in front of you. Up to ${String(PREP_NOTES_MAX)} characters.`;
+
+export const CUSTOM_ITEM_LABEL = 'Add something of your own';
+export const CUSTOM_ITEM_PLACEHOLDER = 'Mouthguard';
+export const ADD_CUSTOM_ITEM_LABEL = 'Add to the list';
+
+/**
+ * Removal is a fold of its own, and each button names the row it deletes.
+ *
+ * Not "Remove" beside a tick. A row is ticked with chalk on the hands between
+ * sets and removed once, deliberately, so putting the two controls on one line
+ * at one size makes the destructive one exactly as easy to hit as the one that
+ * is hit forty times. And a list of buttons all reading "Remove" is unusable to
+ * anybody reading it one control at a time -- the text is the only thing that
+ * says which row a press takes away.
+ */
+export const REMOVE_CUSTOM_ITEM_HEADING = 'Remove a row you added';
+
+export function removeCustomItemLabel(text: string): string {
+  return `Remove: ${text}`;
+}
+
+/**
+ * Why a row of somebody's own was not added.
+ *
+ * Total over the union, and each one says what to do rather than what happened.
+ * "Duplicate" in particular has to name the list it is already on, because the
+ * three groups are three controls and the row it collides with may be scrolled
+ * off the screen -- a refusal with no explanation on a list that visibly does
+ * not contain the word reads as the button being broken.
+ */
+export function customItemRefusalText(refusal: CustomItemRefusal): string {
+  switch (refusal) {
+    case 'empty':
+      return 'Type what you want to add first.';
+    case 'too-long':
+      return `That is longer than ${String(CUSTOM_ITEM_MAX)} characters. Shorten it, or put the detail in the notes below.`;
+    case 'duplicate':
+      return 'That is already on your list.';
+  }
+}
+
+/**
+ * Why a setup answer was refused.
+ *
+ * Neither sentence names a format. `parseTimeOfDay` takes 12- and 24-hour
+ * clocks and a colon or a full stop, so "use HH:MM" would be a rule the parser
+ * does not have -- and a lifter who typed a perfectly acceptable "8.30 am"
+ * would go and change it.
+ *
+ * The parameter is the two fields that are read rather than the whole
+ * `SetupProblem`, so `PrepNotesProblem` -- which is the same refusal about a
+ * string that is not a setup answer -- goes through here too. One sentence,
+ * because a lifter over a cap wants the same thing said whichever box they are
+ * in, and two copies of it drift the day the wording changes.
+ */
+export function setupProblemText(problem: Pick<SetupProblem, 'code' | 'max'>): string {
+  switch (problem.code) {
+    case 'time-not-understood':
+      return 'That does not read as a time of day. Try something like 8:30 am, or 08:30.';
+    case 'too-long':
+      return `That is longer than ${String(problem.max ?? SETUP_NOTE_MAX)} characters.`;
+  }
+}
+
+/** The count above the list, which is the one thing read at a glance. */
+export function checklistProgressText(done: number, total: number): string {
+  if (total === 0) return 'Nothing on the list yet.';
+  if (done === total) return `All ${String(total)} ticked.`;
+  return `${String(done)} of ${String(total)} ticked.`;
+}
+
+/**
+ * The one sentence §22.2's prohibition earns on the screen.
+ *
+ * Not a disclaimer and not an apology: it says what the list is, so that its
+ * silence on cutting, eating and dosing reads as deliberate rather than as an
+ * omission somebody should fill in with a note. It sits under the checklist,
+ * where a lifter is looking at "Food" and "Fluids" and is most likely to expect
+ * the tool to go on and tell them what to do with them.
+ */
+export const PREP_SCOPE_NOTE =
+  'This is a packing and errand list. It says nothing about cutting weight, eating, drinking to a schedule, or anything you take -- ask your coach and the meet staff.';

@@ -6,6 +6,7 @@ import { html } from 'lit';
 
 import '@platform-toolkit/ui';
 import type { Choice } from './ptk-choice-group.js';
+import type { ToggleGroupLayout } from './ptk-toggle-group.js';
 
 /**
  * One question with a fixed set of answers, any number of which may be chosen.
@@ -33,6 +34,7 @@ interface Args {
   readonly values: readonly string[];
   readonly emptyMessage: string;
   readonly disabled: boolean;
+  readonly layout: ToggleGroupLayout;
 }
 
 const meta: Meta<Args> = {
@@ -43,6 +45,7 @@ const meta: Meta<Args> = {
     label: { control: 'text' },
     emptyMessage: { control: 'text' },
     disabled: { control: 'boolean' },
+    layout: { control: 'inline-radio', options: ['tiles', 'list'] },
   },
   args: {
     label: 'Plates on the rack',
@@ -50,6 +53,7 @@ const meta: Meta<Args> = {
     values: ['25', '20', '10', '5', '2.5', '1.25'],
     emptyMessage: 'No options available.',
     disabled: false,
+    layout: 'tiles',
   },
   render: (args) => html`
     <ptk-toggle-group
@@ -58,6 +62,7 @@ const meta: Meta<Args> = {
       .values=${args.values}
       empty-message=${args.emptyMessage}
       ?disabled=${args.disabled}
+      layout=${args.layout}
     ></ptk-toggle-group>
   `,
 };
@@ -105,6 +110,55 @@ export const Empty: Story = {
 
 export const Disabled: Story = {
   args: { disabled: true },
+};
+
+/**
+ * Sentence-length answers, which is what the list layout exists for.
+ *
+ * Tool 5's meet-day checklist. In the tile grid each of these is four wrapped
+ * lines in a 5.5rem track beside a checkbox, and a grid of those is unreadable
+ * however tall the cells are — so the rows run full width, and a description on
+ * one of them does not widen the track the way it would on a tile.
+ */
+export const AsAList: Story = {
+  args: {
+    label: 'Bring',
+    layout: 'list',
+    choices: [
+      { value: 'membership', label: 'Membership card and photo identification' },
+      { value: 'singlet', label: 'Singlet' },
+      { value: 'shirt', label: 'Approved shirt' },
+      { value: 'belt', label: 'Belt' },
+      { value: 'attempts', label: 'Attempt plan written in kilograms' },
+    ],
+    values: ['singlet', 'belt'],
+  },
+};
+
+/**
+ * The same rows on a phone.
+ *
+ * Nothing about the list layout changes with width — that is the point of it —
+ * so what this documents is the wrap: a label two lines long keeps the checkbox
+ * centred on the row rather than pinned to its first line.
+ */
+export const NarrowList: Story = {
+  render: () => html`
+    <div style="width: 288px; outline: 1px dashed currentColor; padding: 0.5rem;">
+      <ptk-toggle-group
+        label="Bring"
+        layout="list"
+        .choices=${
+          [
+            { value: 'membership', label: 'Membership card and photo identification' },
+            { value: 'sleeves', label: 'Knee sleeves or knee wraps' },
+            { value: 'attempts', label: 'Attempt plan written in kilograms' },
+          ] satisfies Choice[]
+        }
+        .values=${['sleeves']}
+      ></ptk-toggle-group>
+    </div>
+  `,
 };
 
 /**

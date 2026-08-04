@@ -25,6 +25,31 @@ import type { Choice } from './ptk-choice-group.js';
  * the caller and reports identifiers back.
  */
 
+/**
+ * Whether the options are a grid of tiles or a stack of full-width rows.
+ *
+ * Not a size setting with a nicer name. `tiles` is the shape a set of short
+ * answers wants -- seven plate denominations read as a block, and stacking them
+ * would push the rest of the form off a phone. `list` is the shape a set of
+ * *sentences* wants: "Membership and identification" in a 5.5rem track is four
+ * wrapped lines beside a checkbox, and a grid of those is unreadable however
+ * tall each cell is.
+ *
+ * The one screen asking for this is tool 5's meet-day checklist, which is tapped
+ * between sets with chalk on the hands, so a row also carries
+ * `--ptk-tap-target-comfortable`. That declaration is a floor and not the reason
+ * the rows are comfortable: measured, a one-line row is 66px on the padding
+ * alone, so removing it changes nothing today. It is stated for the same reason
+ * `.option`'s 44px floor is -- so that tightening the space tokens fails a test
+ * instead of quietly shrinking the control this collection is hardest on.
+ *
+ * There is deliberately no separate size property. Two of them would let a
+ * caller ask for the target without the layout, which is the combination that
+ * does not help anybody: a taller tile is still a tile, and a sentence in a
+ * 5.5rem track is unreadable however tall the cell is.
+ */
+export type ToggleGroupLayout = 'tiles' | 'list';
+
 /** Which option changed, whether it is now selected, and the whole selection. */
 export interface ToggleGroupChangeDetail {
   readonly value: string;
@@ -74,6 +99,28 @@ export class PtkToggleGroup extends LitElement {
 
     .options.described {
       --options-min-width: 13rem;
+    }
+
+    /*
+     * One row per option, and no track minimum at all. A single 1fr track
+     * rather than a wider --options-min-width, because auto-fit would still
+     * put two columns on a tablet -- and a
+     * checklist read down the page is the point, not a consequence of the
+     * screen being narrow.
+     */
+    .options.list {
+      grid-template-columns: 1fr;
+    }
+
+    .options.list .option {
+      min-height: var(--ptk-tap-target-comfortable);
+      /*
+       * Centred rather than baseline-aligned, unlike a tile. A tile's label is
+       * one line and the box sits on it; a row's label wraps, and a box pinned
+       * to the first line of three drifts to the top of a target the whole
+       * height of which is tappable.
+       */
+      align-items: center;
     }
 
     .option {
@@ -143,15 +190,26 @@ export class PtkToggleGroup extends LitElement {
 
   @property({ type: Boolean, reflect: true }) disabled = false;
 
+  /** See `ToggleGroupLayout`. Reflected so a caller can style around it. */
+  @property({ type: String, reflect: true }) layout: ToggleGroupLayout = 'tiles';
+
   override render(): TemplateResult {
-    const described = this.choices.some((choice) => choice.description !== undefined);
+    const classes = ['options'];
+    // A described *tile* needs a wider track to fit two lines; a row is already
+    // as wide as the group, so the two classes are exclusive rather than
+    // additive -- `described` would otherwise reintroduce a track minimum that
+    // `list` exists to remove.
+    if (this.layout === 'list') classes.push('list');
+    else if (this.choices.some((choice) => choice.description !== undefined))
+      classes.push('described');
+
     return html`
       <fieldset ?disabled=${this.disabled}>
         <legend>${this.label}</legend>
         ${
           this.choices.length === 0
             ? html`<p class="empty">${this.emptyMessage}</p>`
-            : html`<div class=${described ? 'options described' : 'options'}>
+            : html`<div class=${classes.join(' ')}>
                 ${this.choices.map((choice) => this.#renderChoice(choice))}
               </div>`
         }

@@ -454,6 +454,26 @@ const MEET_DAY_FILL_AFTER = [
 const MEET_DAY_CLICK_LAST = ['section.start ptk-button button'];
 
 /**
+ * Open §22's fold, which sits under the Start button on the planning screen.
+ *
+ * In `clickLast` rather than `clickAfter` only because the plan above it has to
+ * be drawn first for the two settle selectors below to mean anything in order;
+ * the fold itself is on screen from the first paint.
+ *
+ * Named by `.prep` and not by `ptk-disclosure`, which the plan screen also uses:
+ * a bare tag selector is correct until a second fold is added above this one,
+ * and then it opens something else while the run goes on passing, because what
+ * it opened is also a real fold (§13.11's `class="back"`, for the same reason).
+ *
+ * What the press buys is not that the boxes below become measurable -- Chromium
+ * lays out the contents of a shut `<details>`, so they are measured either way,
+ * and `apps/web/CLAUDE.md` records the measurements that show it. It buys a live
+ * assertion that the fold still exists under that class, and independence from
+ * an engine behaviour nothing guarantees. Prove it by renaming the selector.
+ */
+const MEET_DAY_PREP_CLICK = ['ptk-disclosure.prep summary'];
+
+/**
  * §6.1's other branch, then the rule book the meet is created against.
  *
  * The mode tile is named by the value inside it rather than by `.first()`, which
@@ -739,6 +759,7 @@ const ROUTES = [
     reveal: [],
     fill: MEET_DAY_FILL,
     clickAfter: MEET_DAY_CLICK_AFTER,
+    clickLast: MEET_DAY_PREP_CLICK,
     // An attempt card, not a field and not the plan element itself. The element
     // is in the DOM from the first paint carrying one sentence about a
     // federation nobody has chosen; a card exists only once all three
@@ -746,7 +767,18 @@ const ROUTES = [
     // gets wrong silently. It is also the densest row in the collection -- an
     // attempt number, a weight in kilograms, the federation's published pounds
     // beside it, a risk word and a rounding note, on one line in 320px.
-    settle: ['ptk-plan-screen li.attempt'],
+    //
+    // Then the two widest things inside §22's fold, which is the other half of
+    // this screen and the half with the longest labels in the tool: "Deadlift
+    // bar or platform notes" over a full-width box, and a checklist row that is
+    // a 44px tap target carrying a whole sentence. Both are listed because the
+    // fold holds two independent elements and neither one arriving implies the
+    // other.
+    settle: [
+      'ptk-plan-screen li.attempt',
+      'ptk-meet-prep ptk-text-area[data-field="deadliftNotes"]',
+      'ptk-meet-checklist ptk-toggle-group[data-group="bring"]',
+    ],
   },
   /*
    * The same path again, driven two presses further, because live mode replaces
