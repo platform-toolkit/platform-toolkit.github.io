@@ -65,9 +65,11 @@ import {
   type MeetAction,
   type MeetActionProblemCode,
   type MeetGoal,
+  type MeetPace,
   type MissCluster,
   type MissReason,
   type PlatformCall,
+  type PlatformEstimate,
   type PublishedPoundsReason,
   type RackAdvisory,
   type RackLoad,
@@ -77,8 +79,10 @@ import {
   type ResearchComparison,
   type RefereeLight,
   type RunningTotal,
+  type ScheduledItemKind,
   type SubmissionStatus,
   type TargetProgress,
+  type WarmupProblemCode,
   type WeightInputProblem,
   type WeightUnit,
 } from '@platform-toolkit/domain';
@@ -3940,3 +3944,270 @@ export function calibrationClusterText(cluster: MissCluster): string {
  * and the misses that are there are already counted per lift above.
  */
 export const CALIBRATION_NO_CLUSTER = 'No lift holds more of your misses than the others.';
+
+/*
+ * ---------------------------------------------------------------------------
+ * §20 -- THE WARM-UP, ON THE MEET'S CLOCK
+ *
+ * Two rules govern every sentence below and they pull against each other.
+ *
+ * §20.1 says "avoid false precision", and §5.5's authority rule says the meet
+ * staff decide. So nothing here names an instant. Every figure is a range, a
+ * range is always two numbers and a dash, and the word "about" appears wherever
+ * a single number could not be avoided. There is no "at 2:47" on this screen and
+ * there is no clock face: a lifter reading a clock face plans to it.
+ *
+ * Against that, §20's point is that a lifter in a warm-up room has thirty
+ * seconds and chalk on their hands. So the hedging lives in the *shape* of the
+ * figures rather than in extra words around them. "In 18-24 minutes" is honest
+ * and is four characters longer than "in 21 minutes"; a sentence apologising for
+ * the range is neither.
+ * ---------------------------------------------------------------------------
+ */
+
+export const WARMUP_HEADING = 'Warm-up';
+
+/**
+ * What the screen is for, said before any of it is filled in.
+ *
+ * Names the two things it needs and the one thing it cannot know. A screen of
+ * eleven optional number fields with no opening sentence reads as a form; the
+ * point is that every field is a question about a room this device cannot see,
+ * and a lifter who understands that answers the two that matter and skips the
+ * rest.
+ */
+export const WARMUP_INTRO =
+  'Tell it roughly where the meet has got to and it will count backwards from your attempt to the first warm-up set.';
+
+export const WARMUP_PLACE_HEADING = 'Where the meet is';
+export const WARMUP_PACE_HEADING = 'How fast it is running';
+export const WARMUP_TIMELINE_HEADING = 'Your warm-up';
+export const WARMUP_PREFERENCES_HEADING = 'How you like to warm up';
+export const WARMUP_PREP_HEADING = 'Gear and wraps';
+export const WARMUP_ROOM_HEADING = 'The warm-up room';
+export const WARMUP_SETS_HEADING = 'The sets';
+
+/** §20.1's first question, and the one that changes which others are asked. */
+export const WARMUP_PLACE_LABEL = 'Which flight is on the platform';
+
+export const WARMUP_PLACE_CHOICES: readonly Choice[] = [
+  { value: 'earlier-flight-running', label: 'One before mine' },
+  { value: 'own-flight-running', label: 'Mine' },
+];
+
+export const WARMUP_ATTEMPTS_LEFT_LABEL = 'Attempts left in that flight';
+export const WARMUP_FLIGHTS_BETWEEN_LABEL = 'Whole flights between';
+export const WARMUP_CURRENT_ROUND_LABEL = 'Round on the platform';
+export const WARMUP_CURRENT_POSITION_LABEL = 'Lifters done in that round';
+export const WARMUP_FLIGHT_SIZE_LABEL = 'Lifters in my flight';
+export const WARMUP_TARGET_ROUND_LABEL = 'My round';
+export const WARMUP_TARGET_POSITION_LABEL = 'My place in it';
+export const WARMUP_ATTEMPTS_DONE_LABEL = 'Attempts done today';
+export const WARMUP_ELAPSED_LABEL = 'Minutes since the session started';
+export const WARMUP_BREAK_LABEL = 'Scheduled break before I lift';
+export const WARMUP_DELAY_LABEL = 'Minutes the meet is running late';
+
+/**
+ * The hints that stop a question being answered about the wrong thing.
+ *
+ * Only four fields carry one, and each is a question two readings can be given
+ * to. "Lifters done in that round" is the one that costs a lifter the most:
+ * counted as a position rather than a count, every estimate on the screen is one
+ * attempt out, which at a minute an attempt is invisible and wrong.
+ */
+export const WARMUP_ATTEMPTS_LEFT_HINT = 'A guess is fine. Count the lifters still to go.';
+export const WARMUP_CURRENT_POSITION_HINT = 'How many have lifted, not who is up.';
+export const WARMUP_TARGET_POSITION_HINT = 'Counting from the front of the flight.';
+export const WARMUP_ELAPSED_HINT = 'With the attempt count, this measures the real pace.';
+
+/**
+ * The pace, and where it came from.
+ *
+ * The source is in the sentence rather than beside it as a badge, because the
+ * two readings are not degrees of the same thing: one is a measurement of this
+ * session and the other is a number this tool made up. §20.1's spread already
+ * widens the range for the assumed case, and the widened range is not
+ * self-explaining -- a lifter seeing 12-40 minutes with no reason for it reads a
+ * broken tool rather than an honest one.
+ */
+export function warmupPaceText(pace: MeetPace): string {
+  const seconds = Math.round(pace.secondsPerAttempt);
+  switch (pace.source) {
+    case 'observed':
+      return `About ${String(seconds)} seconds an attempt, measured from today.`;
+    case 'supplied':
+      return `About ${String(seconds)} seconds an attempt, as you set it.`;
+    case 'assumed':
+      return `Assuming ${String(seconds)} seconds an attempt. Fill in the two fields above and it will measure the real one.`;
+  }
+}
+
+/**
+ * §20.1's own example sentence: "Estimated platform time: 18-24 minutes".
+ *
+ * Minutes, floored and ceiled outwards, because the engine already rounded to
+ * whole minutes in the directions §5.5 wants and rounding again inwards here
+ * would undo it. A range that collapses to one number is still printed as one
+ * number rather than as "3-3 minutes".
+ */
+export function platformEstimateText(estimate: PlatformEstimate): string {
+  const earliest = Math.floor(estimate.earliestSeconds / 60);
+  const latest = Math.ceil(estimate.latestSeconds / 60);
+  if (earliest <= 0 && latest <= 0) return 'You are up now.';
+  if (earliest === latest) return `About ${String(latest)} minutes to the platform.`;
+  return `${String(Math.max(0, earliest))}-${String(latest)} minutes to the platform.`;
+}
+
+/** How many attempts stand between the lifter and the bar. */
+export function attemptsBeforeText(estimate: PlatformEstimate): string {
+  const count = estimate.attemptsBefore;
+  if (count === 0) return 'No attempts in front of you.';
+  return `${String(count)} attempt${count === 1 ? '' : 's'} in front of you.`;
+}
+
+/**
+ * When a scheduled item starts, as a range counted from now.
+ *
+ * Negative is printed as "should have started", not as a negative number and not
+ * clamped to zero. §13.3 made the domain report a start in the past honestly and
+ * this is the sentence that was reserved for it: a lifter who is late needs to
+ * know by how much, because that is what decides how many sets come off.
+ */
+export function warmupStartText(earliestSeconds: number, latestSeconds: number): string {
+  if (latestSeconds < 0) {
+    return `Should have started ${countdownText(-latestSeconds)} ago.`;
+  }
+  const earliest = Math.floor(Math.max(0, earliestSeconds) / 60);
+  const latest = Math.ceil(latestSeconds / 60);
+  if (latest <= 0) return 'Now.';
+  if (earliest === latest) return `In about ${String(latest)} minutes.`;
+  return `In ${String(earliest)}-${String(latest)} minutes.`;
+}
+
+/**
+ * What one line of the timeline is.
+ *
+ * A warm-up set is numbered the way tool 2 numbers it -- counting only the sets
+ * a lifter can move, so the bar-only set at the bottom is "Empty bar" and the
+ * first movable one is always "Warm-up 1". Two tools numbering the same ramp
+ * differently is the kind of disagreement that gets noticed at the rack with
+ * both screens open.
+ */
+export function warmupItemLabel(
+  kind: ScheduledItemKind,
+  ordinal: number | null,
+  equipmentId: string | null,
+): string {
+  switch (kind) {
+    case 'platform':
+      return 'Your attempt';
+    case 'equipment':
+      return equipmentId === null ? 'Get ready' : warmupPrepLabel(equipmentId);
+    case 'warm-up-set':
+      return ordinal === null ? 'Empty bar' : `Warm-up ${String(ordinal)}`;
+  }
+}
+
+/** §20's five preparations, named. An unrecognised id is shown as itself. */
+export function warmupPrepLabel(id: string): string {
+  switch (id) {
+    case 'knee-wraps':
+      return 'Knee wraps';
+    case 'bench-shirt':
+      return 'Bench shirt';
+    case 'squat-suit':
+      return 'Squat suit';
+    case 'deadlift-suit':
+      return 'Deadlift suit';
+    case 'other':
+      return 'Other preparation';
+    default:
+      return id;
+  }
+}
+
+export const WARMUP_PREP_MINUTES_LABEL = 'Minutes';
+
+/**
+ * Which side of the ramp a preparation falls on.
+ *
+ * Worded as what the lifter does rather than as the engine's two codes. "After
+ * the final warm-up" is technically exact and describes a gap; "Just before I
+ * walk out" describes the moment somebody is picturing when they answer.
+ */
+export const WARMUP_PREP_WHEN_CHOICES: readonly Choice[] = [
+  { value: 'before-the-ramp', label: 'Before I start' },
+  { value: 'after-the-final-warm-up', label: 'Just before I walk out' },
+];
+
+export const WARMUP_LEAD_MINIMUM_LABEL = 'Finish warming up at least';
+export const WARMUP_LEAD_MAXIMUM_LABEL = 'and at most';
+export const WARMUP_LEAD_UNIT = 'minutes before';
+export const WARMUP_LEAD_HINT = 'The gap between your last warm-up and the bar.';
+export const WARMUP_REST_LABEL = 'Rest between warm-up sets';
+export const WARMUP_SET_SECONDS_LABEL = 'Time one set takes';
+export const WARMUP_MAXIMUM_SETS_LABEL = 'Most warm-up sets I want';
+export const WARMUP_MAXIMUM_SETS_HINT = 'Leave it blank for as many as the ramp needs.';
+export const WARMUP_SHARED_RACK_LABEL = 'Lifters on my warm-up bar';
+export const WARMUP_SHARED_RACK_HINT = 'Including you. Leave it blank if the bar is yours.';
+
+export const WARMUP_DELAY_PREFERENCE_LABEL = 'If the meet runs late';
+
+/**
+ * §20.1's three answers, chosen in advance because the moment they are needed is
+ * the worst moment to be deciding.
+ */
+export const WARMUP_DELAY_CHOICES: readonly Choice[] = [
+  { value: 'wait', label: 'Wait' },
+  { value: 'repeat-a-light-movement', label: 'Repeat something light' },
+  { value: 'continue', label: 'Carry on' },
+];
+
+export const WARMUP_SET_WEIGHT_LABEL = 'Weight';
+export const WARMUP_SET_REPS_LABEL = 'Reps';
+export const WARMUP_RESET_SETS_LABEL = 'Back to the calculated sets';
+
+/** §5.8's rule for a fold: say what is behind it, including whose figures they are. */
+export function warmupSetsSummary(changed: number, total: number): string {
+  if (changed === 0) return 'Calculated weights and reps';
+  return `${String(changed)} of ${String(total)} set by you`;
+}
+
+/**
+ * Said where an opener has not been chosen yet.
+ *
+ * The estimate above it still works, which is why this is a sentence in the
+ * timeline section rather than a refusal covering the screen: a handler wanting
+ * only "how long have we got" gets the answer with nothing typed here at all.
+ */
+export const WARMUP_NEEDS_AN_OPENER =
+  'Pick an opener on the plan screen and the warm-up will count back from it.';
+
+/**
+ * Why no ramp could be drawn, total over the domain's codes.
+ *
+ * Total rather than defaulted, the same split as `meetProblemSentence` and
+ * `PlanProblem` above: the domain publishes codes and each tool writes its own
+ * wording, so a default would ship the day a code was added and would say the
+ * wrong thing on a screen where the lifter's next move depends on which of two
+ * things is wrong.
+ *
+ * The first draft of this was one constant blaming the warm-up room, and it was
+ * wrong in the direction that costs the most. `collectProblems` refuses on the
+ * opener or on a bar weight that will not read, and the opener is the one a
+ * lifter can actually reach -- so a sentence saying "check the room below" sends
+ * somebody to the one part of the screen that is fine, at the point where they
+ * have the least time to work out that it is.
+ */
+export function warmupProblemSentence(code: WarmupProblemCode): string {
+  switch (code) {
+    case 'working-weight-not-a-number':
+    case 'working-weight-not-positive':
+      return 'There is no opener to count back from. Pick one on the plan screen.';
+    case 'working-sets-not-a-positive-whole-number':
+    case 'working-reps-not-a-positive-whole-number':
+      return 'The attempt on the platform could not be read as one set of one.';
+    case 'equipment-weight-not-a-number':
+      return 'The bar or the collars in the warm-up room have no weight on them. Check the room below.';
+  }
+}
