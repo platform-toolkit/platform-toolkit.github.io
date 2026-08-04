@@ -198,6 +198,15 @@ export interface CoachBoardEntry {
   readonly platformCall?: PlatformCall | null | undefined;
   readonly warmup?: WarmupTimeline | null | undefined;
   readonly handlers?: readonly HandlerAssignment[] | undefined;
+  /**
+   * Which warm-up bar this lifter is on, when the room has more than one.
+   *
+   * Nothing on the board reads it. It is here because §21.2 cannot see a loading
+   * clash without knowing who is queueing for the same bar, and §21.4 cannot
+   * sequence one -- and a caller assembling a second array in parallel with this
+   * one, keyed by the same ids, is a way to get them out of step.
+   */
+  readonly rackId?: string | undefined;
   readonly pinned?: boolean | undefined;
 }
 

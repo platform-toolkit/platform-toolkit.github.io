@@ -125,6 +125,18 @@ export {
   type WarmupTimeline,
 } from './coach-board.js';
 export {
+  COACH_BOARD_CONFLICTS,
+  DEFAULT_HANDOVER_SECONDS,
+  coachBoardConflicts,
+  type CoachBoardConflict,
+  type CoachBoardConflictCode,
+  type CoachBoardConflictRequest,
+  type CoachBoardConflicts,
+  type ConflictPriority,
+  type ConflictPriorityReason,
+  type ProposedAttemptChange,
+} from './coach-board-conflicts.js';
+export {
   chartColumnFor,
   convertAgainstChart,
   convertMilestones,

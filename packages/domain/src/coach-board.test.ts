@@ -11,14 +11,12 @@
  * must sit below a first warm-up that is due now, even though the ladder lists
  * final warm-ups higher.
  *
- * Every instant is supplied and nothing reads the clock, for the reason
- * `meet-document.test.ts` gives: a test that passed because two figures were
- * measured in the same millisecond is a test that fails on a slow machine. The
- * warm-up schedules are hand-built from a real ramp rather than produced by
- * `meetWarmup`, so that a change to the ramp spacing cannot move a figure in a
- * file that has nothing to say about ramps.
+ * The meet, the instants and the schedules come from `coach-board.fixture.ts`,
+ * shared with the conflict tests: the warm-up schedules there are hand-built
+ * from a real ramp rather than produced by `meetWarmup`, so that a change to the
+ * ramp spacing cannot move a figure in a file that has nothing to say about
+ * ramps.
  */
-import type { MeetFormat, PlatformLift } from '@platform-toolkit/data-contracts';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -28,187 +26,23 @@ import {
   type CoachBoard,
   type CoachBoardEntry,
   type CoachBoardRow,
-  type WarmupTimeline,
 } from './coach-board.js';
 import {
-  applyMeetAction,
-  attemptsOn,
-  createMeetDocument,
-  startTimeline,
-  type MeetAction,
-  type MeetDocument,
-  type MeetTimeline,
-  type RecordedResult,
-} from './meet-document.js';
-import { meetWarmup, type MeetWarmupSchedule, type ScheduledItem } from './meet-warmup.js';
-import { rulesFor } from './meet-profile.fixture.js';
-import type { PlatformEstimate } from './platform-timing.js';
-import type { BarbellSetup, PlateDenomination } from './plates.js';
-
-const RULES = rulesFor();
-
-/** An invented instant. Every other time in this file is an offset from it. */
-const AT = 1_700_000_000_000;
-
-function minutes(count: number): number {
-  return count * 60;
-}
-
-// -----------------------------------------------------------------------------
-// A meet
-// -----------------------------------------------------------------------------
-
-function apply(timeline: MeetTimeline, action: MeetAction, at = AT): MeetTimeline {
-  const result = applyMeetAction(RULES, timeline, action, at);
-  if (!result.ok) {
-    throw new Error(
-      `${action.kind} was refused: ${result.problems.map((problem) => problem.code).join(', ')}`,
-    );
-  }
-  return result.timeline;
-}
-
-function meetWith(names: readonly string[], format: MeetFormat = 'full-power'): MeetTimeline {
-  let timeline = startTimeline(createMeetDocument(RULES, format));
-  for (const name of names) timeline = apply(timeline, { kind: 'add-lifter', name });
-  return timeline;
-}
-
-/** The lifter at a position, by position rather than by generated id. */
-function lifterId(document: MeetDocument, index: number): string {
-  const lifter = document.lifters[index];
-  if (lifter === undefined) throw new Error(`no lifter at ${String(index)}`);
-  return lifter.id;
-}
-
-function attemptId(
-  document: MeetDocument,
-  index: number,
-  lift: PlatformLift,
-  attemptNumber: number,
-): string {
-  const lifter = document.lifters[index];
-  if (lifter === undefined) throw new Error(`no lifter at ${String(index)}`);
-  const attempt = attemptsOn(lifter, lift).find(
-    (candidate) => candidate.attemptNumber === attemptNumber && candidate.kind === 'competition',
-  );
-  if (attempt === undefined) throw new Error(`no ${lift} attempt ${String(attemptNumber)}`);
-  return attempt.id;
-}
-
-/** Weigh, submit and judge one attempt, which is what starts the next clock. */
-function take(
-  timeline: MeetTimeline,
-  index: number,
-  lift: PlatformLift,
-  attemptNumber: number,
-  kilograms: number,
-  result: RecordedResult = { outcome: 'good', effort: 'solid' },
-  at = AT,
-): MeetTimeline {
-  const id = attemptId(timeline.present, index, lift, attemptNumber);
-  let next = apply(timeline, { kind: 'set-attempt-weight', attemptId: id, kilograms }, at);
-  next = apply(next, { kind: 'advance-attempt', attemptId: id, to: 'submitted' }, at);
-  return apply(next, { kind: 'record-result', attemptId: id, result }, at);
-}
-
-// -----------------------------------------------------------------------------
-// A warm-up schedule
-// -----------------------------------------------------------------------------
-
-const KILOGRAM_PLATES: readonly PlateDenomination[] = [
-  { weight: 25, pairs: null, fullDiameter: true },
-  { weight: 20, pairs: null, fullDiameter: true },
-  { weight: 15, pairs: null, fullDiameter: false },
-  { weight: 10, pairs: null, fullDiameter: true },
-  { weight: 5, pairs: null, fullDiameter: false },
-  { weight: 2.5, pairs: null, fullDiameter: false },
-  { weight: 1.25, pairs: null, fullDiameter: false },
-];
-
-const WARM_UP_ROOM: BarbellSetup = {
-  plateUnit: 'kg',
-  bar: { amount: 20, unit: 'kg' },
-  collars: { amount: 5, unit: 'kg' },
-  plates: KILOGRAM_PLATES,
-};
-
-const ESTIMATE: PlatformEstimate = {
-  attemptsBefore: 50,
-  pace: { secondsPerAttempt: 60, source: 'observed' },
-  earliestSeconds: 2520,
-  latestSeconds: 3480,
-  delaySeconds: 0,
-  advisories: [],
-};
-
-/**
- * A real ramp, borrowed for its shape and never for its numbers.
- *
- * The board reads exactly one thing off a plan -- how many warm-up sets there
- * are, which is what makes the last one the final one -- so a genuine plan is
- * cheaper than a hand-built fake and carries no risk of drifting out of the
- * type. Every start time below is written by hand.
- */
-const RAMP = ((): MeetWarmupSchedule => {
-  const built = meetWarmup({
-    lift: 'squat',
-    opener: { amount: 160, unit: 'kg' },
-    setup: WARM_UP_ROOM,
-    estimate: ESTIMATE,
-  });
-  if (!built.ok) throw new Error('the fixture ramp did not build');
-  return built.schedule;
-})();
-
-/** How many warm-up sets a scheduled fixture pretends to have. */
-const WARM_UP_SETS = 4;
-
-function item(
-  kind: ScheduledItem['kind'],
-  startsInMinutes: number,
-  patch: Partial<ScheduledItem> = {},
-): ScheduledItem {
-  return {
-    kind,
-    warmupIndex: null,
-    equipmentId: null,
-    seconds: 45,
-    startsInSeconds: {
-      earliestSeconds: minutes(startsInMinutes),
-      latestSeconds: minutes(startsInMinutes) + 60,
-    },
-    ...patch,
-  };
-}
-
-/** A schedule carrying exactly the items a case is about, counted from `builtAt`. */
-function timelineOf(items: readonly ScheduledItem[], builtAt = AT): WarmupTimeline {
-  if (RAMP.plan.warmups.length < WARM_UP_SETS) {
-    throw new Error('the fixture ramp is shorter than the fixture pretends');
-  }
-  return {
-    schedule: {
-      ...RAMP,
-      plan: { ...RAMP.plan, warmups: RAMP.plan.warmups.slice(0, WARM_UP_SETS) },
-      items,
-    },
-    builtAt,
-  };
-}
-
-/** The last warm-up set of a `WARM_UP_SETS`-long ramp, which is the final one. */
-function finalWarmupAt(startsInMinutes: number): ScheduledItem {
-  return item('warm-up-set', startsInMinutes, { warmupIndex: WARM_UP_SETS - 1 });
-}
-
-function firstWarmupAt(startsInMinutes: number): ScheduledItem {
-  return item('warm-up-set', startsInMinutes, { warmupIndex: 0 });
-}
-
-function equipmentAt(startsInMinutes: number): ScheduledItem {
-  return item('equipment', startsInMinutes, { equipmentId: 'knee-wraps' });
-}
+  AT,
+  RULES,
+  apply,
+  attemptId,
+  equipmentAt,
+  finalWarmupAt,
+  firstWarmupAt,
+  item,
+  lifterId,
+  meetWith,
+  minutes,
+  take,
+  timelineOf,
+} from './coach-board.fixture.js';
+import { createMeetDocument, type MeetDocument } from './meet-document.js';
 
 // -----------------------------------------------------------------------------
 // The board
@@ -481,6 +315,24 @@ describe('ageing a schedule', () => {
         entries,
         now: AT,
         attentionLeadSeconds: minutes(15),
+      }).rows[0]?.urgency,
+    ).toBe('other-warm-ups');
+  });
+
+  it('reads a nonsense attention lead as no lead', () => {
+    // Clamped rather than trusted, and for the same reason
+    // `coach-board-conflicts.ts` clamps its own: a negative lead inverts the
+    // test, so a warm-up starting this second reads as not yet worth looking at
+    // and the row goes quiet at precisely the moment it should not.
+    const document = meetWith(['Ama']).present;
+
+    expect(
+      coachBoard({
+        rules: RULES,
+        document,
+        entries: [{ lifterId: lifterId(document, 0), warmup: timelineOf([firstWarmupAt(0)]) }],
+        now: AT,
+        attentionLeadSeconds: -60,
       }).rows[0]?.urgency,
     ).toBe('other-warm-ups');
   });
