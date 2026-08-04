@@ -424,6 +424,18 @@ export {
   type TimingAdvisorySeverity,
 } from './platform-timing.js';
 export {
+  RACK_ADVISORIES,
+  rackSequences,
+  type RackAdvisory,
+  type RackAdvisoryCode,
+  type RackAdvisorySeverity,
+  type RackEntry,
+  type RackLoad,
+  type RackSequence,
+  type RackSequenceRequest,
+  type RackTaker,
+} from './rack-sequence.js';
+export {
   findRecord,
   recordTargets,
   standingAgainstRecord,

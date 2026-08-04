@@ -2,16 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * A meet, a warm-up schedule, and an instant, for the two modules that read all
- * three.
+ * A meet, a warm-up schedule, and an instant, for the three modules that read
+ * them.
  *
- * `coach-board.ts` and `coach-board-conflicts.ts` are separate projections over
- * the same request, and their tests need the same scaffolding: a document with
- * some lifters in it, attempts taken and judged so a declaration clock is
- * running, and schedules whose items sit exactly where the case wants them.
- * Sharing it here rather than copying it means the two files cannot drift into
- * disagreeing about what a fixture ramp looks like -- which would make a warning
- * about the board and a warning about a conflict impossible to compare.
+ * `coach-board.ts`, `coach-board-conflicts.ts` and `rack-sequence.ts` are
+ * separate projections over the same request, and their tests need the same
+ * scaffolding: a document with some lifters in it, attempts taken and judged so
+ * a declaration clock is running, and schedules whose items sit exactly where
+ * the case wants them. Sharing it here rather than copying it means the files
+ * cannot drift into disagreeing about what a fixture ramp looks like -- which
+ * would make a warning about the board, a warning about a conflict and a load on
+ * the bar impossible to compare.
  *
  * Every instant is supplied and nothing reads the clock, for the reason
  * `meet-document.test.ts` gives: a test that passed because two figures were
@@ -224,13 +225,18 @@ export function timelineOf(items: readonly ScheduledItem[], builtAt = AT): Warmu
   };
 }
 
+/** Any set of the fixture ramp, at a time of the case's choosing. */
+export function warmupAt(warmupIndex: number, startsInMinutes: number): ScheduledItem {
+  return item('warm-up-set', startsInMinutes, { warmupIndex });
+}
+
 /** The last warm-up set of a `WARM_UP_SETS`-long ramp, which is the final one. */
 export function finalWarmupAt(startsInMinutes: number): ScheduledItem {
-  return item('warm-up-set', startsInMinutes, { warmupIndex: WARM_UP_SETS - 1 });
+  return warmupAt(WARM_UP_SETS - 1, startsInMinutes);
 }
 
 export function firstWarmupAt(startsInMinutes: number): ScheduledItem {
-  return item('warm-up-set', startsInMinutes, { warmupIndex: 0 });
+  return warmupAt(0, startsInMinutes);
 }
 
 export function equipmentAt(startsInMinutes: number): ScheduledItem {
