@@ -176,7 +176,25 @@ export type LiveTargetKind =
   | 'placing'
   | 'record'
   /** §17's best-lifter or coefficient figure, expressed as the total that reaches it. */
-  | 'best-lifter';
+  | 'best-lifter'
+  /**
+   * §8.3's two totals the lifter sets for themselves, rather than ones a
+   * federation or a competitor sets.
+   *
+   * They are here because the planner collects both and had nowhere to put
+   * them, and the fallback -- mapping them onto one of the kinds above -- would
+   * have reported a lifter's own floor as a qualifying total on the one screen
+   * where the difference decides whether they take another attempt.
+   *
+   * `stretch` is a *target* and is not `meet-totals.ts`'s stretch *projection*.
+   * The target is a figure the lifter typed before the meet; the projection is
+   * what the current plan would produce if the push attempts are made. They
+   * answer opposite questions -- what would be a good day, and what the day is
+   * currently shaping up to be -- and a screen showing one under the other's
+   * heading tells a lifter they have already reached something they have not.
+   */
+  | 'minimum-acceptable'
+  | 'stretch';
 
 /**
  * Something the lifter is trying to reach, supplied by whatever knows about it.

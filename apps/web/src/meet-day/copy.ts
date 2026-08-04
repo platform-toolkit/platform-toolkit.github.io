@@ -40,6 +40,7 @@ import {
   type LiveChoice,
   type LiveChoiceSlot,
   type LiveTarget,
+  type LiveTargetKind,
   type LiveTrigger,
   type MaximumSource,
   type MeetAction,
@@ -1041,6 +1042,47 @@ export function runningTotalText(total: RunningTotal, unit: WeightUnit): string 
   if (total.isTotal) return `Total ${amount}`;
   if (total.liftsOutstanding.length === 0) return `Subtotal ${amount}`;
   return `Subtotal ${amount}, ${liftListText(total.liftsOutstanding)} still to come`;
+}
+
+/**
+ * How this tool names one of §8.3's targets.
+ *
+ * `LiveTarget.label` is a required field whose contract is "how the interface
+ * names it, in the caller's words", so the words have to come from somewhere in
+ * this tool, and this is where every other word on these screens lives. It is
+ * the one string a pure builder here reads out of `copy.ts` -- `live-session.ts`
+ * imports it -- and the alternative was passing a table of nine labels into that
+ * builder, which is the same coupling written twice.
+ *
+ * The lift is part of the label rather than left to the layout, because a target
+ * is named in a sentence -- "Reaches squat personal record, personal record
+ * total" -- and three lifts' records all reading "Personal record" in one list
+ * is a lifter being told they reached something three times.
+ */
+export function targetLabel(kind: LiveTargetKind, lift: PlatformLift | null): string {
+  switch (kind) {
+    case 'personal-record':
+      return lift === null
+        ? 'personal record total'
+        : `${liftLabel(lift).toLowerCase()} personal record`;
+    case 'qualification':
+      return 'qualifying total';
+    case 'classification':
+      return 'classification target';
+    case 'placing':
+      return 'placing target';
+    case 'record':
+      return 'record target';
+    case 'best-lifter':
+      return 'best-lifter target';
+    case 'minimum-acceptable':
+      return 'minimum acceptable total';
+    case 'stretch':
+      // "Stretch total", never "stretch projection". The projection is what the
+      // plan is currently on course for; this is what the lifter said would be a
+      // good day, and §17's whole point is that the two are not one figure.
+      return 'stretch total';
+  }
 }
 
 /** §13's "reaches a target", named with the caller's own words for the target. */

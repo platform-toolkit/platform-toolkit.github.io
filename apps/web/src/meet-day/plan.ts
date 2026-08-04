@@ -56,6 +56,7 @@ import {
   planAttempts,
   planFromOpener,
   reviewJumps,
+  type AttemptPlan,
   type AttemptPlanProblemCode,
   type AttemptRefusalCode,
   type AttemptRisk,
@@ -172,6 +173,31 @@ export interface LiftPlanView {
   readonly awaiting: boolean;
   /** A figure is on screen and §7 is waiting for the lifter to agree to it. */
   readonly awaitingConfirmation: boolean;
+  /**
+   * The domain's own plan object, for a caller that needs more than the render.
+   *
+   * The screen never reads this -- everything it draws is already spread across
+   * the fields above, and reaching past them into the plan is how two parts of
+   * one page end up disagreeing about a weight. It is here for live mode, which
+   * hands `AttemptPlan` straight to `liveChoicesFor` so that the choices offered
+   * at the platform are anchored to the plan the lifter actually built rather
+   * than to a second plan rebuilt from the same fields.
+   *
+   * `null` under Manual entry, which has no plan by definition -- the lifter
+   * typed three weights and nothing generated them -- and under every failure,
+   * which is the same statement.
+   */
+  readonly plan: AttemptPlan | null;
+  /**
+   * §8.1's ceiling in kilograms, whatever the method did with it.
+   *
+   * Carried separately from the plan because it survives the plan failing and is
+   * wanted even when there is none: live mode clamps the choices to it, and a
+   * lifter who typed a ceiling and then broke some other field has still said
+   * what their limit is. `null` means nothing was typed, never "no limit was
+   * meant".
+   */
+  readonly ceilingKilograms: number | null;
 }
 
 export interface PlannerView {
@@ -244,6 +270,26 @@ function readKilograms(text: string, unit: WeightUnit): FieldReading {
 /** The value, or `null` for both "nothing typed" and "typed something wrong". */
 function valueOf(reading: FieldReading): number | null {
   return reading.ok ? reading.value : null;
+}
+
+/**
+ * One typed field as kilograms, for a caller outside this module.
+ *
+ * The same two functions above, in one exported step, and it exists so that live
+ * mode cannot arrive at a different answer than the plan did. §17's four total
+ * figures are typed on the setup screen and read nowhere in here -- live mode is
+ * their first consumer -- so without this the second reader would be a second
+ * copy of the parse-then-convert pair, and the failure mode is silent: 200 lb is
+ * a perfectly plausible squat in kilograms, so a forgotten conversion produces a
+ * screen full of believable numbers rather than an error.
+ *
+ * It collapses "nothing typed" and "typed something wrong" into `null`, which is
+ * what a caller reading an optional field wants. Anything that must tell those
+ * two apart -- because it has to say what is wrong -- belongs in this module,
+ * where `FieldReading` still carries the distinction.
+ */
+export function kilogramsTyped(text: string, unit: WeightUnit): number | null {
+  return valueOf(readKilograms(text, unit));
 }
 
 /**
@@ -513,6 +559,12 @@ function emptyLift(
     subtotalKilograms: null,
     awaiting: parts.awaiting ?? false,
     awaitingConfirmation: parts.awaitingConfirmation ?? false,
+    plan: null,
+    // Re-read rather than threaded in from the caller, because this function is
+    // also the fallback for every failure and most callers reach it without
+    // having computed the limits. The ceiling is what the lifter typed; it does
+    // not stop being that because some other field on the screen is wrong.
+    ceilingKilograms: limitsFor(session, session.figures[lift]).ceilingKilograms,
   };
 }
 
@@ -577,6 +629,8 @@ function planFromMaximum(
     subtotalKilograms: plan.plannedSubtotalKilograms,
     awaiting: false,
     awaitingConfirmation: false,
+    plan,
+    ceilingKilograms: limits.ceilingKilograms,
   };
 }
 
@@ -635,6 +689,8 @@ function planKnownOpener(
     subtotalKilograms: plan.plannedSubtotalKilograms,
     awaiting: false,
     awaitingConfirmation: false,
+    plan,
+    ceilingKilograms: limits.ceilingKilograms,
   };
 }
 
@@ -736,6 +792,11 @@ function planManual(
     subtotalKilograms: weights.reduce((sum, weight) => sum + weight, 0),
     awaiting: false,
     awaitingConfirmation: false,
+    // No plan, by definition: these are three weights a lifter typed and nothing
+    // generated them. The ceiling still counts -- §8.1's field is on screen for
+    // every method, and live mode clamps to it whatever produced the attempts.
+    plan: null,
+    ceilingKilograms: limitsFor(session, figures).ceilingKilograms,
   };
 }
 
