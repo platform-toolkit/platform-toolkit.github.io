@@ -26,6 +26,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { deepText } from '../testing/deep-text.js';
 import {
   MARK_SUBMITTED_LABEL,
+  NO_DEADLINE_NOTE,
   NO_SUBMISSION_NOTE,
   OFFICIAL_CLOCK_NOTE,
   countdownText,
@@ -37,13 +38,14 @@ import {
   OPENER,
   SECOND,
   START,
+  choose,
   contextAt,
   meetWith,
   submissionOf,
   submit,
   take,
 } from './live-fixture.js';
-import type { SubmissionView } from './live.js';
+import type { SubmissionClock, SubmissionView } from './live.js';
 import {
   SUBMISSION_MARKED_EVENT,
   type PtkSubmissionCountdown,
@@ -72,6 +74,28 @@ function handedIn(): SubmissionView {
   return submissionOf(submit(RECORDED, 'squat', SECOND, START + 5_000), contextAt(START + 10_000));
 }
 
+/**
+ * A declared opener, which is the panel with no clock on it.
+ *
+ * Nothing has been judged on this lift yet, so the domain has no result to start
+ * a countdown from -- and this is the state the tool spends three of its nine
+ * attempts in, not an edge case.
+ */
+const OPENER_OWED: SubmissionView = submissionOf(choose(meetWith(), 'squat', OPENER));
+
+/**
+ * The same panel with its clock patched.
+ *
+ * The three fields only mean anything together, so they arrive as one object and
+ * a spread over the view cannot reach them. It throws rather than inventing a
+ * clock: a test that meant to patch one and silently attached a fresh one to an
+ * openerless panel would be asserting against a state the builder never makes.
+ */
+function withClock(view: SubmissionView, patch: Partial<SubmissionClock>): SubmissionView {
+  if (view.clock === null) throw new Error('That panel has no clock to patch.');
+  return { ...view, clock: { ...view.clock, ...patch } };
+}
+
 async function mount(
   submission: SubmissionView | null = at(0),
   patch: Partial<Pick<PtkSubmissionCountdown, 'haptics'>> = {},
@@ -89,6 +113,13 @@ async function mount(
   });
   await element.updateComplete;
   return element;
+}
+
+/** The panel itself, which is what carries the urgency attribute. */
+function panelOf(element: PtkSubmissionCountdown): HTMLElement {
+  const panel = element.shadowRoot?.querySelector('.panel');
+  if (!(panel instanceof HTMLElement)) throw new Error('The panel did not render.');
+  return panel;
 }
 
 /** The one control on the panel. */
@@ -160,10 +191,37 @@ describe('ptk-submission-countdown', () => {
     expect(deepText(element)).toContain(countdownText(25));
   });
 
-  it('says no deadline is running rather than rendering an empty panel', async () => {
+  it('says nothing is owed rather than rendering an empty panel', async () => {
     const element = await mount(null);
     expect(deepText(element)).toContain(NO_SUBMISSION_NOTE);
     expect(element.shadowRoot?.querySelector('ptk-button')).toBe(null);
+  });
+
+  it('keeps the panel and its control on an attempt with no deadline', async () => {
+    // The opener of a lift: the tool's minute runs off a recorded result and
+    // looks for the next attempt on the same lift, so nothing is counting before
+    // squat one. Withdrawing the panel for that reason takes the mark control
+    // off the screen for three of the nine attempts, and it is the only route to
+    // `submitted` in the tool -- which is how the meet came to be unrunnable.
+    const element = await mount(OPENER_OWED);
+
+    expect(nativeButton(markButton(element)).disabled).toBe(false);
+    expect(deepText(element)).toContain(NO_DEADLINE_NOTE);
+    // No digits, and none of the colour-only signal that stands in for them.
+    expect(element.shadowRoot?.querySelector('.clock')).toBe(null);
+    expect(panelOf(element).dataset['urgency']).toBeUndefined();
+    expect(deepText(element)).not.toContain(urgencySentence('calm'));
+  });
+
+  it('reports the press on an attempt that has no deadline', async () => {
+    // The press is the whole reason the panel stays. A control that renders and
+    // reports nothing looks identical to a lifter, and the meet stops there.
+    const seen = watch();
+    const element = await mount(OPENER_OWED);
+
+    nativeButton(markButton(element)).click();
+
+    expect(seen).toEqual([{ attemptId: OPENER_OWED.attemptId }]);
   });
 
   it('shows the lifter and the weight together, which is what §14 asks for', async () => {
@@ -224,10 +282,8 @@ describe('ptk-submission-countdown', () => {
     // on is asserted here beside the sentence, so a change that drops one of the
     // two is a failure rather than a quieter panel.
     const element = await mount(at(85));
-    const panel = element.shadowRoot?.querySelector('.panel');
-    if (!(panel instanceof HTMLElement)) throw new Error('The panel did not render.');
 
-    expect(panel.dataset['urgency']).toBe('critical');
+    expect(panelOf(element).dataset['urgency']).toBe('critical');
     expect(deepText(element)).toContain(urgencySentence('critical'));
   });
 
@@ -236,7 +292,7 @@ describe('ptk-submission-countdown', () => {
     // while the sentence beside it still says there is time. The view is the one
     // source; this fixture is deliberately inconsistent to prove the element is
     // not quietly recomputing from the seconds.
-    const element = await mount({ ...at(85), urgency: 'calm' });
+    const element = await mount(withClock(at(85), { urgency: 'calm' }));
 
     expect(deepText(element)).toContain(urgencySentence('calm'));
     expect(deepText(element)).not.toContain(urgencySentence('critical'));
@@ -245,7 +301,7 @@ describe('ptk-submission-countdown', () => {
   it('shows no time left rather than counting past the deadline', async () => {
     // The domain clamps, so this view is patched to what a clock skew would
     // produce. "-0:03 left" reads as three seconds of credit.
-    const element = await mount({ ...at(95), secondsRemaining: -3 });
+    const element = await mount(withClock(at(95), { secondsRemaining: -3 }));
 
     expect(deepText(element)).toContain('0:00');
     expect(deepText(element)).not.toContain('-0');
@@ -346,6 +402,25 @@ describe('ptk-submission-countdown', () => {
     expect(felt).toHaveLength(1);
   });
 
+  it('does not buzz on a panel with no deadline on it', async () => {
+    // There is no escalation to announce. A buzz here is the pocket saying the
+    // deadline moved when no deadline is running -- the one signal on this screen
+    // a lifter acts on without looking at it.
+    const { felt, patch } = recordBuzzes();
+    const element = await mount(OPENER_OWED, patch);
+
+    element.submission = { ...OPENER_OWED };
+    await element.updateComplete;
+
+    expect(felt).toEqual([]);
+
+    // The control: the same element does buzz once a clock arrives, so the
+    // silence above is the missing clock and not a port wired to nothing.
+    element.submission = at(65);
+    await element.updateComplete;
+    expect(felt).toHaveLength(1);
+  });
+
   it('buzzes again at each further escalation', async () => {
     const { felt, patch } = recordBuzzes();
     const element = await mount(at(0), patch);
@@ -373,7 +448,7 @@ describe('ptk-submission-countdown', () => {
     const { felt, patch } = recordBuzzes();
     const element = await mount(handedIn(), patch);
 
-    element.submission = { ...handedIn(), secondsRemaining: 5, urgency: 'critical' };
+    element.submission = withClock(handedIn(), { secondsRemaining: 5, urgency: 'critical' });
     await element.updateComplete;
 
     expect(felt).toEqual([]);

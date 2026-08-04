@@ -30,6 +30,7 @@ import {
   SUBMISSION_HURRY_SECONDS,
   awaitingResult,
   buildLiveView,
+  positionOf,
   urgencyFor,
 } from './live.js';
 import {
@@ -40,6 +41,7 @@ import {
   START,
   THIRD,
   act,
+  choose,
   contextAt,
   meetWith,
   nextAttemptIdOn,
@@ -262,12 +264,40 @@ describe('buildLiveView submission panel', () => {
 
   const WINDOW = RULES.profile.submissionSeconds;
 
-  it('has no panel until a clock is running', () => {
+  it('has no panel while the attempt is still being chosen', () => {
+    // Nothing is owed yet: the headline is already asking for a weight, and a
+    // second panel repeating that under a disabled button is the one screen §11
+    // says must not compete with itself.
     expect(viewOf(meetWith()).submission).toBeNull();
 
-    // The control: one recorded result starts one, so the null above is the
-    // absence of a clock rather than the panel never being built.
+    // The control: one recorded result starts a clock, so the null above is a
+    // state of the attempt rather than the panel never being built.
     expect(viewOf(counting()).submission).not.toBeNull();
+  });
+
+  it('puts the panel up on a declared opener, with no clock on it', () => {
+    // The opener of a lift has no deadline this tool can know -- `startCountdown`
+    // runs off a recorded result and looks for the next attempt on the *same*
+    // lift, so nothing is running before squat one. Withdrawing the panel for
+    // that reason would take the mark control off the screen for three of the
+    // nine attempts, and it is the only route to `submitted` in the tool.
+    const panel = viewOf(choose(meetWith(), 'squat', OPENER)).submission;
+
+    expect(panel?.clock).toBeNull();
+    expect(panel?.weight?.kilograms).toBe(OPENER);
+    expect(panel?.submitted).toBe(false);
+    // The clocked panel is the control: same field, filled in, one result later.
+    expect(viewOf(counting()).submission?.clock).not.toBeNull();
+  });
+
+  it('keeps the unclocked panel up once the weight is marked handed in', () => {
+    // A panel that vanished under the thumb that pressed it reads as the press
+    // having failed, on the one control a lifter would repeat if unsure -- and
+    // the clocked panel already stays for exactly that reason.
+    const panel = viewOf(submit(meetWith(), 'squat', OPENER)).submission;
+
+    expect(panel?.submitted).toBe(true);
+    expect(panel?.clock).toBeNull();
   });
 
   it('names the lifter beside the weight', () => {
@@ -282,11 +312,11 @@ describe('buildLiveView submission panel', () => {
     // decremented per tick would come back showing time the lifter does not have.
     const timeline = counting();
 
-    expect(viewOf(timeline, contextAt(START + 30_000)).submission?.secondsRemaining).toBe(
+    expect(viewOf(timeline, contextAt(START + 30_000)).submission?.clock?.secondsRemaining).toBe(
       WINDOW - 30,
     );
     expect(
-      viewOf(timeline, contextAt(START + (WINDOW - 1) * 1000)).submission?.secondsRemaining,
+      viewOf(timeline, contextAt(START + (WINDOW - 1) * 1000)).submission?.clock?.secondsRemaining,
     ).toBe(1);
   });
 
@@ -294,19 +324,19 @@ describe('buildLiveView submission panel', () => {
     const timeline = counting();
     const at = (secondsRemaining: number): number => START + (WINDOW - secondsRemaining) * 1000;
 
-    expect(viewOf(timeline, contextAt(at(WINDOW))).submission?.urgency).toBe('calm');
-    expect(viewOf(timeline, contextAt(at(SUBMISSION_HURRY_SECONDS))).submission?.urgency).toBe(
-      'hurry',
-    );
-    expect(viewOf(timeline, contextAt(at(SUBMISSION_CRITICAL_SECONDS))).submission?.urgency).toBe(
-      'critical',
-    );
+    expect(viewOf(timeline, contextAt(at(WINDOW))).submission?.clock?.urgency).toBe('calm');
+    expect(
+      viewOf(timeline, contextAt(at(SUBMISSION_HURRY_SECONDS))).submission?.clock?.urgency,
+    ).toBe('hurry');
+    expect(
+      viewOf(timeline, contextAt(at(SUBMISSION_CRITICAL_SECONDS))).submission?.clock?.urgency,
+    ).toBe('critical');
 
     const lapsed = viewOf(timeline, contextAt(at(-5)));
-    expect(lapsed.submission?.urgency).toBe('lapsed');
-    expect(lapsed.submission?.lapsed).toBe(true);
+    expect(lapsed.submission?.clock?.urgency).toBe('lapsed');
+    expect(lapsed.submission?.clock?.lapsed).toBe(true);
     // Never a colour on its own: every band carries the seconds it was read from.
-    expect(lapsed.submission?.secondsRemaining).toBe(0);
+    expect(lapsed.submission?.clock?.secondsRemaining).toBe(0);
   });
 
   it('reports what the officials would write down if nothing is declared', () => {
@@ -466,6 +496,56 @@ describe('awaitingResult', () => {
     if (lifter === undefined) throw new Error('fixture has no lifter');
 
     expect(awaitingResult(finished.present, lifter)).toBe(false);
+  });
+});
+
+describe('positionOf', () => {
+  it('answers null for a lifter who is not in this meet', () => {
+    const timeline = meetWith();
+
+    expect(positionOf(timeline.present, 'nobody')).toBeNull();
+
+    // The control, per `buildLiveView`'s own null test above: the same document
+    // does answer for the lifter who is in it, so the null is about the
+    // identifier rather than about a document with nothing in it.
+    expect(positionOf(timeline.present, onlyLifterIn(timeline))).not.toBeNull();
+  });
+
+  it('reports the meet over only once every contested lift is finished', () => {
+    // The whole reason this is exported rather than re-derived by the caller
+    // that wants the boolean: "the meet is over" is a rule about which lifts the
+    // format contests and which attempts hold one open, and a second reading of
+    // it files §9.4's history for a lifter still owed a deadlift. Both ends are
+    // asserted, because a predicate pinned to either constant satisfies one.
+    let timeline = meetWith();
+    expect(positionOf(timeline.present, onlyLifterIn(timeline))?.meetOver).toBe(false);
+
+    for (const lift of ['squat', 'bench', 'deadlift'] as const) {
+      for (const kilograms of [OPENER, SECOND, THIRD]) {
+        timeline = take(timeline, lift, kilograms);
+      }
+      // Finishing one lift is not finishing the meet, which is the reading a
+      // per-lift predicate would get wrong and a whole-meet one would not.
+      const midway = positionOf(timeline.present, onlyLifterIn(timeline));
+      if (lift !== 'deadlift') expect(midway?.meetOver).toBe(false);
+    }
+
+    const finished = positionOf(timeline.present, onlyLifterIn(timeline));
+    expect(finished?.meetOver).toBe(true);
+    expect(finished?.lift).toBeNull();
+    expect(finished?.liftsFinished).toStrictEqual(['squat', 'bench', 'deadlift']);
+  });
+
+  it('names the attempt that is owed while one still is', () => {
+    // Not just the boolean: a caller reading this to decide whether to file a
+    // history entry is reading the same object the screen is built from, and an
+    // agreeing pair of readings is the point of there being one function.
+    const timeline = take(meetWith(), 'squat', OPENER);
+    const position = positionOf(timeline.present, onlyLifterIn(timeline));
+
+    expect(position?.lift).toBe('squat');
+    expect(position?.attemptNumber).toBe(2);
+    expect(position?.liftsFinished).toStrictEqual([]);
   });
 });
 

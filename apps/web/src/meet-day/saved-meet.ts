@@ -39,6 +39,8 @@
 import {
   ATTEMPT_PLAN_METHODOLOGY_VERSION,
   type CoachBoardEntry,
+  type HistoricLift,
+  type HistoryEquipment,
   type MeetDocument,
 } from '@platform-toolkit/domain';
 
@@ -138,6 +140,42 @@ export type SavedMode = 'solo' | 'coach';
 export type SavedCoachEntry = Omit<CoachBoardEntry, 'warmup'>;
 
 /**
+ * §9.4's reading of one finished meet, stamped when it finished.
+ *
+ * WHY IT IS STORED RATHER THAN DERIVED ON THE WAY OUT
+ *
+ * Everything in it is already here: `document` holds every attempt and the
+ * session holds the plan, so `summariseMeet` could rebuild it from a saved meet
+ * whenever calibration is asked for. Two things make that the wrong call, and
+ * they are the two this file already makes for `methodologyVersion` above.
+ *
+ * The first is that the rebuild is not free of the rules. `summariseMeet` needs
+ * a `MeetRules`, which is reconstructed from a published profile that may have
+ * been republished or withdrawn -- so a history entry recomputed next season is
+ * graded against a rounding the lifter never lifted under, and a meet whose
+ * federation profile has gone produces no entry at all. That is the same drift
+ * `#restoreReport` exists to *report*, arriving somewhere it would instead be
+ * silent: the calibration would simply be built on fewer meets.
+ *
+ * The second is cost. A shelf holds up to `MEET_LIBRARY_MAX` meets, and a
+ * derived reading would rebuild rules and a `PlannerView` for every one of them
+ * on every calibration.
+ *
+ * WHY THERE IS NO MEET ID ON IT
+ *
+ * `HistoricMeet` carries one, and it is supplied by the caller assembling the
+ * history rather than stored here: the saved meet's own `id` is the meet id, and
+ * two identifiers that can disagree is one too many. This also sidesteps the
+ * shape `summariseMeet` produces on its own, which is the rule profile and the
+ * lifter joined together -- the same string for every meet one lifter runs under
+ * one federation, which is a collision rather than an identifier.
+ */
+export interface SavedHistory {
+  readonly equipment: HistoryEquipment;
+  readonly lifts: readonly HistoricLift[];
+}
+
+/**
  * Everything the planner would have to be told to be where it was.
  *
  * `document` is `null` for a meet that has been planned and not started, which
@@ -184,6 +222,13 @@ export interface SavedMeetState {
   /** §21's per-device context. Saved with the meet now that the meet is saved. */
   readonly entries: readonly SavedCoachEntry[];
   readonly openLifterId: string | null;
+  /**
+   * §9.4's entry, once the day is over. `null` until then, and `null` for ever
+   * on a coach meet -- those attempts belong to other people, and a phone that
+   * folded three athletes into one "your history" would be a worse version of
+   * the equipment mixture §9.4 exists to separate.
+   */
+  readonly history: SavedHistory | null;
 }
 
 export const EMPTY_SAVED_STATE: SavedMeetState = {
@@ -194,6 +239,7 @@ export const EMPTY_SAVED_STATE: SavedMeetState = {
   lifterId: null,
   entries: [],
   openLifterId: null,
+  history: null,
 };
 
 export interface SavedMeet {

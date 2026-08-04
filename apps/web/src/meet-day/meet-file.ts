@@ -253,6 +253,24 @@ const SavedPrepSchema = v.object({
 
 const RefereeLight = v.picklist(['white', 'red'] as const);
 
+/**
+ * Shared, because §9.4's history records the same reason off the same attempt.
+ *
+ * Written once rather than twice for the ordinary reason -- two lists that must
+ * agree will not -- and the failure has a shape worth naming: a reason accepted
+ * on an attempt and refused in the history entry beside it makes a whole saved
+ * meet unreadable, and the sentence the lifter sees is "this build cannot open
+ * that meet" rather than anything about a miss reason.
+ */
+const MissReason = v.picklist([
+  'command',
+  'strength',
+  'pain',
+  'platform-error',
+  'administrative',
+  'unsure',
+] as const);
+
 const LiveAttemptSchema = v.object({
   id: Identifier,
   lift: PlatformLift,
@@ -282,16 +300,7 @@ const LiveAttemptSchema = v.object({
    * the scale is the document layer's.
    */
   rpe: v.nullable(v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(100))),
-  missReason: v.nullable(
-    v.picklist([
-      'command',
-      'strength',
-      'pain',
-      'platform-error',
-      'administrative',
-      'unsure',
-    ] as const),
-  ),
+  missReason: v.nullable(MissReason),
   lights: v.nullable(v.tuple([RefereeLight, RefereeLight, RefereeLight])),
   note: v.nullable(text(500)),
   changesUsed: Ordinal,
@@ -367,6 +376,38 @@ const SavedCoachEntrySchema = v.object({
 
 /*
  * ---------------------------------------------------------------------------
+ * §9.4's history entry.
+ * ---------------------------------------------------------------------------
+ */
+
+const HistoricAttemptSchema = v.object({
+  /**
+   * Bounded at three, unlike `LiveAttemptSchema`'s four.
+   *
+   * A fourth attempt is a record try and is not a competition attempt, so it is
+   * never in a history entry -- `summariseMeet` filters on `kind` and this says
+   * the same thing about a file somebody else wrote. Reading a record attempt as
+   * a third would put an exempted weight into the jump the calibration measures.
+   */
+  attemptNumber: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(3)),
+  kilograms: Kilograms,
+  outcome: v.picklist(['good', 'no-lift', 'passed'] as const),
+  missReason: v.nullable(MissReason),
+});
+
+const HistoricLiftSchema = v.object({
+  lift: PlatformLift,
+  attempts: v.array(HistoricAttemptSchema),
+  plannedMaximumKilograms: v.nullable(Kilograms),
+});
+
+const SavedHistorySchema = v.object({
+  equipment: v.picklist(['raw', 'wraps', 'equipped', 'unstated'] as const),
+  lifts: v.array(HistoricLiftSchema),
+});
+
+/*
+ * ---------------------------------------------------------------------------
  * A saved meet, and a file of them.
  * ---------------------------------------------------------------------------
  */
@@ -379,6 +420,19 @@ const SavedMeetStateSchema = v.object({
   lifterId: v.nullable(Identifier),
   entries: v.array(SavedCoachEntrySchema),
   openLifterId: v.nullable(Identifier),
+  /**
+   * Optional with a default, and therefore no `SAVED_MEET_VERSION` bump.
+   *
+   * Every meet already on a shelf was written without this key. A required field
+   * would fail all of them at the parser, which `#restoreReport` counts as
+   * unreadable -- so the release that added a history entry would blank the
+   * shelf of every lifter who had one. The version number is bumped "when a
+   * build can no longer read what an older one wrote, or the other way round",
+   * and an additive optional field is readable in both directions: an older
+   * build meets a key it does not know and drops it, which costs the calibration
+   * a meet and nothing else.
+   */
+  history: v.optional(v.nullable(SavedHistorySchema), null),
 });
 
 export const SavedMeetSchema = v.object({

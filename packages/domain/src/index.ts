@@ -236,6 +236,24 @@ export {
   type UndoStep,
 } from './meet-document.js';
 export {
+  MEETS_BEFORE_A_TREND,
+  NO_CALIBRATION,
+  OBSERVATIONS_FOR_A_TREND,
+  calibrateFrom,
+  type AttemptSuccess,
+  type CalibrationFigure,
+  type CalibrationLift,
+  type CalibrationReport,
+  type CalibrationShare,
+  type HistoricAttempt,
+  type HistoricLift,
+  type HistoricMeet,
+  type HistoryEquipment,
+  type HistoryScope,
+  type HistoryStrength,
+  type MissCluster,
+} from './meet-history.js';
+export {
   VERIFY_WITH_OFFICIALS,
   recordPlan,
   type QualifyingAttempt,

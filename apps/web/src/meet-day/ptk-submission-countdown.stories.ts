@@ -22,6 +22,7 @@ import {
   OPENER,
   SECOND,
   START,
+  choose,
   contextAt,
   meetWith,
   submit,
@@ -114,7 +115,22 @@ export const MarkedHandedIn: Story = {
   args: { submission: submissionOf(HANDED_IN, contextAt(START + 10_000)) },
 };
 
-/** No deadline is running, which is a sentence and not an empty box. */
+/**
+ * A declared opener, which is the panel with no clock on it.
+ *
+ * The tool's minute runs off a recorded result and looks for the next attempt on
+ * the same lift, so nothing counts down before squat one, bench one or deadlift
+ * one -- and nothing should, because an opener is due at weigh-in and at whatever
+ * round the platform has reached, neither of which this tool can see. What stays
+ * is the part that is still true: the weight is owed, the name is on it, and this
+ * is the control that says it reached the table. A third of the meet looks like
+ * this.
+ */
+export const NoDeadlineOnThisOne: Story = {
+  args: { submission: submissionOf(choose(meetWith(), 'squat', OPENER)) },
+};
+
+/** Nothing is owed at all, which is a sentence and not an empty box. */
 export const NothingRunning: Story = {
   args: { submission: null },
 };

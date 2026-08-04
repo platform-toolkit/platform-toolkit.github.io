@@ -58,6 +58,7 @@ import {
   MEET_STAFF_ARE_AUTHORITATIVE,
   attemptWeightFor,
   changeAllowanceFor,
+  findLifter,
   isResolved,
   jumpFromPrevious,
   liftsInFormat,
@@ -261,6 +262,22 @@ export function urgencyFor(secondsRemaining: number, lapsed: boolean): Submissio
   return 'calm';
 }
 
+/**
+ * The minute, on the attempts that have one.
+ *
+ * Three fields in one object rather than three nullable fields beside each
+ * other, because they only mean anything together: seconds with no band is a
+ * number nobody has been told how to read, and a band with no seconds is §5.8's
+ * colour-only signal wearing a word. Grouping them makes "there is no clock" one
+ * null the panel has to answer for, instead of three the panel could answer
+ * inconsistently.
+ */
+export interface SubmissionClock {
+  readonly secondsRemaining: number;
+  readonly urgency: SubmissionUrgency;
+  readonly lapsed: boolean;
+}
+
 /** §14.1's panel: what is owed, to whom, and what happens if nothing is said. */
 export interface SubmissionView {
   readonly attemptId: string;
@@ -274,9 +291,18 @@ export interface SubmissionView {
    */
   readonly lifterName: string;
   readonly weight: AttemptWeight | null;
-  readonly secondsRemaining: number;
-  readonly urgency: SubmissionUrgency;
-  readonly lapsed: boolean;
+  /**
+   * `null` on the opener of a lift, which is an answer rather than an omission.
+   *
+   * `startCountdown` in the domain runs off a recorded result and looks for the
+   * next attempt *on the same lift*, so nothing is running before squat one,
+   * bench one or deadlift one. Three of the nine attempts therefore have no
+   * deadline this tool can know, and they are exactly the three whose deadline
+   * belongs to weigh-in and to the round the platform is in. The panel is still
+   * the control that marks the weight handed in -- that is what it is for -- so
+   * the clock is what goes missing and not the panel.
+   */
+  readonly clock: SubmissionClock | null;
   readonly submitted: boolean;
   /**
    * What the officials write down if the deadline passes (§14.1).
@@ -365,6 +391,25 @@ export const EMPTY_LIVE_VIEW: LiveView = {
  */
 
 /**
+ * Where one lifter is, without building the rest of the screen.
+ *
+ * `buildLiveView` needs a rule book, a chart, a plan, targets, observations and
+ * an instant, and answers a whole `LiveView`. A caller that only wants to know
+ * whether the day is done -- §9.4's history is filed off exactly that, and it is
+ * filed from a save handler with no clock in it -- would otherwise have to
+ * assemble all six to read one boolean, or ask the question again in its own
+ * words. The second is the one that goes wrong: "the meet is over" is a rule
+ * about extra attempts and uncontested lifts (below), and a second reading of it
+ * would file a history entry for a lifter still owed a deadlift.
+ *
+ * `null` for a lifter who is not in the document, the way `buildLiveView` is.
+ */
+export function positionOf(document: MeetDocument, lifterId: string): LivePosition | null {
+  const lifter = findLifter(document, lifterId);
+  return lifter === null ? null : positionIn(document, lifter);
+}
+
+/**
  * Where the lifter is, in platform order.
  *
  * A lift is finished when it has no unresolved competition attempt left, which
@@ -447,29 +492,71 @@ function highlightedChoice(choices: LiveChoices | null): LiveChoice | null {
   return choices.choices.find((choice) => choice.highlighted) ?? null;
 }
 
+/**
+ * §14.1's panel, which the clock does not decide the existence of.
+ *
+ * Two ways to reach it, and the second one is the whole reason the panel is not
+ * simply the countdown. A running deadline puts it up from the moment the
+ * previous result lands, weight or no weight, because the minute is what it is
+ * about. With no deadline running the panel has one job -- marking the weight
+ * handed in -- so it appears once there is a weight to mark and not before: the
+ * headline is already asking the lifter to choose, and a second panel repeating
+ * that under a disabled button is the screen competing with itself, which §11
+ * forbids by name.
+ *
+ * Without the second branch the meet cannot be run at all. The mark control
+ * lives here and nowhere else, `advance-attempt` to `submitted` has no other
+ * caller in the tool, and `startCountdown` never fires before the first result
+ * of a lift -- so the opener of every lift sat at `submit-to-the-table` with
+ * nothing on screen able to move it. Found by the §26 test that tried to finish
+ * a meet through the screens; every test above this one had reached `submitted`
+ * by applying the action directly.
+ *
+ * `submitted` keeps the panel up rather than withdrawing it, matching what the
+ * clock branch already does for the other six attempts. A panel that vanished
+ * under the thumb that pressed it reads as the press having failed, on the one
+ * control in the tool a lifter would repeat if they were unsure.
+ */
 function submissionViewFor(
   context: LiveContext,
   document: MeetDocument,
   lifter: LiveLifter,
+  attempt: LiveAttempt | null,
 ): SubmissionView | null {
   const state = submissionState(context.rules, document, lifter, context.now);
-  if (state === null) return null;
+  if (state !== null) {
+    return {
+      attemptId: state.attempt.id,
+      lifterName: lifter.name,
+      weight: weightFor(context, state.attempt.kilograms),
+      clock: {
+        secondsRemaining: state.secondsRemaining,
+        urgency: urgencyFor(state.secondsRemaining, state.lapsed),
+        lapsed: state.lapsed,
+      },
+      submitted: state.submitted,
+      automatic: weightFor(context, state.automaticKilograms),
+    };
+  }
+  if (attempt === null || (attempt.status !== 'selected' && attempt.status !== 'submitted')) {
+    return null;
+  }
   return {
-    attemptId: state.attempt.id,
+    attemptId: attempt.id,
     lifterName: lifter.name,
-    weight:
-      state.attempt.kilograms === null
-        ? null
-        : attemptWeightFor(state.attempt.kilograms, context.chart),
-    secondsRemaining: state.secondsRemaining,
-    urgency: urgencyFor(state.secondsRemaining, state.lapsed),
-    lapsed: state.lapsed,
-    submitted: state.submitted,
-    automatic:
-      state.automaticKilograms === null
-        ? null
-        : attemptWeightFor(state.automaticKilograms, context.chart),
+    weight: weightFor(context, attempt.kilograms),
+    clock: null,
+    submitted: attempt.submittedAt !== null,
+    // No result on this lift yet, so the rules have no previous attempt to
+    // derive a fallback from -- which `automaticSentence` already words as its
+    // own sentence rather than as a missing line.
+    automatic: null,
   };
+}
+
+/** §16's reading of a kilogram figure, or nothing where there is no figure. */
+function weightFor(context: LiveContext, kilograms: number | null): AttemptWeight | null {
+  return kilograms === null ? null : attemptWeightFor(kilograms, context.chart);
 }
 
 function nextAttemptViewFor(
@@ -533,7 +620,7 @@ export function buildLiveView(
     position,
     nextAction: actionFor(attempt),
     nextAttempt: attempt === null ? null : nextAttemptViewFor(context, document, lifter, attempt),
-    submission: submissionViewFor(context, document, lifter),
+    submission: submissionViewFor(context, document, lifter, attempt),
     banked: totalSoFar(document, lifter),
     // Taken off the highlighted choice rather than recomputed. `live-choices.ts`
     // already answered exactly this question when it built the card, and a second

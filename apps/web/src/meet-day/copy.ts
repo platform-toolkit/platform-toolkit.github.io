@@ -25,15 +25,22 @@
  */
 import {
   MAX_WEIGHT_INPUT,
+  MEETS_BEFORE_A_TREND,
   RPE_BOUNDS,
   convertWeight,
   formatWeight,
   type AttemptEffort,
+  type AttemptKind,
+  type AttemptLights,
   type AttemptRefusalCode,
   type AttemptRisk,
   type AttemptStatus,
+  type AttemptSuccess,
   type AttemptWeight,
   type BombOutRisk,
+  type CalibrationFigure,
+  type CalibrationReport,
+  type CalibrationShare,
   type CoachBoardActionCode,
   type CoachBoardConflictCode,
   type CoachBoardRemaining,
@@ -42,6 +49,8 @@ import {
   type DataConfidence,
   type HandlerAssignment,
   type HandlerResponsibility,
+  type HistoryScope,
+  type HistoryStrength,
   type EvidenceAge,
   type JumpEvidence,
   type LiveAttempt,
@@ -55,6 +64,7 @@ import {
   type MeetAction,
   type MeetActionProblemCode,
   type MeetGoal,
+  type MissCluster,
   type MissReason,
   type PlatformCall,
   type PublishedPoundsReason,
@@ -67,6 +77,7 @@ import {
   type RefereeLight,
   type RunningTotal,
   type SubmissionStatus,
+  type TargetProgress,
   type WeightInputProblem,
   type WeightUnit,
 } from '@platform-toolkit/domain';
@@ -104,6 +115,14 @@ import {
   type EquipmentCategory,
   type PlanMethod,
 } from './session.js';
+import type {
+  SummaryGapCode,
+  SummaryLesson,
+  SummaryLessonCode,
+  SummaryOmissionCode,
+  SummaryOutcome,
+  SummaryRecommendation,
+} from './summary.js';
 
 export function liftLabel(lift: PlatformLift): string {
   switch (lift) {
@@ -1470,6 +1489,21 @@ export const OFFICIAL_CLOCK_NOTE =
 
 /** Said in place of the panel, so "no deadline is running" is an answer. */
 export const NO_SUBMISSION_NOTE = 'No submission deadline is running.';
+
+/**
+ * Said in place of the clock, on the opener of a lift.
+ *
+ * The tool's minute runs from a recorded result and looks for the next attempt
+ * on the same lift, so nothing is counting before squat one, bench one or
+ * deadlift one -- and nothing should be, because an opener is due at weigh-in
+ * and at whatever round the platform has reached, neither of which this tool can
+ * see. The weight is still owed and the panel is still the control that says it
+ * went to the table; it simply has no time on it. A blank where the digits go
+ * reads as a clock that has stopped, which is the reading that costs an attempt,
+ * so the absence gets a sentence.
+ */
+export const NO_DEADLINE_NOTE =
+  'No clock on this one. An opener is due when the table says, not on this timer.';
 
 /*
  * ---------------------------------------------------------------------------
@@ -3163,3 +3197,608 @@ export const RESTORE_METHODOLOGY_MOVED =
 
 export const RESTORE_PROFILE_MISSING =
   'The rule book this meet was planned under is not published any more. Your attempts are exactly as you left them, and nothing here can be checked against a federation until you choose one.';
+
+/*
+ * -----------------------------------------------------------------------------
+ * §26 -- the meet, once it is over.
+ * -----------------------------------------------------------------------------
+ *
+ * `summary.ts` has already decided every figure on this screen, so everything
+ * below is wording and nothing below compares, counts or grades. Three rules
+ * shape it, and each one has cost something elsewhere in this file:
+ *
+ *   - Every absence is said rather than left out. `summary.ts`'s header is
+ *     explicit about it: a section that quietly disappears is indistinguishable
+ *     from a section the tool got wrong, and this screen is read once, after the
+ *     fact, by somebody with no way to check.
+ *   - An attempt figure is kilograms and never converted (§16). The total and
+ *     the targets *are* written in the lifter's unit -- nobody calls a total to
+ *     an expeditor -- so `weightText` is right for those two and wrong for
+ *     everything else here.
+ *   - A lesson is an observation about one day, with its derivation printed
+ *     beside it, and never advice. §9.4's floor is two meets, and this screen
+ *     shows one.
+ */
+
+/**
+ * An attempt figure from a bare number of kilograms.
+ *
+ * `attemptKilogramsText` takes an `AttemptWeight`; the planned weight, the
+ * against-plan difference and the recovered recommendation are all plain numbers
+ * that never became one. Deliberately not `weightText`, which converts: a
+ * recommendation printed in pounds is a weight no card carries (§16).
+ */
+function attemptFigure(kilograms: number): string {
+  return formatWeight({ amount: kilograms, unit: 'kg' });
+}
+
+/** §9's names where they apply, and a number where they do not. */
+function competitionAttemptLabel(attemptNumber: number): string {
+  if (attemptNumber === 1 || attemptNumber === 2 || attemptNumber === 3) {
+    return attemptLabel(attemptNumber);
+  }
+  return `Attempt ${String(attemptNumber)}`;
+}
+
+/**
+ * Which attempt this was, including the two that are not competition attempts.
+ *
+ * A granted extra and a record try both carry an attempt number and neither is
+ * the third attempt of the round -- printing "Third attempt" over a fourth-attempt
+ * record try is the summary describing a meet the lifter did not have.
+ */
+export function summaryAttemptLabel(attemptNumber: number, kind: AttemptKind): string {
+  switch (kind) {
+    case 'competition':
+      return competitionAttemptLabel(attemptNumber);
+    case 'extra':
+      return 'Extra attempt';
+    case 'record':
+      return 'Record attempt';
+  }
+}
+
+/**
+ * The heading, which has to work before there is a meet in it.
+ *
+ * `EMPTY_SUMMARY` carries an empty name for the lit-html binding hazard recorded
+ * throughout this directory, so the blank branch is reachable from the first
+ * paint of any route that binds it and is not defensive.
+ */
+export function summaryTitle(lifterName: string): string {
+  return lifterName.trim() === '' ? 'How the day went' : `${lifterName} -- how the day went`;
+}
+
+export function summaryFormatText(format: MeetFormat): string {
+  return `${formatLabel(format)} meet`;
+}
+
+export const SUMMARY_TOTAL_HEADING = 'Total';
+
+/**
+ * The one figure everybody looks at first, and the two ways there is not one.
+ *
+ * `runningTotalText` is the live screen's and cannot be reused here: on a finished
+ * meet `isTotal` is false and `liftsOutstanding` is empty, so it prints "Subtotal
+ * 0 kg" -- which reads as a meet still under way. A bomb-out is a finished meet
+ * with no total, and saying so is the whole of §26 on this line.
+ */
+export function summaryTotalText(total: RunningTotal, unit: WeightUnit): string {
+  if (total.isTotal) return `Total ${weightText(total.kilograms, unit)}`;
+  if (total.kilograms === 0) return 'No total, and no good lift on the day.';
+  return `No total. A total needs a good lift on every contested lift; ${weightText(total.kilograms, unit)} was made on the ones that produced one.`;
+}
+
+export const SUMMARY_LIFTS_HEADING = 'Lift by lift';
+
+/**
+ * Said in the place a lift-by-lift list would have been.
+ *
+ * Reachable from `EMPTY_SUMMARY` and from a meet somebody opened and abandoned,
+ * and it is the section a reader looks at first -- so an empty heading with
+ * nothing under it is the one gap on this page most likely to be read as the
+ * summary having failed rather than as a meet nobody lifted in.
+ */
+export const SUMMARY_NO_LIFTS = 'No lift was contested.';
+
+/** An attempt that was never given a weight, which is not the same as a pass. */
+export const SUMMARY_NO_WEIGHT = 'No weight was set.';
+
+/** The best made attempt, in kilograms because it is an attempt (§16). */
+export function summaryBestText(best: AttemptWeight): string {
+  return `Best ${attemptKilogramsText(best)}`;
+}
+
+export const SUMMARY_NO_GOOD_LIFT = 'Nothing made on this lift.';
+
+export function summaryMadeText(made: number, taken: number): string {
+  if (taken === 0) return 'No attempt taken.';
+  return `${String(made)} of ${String(taken)} made.`;
+}
+
+/**
+ * How an attempt ended, in five words the lifter would use.
+ *
+ * "Not taken" and "Passed" are deliberately different sentences for the reason
+ * `summary.ts` separates the codes: a pass is a decision somebody made and an
+ * untaken attempt is the meet ending first, and a summary that called the second
+ * one a pass would put a choice on record that was never made.
+ */
+export function summaryOutcomeLabel(outcome: SummaryOutcome): string {
+  switch (outcome) {
+    case 'good':
+      return 'Good lift';
+    case 'no-lift':
+      return 'No lift';
+    case 'passed':
+      return 'Passed';
+    case 'extra-attempt-granted':
+      return 'Extra attempt granted';
+    case 'not-taken':
+      return 'Not taken -- the meet ended first';
+  }
+}
+
+export function summaryEffortText(effort: AttemptEffort): string {
+  return `Effort: ${effortLabel(effort)}`;
+}
+
+export function summaryMissReasonText(reason: MissReason): string {
+  return `Reason: ${missReasonLabel(reason)}`;
+}
+
+export function summaryRpeText(rpe: number): string {
+  return `RPE ${String(rpe)}`;
+}
+
+/**
+ * The three lights, by seat rather than as a tally.
+ *
+ * A bare "2-1" says the attempt was passed and nothing else; which referee
+ * dissented is the part somebody goes back to the note for, and it is the reason
+ * `LIGHT_FIELDS` is a tuple on the entry card (§12.1). The seats are destructured
+ * rather than indexed so that a rearranged tuple is a compile error rather than a
+ * head referee's light printed under the left referee's name.
+ */
+export function summaryLightsText(lights: AttemptLights): string {
+  const [left, head, right] = lights;
+  const [leftSeat, headSeat, rightSeat] = LIGHT_POSITION_LABELS;
+  return [
+    `${leftSeat} ${lightLabel(left).toLowerCase()}`,
+    `${headSeat} ${lightLabel(head).toLowerCase()}`,
+    `${rightSeat} ${lightLabel(right).toLowerCase()}`,
+  ].join(', ');
+}
+
+export function summaryPlannedText(kilograms: number): string {
+  return `Planned ${attemptFigure(kilograms)}`;
+}
+
+/**
+ * Declared against planned, with the direction in words.
+ *
+ * A signed figure is the obvious form and is unreadable at a glance: "-5 kg
+ * against the plan" is read as a shortfall by some people and as a reduction by
+ * others, and the two are the same fact with opposite feelings attached. Zero is
+ * its own sentence rather than "0 kg above", which reads as a rounding artefact.
+ */
+export function summaryAgainstPlanText(againstPlanKilograms: number): string {
+  if (againstPlanKilograms === 0) return 'Exactly as planned';
+  const size = attemptFigure(Math.abs(againstPlanKilograms));
+  return againstPlanKilograms > 0 ? `${size} above the plan` : `${size} below the plan`;
+}
+
+/**
+ * What the tool had on screen when the weight was declared.
+ *
+ * The slot is named as well as the weight, because the same number under Secure
+ * and under Push is two different pieces of advice -- §13.7 makes the same
+ * argument about the live card, and it holds harder here, where nobody can look
+ * at the screen it came from any more.
+ */
+export function summaryRecommendationText(recommendation: SummaryRecommendation): string {
+  const reason = packReasonPhrase(recommendation.reason);
+  if (recommendation.kilograms === null) return `The tool pointed at a pass -- ${reason}`;
+  const weight = attemptFigure(recommendation.kilograms);
+  return `The tool pointed at ${weight} -- ${slotLabel(recommendation.slot)}, ${reason}`;
+}
+
+/** Whether it was taken. Two sentences rather than a tick, so it can be read aloud. */
+export function summaryFollowedText(followed: boolean): string {
+  return followed ? 'You took that weight.' : 'You took a different weight.';
+}
+
+/**
+ * Why there is no comparison for this attempt.
+ *
+ * Both of these are ordinary rather than faulty -- the undo window is bounded and
+ * a weight typed outside live mode was never offered against a choice -- so
+ * neither sentence apologises. What they must not do is disappear: an attempt with
+ * no line here is indistinguishable from one where the lifter took the tool's
+ * suggestion, which is the flattering reading.
+ */
+export function summaryGapSentence(code: SummaryGapCode): string {
+  switch (code) {
+    case 'history-truncated':
+      return 'What the tool suggested here has dropped out of the undo history, so there is nothing to compare this weight against.';
+    case 'no-choice-was-offered':
+      return 'This weight was not set from the live screen, so the tool never offered a choice beside it.';
+  }
+}
+
+export const SUMMARY_LIGHTS_HEADING = 'Referee lights';
+
+export function summaryLightCountsText(white: number, red: number): string {
+  return `${String(white)} white, ${String(red)} red`;
+}
+
+/**
+ * How much of the meet the light count is actually counting.
+ *
+ * §12.1 makes light entry optional and puts it behind a fold, so most meets have
+ * some attempts with none. A count printed without this line is read as the whole
+ * day, and the direction of the error is not neutral: the missing attempts are
+ * disproportionately the ones nobody stopped to record, which is the busy end.
+ */
+export function summaryLightsMissingText(attemptsWithoutLights: number): string | null {
+  if (attemptsWithoutLights === 0) return null;
+  const attempts = attemptsWithoutLights === 1 ? 'attempt' : 'attempts';
+  return `${String(attemptsWithoutLights)} resolved ${attempts} had no lights entered, so this is not the whole meet.`;
+}
+
+export const SUMMARY_TARGETS_HEADING = 'Targets';
+
+/**
+ * Said where §8.3's list is empty, and it names the reason rather than the state.
+ *
+ * "No targets" reads as a tool that lost them. Five of §8.3's ten kinds still have
+ * no source (§13.10), so a lifter who set none is the ordinary case and the page
+ * should not imply they missed a step.
+ */
+export const SUMMARY_NO_TARGETS = 'No targets were set for this meet.';
+
+/**
+ * Where the meet left one of §8.3's targets.
+ *
+ * Read off `reachedByGuaranteed`, which is the only one of `TargetProgress`'s four
+ * flags that is about weight already on the board. The other three are
+ * projections, and a finished meet has nothing left to project -- printing one
+ * here would tell a lifter they reached something on an attempt they never took.
+ */
+export function summaryTargetText(progress: TargetProgress, unit: WeightUnit): string {
+  if (progress.reachedByGuaranteed) return `Reached ${progress.target.label}.`;
+  return `Short of ${progress.target.label} by ${weightText(progress.shortfallKilograms, unit)}.`;
+}
+
+export const SUMMARY_TIMING_HEADING = 'Timing';
+
+/**
+ * The sentence that keeps these figures out of a dispute.
+ *
+ * The gaps are between results recorded *on this phone*, which starts whenever
+ * somebody got round to tapping. §29 requires the tool never to claim authority
+ * it does not have, and a table of intervals with no such line on it is exactly
+ * the artefact somebody brings to the scoring table.
+ */
+export const SUMMARY_TIMING_CAVEAT =
+  'These are the gaps between results recorded here, not the official clock.';
+
+export function summaryIntervalText(sincePreviousSeconds: number): string {
+  return `${countdownText(sincePreviousSeconds)} after the previous result`;
+}
+
+export const SUMMARY_FIRST_RESULT = 'First result recorded';
+
+/** Said where nothing was ever recorded, so the caveat above is not left hanging. */
+export const SUMMARY_NO_INTERVALS = 'No results were recorded, so there is nothing to time.';
+
+export const SUMMARY_NOTES_HEADING = 'What you wrote';
+
+/**
+ * Said where the lifter wrote nothing.
+ *
+ * §12.1 puts the note behind a fold precisely so that nobody has to write one, so
+ * this is the common case and the sentence does not treat it as a lapse.
+ */
+export const SUMMARY_NO_NOTES = 'You wrote no notes during this meet.';
+
+/**
+ * Which attempt a note or a timing row is about.
+ *
+ * Shared by both because both carry a lift and a bare attempt number and neither
+ * carries a kind -- so neither may call `summaryAttemptLabel`, which would have
+ * to be told one. Writing "competition" into the call at the two sites is the
+ * alternative, and it is a claim about an attempt nobody recorded a kind for.
+ */
+export function summaryAttemptHeading(lift: PlatformLift, attemptNumber: number): string {
+  return `${liftLabel(lift)}, ${competitionAttemptLabel(attemptNumber).toLowerCase()}`;
+}
+
+export const SUMMARY_LESSONS_HEADING = 'What the record shows';
+
+/**
+ * §9.4's floor, said before anything it applies to.
+ *
+ * `meet-history.ts` refuses to call anything a trend under two meets, and this
+ * screen is one. The caveat goes above the list rather than beside each line
+ * because a reader who takes one observation as a pattern has already stopped
+ * reading the qualifiers.
+ */
+export const SUMMARY_ONE_MEET_CAVEAT =
+  'One meet is one meet. These are observations about this day, not a pattern.';
+
+/**
+ * Said where none of the eight derivations fired.
+ *
+ * Every one of them is a *shape* -- every third missed, every miss technical, more
+ * attempts above the plan than under -- so a meet that was simply mixed produces
+ * none, and that is the ordinary outcome rather than a quiet one. Left unsaid, the
+ * empty heading reads as the tool having declined to comment.
+ */
+export const SUMMARY_NO_LESSONS =
+  'Nothing about this meet fell into a shape worth naming. That is an ordinary day, not a missing answer.';
+
+/**
+ * What the record shows, one sentence per code.
+ *
+ * Each states the observation and the thing it was drawn from, and none of them
+ * says what to do next. That is the line §9.4 draws and it is easy to cross by
+ * accident: "you left weight on the platform" is an observation, "open heavier"
+ * is a plan built from a single day.
+ */
+export function summaryLessonSentence(code: SummaryLessonCode): string {
+  switch (code) {
+    case 'bombed-out':
+      return 'No total on the day. Three misses on one lift ends the total, whatever the other lifts did.';
+    case 'opener-was-missed':
+      return 'An opener was missed. An opener is meant to be the attempt you are certain of, so it is the one worth looking at first.';
+    case 'every-third-was-missed':
+      return 'Every third attempt taken was missed. That is a different day from missing throughout -- the weights up to the last round were there.';
+    case 'nothing-was-hard':
+      return 'Every good lift was reported as flying, and nothing was missed.';
+    case 'misses-were-technical':
+      return 'Every miss was a command or a platform error rather than the weight.';
+    case 'misses-were-strength':
+      return 'Every miss was reported as strength rather than execution.';
+    case 'went-above-the-plan':
+      return 'More attempts were taken above the plan than under it.';
+    case 'stayed-below-the-plan':
+      return 'More attempts were taken under the plan than above it.';
+  }
+}
+
+/**
+ * The working, printed beside the observation.
+ *
+ * `bombed-out` is the case with neither half -- it is drawn from the total rather
+ * than from a count of attempts -- so this returns `null` rather than an empty
+ * "From ." A lesson with no evidence line is still a lesson; one with a blank one
+ * looks like a figure that failed to load.
+ */
+export function summaryLessonEvidenceText(lesson: SummaryLesson): string | null {
+  const lifts = lesson.lifts.length === 0 ? null : liftListText(lesson.lifts);
+  const attempts =
+    lesson.attempts === 0
+      ? null
+      : `${String(lesson.attempts)} ${lesson.attempts === 1 ? 'attempt' : 'attempts'}`;
+  if (lifts === null) return attempts === null ? null : `From ${attempts}`;
+  if (attempts === null) return `From ${lifts}`;
+  return `From ${lifts} -- ${attempts}`;
+}
+
+export const SUMMARY_OMISSIONS_HEADING = 'Not on this page';
+
+/**
+ * Why a section §26 asks for is missing, in the place it would have been.
+ *
+ * The same mechanism as `packOmissionSentence` and for the same reason: both of
+ * these are things the requirement lists and this tool has no source for, and a
+ * heading that simply is not there reads as a tool that forgot rather than one
+ * that has not been told.
+ */
+export function summaryOmissionSentence(code: SummaryOmissionCode): string {
+  switch (code) {
+    case 'personal-records':
+      return 'No personal records are shown. This tool keeps no record of your past bests, so it cannot say whether today beat one.';
+    case 'qualifying-standards':
+      return 'No qualifying standards are shown. This tool has no published source for them; if you were chasing one, it is the total you typed in.';
+  }
+}
+
+/**
+ * The undo window ran out before the start of the meet.
+ *
+ * Said once at the foot of the page rather than per attempt, because the attempts
+ * it affects already carry `history-truncated` and repeating the explanation nine
+ * times buries the one line that says why.
+ */
+export const SUMMARY_HISTORY_TRUNCATED =
+  'The undo history did not reach the start of this meet, so the earliest attempts have no record of what the tool suggested.';
+
+/**
+ * §9.4 read back to the lifter, under the summary of the meet that just ended.
+ *
+ * Everything below states a figure and where it came from, and nothing below
+ * says what to do about it. That is the same line `summaryLessonSentence` draws
+ * one screen up, arriving somewhere it is much easier to cross: a panel headed
+ * "what your past meets show" with a typical jump in it reads as a suggestion
+ * unless it is written not to. The domain agrees -- `CalibrationReport.elevatable`
+ * exists precisely because nothing yet turns this into a recommendation -- so the
+ * wording here has no imperative in it anywhere.
+ *
+ * The other constraint is §10.2, and it is tighter here than anywhere else in
+ * this file, because two of the five figures per lift are counts of made and
+ * missed attempts. "Five of six made" is a count. The same pair written as a
+ * percentage is a success rate, which is a probability with the word filed off,
+ * and it is the one sentence a screen like this writes by itself.
+ */
+export const CALIBRATION_HEADING = 'What your past meets show';
+
+/** Which meets were being looked for, as a noun phrase inside a sentence. */
+export function calibrationScopeText(scope: HistoryScope): string {
+  if (scope.combineEquipment) return 'meets under any equipment';
+  switch (scope.equipment) {
+    case 'raw':
+      return 'raw meets';
+    case 'wraps':
+      return 'meets in wraps';
+    case 'equipped':
+      return 'equipped meets';
+    case 'unstated':
+      return 'meets with no equipment recorded';
+  }
+}
+
+/**
+ * How much was read, said before any figure drawn from it.
+ *
+ * Zero is a sentence rather than a blank, and it is deliberately not the same
+ * sentence as {@link CALIBRATION_NOT_ENOUGH}: a lifter with one raw meet and
+ * four in wraps has plenty of history and is being told none of it matched, and
+ * a lifter on their first day has none. Those need different answers, and the
+ * scope is named in both so the difference is visible.
+ */
+export function calibrationReadText(report: CalibrationReport): string {
+  const scope = calibrationScopeText(report.scope);
+  if (report.meetsRead === 0) return `No earlier ${scope} to read.`;
+  const meets =
+    report.meetsRead === 1 ? '1 earlier meet' : `${String(report.meetsRead)} earlier meets`;
+  return `From ${meets}, counting ${scope}.`;
+}
+
+/**
+ * What was on the shelf and deliberately not counted.
+ *
+ * `null` rather than "0 meets were left out", because the ordinary case is a
+ * lifter whose meets are all under one equipment category and a line reporting
+ * nothing every time is a line nobody reads the day it says something.
+ */
+export function calibrationOutOfScopeText(report: CalibrationReport): string | null {
+  if (report.meetsOutOfScope === 0) return null;
+  const meets =
+    report.meetsOutOfScope === 1 ? '1 meet was' : `${String(report.meetsOutOfScope)} meets were`;
+  return `${meets} left out for being under other equipment.`;
+}
+
+/**
+ * The floor, said above the figures rather than instead of them.
+ *
+ * §9.4's one hard rule is that a personal trend is not reliable after one meet,
+ * and `MEETS_BEFORE_A_TREND` is that rule as a number. The figures below it are
+ * still drawn -- hiding them would leave a lifter unable to see what the tool is
+ * counting, and this panel's whole claim is that it is showing its working -- but
+ * the sentence stops at the floor and does not say so, because it is also the
+ * sentence a lifter with no meets at all reads, under nothing.
+ */
+export const CALIBRATION_NOT_ENOUGH = `That is not enough to call any of this a pattern. It takes ${String(MEETS_BEFORE_A_TREND)} comparable meets before these figures say much.`;
+
+/**
+ * The sentence that keeps the panel from reading as advice.
+ *
+ * Sits under the heading, not at the foot, for the reason
+ * {@link SUMMARY_ONE_MEET_CAVEAT} does: a reader who has taken a typical jump as
+ * an instruction has already stopped reading the qualifiers.
+ */
+export const CALIBRATION_NOT_A_PLAN =
+  'These are your own past figures, not advice. Nothing here changes what the tool suggests on the day.';
+
+/** How far a figure can be trusted, in the three words the domain grades in. */
+export function calibrationStrengthText(strength: HistoryStrength): string {
+  switch (strength) {
+    case 'not-enough':
+      return 'not enough yet';
+    case 'indicative':
+      return 'indicative';
+    case 'established':
+      return 'established';
+  }
+}
+
+/**
+ * The working, printed under each figure.
+ *
+ * Every figure on this panel carries one, including the ones graded
+ * `not-enough`, because a figure with no count beside it is indistinguishable
+ * from a figure the tool is confident about.
+ */
+export function calibrationEvidenceText(observations: number, strength: HistoryStrength): string {
+  const counted = observations === 1 ? '1 observation' : `${String(observations)} observations`;
+  return `From ${counted} -- ${calibrationStrengthText(strength)}`;
+}
+
+export const CALIBRATION_LIFTS_HEADING = 'Lift by lift';
+
+/**
+ * Said where the history was read and held no lifts.
+ *
+ * Not the same case as no meets, which {@link calibrationReadText} answers on its
+ * own line: this is a meet that finished with nothing contested, which a shelf
+ * can hold and which would otherwise be a heading over a blank.
+ */
+export const CALIBRATION_NO_LIFTS = 'No lifts to compare yet.';
+
+export const CALIBRATION_SUCCESSFUL_JUMP_LABEL = 'Typical jump into a made attempt';
+export const CALIBRATION_MISSED_JUMP_LABEL = 'Typical jump into a miss';
+export const CALIBRATION_SECOND_ATTEMPTS_LABEL = 'Second attempts';
+export const CALIBRATION_THIRD_ATTEMPTS_LABEL = 'Third attempts';
+export const CALIBRATION_REACHED_LABEL = 'Best lift against the maximum you planned';
+
+/**
+ * Said in the place a figure would have been.
+ *
+ * A lift can reach this panel with three of its five figures empty -- a lifter
+ * who has never missed has no missed jump -- and an empty row would read as a
+ * number that failed to load rather than as a thing that has not happened.
+ */
+export const CALIBRATION_NO_FIGURE = 'Nothing recorded yet';
+
+/** A jump or a weight figure, in the unit the lifter set (§16). */
+export function calibrationFigureText(figure: CalibrationFigure, unit: WeightUnit): string | null {
+  if (figure.kilograms === null) return null;
+  return weightText(figure.kilograms, unit);
+}
+
+/**
+ * A share of the planned maximum.
+ *
+ * A percentage of a weight, which is a ratio of two figures the lifter can point
+ * at -- deliberately not the same kind of number as a percentage of attempts,
+ * which §10.2 forbids and which nothing on this panel prints.
+ */
+export function calibrationShareText(share: CalibrationShare): string | null {
+  if (share.percent === null) return null;
+  return `${String(Math.round(share.percent))}% of what you planned`;
+}
+
+/**
+ * Made against taken, as two counts.
+ *
+ * Never a rate. `taken === 0` is its own answer rather than "0 of 0 made", which
+ * is arithmetic that reads as a run of failures.
+ */
+export function calibrationSuccessText(success: AttemptSuccess): string | null {
+  if (success.taken === 0) return null;
+  return `${String(success.made)} of ${String(success.taken)} made`;
+}
+
+export const CALIBRATION_CLUSTER_HEADING = 'Where the misses fall';
+
+/**
+ * One lift holding more than its share of the misses.
+ *
+ * States both counts rather than the multiple that found it: "5 of 8" is a fact
+ * a lifter can check against their own memory of the days, and "1.6 times as
+ * many as the other lifts" is a derivation they cannot.
+ */
+export function calibrationClusterText(cluster: MissCluster): string {
+  return `More of your misses are on the ${liftLabel(cluster.lift).toLowerCase()} than on the other lifts: ${String(cluster.misses)} of ${String(cluster.ofMisses)}.`;
+}
+
+/**
+ * Said when no lift stands out, which includes a lifter who has missed nothing.
+ *
+ * One sentence for both, because the alternative -- a separate "you have missed
+ * nothing" line -- is a compliment on a panel that has no business paying one,
+ * and the misses that are there are already counted per lift above.
+ */
+export const CALIBRATION_NO_CLUSTER = 'No lift holds more of your misses than the others.';

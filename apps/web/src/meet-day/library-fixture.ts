@@ -16,6 +16,9 @@
  * stamped with `Date.now()` documents a different shelf every time it is opened,
  * and the story snapshot changes on a schedule nobody chose.
  */
+import type { HistoricLift, HistoryEquipment } from '@platform-toolkit/domain';
+
+import { liftsOfAMeet, liftsOfAWrappedMeet } from './calibration-fixture.js';
 import {
   EMPTY_LIBRARY,
   EMPTY_SAVED_STATE,
@@ -92,6 +95,52 @@ export function aShelf(): MeetLibrary {
 /** One meet, which is the shelf a lifter has after their first visit. */
 export function oneMeet(): MeetLibrary {
   return add(EMPTY_LIBRARY, 'Winter Open', FIRST_INSTANT);
+}
+
+function withHistory(equipment: HistoryEquipment, lifts: readonly HistoricLift[]): SavedMeetState {
+  return { ...EMPTY_SAVED_STATE, history: { equipment, lifts } };
+}
+
+/**
+ * Three finished meets and nothing open: a shelf as §9.4 reads one.
+ *
+ * **Every meet is archived, and that is load-bearing rather than tidy.** The
+ * planner adopts whatever meet a shelf has open and assigns that meet's saved
+ * session over the answers on screen, so a shelf seeded purely as history with
+ * one meet still open would silently replace the federation and the equipment a
+ * caller had just pressed -- and every assertion afterwards would be measuring a
+ * screen nobody built. Archiving hides nothing from a calibration: `history.ts`
+ * is explicit that an archived meet still counts, because §24.2's archive is how
+ * a lifter tidies a shelf rather than how they disown a season.
+ *
+ * Two raw and one under wraps, so a raw scope reads two and reports one left
+ * out. The lifts come from `calibration-fixture.ts` rather than being written
+ * here, so a figure on the panel is one that fixture's own suite already reads
+ * -- a second history built by hand would be a fixture nothing checks against
+ * the domain, producing figures that could not be compared with anything.
+ */
+export function aShelfOfHistory(): MeetLibrary {
+  let library = EMPTY_LIBRARY;
+  library = add(library, 'Winter Open', FIRST_INSTANT, withHistory('raw', liftsOfAMeet()));
+  library = add(
+    library,
+    'Spring Classic',
+    FIRST_INSTANT + 14 * DAY,
+    withHistory('raw', liftsOfAMeet()),
+  );
+  library = add(
+    library,
+    'Summer in Wraps',
+    FIRST_INSTANT + 28 * DAY,
+    withHistory('wraps', liftsOfAWrappedMeet()),
+  );
+  // Read before the loop rather than iterated live: `archive` answers a new
+  // library each time, and walking the array off the one being replaced is the
+  // kind of correct-by-accident that stops being correct the day a transition
+  // reorders the shelf.
+  const ids = library.meets.map((meet) => meet.id);
+  for (const id of ids) library = archive(library, id);
+  return library;
 }
 
 /** The meet with that id, or a thrown sentence naming the shelf's ids. */

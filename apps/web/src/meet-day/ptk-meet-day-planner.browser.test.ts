@@ -66,11 +66,14 @@ import {
   ROSTER_NEEDS_A_FEDERATION,
   SOLO_MODE,
   START_MEET_NEEDS_A_PLAN,
+  SUMMARY_LIFTS_HEADING,
 } from './copy.js';
 import {
   CONFIRM_FIELD,
   CONVERT_FIELD,
   CUSTOM_ITEM_FIELD,
+  EFFORT_FIELD,
+  EQUIPMENT_FIELD,
   EXPECTED_MAXIMUM_FIELD,
   FEDERATION_FIELD,
   FORMAT_FIELD,
@@ -78,6 +81,7 @@ import {
   MEET_NAME_FIELD,
   MODE_FIELD,
   OTHER_WEIGHT_FIELD,
+  OUTCOME_FIELD,
   PREP_NOTES_FIELD,
   REMOVE_CUSTOM_ITEM_FIELD,
   ROSTER_COLOUR_FIELD,
@@ -85,7 +89,7 @@ import {
   ROSTER_NAME_FIELD,
   UNIT_FIELD,
 } from './fields.js';
-import { aShelf } from './library-fixture.js';
+import { aShelf, aShelfOfHistory } from './library-fixture.js';
 import { writeMeetFile } from './meet-file.js';
 import { MEET_PROFILE_FIXTURE } from './meet-rules.fixture.js';
 import { type MeetStore, noMeetStore, sessionMeets, storedMeets } from './meet-store.js';
@@ -101,7 +105,14 @@ import {
   PtkMeetDayPlanner,
 } from './ptk-meet-day-planner.js';
 import './ptk-meet-day-planner.js';
-import { EMPTY_LIBRARY, EMPTY_SAVED_STATE, type MeetLibrary, createMeet } from './saved-meet.js';
+import {
+  EMPTY_LIBRARY,
+  EMPTY_SAVED_STATE,
+  type MeetLibrary,
+  type SavedHistory,
+  activeMeet,
+  createMeet,
+} from './saved-meet.js';
 import { MEET_DAY_PREFERENCES, loadSession, saveSession } from './session.js';
 
 const teardown: (() => void)[] = [];
@@ -354,9 +365,16 @@ const REFUSED_PROFILE: MeetRuleProfile = {
 /** The name typed at the start panel. Distinctive so a store can be searched. */
 const LIFTER_NAME = 'Quintero';
 
-/** A mounted root with a plan on screen: three lifts, agreed, nine attempts. */
-async function planned(options: Options = {}): Promise<PtkMeetDayPlanner> {
-  const element = await mountChosen(options);
+/**
+ * §7's question answered and agreed for all three lifts.
+ *
+ * Separate from `planned` so that a test needing to answer something *before*
+ * the maximums has somewhere to put it. `withUnit` withdraws every confirmation
+ * (see `#chooseUnit`), so a unit answered after this runs takes the plan back
+ * off the screen rather than restating it -- and a test that wants a plan in
+ * pounds has to answer the unit first.
+ */
+async function agreeThreeMaximums(element: PtkMeetDayPlanner): Promise<void> {
   for (const lift of ['squat', 'bench', 'deadlift']) {
     await type(element, EXPECTED_MAXIMUM_FIELD, '200', lift);
     await confirm(element, lift);
@@ -366,6 +384,12 @@ async function planned(options: Options = {}): Promise<PtkMeetDayPlanner> {
   // maximum", and every assertion about the platform would fail for that reason
   // rather than for its own.
   if (attemptLists(element) !== 3) throw new Error('No plan was drawn.');
+}
+
+/** A mounted root with a plan on screen: three lifts, agreed, nine attempts. */
+async function planned(options: Options = {}): Promise<PtkMeetDayPlanner> {
+  const element = await mountChosen(options);
+  await agreeThreeMaximums(element);
   return element;
 }
 
@@ -416,6 +440,79 @@ async function chooseOffered(element: PtkMeetDayPlanner): Promise<void> {
   const [card] = deepControls(element, 'ptk-button[data-slot]');
   if (card === undefined) throw new Error('No choice card on the live screen.');
   await press(element, card);
+}
+
+/** Presses §14.1's "Mark handed in", which is what puts an attempt on the bar. */
+async function markHandedIn(element: PtkMeetDayPlanner): Promise<void> {
+  const [mark] = deepControls(element, 'section.panel > ptk-button');
+  if (mark === undefined) throw new Error('No submission panel to mark.');
+  await press(element, mark);
+}
+
+/**
+ * §12's card, answered as a good lift and recorded.
+ *
+ * Two taps rather than one: a good lift is the outcome that asks a follow-up,
+ * and Record stays disabled until the effort tile is answered. The Record
+ * control carries no class of its own, so it is addressed as the one button
+ * `ptk-attempt-result` draws directly inside its card -- `div.card >`, not
+ * `.card`, because §13's choices render each of theirs inside an `li.card`.
+ */
+async function recordGoodLift(element: PtkMeetDayPlanner): Promise<void> {
+  await chooseDeep(element, OUTCOME_FIELD, 'good');
+  await chooseDeep(element, EFFORT_FIELD, 'solid');
+  const [record] = deepControls(element, 'div.card > ptk-button');
+  if (record === undefined) throw new Error('No way to record the attempt.');
+  await press(element, record);
+}
+
+/**
+ * Nine attempts made, which is the only way to reach §26 through the screens.
+ *
+ * Nine and not three: `recordResult` resolves the attempt it names and nothing
+ * else, including for a pass, so a three-lift meet is over after the ninth
+ * result and not before. The loop is written as a count rather than as "until
+ * the summary appears" so that a wiring fault which finishes the meet early is
+ * a failure here rather than a shorter loop nobody notices.
+ *
+ * The throw at the end is the positive control every assertion below leans on,
+ * the same one `planned()` carries: without it a root that never swapped the
+ * screen would leave every summary assertion failing for the wrong reason.
+ */
+async function finishTheMeet(element: PtkMeetDayPlanner): Promise<void> {
+  for (let attempt = 0; attempt < ATTEMPTS_IN_A_MEET; attempt += 1) {
+    await chooseOffered(element);
+    await markHandedIn(element);
+    await recordGoodLift(element);
+  }
+  if (summaryScreen(element) === null) throw new Error('The meet did not finish.');
+}
+
+/** Three lifts, three attempts each. */
+const ATTEMPTS_IN_A_MEET = 9;
+
+/** §26's page, which replaces the platform screen rather than joining it. */
+function summaryScreen(element: PtkMeetDayPlanner): Element | null {
+  return element.shadowRoot?.querySelector('ptk-meet-summary') ?? null;
+}
+
+/** §9.4's panel, which sits under the summary on the lifter's own device. */
+function calibrationPanel(element: PtkMeetDayPlanner): Element | null {
+  return element.shadowRoot?.querySelector('ptk-meet-calibration') ?? null;
+}
+
+/** One line off the panel, so an assertion cannot be met by a sibling saying something similar. */
+function panelText(element: PtkMeetDayPlanner, selector: string): string {
+  const found = calibrationPanel(element)?.shadowRoot?.querySelector(selector);
+  if (found === null || found === undefined) throw new Error(`The panel has no ${selector}.`);
+  return found.textContent.trim();
+}
+
+/** One line off the summary, scoped for the reason `panelText` is. */
+function summaryText(element: PtkMeetDayPlanner, selector: string): string {
+  const found = summaryScreen(element)?.shadowRoot?.querySelector(selector);
+  if (found === null || found === undefined) throw new Error(`The summary has no ${selector}.`);
+  return found.textContent.trim();
 }
 
 /** An undo request for something the screen is not offering to take back. */
@@ -1318,6 +1415,264 @@ describe('ptk-meet-day-planner', () => {
   });
 
   /**
+   * §26, from the root (the only place it can be reached from).
+   *
+   * `ptk-meet-summary` has its own browser test and `summary.ts` its own unit
+   * suite, and neither can fail for any of the reasons here. What is only wrong
+   * at this level is which screen the finished meet lands on, which plan it is
+   * compared against, and whether the last action is still undoable once the
+   * control that used to offer that has gone off the page with the platform.
+   */
+  describe('the finished meet (§26)', () => {
+    it('puts the summary up in place of the platform, never beside it', async () => {
+      // The replacement is the requirement, not a layout preference.
+      // `ptk-live-screen` prints the banked and projected totals
+      // unconditionally -- `meetOver` silences only the called attempt and the
+      // next-attempt line -- so a summary rendered beside it puts two totals on
+      // one page under two headings, which is precisely the failure §17 is
+      // written about. Asserting the summary is present is the half that would
+      // pass either way; the null live screen is the half that is the rule.
+      const element = await planned();
+      await startMeet(element);
+      // Positive control: the platform is what is on screen before the ninth
+      // result, so its absence below is the swap rather than a screen that
+      // never appeared.
+      expect(liveScreen(element)).not.toBeNull();
+
+      await finishTheMeet(element);
+
+      expect(liveScreen(element)).toBeNull();
+      expect(deepText(element)).toContain(SUMMARY_LIFTS_HEADING);
+      expect(deepText(element)).toContain(LIFTER_NAME);
+    });
+
+    it('compares the day against the plan the meet was started from', async () => {
+      // The frozen `LiveRun.view`, which is `MEET_IS_RUNNING_NOTE`'s promise
+      // arriving one screen later than §13.11 tested it. The planning screens
+      // stay answerable behind live mode, so a lifter can edit the plan after
+      // the meet has started -- and the summary is where reading the edited one
+      // costs the most: every "above the plan" line on the page would be
+      // measuring the edit rather than the decision, after the fact, to
+      // somebody with no way to check it against anything.
+      const element = await planned();
+      const planned200 = openerText(element);
+      await startMeet(element);
+
+      await press(element, button(element, 'ptk-button.back'));
+      await type(element, EXPECTED_MAXIMUM_FIELD, '260', 'squat');
+      await confirm(element, 'squat');
+      const planned260 = openerText(element);
+      // Positive control: the two plans really are two plans. Without it the
+      // assertions below pass against an edit that changed nothing.
+      expect(planned260).not.toBe(planned200);
+      await press(element, button(element, '.running ptk-button'));
+
+      await finishTheMeet(element);
+
+      expect(deepText(element)).toContain(`Planned ${planned200}`);
+      expect(deepText(element)).not.toContain(`Planned ${planned260}`);
+    });
+
+    it('keeps the last action undoable once the platform screen has gone', async () => {
+      // §13.9 is not "the live screen has an undo button", it is that every
+      // action stays undoable -- and the action most likely to need taking back
+      // is the last one, recorded against the wrong outcome, by which time the
+      // screen carrying the control has been replaced by this one. The label is
+      // pinned to a fragment rather than to `undoLabel`, per §13.8.
+      const element = await planned();
+      await startMeet(element);
+      await finishTheMeet(element);
+
+      expect(deepText(element)).toContain('Undo recording');
+
+      await press(element, button(element, 'ptk-button.undo'));
+
+      // Back on the platform, because a meet with an unrecorded ninth attempt
+      // is not over. The summary going away is the observable half of that.
+      expect(summaryScreen(element)).toBeNull();
+      expect(liveScreen(element)).not.toBeNull();
+    });
+
+    it('has no accessibility violations with the day summarised', async () => {
+      const element = await planned();
+      await startMeet(element);
+      await finishTheMeet(element);
+
+      const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
+      expect(results.violations.map((violation) => violation.id)).toEqual([]);
+    });
+
+    it('fits a phone-width column with the day summarised', async () => {
+      // The longest page in the tool -- eight sections, up to nine facts per
+      // attempt row -- and the one most likely to be read on a phone in a car
+      // park afterwards (§5.7).
+      const frame = document.createElement('div');
+      frame.style.width = '320px';
+      document.body.append(frame);
+      teardown.push(() => {
+        frame.remove();
+      });
+
+      const element = await planned({ within: frame });
+      await startMeet(element);
+      await finishTheMeet(element);
+
+      expect(summaryScreen(element)).not.toBeNull();
+      expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
+    });
+
+    /**
+     * §9.4's entry as it reaches the disk, rather than as the screen draws it.
+     *
+     * Read off the store and not off the element, because what a later
+     * calibration reads is the saved meet: an entry the root held in memory and
+     * never wrote would satisfy any assertion made against the screen and be
+     * gone by the next visit, which is the one failure this wiring can have.
+     */
+    async function savedHistory(store: MeetStore): Promise<SavedHistory | null> {
+      const meet = activeMeet(await stored(store));
+      if (meet === null) throw new Error('No meet is open on the shelf.');
+      return meet.state.history;
+    }
+
+    it('files the day into the saved meet, and not one attempt sooner', async () => {
+      // Both halves are the requirement. An entry filed early is a lifter still
+      // owed a deadlift recorded as having bombed one, and an entry never filed
+      // is a season of meets that calibration cannot see -- and neither shows
+      // on any screen, because nothing in the tool renders §9.4 yet.
+      const store = sessionMeets();
+      const element = await planned({ store });
+      // Answered rather than left alone: `historyEquipmentFor` reports
+      // 'unstated' for a session nobody answered, which is also exactly what a
+      // wiring fault that never read the session would produce.
+      await choose(element, EQUIPMENT_FIELD, 'wraps');
+      // Required, and not scene-setting: naming the meet is what opens one on
+      // the shelf, and without an open meet `updated()` saves nothing at all.
+      await nameMeet(element, 'A meet with a history');
+      await startMeet(element);
+      await afterStorage(element);
+
+      // Positive control: the meet is on the shelf and being written to
+      // throughout, so the null is the day not being over rather than nothing
+      // reaching the store.
+      expect(await savedHistory(store)).toBeNull();
+
+      await finishTheMeet(element);
+      await afterStorage(element);
+
+      const history = await savedHistory(store);
+      expect(history?.equipment).toBe('wraps');
+      expect(history?.lifts.map((lift) => lift.lift)).toStrictEqual(['squat', 'bench', 'deadlift']);
+      expect(history?.lifts.flatMap((lift) => lift.attempts.map((made) => made.outcome))).toEqual(
+        Array.from({ length: ATTEMPTS_IN_A_MEET }, () => 'good'),
+      );
+      // 200 is the figure this test typed into every lift, pinned rather than
+      // read back off the summary: an entry whose planned maximum came from the
+      // same builder that filled the rest of it agrees with itself whatever it
+      // holds, and this is the one number a jump is later measured against.
+      expect(history?.lifts.map((lift) => lift.plannedMaximumKilograms)).toStrictEqual([
+        200, 200, 200,
+      ]);
+    });
+
+    it('puts §9.4 under the day and not over it, with nothing to read at a first meet', async () => {
+      // Two rules in one screen, and the empty one is the screen every lifter
+      // sees at their first meet. Order first: the page is about the day that
+      // has just been contested, and a panel of medians from earlier meets
+      // above the total answers a question nobody asked yet.
+      const element = await planned();
+      await startMeet(element);
+      await finishTheMeet(element);
+
+      const sections = [
+        ...(element.shadowRoot?.querySelectorAll('ptk-meet-summary, ptk-meet-calibration') ?? []),
+      ];
+      expect(sections.map((section) => section.localName)).toEqual([
+        'ptk-meet-summary',
+        'ptk-meet-calibration',
+      ]);
+
+      // And the panel is drawn empty rather than withheld. `noMeetStore()` is
+      // this mount's default, so there is no shelf behind the day at all --
+      // which is exactly the state a first meet produces, and the state where a
+      // withheld panel and a broken one look identical.
+      expect(panelText(element, '.read')).toContain('No earlier');
+    });
+
+    it('reads the shelf, leaves the meet on screen out of it, and scopes it to the answered equipment', async () => {
+      // The three things `#shelfCalibration` decides, and none of them shows on
+      // any other screen. The shelf is three archived meets carrying §9.4
+      // entries -- two raw, one under wraps -- so a raw lifter finishing a
+      // fourth should read two: three raw histories on the device, minus their
+      // own, with the wrapped one reported as left out rather than folded in.
+      const store = await heldShelf(aShelfOfHistory());
+      const element = await planned({ store });
+      // The shelf is read once on connection and nothing on screen waits for
+      // it, so the answers below have to follow the load rather than race it.
+      await afterStorage(element);
+      await choose(element, EQUIPMENT_FIELD, 'raw');
+      await nameMeet(element, 'The fourth meet');
+      await startMeet(element);
+      await finishTheMeet(element);
+      await afterStorage(element);
+
+      // The positive control, and the whole reason "2" means anything. Four
+      // meets on the device carry a history and three of those are raw, so the
+      // panel reading two is the meet on screen being excluded -- not a shelf
+      // that only ever held two, which is what this assertion would catch.
+      const histories = (await stored(store)).meets
+        .map((meet) => meet.state.history)
+        .filter((history) => history !== null);
+      expect(histories).toHaveLength(4);
+      expect(histories.filter((history) => history.equipment === 'raw')).toHaveLength(3);
+
+      expect(panelText(element, '.read')).toContain('From 2 earlier meets');
+      // The scope, which is the half that proves the answered equipment was
+      // read at all: a wiring that hard-coded a scope would count the same two
+      // raw meets and say nothing about the third.
+      expect(panelText(element, '.out-of-scope')).toContain('1 meet was');
+    });
+
+    it('draws both halves of the finished page in the unit the lifter answered', async () => {
+      // Two bindings off one expression, and before this test nothing reached
+      // either: `#renderFinished` hands `session.setup.unit` to the summary and
+      // to §9.4's panel, and nothing type-checks a lit-html binding. Both
+      // defaults are kilograms, so a dropped binding is invisible to every
+      // other test in this file -- all of which leave the unit alone. What it
+      // costs is a lifter who answered pounds reading the total of their own
+      // day, and the medians of every day before it, as kilograms; every figure
+      // on both halves is a weight, so there is nothing else on the page to
+      // tell them otherwise.
+      //
+      // The shelf is here for the panel's sake rather than the summary's: with
+      // no history the lifts section prints a sentence and carries no weight at
+      // all, and an assertion about a unit needs a figure to read it off.
+      const element = await mountChosen({ store: await heldShelf(aShelfOfHistory()) });
+      await afterStorage(element);
+      // Before the maximums, deliberately -- see `agreeThreeMaximums`.
+      await choose(element, UNIT_FIELD, 'lb');
+      await agreeThreeMaximums(element);
+      await choose(element, EQUIPMENT_FIELD, 'raw');
+      await startMeet(element);
+      await finishTheMeet(element);
+
+      // Hand-computed rather than converted here: the squat jumped 150 to 160
+      // to 170 in both raw meets on the shelf, so the median successful jump is
+      // 10 kg, which is 22.0462 lb at two places. A second call to the tool's
+      // own converter would agree with a broken binding.
+      expect(panelText(element, '.successful-jump .value')).toBe('22.05 lb');
+
+      // The summary's own half, which is a different binding on the same line.
+      // Pinned as a fragment plus the absence of the other unit rather than as
+      // a figure: the total is three attempts off a plan built from a 200 lb
+      // maximum, so a literal here would be measuring §9.1's rounding.
+      const total = summaryText(element, '.total .figure');
+      expect(total).toContain(' lb');
+      expect(total).not.toContain('kg');
+    });
+  });
+
+  /**
    * §6.1's other branch, from the root (§21).
    *
    * The board and the roster each have their own browser test and neither can
@@ -1499,10 +1854,8 @@ describe('ptk-meet-day-planner', () => {
       // screen: they are two screens, and a coach scrolling past a live screen
       // to reach the board they were just on is the §11 layout undone.
       const element = await running();
-      const open = board(element)?.shadowRoot?.querySelector('ptk-button.open');
-      if (open === null || open === undefined) throw new Error('No way to open a lifter.');
 
-      await press(element, open);
+      await openLifter(element);
 
       expect(liveScreen(element)).not.toBeNull();
       expect(board(element)).toBeNull();
@@ -1595,9 +1948,7 @@ describe('ptk-meet-day-planner', () => {
       await addLifter(element, LIFTER_NAME);
       expect(clock.watchers).toBe(1);
 
-      const open = board(element)?.shadowRoot?.querySelector('ptk-button.open');
-      if (open === null || open === undefined) throw new Error('No way to open a lifter.');
-      await press(element, open);
+      await openLifter(element);
       // One lifter's own screen is a live screen too, so it keeps counting.
       expect(clock.watchers).toBe(1);
 
@@ -1624,6 +1975,86 @@ describe('ptk-meet-day-planner', () => {
       // print rule can reach it. A template branch here would print blank.
       expect(sheet.shadowRoot?.querySelectorAll('.lifter')).toHaveLength(1);
       expect(sheet.shadowRoot?.textContent).toContain(LIFTER_NAME);
+    });
+
+    /** The board's one lifter, opened on their own platform screen. */
+    async function openLifter(element: PtkMeetDayPlanner): Promise<void> {
+      const open = board(element)?.shadowRoot?.querySelector('ptk-button.open');
+      if (open === null || open === undefined) throw new Error('No way to open a lifter.');
+      await press(element, open);
+    }
+
+    /**
+     * One board lifter driven to the ninth result, on weights typed by hand.
+     *
+     * Not `finishTheMeet`: that presses the first offered card, and there are no
+     * cards here. §13's choices are built from a planning maximum, and the coach
+     * path has none for anybody -- the plan on this device belongs to whoever is
+     * holding it, not to the athlete on the board -- so the free-entry field is
+     * the whole of the weight entry on this screen and the loop is the proof
+     * that it is enough on its own.
+     *
+     * Three whole kilograms per lift, rising by five. The fixture bar takes half
+     * kilograms with a one-kilogram minimum progression (§5.1), so every figure
+     * is legal for a reason the profile supplies rather than for one this file
+     * assumes.
+     */
+    async function finishOneLifter(element: PtkMeetDayPlanner): Promise<void> {
+      for (let attempt = 0; attempt < ATTEMPTS_IN_A_MEET; attempt += 1) {
+        await typeDeep(element, OTHER_WEIGHT_FIELD, String(100 + (attempt % 3) * 5));
+        await useTypedWeight(element);
+        await markHandedIn(element);
+        await recordGoodLift(element);
+      }
+      if (summaryScreen(element) === null) throw new Error('The lifter did not finish.');
+    }
+
+    it('summarises a board lifter with no plan to compare the day against', async () => {
+      // §26 on the coach path, and the absence is the requirement rather than a
+      // gap. The summary is built with `EMPTY_VIEW`, no targets and `'unstated'`
+      // equipment for the same reason the coach live view is built with
+      // `NO_PLANNING_AT_ALL`: the plan on this phone is the coach's own, and
+      // printing it as "Planned 182 kg" beside somebody else's attempt is the
+      // tool inventing a decision the athlete never made -- read afterwards, by
+      // a coach with no way to tell whose figure it was.
+      //
+      // The rows are counted first because that is what stops this passing
+      // against a summary that rendered nothing at all, which is the other way
+      // to have no planned line on the page.
+      const element = await running();
+      await openLifter(element);
+
+      await finishOneLifter(element);
+
+      const summary = summaryScreen(element);
+      expect(summary?.shadowRoot?.querySelectorAll('.attempt')).toHaveLength(ATTEMPTS_IN_A_MEET);
+      expect(summary?.shadowRoot?.querySelectorAll('.planned')).toHaveLength(0);
+      // The other half of the same fact: "how far above the plan" has no plan to
+      // be above, and a zero there would read as every attempt landing exactly
+      // on a figure nobody wrote down.
+      expect(summary?.shadowRoot?.querySelectorAll('.against-plan')).toHaveLength(0);
+    });
+
+    it('reads no shelf beside a board lifter, because the shelf is not theirs', async () => {
+      // The one place §9.4 must not appear, and for the same reason the coach
+      // summary carries no planned line: the shelf is this coach's device, so a
+      // panel of medians beside somebody else's finished meet would compare an
+      // athlete against a history that is not theirs. That is worse than no
+      // panel, because every figure in it would look like a fact about the
+      // lifter on screen.
+      //
+      // A store is handed in deliberately -- with the default `noMeetStore()`
+      // there is no shelf to read and the absence below would be free.
+      const element = await running({ store: await heldShelf(aShelfOfHistory()) });
+      await afterStorage(element);
+      await openLifter(element);
+
+      await finishOneLifter(element);
+
+      // The positive control: the day is summarised, so the missing panel is
+      // the decision rather than a screen that never finished.
+      expect(summaryScreen(element)).not.toBeNull();
+      expect(calibrationPanel(element)).toBeNull();
     });
 
     it('has no accessibility violations with the board on screen', async () => {

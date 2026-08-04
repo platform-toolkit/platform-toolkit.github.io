@@ -16,6 +16,7 @@ import {
   convertFigures,
   evidenceAgeFor,
   hasTypedWeights,
+  historyEquipmentFor,
   loadSession,
   maximumSourceFor,
   methodNeedsConfirmation,
@@ -287,6 +288,28 @@ describe('optional information', () => {
     for (const category of ['wraps', 'single-ply', 'multi-ply', 'other'] as const) {
       expect(researchEquipmentFor(category)).toBe('equipped');
     }
+  });
+
+  it('files wraps apart from equipped, and refuses to file "other" at all', () => {
+    // The other collapse of the same category, in the opposite direction on two
+    // of the six values -- which is the whole reason there are two functions.
+    // The history file keeps wraps separate because a scoped comparison across
+    // meets is only worth anything if the meets are the same kind of meet; the
+    // research population measured raw and folds wraps in with equipped.
+    expect(historyEquipmentFor('wraps')).toBe('wraps');
+    expect(researchEquipmentFor('wraps')).toBe('equipped');
+
+    expect(historyEquipmentFor('raw')).toBe('raw');
+    expect(historyEquipmentFor('single-ply')).toBe('equipped');
+    expect(historyEquipmentFor('multi-ply')).toBe('equipped');
+
+    // "Other" and silence both come out unstated rather than being filed under
+    // one of the three. A lifter who picked "other" has said their category is
+    // not one of these; guessing puts their meet into a comparison it does not
+    // belong in, and a wrong file is the one outcome that is not recoverable.
+    expect(historyEquipmentFor('other')).toBe('unstated');
+    expect(historyEquipmentFor('unstated')).toBe('unstated');
+    expect(researchEquipmentFor('other')).toBe('equipped');
   });
 });
 

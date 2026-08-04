@@ -2,13 +2,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * §14.1: the minute between a result and the next weight reaching the table.
+ * §14.1: the attempt that is owed, and the minute if there is one.
  *
  * The panel shows four things §14.1 lists -- the time remaining, the attempt
  * that is owed, whether the lifter has marked it handed in, and what the
  * officials write down if nothing is said -- and it computes none of them.
  * `buildLiveView` derives the seconds from `now`, so this element renders a
  * `SubmissionView` and reports one press.
+ *
+ * THE CLOCK IS THE PART THAT CAN BE ABSENT
+ *
+ * `SubmissionView.clock` is null on the opener of each lift, because the tool's
+ * minute starts from a recorded result and there is no earlier result on that
+ * lift to start it from. The panel is still the panel: the weight is owed, the
+ * name is on it, and the mark control is the only way in the tool to say the
+ * weight reached the table. So a null clock takes the digits and the band off
+ * the panel and puts a sentence where they were, rather than taking the panel
+ * away -- which for three of the nine attempts would leave the lifter nothing to
+ * press.
  *
  * IT DOES NOT COUNT DOWN
  *
@@ -33,6 +44,7 @@ import { customElement, property } from 'lit/decorators.js';
 
 import {
   MARK_SUBMITTED_LABEL,
+  NO_DEADLINE_NOTE,
   NO_SUBMISSION_NOTE,
   OFFICIAL_CLOCK_NOTE,
   SUBMISSION_HEADING,
@@ -45,7 +57,7 @@ import {
   submissionSubjectLine,
   urgencySentence,
 } from './copy.js';
-import type { SubmissionUrgency, SubmissionView } from './live.js';
+import type { SubmissionClock, SubmissionUrgency, SubmissionView } from './live.js';
 
 /** Which attempt the lifter says is now with the table. */
 export interface SubmissionMarkedDetail {
@@ -158,7 +170,7 @@ export class PtkSubmissionCountdown extends LitElement {
     }
   `;
 
-  /** `null` when no deadline is running. Rendered as a sentence, not as an empty box. */
+  /** `null` when no attempt is owed. Rendered as a sentence, not as an empty box. */
   @property({ attribute: false }) submission: SubmissionView | null = null;
 
   /** Overridden in tests and in stories, where a real buzz is neither wanted nor visible. */
@@ -186,8 +198,14 @@ export class PtkSubmissionCountdown extends LitElement {
       this.#buzzedOn = submission.attemptId;
       this.#buzzedFor = null;
     }
-    const urgency = submission.urgency;
-    if (urgency === this.#buzzedFor) return;
+    /*
+     * A panel with no clock on it buzzes for nothing. There is no escalation to
+     * announce, and a buzz would be the pocket saying the deadline moved when no
+     * deadline is running -- the one signal on this screen a lifter acts on
+     * without looking.
+     */
+    const urgency = submission.clock?.urgency ?? null;
+    if (urgency === null || urgency === this.#buzzedFor) return;
     this.#buzzedFor = urgency;
     /*
      * Nothing on the calm band and nothing once it is handed in. A buzz at the
@@ -205,10 +223,10 @@ export class PtkSubmissionCountdown extends LitElement {
       return html`<p class="muted">${NO_SUBMISSION_NOTE}</p>`;
     }
     return html`
-      <section class="panel" data-urgency=${submission.urgency}>
+      <section class="panel" data-urgency=${submission.clock?.urgency ?? nothing}>
         <h3>${SUBMISSION_HEADING}</h3>
         <p class="subject">${submissionSubjectLine(submission.lifterName, submission.weight)}</p>
-        ${this.#renderPounds(submission.weight)} ${this.#renderClock(submission)}
+        ${this.#renderPounds(submission.weight)} ${this.#renderClock(submission.clock)}
         <p class="status ${submission.submitted ? '' : 'muted'}">
           ${submissionStatusText(submission.submitted)}
         </p>
@@ -242,16 +260,21 @@ export class PtkSubmissionCountdown extends LitElement {
    * The band is read off the view rather than recomputed from the seconds. Two
    * readings of the same thing on one panel is how a border ends up red while
    * the sentence beside it still says there is time.
+   *
+   * No clock is a sentence rather than a blank. Digits missing from where digits
+   * belong read as a clock that has stopped, and the reading a lifter acts on
+   * there is that they have time -- which is the reading that costs the attempt.
    */
-  #renderClock(submission: SubmissionView): TemplateResult {
+  #renderClock(clock: SubmissionClock | null): TemplateResult {
+    if (clock === null) return html`<p class="muted no-clock">${NO_DEADLINE_NOTE}</p>`;
     return html`
       <p
-        class="clock ${submission.lapsed ? 'lapsed' : ''}"
-        aria-label=${countdownSpokenText(submission.secondsRemaining)}
+        class="clock ${clock.lapsed ? 'lapsed' : ''}"
+        aria-label=${countdownSpokenText(clock.secondsRemaining)}
       >
-        ${countdownText(submission.secondsRemaining)}
+        ${countdownText(clock.secondsRemaining)}
       </p>
-      <p role="status">${urgencySentence(submission.urgency)}</p>
+      <p role="status">${urgencySentence(clock.urgency)}</p>
     `;
   }
 

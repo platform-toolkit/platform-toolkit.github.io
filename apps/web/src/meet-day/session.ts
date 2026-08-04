@@ -53,6 +53,7 @@ import {
   liftsInFormat,
   roundForDisplay,
   type EvidenceAge,
+  type HistoryEquipment,
   type MaximumSource,
   type MeetGoal,
   type Readiness,
@@ -138,6 +139,36 @@ export function asBoolean(answer: Answer): boolean | null {
  */
 export function researchEquipmentFor(category: EquipmentCategory): 'raw' | 'equipped' {
   return category === 'raw' ? 'raw' : 'equipped';
+}
+
+/**
+ * §8.1's category as §9.4's history file sees it, which is a third collapse again.
+ *
+ * `HistoryEquipment` keeps wraps apart from both raw and equipped, because §9.4
+ * says to -- so this is *not* `researchEquipmentFor`, which folds wraps into
+ * equipped for a research population that measured raw. Two collapses of one
+ * answer, in opposite directions on the same category, which is exactly why
+ * neither is written inline at a call site.
+ *
+ * `other` becomes `unstated` rather than `equipped`. A lifter who picked "other"
+ * has said their category is not one of the three §9.4 separates, and filing them
+ * under one of the three is the mixture §9.4 forbids arrived at by guessing.
+ * `unstated` keeps the meet out of every scoped comparison until somebody says,
+ * which is the honest cost and is recoverable -- a wrong file is not.
+ */
+export function historyEquipmentFor(category: EquipmentCategory): HistoryEquipment {
+  switch (category) {
+    case 'raw':
+      return 'raw';
+    case 'wraps':
+      return 'wraps';
+    case 'single-ply':
+    case 'multi-ply':
+      return 'equipped';
+    case 'other':
+    case 'unstated':
+      return 'unstated';
+  }
 }
 
 /**

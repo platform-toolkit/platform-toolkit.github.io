@@ -454,6 +454,61 @@ const MEET_DAY_FILL_AFTER = [
 const MEET_DAY_CLICK_LAST = ['section.start ptk-button button'];
 
 /**
+ * One attempt taken from unchosen to recorded, which is five presses (§12, §13).
+ *
+ * Choose the offered weight, mark it handed in so the bar is on the platform,
+ * answer what happened, answer how it felt, record. The two middle presses are
+ * one question each and neither can be skipped: the result controls appear only
+ * while an attempt is on the platform (§13.9's one-workspace rule), and Record
+ * is disabled until a good lift has an effort reading beside it.
+ *
+ * "Good lift" rather than "Passed", which would be two presses instead of five
+ * and is the obvious economy. A meet of nine passes finishes just as well and
+ * summarises a lifter who bombed all three lifts -- no weight on any attempt
+ * row, no total, and §26's widest lines replaced by the sentences that stand in
+ * for them. That is a real screen and not the one worth measuring; the cost of
+ * measuring the full one is two presses an attempt.
+ *
+ * A choice card is named by `data-slot` rather than by position, because that is
+ * the attribute §13.7 put on it so that a caller need not depend on order -- but
+ * `.first()` still decides which of the three, and deliberately so: any legal
+ * weight finishes the attempt, and pinning a slot here would make a change to
+ * which slots are offered arrive as a layout regression.
+ *
+ * The outcome and effort tiles are named by the value inside them, the way the
+ * mode tile is, and the two are not equally load-bearing. `good` is: choosing
+ * anything else changes which follow-up question is asked, and the effort
+ * selector below would then report "nothing matched" -- loudly, which is right.
+ * `solid` is not: every reading finishes the attempt, so the value is named only
+ * because there is no shorter way to say "one of them".
+ *
+ * The native control inside each host, for the reason Start is pressed that way.
+ */
+const MEET_DAY_ATTEMPT_CLICK = [
+  'ptk-live-choices ptk-button[data-slot] button',
+  'ptk-submission-countdown section.panel > ptk-button button',
+  'ptk-attempt-result ptk-choice-group[data-field="outcome"] label:has(input[value="good"])',
+  'ptk-attempt-result ptk-choice-group[data-field="effort"] label:has(input[value="solid"])',
+  'ptk-attempt-result div.card > ptk-button button',
+];
+
+/** Three lifts, three attempts each, which is the whole of a full-power meet. */
+const ATTEMPTS_IN_A_MEET = 9;
+
+/**
+ * Start the meet and then run it to the end, which is the only way to reach §26.
+ *
+ * Forty-six presses, and there is no shorter road: `recordResult` resolves the
+ * attempt it names and nothing else, so the meet is over after the ninth result
+ * and not before. Written as a repeat of one sequence rather than as a literal
+ * list, so that a change to the result flow is one edit here instead of nine.
+ */
+const MEET_DAY_FINISHED_CLICK_LAST = [
+  ...MEET_DAY_CLICK_LAST,
+  ...Array.from({ length: ATTEMPTS_IN_A_MEET }, () => MEET_DAY_ATTEMPT_CLICK).flat(),
+];
+
+/**
  * Open §22's fold, which sits under the Start button on the planning screen.
  *
  * In `clickLast` rather than `clickAfter` only because the plan above it has to
@@ -885,7 +940,60 @@ const ROUTES = [
     settle: ['ptk-live-choices li.card'],
   },
   /*
-   * The same path a third time, down §6.1's other branch (§21).
+   * The same path once more, run to the end of the day (§26).
+   *
+   * A fourth entry for the reason the live one is a third: the finished page
+   * replaces the platform screen rather than joining it, so the entry above
+   * could settle on the choices or on the summary but not on both -- and the
+   * choices are what prove the meet started in the first place.
+   *
+   * It is the most expensive entry in the file by a wide margin, and the two
+   * cheaper things were both tried in the reasoning and rejected. Measuring the
+   * summary in a component test is what `ptk-meet-day-planner.browser.test.ts`
+   * already does at 320px, and `apps/web/CLAUDE.md` is explicit that a component
+   * test cannot see the surfaces that hold most of these failures -- the gutter,
+   * the site header, the back link -- nor the two text-scaling passes, which is
+   * where three deploys have actually broken. Stopping the meet early does not
+   * work either: there is no state between the ninth result and the summary.
+   *
+   * What it cannot reach is worth writing down, because the gap is invisible
+   * from a green run. §9.4's panel renders here with an empty shelf, so its
+   * header sentences are measured and its five figure rows -- which carry the
+   * longest labels in the tool, "Best lift against the maximum you planned" over
+   * a figure over a line of evidence -- are not. Filling the shelf needs a saved
+   * meet with history on it, and the only route to one through the screens is
+   * the file picker, which this check has no way to answer. The panel's own
+   * narrow test covers those rows; nothing covers them inside the page chrome.
+   *
+   * Standalone only, on the same reasoning as the live and coach entries: the
+   * embed has no site gutter, so this is the conservative width.
+   */
+  {
+    path: '/meet-day/',
+    label: '/meet-day/ (finished)',
+    click: MEET_DAY_CLICK,
+    reveal: [],
+    fill: MEET_DAY_FILL,
+    clickAfter: MEET_DAY_CLICK_AFTER,
+    fillAfter: MEET_DAY_FILL_AFTER,
+    clickLast: MEET_DAY_FINISHED_CLICK_LAST,
+    // An attempt block inside a lift, and the calibration panel's own first
+    // sentence. Two, because the finished page is two elements one above the
+    // other and neither one arriving implies the other (§9.4's panel is a
+    // sibling of the summary, deliberately, so that an imported meet can be
+    // summarised with no shelf behind it).
+    //
+    // The attempt block rather than the total: a total is one short line and
+    // exists the moment the summary does, whereas the block is the densest thing
+    // on the page -- an attempt name, a weight in kilograms, the federation's
+    // published pounds beside it and an outcome word, then a recommendation line
+    // and how far the lifter went from it. It is also the selector that proves
+    // all nine presses landed, since a meet abandoned part-way renders no
+    // summary at all.
+    settle: ['ptk-meet-summary .lift .attempt', 'ptk-meet-calibration p.read'],
+  },
+  /*
+   * The same path again, down §6.1's other branch (§21).
    *
    * A separate entry for the reason the live one is separate: the coach screen
    * replaces the plan rather than appending to it, so no single entry could

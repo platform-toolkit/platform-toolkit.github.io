@@ -193,10 +193,14 @@ export function viewOf(timeline: MeetTimeline, context = contextAt(START)) {
  * That is the fixture worth having, because the thresholds are absolute seconds
  * and a rule profile that allowed sixty would move every band boundary in a test
  * that hard-coded an offset from the deadline instead of from the start.
+ *
+ * The panel is not the clock, so the null this throws on is "no attempt is owed"
+ * and not "no deadline is running" -- a declared opener has a panel and no
+ * clock, which is three of the nine attempts.
  */
 export function submissionOf(timeline: MeetTimeline, context = contextAt(START)) {
   const submission = viewOf(timeline, context).submission;
-  if (submission === null) throw new Error('fixture lifter has no deadline running');
+  if (submission === null) throw new Error('fixture lifter owes no attempt');
   return submission;
 }
 

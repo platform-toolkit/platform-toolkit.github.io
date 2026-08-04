@@ -27,7 +27,12 @@ import {
   readSavedMeet,
   writeMeetFile,
 } from './meet-file.js';
-import { EMPTY_SAVED_STATE, SAVED_MEET_VERSION, type SavedMeet } from './saved-meet.js';
+import {
+  EMPTY_SAVED_STATE,
+  SAVED_MEET_VERSION,
+  type SavedMeet,
+  type SavedMeetState,
+} from './saved-meet.js';
 
 const NOW = 1_770_000_000_000;
 
@@ -212,6 +217,125 @@ describe('refusing', () => {
       },
     };
     expect(refusal(readMeetFile(envelope(damaged)))).toBe('damaged');
+  });
+});
+
+describe("§9.4's history entry", () => {
+  /** One finished lift, with all three outcomes and a reason on the miss. */
+  const FINISHED: SavedMeet = {
+    ...MEET,
+    state: {
+      ...EMPTY_SAVED_STATE,
+      history: {
+        equipment: 'wraps',
+        lifts: [
+          {
+            lift: 'squat',
+            plannedMaximumKilograms: 200,
+            attempts: [
+              { attemptNumber: 1, kilograms: 180, outcome: 'good', missReason: null },
+              { attemptNumber: 2, kilograms: 190, outcome: 'no-lift', missReason: 'strength' },
+              { attemptNumber: 3, kilograms: 190, outcome: 'passed', missReason: null },
+            ],
+          },
+        ],
+      },
+    },
+  };
+
+  /** A meet as a build that had never heard of §9.4 wrote it. */
+  function beforeThereWasOne(state: SavedMeetState): Record<string, unknown> {
+    const { history: _history, ...rest } = state;
+    return rest;
+  }
+
+  it('comes back field for field, miss reason and all', () => {
+    // The whole entry rather than a spot check: what calibration reads next
+    // season is this object, and a field silently dropped at the boundary --
+    // the reason on a miss, the planned maximum a jump is measured against --
+    // is a saved meet that parses cleanly and grades the lifter on less than
+    // they lifted.
+    const reading = readMeetFile(writeMeetFile([FINISHED], NOW));
+
+    expect(reading.ok).toBe(true);
+    if (!reading.ok) return;
+    expect(reading.file.meets[0]).toEqual(FINISHED);
+  });
+
+  it('reads a meet saved before there was a history to save', () => {
+    // The claim that added the field without bumping `SAVED_MEET_VERSION`, so
+    // it is the one that has to be true: every meet already on a shelf was
+    // written without the key, and a required field would fail all of them at
+    // the parser -- which `#restoreReport` counts as unreadable, so the release
+    // that added §9.4 would blank the shelf of every lifter who had one.
+    const older = readMeetFile(envelope({ ...MEET, state: beforeThereWasOne(EMPTY_SAVED_STATE) }));
+
+    expect(refusal(older)).toBe('accepted');
+    expect(older.ok ? older.file.meets[0]?.state.history : undefined).toBeNull();
+
+    // The control, because "accepted" above would also be what a parser that
+    // stopped reading the state at all produced: a key that is *not* optional,
+    // removed the same way, is still a refusal.
+    const { openLifterId: _openLifterId, ...withoutARequiredKey } = EMPTY_SAVED_STATE;
+    expect(refusal(readMeetFile(envelope({ ...MEET, state: withoutARequiredKey })))).toBe(
+      'damaged',
+    );
+  });
+
+  it('refuses a fourth attempt in a history entry', () => {
+    // A record try is not a competition attempt and is never in an entry --
+    // `summariseMeet` filters on `kind`, and this says the same thing about a
+    // file somebody else wrote. Read as a third, an exempted weight goes into
+    // the jump the calibration measures.
+    const recordTry = {
+      ...FINISHED,
+      state: {
+        ...FINISHED.state,
+        history: {
+          equipment: 'raw',
+          lifts: [
+            {
+              lift: 'squat',
+              plannedMaximumKilograms: null,
+              attempts: [{ attemptNumber: 4, kilograms: 205, outcome: 'good', missReason: null }],
+            },
+          ],
+        },
+      },
+    };
+
+    expect(refusal(readMeetFile(envelope(recordTry)))).toBe('damaged');
+  });
+
+  it('refuses a miss reason the attempt beside it would have accepted', () => {
+    // The two picklists are one constant for this reason: a reason accepted on
+    // an attempt and refused in the entry beside it makes a whole saved meet
+    // unreadable, and the sentence the lifter sees is "this build cannot open
+    // that meet" rather than anything about a miss reason. The control is that
+    // a real reason on the same shape is accepted.
+    function withReason(reason: unknown): string {
+      return envelope({
+        ...FINISHED,
+        state: {
+          ...FINISHED.state,
+          history: {
+            equipment: 'raw',
+            lifts: [
+              {
+                lift: 'squat',
+                plannedMaximumKilograms: null,
+                attempts: [
+                  { attemptNumber: 1, kilograms: 180, outcome: 'no-lift', missReason: reason },
+                ],
+              },
+            ],
+          },
+        },
+      });
+    }
+
+    expect(refusal(readMeetFile(withReason('platform-error')))).toBe('accepted');
+    expect(refusal(readMeetFile(withReason('bad-day')))).toBe('damaged');
   });
 });
 

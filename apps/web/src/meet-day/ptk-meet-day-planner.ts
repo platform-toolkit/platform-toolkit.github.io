@@ -76,6 +76,7 @@
 import type { MeetRuleProfile, PlatformLift } from '@platform-toolkit/data-contracts';
 import type {
   AttemptRefusalCode,
+  CalibrationReport,
   CoachBoardEntry,
   ConversionChart,
   LiveTarget,
@@ -119,10 +120,12 @@ import './ptk-coach-board.js';
 import './ptk-coach-roster.js';
 import './ptk-handler-pack.js';
 import './ptk-live-screen.js';
+import './ptk-meet-calibration.js';
 import './ptk-meet-checklist.js';
 import './ptk-meet-library.js';
 import './ptk-meet-pack.js';
 import './ptk-meet-prep.js';
+import './ptk-meet-summary.js';
 import './ptk-plan-extras.js';
 import './ptk-plan-method.js';
 import './ptk-plan-screen.js';
@@ -150,6 +153,7 @@ import {
   MEET_NAMING_HEADING,
   MODE_CHOICES,
   MODE_LABEL,
+  NOTHING_TO_UNDO,
   NO_COLOUR,
   PACK_HEADING,
   PACK_HIDE_LABEL,
@@ -178,6 +182,7 @@ import {
   meetProblemSentence,
   meetSavedSentence,
   openMeetSentence,
+  undoLabel,
 } from './copy.js';
 import {
   AGE_FIELD,
@@ -228,11 +233,13 @@ import {
   UNIT_FIELD,
   isSetupField,
 } from './fields.js';
+import { calibrateLibrary } from './history.js';
 import {
   EMPTY_LIVE_VIEW,
   NOTHING_OBSERVED,
   NO_PLANNING_AT_ALL,
   buildLiveView,
+  positionOf,
   type LivePlanning,
 } from './live.js';
 import { livePlanningFrom, liveTargetsFrom, seedLiveMeet } from './live-session.js';
@@ -302,6 +309,7 @@ import {
   type LibraryChange,
   type MeetLibrary,
   type SavedCoachEntry,
+  type SavedHistory,
   type SavedMeet,
   type SavedMeetState,
 } from './saved-meet.js';
@@ -317,6 +325,7 @@ import {
   formatFromValue,
   goalFromValue,
   hasTypedWeights,
+  historyEquipmentFor,
   loadSession,
   maximumSourceFromValue,
   methodFromValue,
@@ -333,6 +342,7 @@ import {
   withUnit,
   type PlannerSession,
 } from './session.js';
+import { summariseMeet, type MeetSummary } from './summary.js';
 
 /** Fired when the lifter picks a federation, so the transport can follow it. */
 export const FEDERATION_CHANGE_EVENT = 'ptk-meet-day-federation-change';
@@ -365,13 +375,25 @@ interface RunningMeet {
  * later be updated by something that had a fresher one, and the failure -- a meet
  * half-run under two rule books -- looks like nothing at all on screen.
  *
- * `rules`, `planning` and `targets` are the answers as they stood when the meet
- * started and are never refreshed. See the header: the planning screens remain
- * open behind live mode, and a weight already on the board does not move because
- * somebody corrected a figure that produced it.
+ * `rules`, `view`, `planning` and `targets` are the answers as they stood when
+ * the meet started and are never refreshed. See the header: the planning screens
+ * remain open behind live mode, and a weight already on the board does not move
+ * because somebody corrected a figure that produced it.
  */
 interface LiveRun extends RunningMeet {
   readonly lifterId: string;
+  /**
+   * The plan the meet was started from, for §26's planned-versus-selected line.
+   *
+   * Frozen here rather than re-read through `#view()` for the reason `planning`
+   * is, and the summary is where it would show worst: a lifter who edited the
+   * plan behind live mode would be shown, after the meet, a comparison against
+   * attempts they never walked out with -- and every "you went above the plan"
+   * line on the page would be measuring an edit rather than a decision. It comes
+   * off the same object at the same instant as `planning`, which is built from
+   * it, so the two cannot disagree.
+   */
+  readonly view: PlannerView;
   readonly planning: LivePlanning;
   readonly targets: readonly LiveTarget[];
 }
@@ -1119,6 +1141,14 @@ export class PtkMeetDayPlanner extends LitElement {
    * which `#onBoardOpen` has already checked against the same document. The
    * fallback is here because the return type says it can (§5.8: a property
    * binding assigns null over the child's own default).
+   *
+   * §26's summary is built with `EMPTY_VIEW`, no targets and `'unstated'`
+   * equipment, for the reason the live view is built with `NO_PLANNING_AT_ALL`:
+   * the plan, the targets and the equipment category on this device belong to the
+   * coach's own session, and none of the three is a statement about the athlete on
+   * the board. The cost is visible and correct -- the planned-versus-selected line
+   * says there was no plan, and §9.4 will not file the meet into any scoped
+   * history -- rather than a comparison against somebody else's numbers.
    */
   #renderCoachLifter(run: CoachRun, lifterId: string): TemplateResult {
     const view = buildLiveView(run.timeline, lifterId, {
@@ -1135,13 +1165,30 @@ export class PtkMeetDayPlanner extends LitElement {
       </ptk-button>
 
       ${this.#renderProblems('live-problems')}
-
-      <ptk-live-screen
-        .view=${view ?? EMPTY_LIVE_VIEW}
-        .chart=${this.chart}
-        .unit=${this.session.setup.unit}
-        .refusals=${this.refusals}
-      ></ptk-live-screen>
+      ${
+        view?.position.meetOver === true
+          ? this.#renderFinished(
+              run,
+              summariseMeet({
+                rules: run.rules,
+                chart: this.chart,
+                timeline: run.timeline,
+                lifterId,
+                view: EMPTY_VIEW,
+                targets: [],
+                equipment: 'unstated',
+              }),
+              null,
+            )
+          : html`
+              <ptk-live-screen
+                .view=${view ?? EMPTY_LIVE_VIEW}
+                .chart=${this.chart}
+                .unit=${this.session.setup.unit}
+                .refusals=${this.refusals}
+              ></ptk-live-screen>
+            `
+      }
     `;
   }
 
@@ -1446,13 +1493,132 @@ export class PtkMeetDayPlanner extends LitElement {
       </ptk-button>
 
       ${this.#renderProblems('live-problems')}
+      ${
+        view?.position.meetOver === true
+          ? this.#renderFinished(
+              run,
+              summariseMeet({
+                rules: run.rules,
+                chart: this.chart,
+                timeline: run.timeline,
+                lifterId: run.lifterId,
+                view: run.view,
+                targets: run.targets,
+                equipment: historyEquipmentFor(this.session.extras.equipment),
+              }),
+              this.#shelfCalibration(),
+            )
+          : html`
+              <ptk-live-screen
+                .view=${view ?? EMPTY_LIVE_VIEW}
+                .chart=${this.chart}
+                .unit=${this.session.setup.unit}
+                .refusals=${this.refusals}
+              ></ptk-live-screen>
+            `
+      }
+    `;
+  }
 
-      <ptk-live-screen
-        .view=${view ?? EMPTY_LIVE_VIEW}
-        .chart=${this.chart}
-        .unit=${this.session.setup.unit}
-        .refusals=${this.refusals}
-      ></ptk-live-screen>
+  /**
+   * §26's page, in place of the platform screen rather than beneath it.
+   *
+   * Replacing it is not a layout preference. `ptk-live-screen` prints the banked
+   * and projected totals unconditionally -- `meetOver` silences only the called
+   * attempt and the next-attempt line -- so a summary rendered beside it puts two
+   * totals on one page, which is the specific failure §17 is written about: a
+   * lifter reading one figure as the day's total when it is not. There is no
+   * arrangement of the two that avoids it, because both are correct about their
+   * own question and neither is labelled against the other.
+   *
+   * What that costs is `ptk-live-screen`'s own undo control, which goes with it,
+   * so one is rendered here instead. §13.9 is not "the live screen has an undo
+   * button", it is that every action stays undoable -- and the action most likely
+   * to need it is the last one, recorded against the wrong outcome, by which time
+   * the screen has already changed.
+   */
+  #renderFinished(
+    run: RunningMeet,
+    summary: MeetSummary,
+    calibration: CalibrationReport | null,
+  ): TemplateResult {
+    return html`
+      <ptk-meet-summary .summary=${summary} .unit=${this.session.setup.unit}></ptk-meet-summary>
+      ${
+        calibration === null
+          ? nothing
+          : html`
+              <ptk-meet-calibration
+                .report=${calibration}
+                .unit=${this.session.setup.unit}
+              ></ptk-meet-calibration>
+            `
+      }
+      ${this.#renderFinishedUndo(run)}
+    `;
+  }
+
+  /**
+   * §9.4's reading of the shelf, for the lifter whose own device this is.
+   *
+   * **Beneath the summary, never above it.** The page is about the day that has
+   * just been contested, and a panel of medians from earlier meets at the top of
+   * it answers a question nobody asked yet. It is also the one section that can
+   * be entirely empty -- a first meet has no history -- and an empty panel above
+   * the day's total reads as a page that has not finished loading.
+   *
+   * **The meet on screen is left out of its own comparison**, which is the whole
+   * of `exceptMeetId`: it is on the shelf by the time this renders, and left in it
+   * would make the figures below partly a reading of the total above them.
+   * `history.ts` argues that at length.
+   *
+   * **`combineEquipment` is false and there is no control for it.** §9.4 wants
+   * combining to be a decision somebody made, and the panel names the scope it
+   * read in every state so the decision is visible rather than assumed. A control
+   * for it belongs with the panel and not with this wiring.
+   *
+   * The coach path passes `null` rather than calling this, for the reason its own
+   * summary is built with `'unstated'` equipment: the shelf is this coach's
+   * device, and reading it beside somebody else's finished meet would compare an
+   * athlete against a history that is not theirs. That is worse than no panel,
+   * because every figure in it would look like a fact about the lifter on screen.
+   */
+  #shelfCalibration(): CalibrationReport {
+    return calibrateLibrary(this.library, {
+      exceptMeetId: activeMeet(this.library)?.id ?? null,
+      scope: {
+        equipment: historyEquipmentFor(this.session.extras.equipment),
+        combineEquipment: false,
+      },
+    });
+  }
+
+  /**
+   * Undo, off the timeline rather than off a view.
+   *
+   * The action is read fresh at press time and not compared against anything,
+   * which is the one way this differs from `#onUndoRequest`. That handler is
+   * answering a child that named the action it was showing, and the check exists
+   * because the live screen repaints four times a second -- a press can land on a
+   * label the document has already moved past. Nothing repaints here: the summary
+   * is a finished meet, so there is no clock behind it and no race to lose.
+   *
+   * `NOTHING_TO_UNDO` is unreachable here, exactly as §13.9 records it being on
+   * the live screen, and for a reason worth writing down because the obvious
+   * reading is the opposite. It looks reachable -- press undo enough times and
+   * the past empties -- but the first press already ends the state this branch
+   * renders in: the view is rebuilt from the new timeline in the same commit,
+   * `meetOver` is false, and the platform screen is back. There is no paint in
+   * between. The branch stays because `undoableAction` is nullable and the
+   * alternative is a non-null assertion over an argument about reachability.
+   */
+  #renderFinishedUndo(run: RunningMeet): TemplateResult {
+    const action = undoableAction(run.timeline);
+    if (action === null) return html`<p class="note nothing-to-undo">${NOTHING_TO_UNDO}</p>`;
+    return html`
+      <ptk-button class="undo" variant="secondary" @click=${this.#onFinishedUndo}>
+        ${undoLabel(action)}
+      </ptk-button>
     `;
   }
 
@@ -2198,6 +2364,10 @@ export class PtkMeetDayPlanner extends LitElement {
     this.live = {
       rules: context.rules,
       lifterId: seeded.lifterId,
+      // The same `view` object `livePlanningFrom` is built from, one line down,
+      // so the plan the summary compares against and the plan the board was
+      // seeded from cannot be two different plans.
+      view,
       planning: livePlanningFrom(view),
       targets: liveTargetsFrom(this.session),
       timeline: seeded.timeline,
@@ -2296,6 +2466,24 @@ export class PtkMeetDayPlanner extends LitElement {
     const run = this.#current();
     if (run === null) return;
     if (undoableAction(run.timeline) !== event.detail.action) return;
+    this.#undo(run);
+  };
+
+  /**
+   * §26's undo, from the root's own control rather than from a child.
+   *
+   * No identity check, unlike the handler above, because there is no child that
+   * named an action and nothing repainting behind the press: the summary is a
+   * finished meet. `#renderFinishedUndo` says the same thing from the other side.
+   */
+  readonly #onFinishedUndo = (): void => {
+    const run = this.#current();
+    if (run === null) return;
+    this.#undo(run);
+  };
+
+  /** One step back, and whatever came back if the document refused it. */
+  #undo(run: RunningMeet): void {
     const result = undo(run.timeline);
     if (!result.ok) {
       this.problems = result.problems.map((problem) => problem.code);
@@ -2303,7 +2491,7 @@ export class PtkMeetDayPlanner extends LitElement {
     }
     this.#commit(result.timeline);
     this.#clearFeedback();
-  };
+  }
 
   /** One action onto the document, and whatever came back if it was refused. */
   #applyLive(action: MeetAction): boolean {
@@ -2551,7 +2739,56 @@ export class PtkMeetDayPlanner extends LitElement {
       lifterId: this.live?.lifterId ?? null,
       entries: (run?.entries ?? []).map(savedEntry),
       openLifterId: run?.openLifterId ?? null,
+      history: this.#historyEntry(),
     };
+  }
+
+  /**
+   * §9.4's entry, once the day is over, and `null` every other moment.
+   *
+   * WHY IT IS FILED HERE AND NOT WHEN THE SUMMARY IS RENDERED
+   *
+   * `#renderLive` builds the same summary to draw §26's page, so filing the entry
+   * there would save a call. It would also file it from a render, which is the
+   * one place in this element that must not have a side effect: the screen
+   * repaints off the clock seam four times a second, and a write per paint is a
+   * write to the disk four times a second for as long as the finished screen is
+   * open. Doing it from the save path means it is stamped exactly when everything
+   * else about the meet is, under `updated`'s snapshot guard -- which no clock
+   * tick moves, because none of the five fields it compares is the time.
+   *
+   * WHY IT ASKS `positionOf` RATHER THAN READING A VIEW
+   *
+   * There is no `LiveView` here. Building one needs a rule book, a chart, a plan,
+   * targets, observations and an instant, and the answer wanted is one boolean --
+   * but re-deriving that boolean in this file is the worse option by some way.
+   * "The meet is over" is a rule about extra attempts and uncontested lifts
+   * (§13.5, §13.8), and a second reading of it that drifted would file a history
+   * entry for a lifter still owed a deadlift, which calibration would then read
+   * as a bombed meet.
+   *
+   * SOLO ONLY
+   *
+   * §9.4 is *personal* calibration, and a coach's phone accumulating three
+   * athletes' meets into one history is a worse version of the equipment mixture
+   * §9.4 is written to separate. The coach path has nothing to file anyway: its
+   * summary is built with `EMPTY_VIEW` and no targets, so every
+   * `plannedMaximumKilograms` on it would be null.
+   */
+  #historyEntry(): SavedHistory | null {
+    const run = this.live;
+    if (run === null) return null;
+    if (positionOf(run.timeline.present, run.lifterId)?.meetOver !== true) return null;
+    const { equipment, lifts } = summariseMeet({
+      rules: run.rules,
+      chart: this.chart,
+      timeline: run.timeline,
+      lifterId: run.lifterId,
+      view: run.view,
+      targets: run.targets,
+      equipment: historyEquipmentFor(this.session.extras.equipment),
+    }).historyEntry;
+    return { equipment, lifts };
   }
 
   /**
@@ -2746,6 +2983,14 @@ export class PtkMeetDayPlanner extends LitElement {
           rules: context.rules,
           timeline,
           lifterId: state.lifterId,
+          // Rebuilt from the restored session rather than restored, because §24
+          // saves the answers and not the drawn plan. So a meet taken off the
+          // shelf compares its attempts against the plan those answers produce
+          // *now* -- under whatever rule book the session names now, which is
+          // the drift `#restoreReport` is about. `EMPTY_VIEW` where there is no
+          // plan at all is the lit-html binding rule arriving in a field: the
+          // summary reads `view.lifts` and a null would reach it.
+          view: view ?? EMPTY_VIEW,
           planning: view === null ? NO_PLANNING_AT_ALL : livePlanningFrom(view),
           targets: liveTargetsFrom(this.session),
         };
