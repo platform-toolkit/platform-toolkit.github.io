@@ -529,6 +529,29 @@ const MEET_DAY_FINISHED_CLICK_LAST = [
 const MEET_DAY_PREP_CLICK = ['ptk-disclosure.prep summary'];
 
 /**
+ * Open §20's fold, which sits between the Start button and §22's.
+ *
+ * Named by `.warmup` for the reason the one above is named by `.prep`, and the
+ * two together are why neither may be a bare `ptk-disclosure`: this screen now
+ * carries two folds at the same level and a tag selector opens whichever the
+ * template puts first, which is this one. The same collision already cost a
+ * debugging pass in the browser tests, where `prepFold` was silently reading
+ * the warm-up fold.
+ *
+ * Nothing inside is conjured by the press -- Chromium lays out the contents of
+ * a shut `<details>`, and `apps/web/CLAUDE.md` records the measurements -- so
+ * this buys a live assertion that the fold still exists under that class. Prove
+ * it by renaming the selector, never by measurement.
+ *
+ * The two folds *inside* this one, holding the per-set weights and the room
+ * preferences, are deliberately not pressed. They carry no class of their own,
+ * so a press would have to name them by position, which is the mistake the two
+ * classes above exist to prevent -- and by the same engine behaviour their rows
+ * are measured shut.
+ */
+const MEET_DAY_WARMUP_CLICK = ['ptk-disclosure.warmup summary'];
+
+/**
  * Show the printable sheet (§23), which both meet-day screens carry.
  *
  * Unlike every other press in this file, this one really is what puts the rows
@@ -878,7 +901,12 @@ const ROUTES = [
     fill: MEET_DAY_FILL,
     clickAfter: MEET_DAY_CLICK_AFTER,
     fillAfter: MEET_DAY_SHELF_FILL,
-    clickLast: [...MEET_DAY_PREP_CLICK, ...MEET_DAY_PACK_CLICK, ...MEET_DAY_SHELF_CLICK],
+    clickLast: [
+      ...MEET_DAY_WARMUP_CLICK,
+      ...MEET_DAY_PREP_CLICK,
+      ...MEET_DAY_PACK_CLICK,
+      ...MEET_DAY_SHELF_CLICK,
+    ],
     // An attempt card, not a field and not the plan element itself. The element
     // is in the DOM from the first paint carrying one sentence about a
     // federation nobody has chosen; a card exists only once all three
@@ -907,8 +935,19 @@ const ROUTES = [
     // fill and the press above both landed, which is also what makes this the
     // one selector here that proves the shelf renders at all -- on a route whose
     // store is the browser's, which is the only configuration §24 is offered in.
+    //
+    // Then the two widest things inside §20's fold, and both are listed for the
+    // reason §22's two are: they arrive by different routes. A timeline row is
+    // the ramp itself and exists only once the plan above has an opener to
+    // count back from -- it is also the longest line the fold draws, a set
+    // number, a weight, the plates on the bar and a minute range. A set row is
+    // two number fields side by side under a heading, and it exists only for
+    // the rungs `isAdjustable` allows a weight on, so a ramp that came out
+    // bar-only would settle on the first selector and draw none of these.
     settle: [
       'ptk-plan-screen li.attempt',
+      'ptk-meet-warmup ol.timeline li',
+      'ptk-meet-warmup .set-row ptk-number-field',
       'ptk-meet-prep ptk-text-area[data-field="deadliftNotes"]',
       'ptk-meet-checklist ptk-toggle-group[data-group="bring"]',
       'ptk-meet-pack li.attempt',

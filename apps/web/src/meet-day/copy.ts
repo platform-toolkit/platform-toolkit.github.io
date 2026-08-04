@@ -4211,3 +4211,27 @@ export function warmupProblemSentence(code: WarmupProblemCode): string {
       return 'The bar or the collars in the warm-up room have no weight on them. Check the room below.';
   }
 }
+
+/*
+ * §20 on the planning screen. The element renders its own `WARMUP_HEADING`, so
+ * the fold that holds it is labelled differently on purpose: a fold reading
+ * "Warm-up" opening onto a heading reading "Warm-up" says the word twice and
+ * neither one earns its line. The inner heading stays, because the same element
+ * is mounted on its own on the coach path where nothing else names it.
+ */
+export const WARMUP_FOLD_LABEL = 'Warming up at the meet';
+export const WARMUP_FOLD_SUMMARY = 'How long you have, and what to put on the bar';
+
+/**
+ * The picker above the fold.
+ *
+ * Phrased as the lifter's question rather than as "Lift", because the answer
+ * moves a whole screen underneath it: the timeline, the ramp and the room are
+ * all per lift, and a bare noun reads as a filter over one list.
+ */
+export const WARMUP_LIFT_LABEL = 'Which lift are you warming up for';
+
+/** One tile per contested lift, in the order the platform runs them. */
+export function warmupLiftChoices(lifts: readonly PlatformLift[]): readonly Choice[] {
+  return lifts.map((lift) => ({ value: lift, label: liftLabel(lift) }));
+}

@@ -129,6 +129,7 @@ import './ptk-meet-library.js';
 import './ptk-meet-pack.js';
 import './ptk-meet-prep.js';
 import './ptk-meet-summary.js';
+import './ptk-meet-warmup.js';
 import './ptk-plan-extras.js';
 import './ptk-plan-method.js';
 import './ptk-plan-screen.js';
@@ -175,6 +176,9 @@ import {
   START_MEET_NOTE,
   UNIT_CHOICES,
   UNIT_LABEL,
+  WARMUP_FOLD_LABEL,
+  WARMUP_FOLD_SUMMARY,
+  WARMUP_LIFT_LABEL,
   conversionChoices,
   conversionQuestion,
   importOutcomeSentence,
@@ -186,6 +190,7 @@ import {
   meetSavedSentence,
   openMeetSentence,
   undoLabel,
+  warmupLiftChoices,
 } from './copy.js';
 import {
   AGE_FIELD,
@@ -238,6 +243,8 @@ import {
   STRETCH_TOTAL_FIELD,
   TARGET_TOTAL_FIELD,
   UNIT_FIELD,
+  WARMUP_LIFT_FIELD,
+  WARMUP_SUBJECT_FIELD,
   isSetupField,
 } from './fields.js';
 import { calibrateLibrary } from './history.js';
@@ -296,6 +303,7 @@ import {
   type MeetCommandDetail,
   type MeetImportDetail,
 } from './ptk-meet-library.js';
+import { MEET_WARMUP_CHANGE_EVENT, type MeetWarmupChangeDetail } from './ptk-meet-warmup.js';
 import { CONFIRM_VALUE } from './ptk-plan-method.js';
 import type { ProfilesStatus } from './ptk-planner-setup.js';
 import {
@@ -358,6 +366,12 @@ import {
   type PlannerSession,
 } from './session.js';
 import { summariseMeet, type MeetSummary } from './summary.js';
+import {
+  EMPTY_WARMUP_STATES,
+  withWarmupFor,
+  type WarmupStates,
+  type WarmupSubject,
+} from './warmup.js';
 
 /** Fired when the lifter picks a federation, so the transport can follow it. */
 export const FEDERATION_CHANGE_EVENT = 'ptk-meet-day-federation-change';
@@ -859,6 +873,39 @@ export class PtkMeetDayPlanner extends LitElement {
 
   /*
    * ---------------------------------------------------------------------------
+   * §20: the warm-up room.
+   * ---------------------------------------------------------------------------
+   */
+
+  /**
+   * Every answer the warm-up fold has taken, one record per platform lift.
+   *
+   * Total over `PlatformLift` rather than one state cleared when the picker
+   * moves, for the reason `session.ts` holds every method's figures for every
+   * lift: the way a lifter uses this is to set the squat ramp up in the morning,
+   * walk away, and come back to it after the bench. A shared state would hand
+   * them the bench room and the bench sets under a heading saying squat, and the
+   * squat answers would be gone with nothing on screen saying they ever existed.
+   *
+   * The element never writes its own `state` property -- it reports a whole
+   * `MeetWarmupState` and this is the only writer -- so a change here is the
+   * only way the fold can move.
+   */
+  @state() private warmups: WarmupStates = EMPTY_WARMUP_STATES;
+
+  /**
+   * Which lift the fold is showing, as the picker last answered it.
+   *
+   * Held rather than derived because it is a choice, and clamped rather than
+   * corrected because a format change must not silently rewrite one: a lifter
+   * who fixes the format to bench-only after answering for the squat gets the
+   * bench fold, and their squat answers are still in `warmups` for the day they
+   * put the format back.
+   */
+  @state() private warmupLift: PlatformLift = 'squat';
+
+  /*
+   * ---------------------------------------------------------------------------
    * §24: the shelf, the open meet, and what has been written down.
    * ---------------------------------------------------------------------------
    */
@@ -944,6 +991,7 @@ export class PtkMeetDayPlanner extends LitElement {
     this.addEventListener(TOGGLE_GROUP_CHANGE_EVENT, this.#onToggle);
     this.addEventListener(PREP_ADD_ITEM_EVENT, this.#onPrepAddItem);
     this.addEventListener(PREP_REMOVE_ITEM_EVENT, this.#onPrepRemoveItem);
+    this.addEventListener(MEET_WARMUP_CHANGE_EVENT, this.#onWarmupChange);
     this.addEventListener(LIVE_CHOICE_EVENT, this.#onLiveChoice);
     this.addEventListener(SUBMISSION_MARKED_EVENT, this.#onSubmissionMarked);
     this.addEventListener(ATTEMPT_RESULT_EVENT, this.#onAttemptResult);
@@ -968,6 +1016,7 @@ export class PtkMeetDayPlanner extends LitElement {
     this.removeEventListener(TOGGLE_GROUP_CHANGE_EVENT, this.#onToggle);
     this.removeEventListener(PREP_ADD_ITEM_EVENT, this.#onPrepAddItem);
     this.removeEventListener(PREP_REMOVE_ITEM_EVENT, this.#onPrepRemoveItem);
+    this.removeEventListener(MEET_WARMUP_CHANGE_EVENT, this.#onWarmupChange);
     this.removeEventListener(LIVE_CHOICE_EVENT, this.#onLiveChoice);
     this.removeEventListener(SUBMISSION_MARKED_EVENT, this.#onSubmissionMarked);
     this.removeEventListener(ATTEMPT_RESULT_EVENT, this.#onAttemptResult);
@@ -1269,8 +1318,8 @@ export class PtkMeetDayPlanner extends LitElement {
 
       <ptk-plan-extras .session=${this.session}></ptk-plan-extras>
 
-      ${this.#renderPlan(view)} ${this.#renderStart(view)} ${this.#renderPrep()}
-      ${this.#renderShelf()}
+      ${this.#renderPlan(view)} ${this.#renderStart(view)} ${this.#renderWarmup(view)}
+      ${this.#renderPrep()} ${this.#renderShelf()}
     `;
     const pack = this.#meetPack(view);
     if (pack === null) return screen;
@@ -1347,6 +1396,70 @@ export class PtkMeetDayPlanner extends LitElement {
         <p class="note">${PACK_PRINT_NOTE}</p>
         <ptk-handler-pack .pack=${pack} ?data-shut=${!this.showingRoster}></ptk-handler-pack>
       </section>
+    `;
+  }
+
+  /**
+   * §20, between the Start button and §22's fold.
+   *
+   * The ordering is the one `#renderPrep` below argues for, applied to a third
+   * thing: the warm-up is more urgent than a packing list and less urgent than
+   * the attempts it counts back from, so it sits between them. Folded, because
+   * a lifter reading the plan at home has no use for it and a lifter in the
+   * warm-up room has no use for anything else -- and the fold carries a `class`
+   * for the reason §13.11's `back` and §13.14's `prep` do: `check:narrow` has to
+   * open *this* one, and a bare `ptk-disclosure` selector opens whichever fold
+   * happens to be first.
+   *
+   * Nothing is drawn without a rule book. `attemptsPerLift` comes off the
+   * profile, and there is no honest source for it otherwise -- guessing three
+   * would put a made-up figure into the estimate of how long a flight takes,
+   * which is the one number on the screen a lifter acts on.
+   *
+   * `this.clock.now()` is read here, which `apps/web/CLAUDE.md` says not to do
+   * in a render. The exemption is `#meetPack`'s exactly: `now` reaches
+   * `buildMeetWarmup` and is stamped as `timeline.builtAt`, which no element
+   * renders, and every figure on this screen is a relative range. Two instants
+   * in one paint cannot show up as two.
+   */
+  #renderWarmup(view: PlannerView | null): TemplateResult | typeof nothing {
+    const context = this.#context();
+    if (context === null || view === null) return nothing;
+    const lifts = view.lifts.map((entry) => entry.lift);
+    const first = lifts[0];
+    if (first === undefined) return nothing;
+    const lift = lifts.includes(this.warmupLift) ? this.warmupLift : first;
+    // The opener rather than any other attempt, and off the view rather than
+    // off the session, for the reason `live-session.ts` reads it there: the
+    // figure on the view has been rounded onto the federation's grid and
+    // clamped, so counting back from the typed one would ramp to a weight that
+    // is not the one on the plan above it.
+    const opener = view.lifts.find((entry) => entry.lift === lift)?.attempts[0]?.weight.kilograms;
+    const subject: WarmupSubject | null =
+      opener === undefined
+        ? null
+        : {
+            lift,
+            opener: { amount: opener, unit: 'kg' },
+            attemptsPerLift: context.rules.profile.attemptsPerLift,
+          };
+    return html`
+      <ptk-disclosure class="warmup" label=${WARMUP_FOLD_LABEL} summary=${WARMUP_FOLD_SUMMARY}>
+        <ptk-choice-group
+          data-field=${WARMUP_LIFT_FIELD}
+          label=${WARMUP_LIFT_LABEL}
+          .choices=${warmupLiftChoices(lifts)}
+          .value=${lift}
+        ></ptk-choice-group>
+        <div data-warmup-subject=${lift}>
+          <ptk-meet-warmup
+            .state=${this.warmups[lift]}
+            .subject=${subject}
+            .format=${this.session.setup.format}
+            .now=${this.clock.now()}
+          ></ptk-meet-warmup>
+        </div>
+      </ptk-disclosure>
     `;
   }
 
@@ -1955,6 +2068,24 @@ export class PtkMeetDayPlanner extends LitElement {
   }
 
   /**
+   * Which lift §20's fold was showing, validated the way `#liftOf` validates.
+   *
+   * A separate walk rather than a second attribute read inside `#liftOf`,
+   * because the two answer different questions off different attributes and
+   * folding them together is what would put `data-lift` above the warm-up --
+   * the one thing `WARMUP_SUBJECT_FIELD` exists to keep off it.
+   */
+  #warmupLiftOf(event: Event): PlatformLift | null {
+    for (const node of event.composedPath()) {
+      if (!(node instanceof HTMLElement)) continue;
+      const value = node.dataset[WARMUP_SUBJECT_FIELD];
+      if (value === undefined) continue;
+      return sessionLifts(this.session).find((lift) => lift === value) ?? null;
+    }
+    return null;
+  }
+
+  /**
    * Which lifter a roster control belongs to, read and not yet checked.
    *
    * `#liftOf` validates against the lifts on screen and this deliberately does
@@ -2030,6 +2161,13 @@ export class PtkMeetDayPlanner extends LitElement {
         return;
       case CONVERT_FIELD:
         this.#answerConversion(value);
+        return;
+      case WARMUP_LIFT_FIELD:
+        // Narrowed against the lifts this format contests rather than cast: the
+        // value is a string out of the DOM like every other one here, and an
+        // unrecognised one leaves the fold where it is instead of putting the
+        // picker on a lift the meet does not run.
+        this.#chooseWarmupLift(value);
         return;
       case EQUIPMENT_FIELD:
         this.#setSession(withExtras(session, { equipment: equipmentFromValue(value) }));
@@ -2230,6 +2368,20 @@ export class PtkMeetDayPlanner extends LitElement {
   }
 
   /**
+   * §20's picker, checked against the lifts this format actually contests.
+   *
+   * The check is what stops the fold pointing at a lift with no attempts behind
+   * it -- `warmups` is total, so an unchecked value would render a blank room
+   * for a lift the meet does not run, with no opener and therefore no ramp, and
+   * nothing on screen saying why.
+   */
+  #chooseWarmupLift(value: string): void {
+    const lift = sessionLifts(this.session).find((candidate) => candidate === value);
+    if (lift === undefined) return;
+    this.warmupLift = lift;
+  }
+
+  /**
    * §6.1's branch, refused once either meet exists.
    *
    * The control is off the screen by then (`#renderMode`), so this cannot be
@@ -2384,6 +2536,26 @@ export class PtkMeetDayPlanner extends LitElement {
   /** §22.2's removal, which only ever reaches a row somebody added. */
   readonly #onPrepRemoveItem = (event: CustomEvent<PrepRemoveItemDetail>): void => {
     this.prep = removeCustomItem(this.prep, event.detail.itemId);
+  };
+
+  /**
+   * §20's answers, filed under the lift the fold was showing.
+   *
+   * The element reports a whole `MeetWarmupState` rather than one field, which
+   * is why this is an assignment and not a patch: `ptk-meet-warmup` owns no
+   * state of its own (its header says so), so the record it hands back is the
+   * one it was given with a single answer moved, and merging here would be a
+   * second copy of the writers in `warmup.ts`.
+   *
+   * The lift comes off the DOM rather than off `warmupLift`, which
+   * `WARMUP_SUBJECT_FIELD` in `fields.ts` argues at length. Silence when there
+   * is no attribute above the event, rather than a fallback to the state: a
+   * report from something that is not the fold is not an answer about any lift.
+   */
+  readonly #onWarmupChange = (event: CustomEvent<MeetWarmupChangeDetail>): void => {
+    const lift = this.#warmupLiftOf(event);
+    if (lift === null) return;
+    this.warmups = withWarmupFor(this.warmups, lift, event.detail.state);
   };
 
   /**

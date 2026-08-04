@@ -902,4 +902,8 @@ declare global {
   interface HTMLElementTagNameMap {
     'ptk-meet-warmup': PtkMeetWarmup;
   }
+
+  interface HTMLElementEventMap {
+    [MEET_WARMUP_CHANGE_EVENT]: CustomEvent<MeetWarmupChangeDetail>;
+  }
 }

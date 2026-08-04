@@ -68,6 +68,7 @@ import {
   SOLO_MODE,
   START_MEET_NEEDS_A_PLAN,
   SUMMARY_LIFTS_HEADING,
+  WARMUP_NEEDS_AN_OPENER,
 } from './copy.js';
 import {
   CONFIRM_FIELD,
@@ -94,6 +95,8 @@ import {
   ROSTER_NAME_FIELD,
   ROSTER_RACK_FIELD,
   UNIT_FIELD,
+  WARMUP_LIFT_FIELD,
+  WARMUP_SUBJECT_FIELD,
 } from './fields.js';
 import { aShelf, aShelfOfHistory } from './library-fixture.js';
 import { writeMeetFile } from './meet-file.js';
@@ -111,6 +114,7 @@ import {
   PtkMeetDayPlanner,
 } from './ptk-meet-day-planner.js';
 import './ptk-meet-day-planner.js';
+import { MEET_WARMUP_CHANGE_EVENT, type MeetWarmupChangeDetail } from './ptk-meet-warmup.js';
 import {
   EMPTY_LIBRARY,
   EMPTY_SAVED_STATE,
@@ -120,6 +124,7 @@ import {
   createMeet,
 } from './saved-meet.js';
 import { MEET_DAY_PREFERENCES, loadSession, saveSession } from './session.js';
+import { EMPTY_WARMUP_STATE, withProgress } from './warmup.js';
 
 const teardown: (() => void)[] = [];
 
@@ -570,9 +575,17 @@ async function requestStaleUndo(element: PtkMeetDayPlanner): Promise<void> {
  * checklist inside it draws a second `ptk-disclosure` for §22.2's removals, and
  * a deep search would find whichever came first in tree order and go on
  * "finding the fold" after this one stopped being rendered.
+ *
+ * Scoped to `.prep` as well, and that class is why §13.14 put it there. §20's
+ * warm-up fold now renders *above* this one, so a bare `ptk-disclosure` returns
+ * the warm-up. Nothing failed when it did: Chromium lays out the contents of a
+ * shut `<details>`, so `deepControls` kept finding the prep controls and the
+ * whole suite stayed green while `openPrep` opened the wrong fold -- the same
+ * hazard `apps/web/CLAUDE.md` records against proving a `clickAfter` by
+ * measurement, arriving here as a silently broken helper.
  */
 function prepFold(element: PtkMeetDayPlanner): PtkDisclosure | null {
-  const found = element.shadowRoot?.querySelector('ptk-disclosure') ?? null;
+  const found = element.shadowRoot?.querySelector('ptk-disclosure.prep') ?? null;
   return found instanceof PtkDisclosure ? found : null;
 }
 
@@ -2624,6 +2637,312 @@ describe('ptk-meet-day-planner', () => {
       await pressAdd(element);
 
       expect(deepText(element)).toContain(CHECKLIST_HEADING);
+      expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
+    });
+  });
+
+  describe('the warm-up fold (§20)', () => {
+    /**
+     * §20's fold, addressed by its own class for the reason §22's is.
+     *
+     * This one renders *above* the preparation fold, so a bare
+     * `ptk-disclosure` selector silently moved `prepFold` onto the warm-up
+     * the day this shipped -- and what it opened was also a real fold, which
+     * is why the suite went on passing.
+     */
+    function warmupFold(element: PtkMeetDayPlanner): PtkDisclosure | null {
+      const found = element.shadowRoot?.querySelector('ptk-disclosure.warmup') ?? null;
+      return found instanceof PtkDisclosure ? found : null;
+    }
+
+    /** Opens it by setting `open`, never by pressing the summary (§13.6). */
+    async function openWarmup(element: PtkMeetDayPlanner): Promise<PtkMeetDayPlanner> {
+      const fold = warmupFold(element);
+      if (fold === null) throw new Error('No warm-up fold to open.');
+      fold.open = true;
+      await settled(element);
+      return element;
+    }
+
+    /**
+     * The picker's options, as the bare `PlatformLift` each tile carries.
+     *
+     * `warmupLiftChoices` uses the lift id as the option value, so this needs
+     * no copy constant -- and reading the value rather than the label keeps
+     * the assertion about which lifts are contested rather than about how
+     * they happen to be spelled.
+     */
+    function warmupLiftOptions(element: PtkMeetDayPlanner): string[] {
+      const radios = deepControl(element, WARMUP_LIFT_FIELD).shadowRoot?.querySelectorAll('input');
+      return [...(radios ?? [])].map((radio) => radio.value);
+    }
+
+    /** Which lift the fold is showing, read off the wrapper the root tags. */
+    function warmupSubject(element: PtkMeetDayPlanner): string {
+      const wrapper = element.shadowRoot?.querySelector('[data-warmup-subject]');
+      if (!(wrapper instanceof HTMLElement)) throw new Error('No warm-up subject on screen.');
+      return wrapper.dataset[WARMUP_SUBJECT_FIELD] ?? '';
+    }
+
+    /** The warm-up itself, which is what a report has to come out of. */
+    function warmupElement(element: PtkMeetDayPlanner): Element {
+      const found = element.shadowRoot?.querySelector('ptk-meet-warmup') ?? null;
+      if (found === null) throw new Error('No warm-up on screen.');
+      return found;
+    }
+
+    /**
+     * The ramp, read out of the warm-up's own shadow tree.
+     *
+     * `deepText` is the wrong instrument for anything a child also says
+     * (§13.9's `.pounds` lesson): the plan above this fold prints kilogram
+     * figures too, so a whole-element read is satisfied by the screen the
+     * fold is sitting on rather than by the fold.
+     */
+    function timelineRows(element: PtkMeetDayPlanner): string[] {
+      const rows = warmupElement(element).shadowRoot?.querySelectorAll('ol.timeline > li .what');
+      return [...(rows ?? [])].map((row) => row.textContent.trim());
+    }
+
+    /**
+     * One rung's weight box, addressed by its index into the ramp.
+     *
+     * `deepControl` cannot reach these: there is one per set, so the field name
+     * matches several controls and it throws. The index is what distinguishes
+     * them and is also the thing under test, so it is spelled out here rather
+     * than taking the first match.
+     */
+    function setBox(element: PtkMeetDayPlanner, index: number): Element {
+      const found = deepControls(
+        element,
+        `[data-field="set-weight"][data-index="${String(index)}"]`,
+      );
+      const first = found[0];
+      if (found.length !== 1 || first === undefined) {
+        throw new Error(
+          `Expected one set-weight box at ${String(index)}, found ${String(found.length)}.`,
+        );
+      }
+      return first;
+    }
+
+    /**
+     * The ramp index of the first rung a weight can be typed onto.
+     *
+     * Asked rather than assumed to be zero: `data-index` counts the *whole*
+     * ramp, and every ramp opens with bar-only sets, which `isAdjustable`
+     * refuses a weight box (there is nothing to adjust -- the weight is the
+     * implement). So the first box on screen is never rung zero, and a test
+     * addressing zero finds nothing on a screen that rendered perfectly.
+     */
+    function firstSetIndex(element: PtkMeetDayPlanner): number {
+      const first = deepControls(element, '[data-field="set-weight"]')[0];
+      if (!(first instanceof HTMLElement)) throw new Error('No adjustable rung on the ramp.');
+      const index = Number(first.dataset['index']);
+      if (!Number.isInteger(index)) throw new Error(`A set box carries no index: ${first.id}.`);
+      return index;
+    }
+
+    /** What a box holds, read off the native control rather than off the host. */
+    function innerValue(host: Element): string {
+      const inner = host.shadowRoot?.querySelector('input');
+      if (!(inner instanceof HTMLInputElement)) throw new Error(`No box inside ${host.localName}.`);
+      return inner.value;
+    }
+
+    /** A report of the shape `ptk-meet-warmup` dispatches, with one answer in it. */
+    function aReport(): CustomEvent<MeetWarmupChangeDetail> {
+      return new CustomEvent<MeetWarmupChangeDetail>(MEET_WARMUP_CHANGE_EVENT, {
+        detail: { state: withProgress(EMPTY_WARMUP_STATE, { flightSize: '7' }) },
+        bubbles: true,
+        composed: true,
+      });
+    }
+
+    it('draws no warm-up until there is a rule book behind it', async () => {
+      // The ramp is planned against `attemptsPerLift`, which has no honest
+      // source without a profile -- so the fold waits for the federation
+      // rather than guessing three.
+      const element = await mount();
+
+      expect(warmupFold(element)).toBeNull();
+      // The control: the screen is drawn, and §22's fold is already on it.
+      expect(prepFold(element)).not.toBeNull();
+    });
+
+    it('offers one tile per contested lift, in platform order', async () => {
+      const element = await mountChosen();
+
+      expect(warmupLiftOptions(element)).toEqual(['squat', 'bench', 'deadlift']);
+
+      await choose(element, FORMAT_FIELD, 'bench-only');
+
+      expect(warmupLiftOptions(element)).toEqual(['bench']);
+      expect(warmupSubject(element)).toBe('bench');
+    });
+
+    it('keeps a per-set answer on the lift it was typed on', async () => {
+      // `withWarmupFor`'s asymmetry, asserted from the screen: a set answer is
+      // an index into the ramp in front of the lifter, and the squat ramp and
+      // the bench ramp are different lengths off different openers -- so
+      // carrying one across writes a weight nobody typed onto a set nobody has
+      // seen. The box is read rather than the record because the record is
+      // private; it bites both ways, since a report that never landed leaves
+      // the typed figure in the box too (§13.14).
+      const element = await openWarmup(await planned());
+      const rung = firstSetIndex(element);
+      await enter(element, setBox(element, rung), '60');
+
+      await chooseDeep(element, WARMUP_LIFT_FIELD, 'bench');
+
+      expect(warmupSubject(element)).toBe('bench');
+      // The same rung of the bench ramp, so an answer carried across would be
+      // on screen and not merely on record. Pinned rather than assumed: if the
+      // two ramps started their weighted sets at different indices the box
+      // below would be a different rung and the assertion would be vacuous.
+      expect(firstSetIndex(element)).toBe(rung);
+      expect(innerValue(setBox(element, rung))).toBe('');
+
+      await chooseDeep(element, WARMUP_LIFT_FIELD, 'squat');
+
+      expect(innerValue(setBox(element, rung))).toBe('60');
+    });
+
+    it('carries a preference about the room across every lift', async () => {
+      // The other half of the same asymmetry, and the half a lifter would
+      // notice: there is one warm-up room and one mind about how many sets to
+      // take in it, so a screen that asked three times would be asking a
+      // question it already had the answer to two taps away.
+      //
+      // Asserted on the ramp rather than on the box the figure was typed into.
+      // A preference box is bound by attribute and the field writes its own
+      // value on input, so reading it back cannot tell a recorded answer from a
+      // dropped one -- the trimmed bench ramp can (§13.14).
+      const element = await openWarmup(await planned());
+      await chooseDeep(element, WARMUP_LIFT_FIELD, 'bench');
+      const before = timelineRows(element).length;
+
+      await chooseDeep(element, WARMUP_LIFT_FIELD, 'squat');
+      await typeDeep(element, 'maximumSets', '2');
+      await chooseDeep(element, WARMUP_LIFT_FIELD, 'bench');
+
+      expect(before).toBeGreaterThan(0);
+      expect(timelineRows(element).length).toBeLessThan(before);
+    });
+
+    it('takes a report only from a fold that names a lift', async () => {
+      // The lift is read off the composed path rather than off `warmupLift`,
+      // because the two disagree for as long as it takes a format change to
+      // reach the picker -- §13.14's walk, arriving on a wrapper again.
+      const element = await openWarmup(await planned());
+
+      element.dispatchEvent(aReport());
+      await settled(element);
+
+      expect(boxValue(element, 'flightSize')).toBe('');
+
+      // The control: the same report, out of the element that sits under the
+      // wrapper carrying the lift. Nothing else about it differs.
+      warmupElement(element).dispatchEvent(aReport());
+      await settled(element);
+
+      expect(boxValue(element, 'flightSize')).toBe('7');
+    });
+
+    it('refuses a lift the format does not contest', async () => {
+      const element = await openWarmup(await planned());
+      await chooseDeep(element, WARMUP_LIFT_FIELD, 'bench');
+      await choose(element, FORMAT_FIELD, 'deadlift-only');
+
+      // One tile is on the picker, so this is an answer nothing on screen
+      // could have produced -- which is what a control rebuilt under a
+      // format change looks like from here if it reports on the way out.
+      const forged = document.createElement('div');
+      forged.dataset['field'] = WARMUP_LIFT_FIELD;
+      element.append(forged);
+      teardown.push(() => {
+        forged.remove();
+      });
+      const name = async (value: string): Promise<void> => {
+        forged.dispatchEvent(
+          new CustomEvent<ChoiceChangeDetail>(CHOICE_CHANGE_EVENT, {
+            detail: { value },
+            bubbles: true,
+            composed: true,
+          }),
+        );
+        await settled(element);
+      };
+
+      await name('squat');
+      await choose(element, FORMAT_FIELD, 'full-power');
+
+      // Where the lifter left it. The render clamps an uncontested lift back
+      // onto the first one, so this is only visible once squat is contested
+      // again -- which is why the format goes back before the assertion.
+      expect(warmupSubject(element)).toBe('bench');
+
+      // The control: the same forged report, naming a lift that is contested.
+      await name('deadlift');
+
+      expect(warmupSubject(element)).toBe('deadlift');
+    });
+
+    it('asks for an opener until the plan has one, then draws the ramp', async () => {
+      const element = await openWarmup(await mountChosen());
+
+      expect(deepText(element)).toContain(WARMUP_NEEDS_AN_OPENER);
+      expect(timelineRows(element)).toEqual([]);
+
+      await agreeThreeMaximums(element);
+
+      expect(timelineRows(element).length).toBeGreaterThan(0);
+      expect(deepText(element)).not.toContain(WARMUP_NEEDS_AN_OPENER);
+    });
+
+    it('ramps to the opener of the lift the picker names', async () => {
+      // Three maximums far enough apart that the ramps cannot coincide.
+      // `agreeThreeMaximums` agrees the same figure for all three, and this
+      // assertion passes against a fold ignoring the picker under that.
+      const element = await mountChosen();
+      for (const [lift, maximum] of [
+        ['squat', '260'],
+        ['bench', '100'],
+        ['deadlift', '300'],
+      ] as const) {
+        await type(element, EXPECTED_MAXIMUM_FIELD, maximum, lift);
+        await confirm(element, lift);
+      }
+      await openWarmup(element);
+
+      const squat = timelineRows(element);
+      await chooseDeep(element, WARMUP_LIFT_FIELD, 'bench');
+      const bench = timelineRows(element);
+
+      expect(squat.length).toBeGreaterThan(0);
+      expect(bench).not.toEqual(squat);
+    });
+
+    it('has no accessibility violations with the fold open', async () => {
+      const element = await openWarmup(await planned());
+      const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
+      expect(results.violations.map((violation) => violation.id)).toEqual([]);
+    });
+
+    it('fits a phone-width column with the fold open', async () => {
+      // Twelve numbered boxes, a room, a set of preferences and the ramp
+      // itself, at 320 pixels (§5.7), under everything else this screen
+      // already draws.
+      const frame = document.createElement('div');
+      frame.style.width = '320px';
+      document.body.append(frame);
+      teardown.push(() => {
+        frame.remove();
+      });
+
+      const element = await openWarmup(await planned({ within: frame }));
+
+      expect(timelineRows(element).length).toBeGreaterThan(0);
       expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
     });
   });

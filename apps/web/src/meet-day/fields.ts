@@ -336,3 +336,39 @@ export const CUSTOM_ITEM_ID_FIELD = 'item';
  * about a meet that is not the open one and the root has no field to write it to.
  */
 export const MEET_NAME_FIELD = 'meet-name';
+
+/**
+ * §20's "which lift are you warming up for", asked above the warm-up fold.
+ *
+ * Not a session answer -- nothing in `PlannerSession` holds it, and nothing
+ * should: it is which of the contested lifts the fold is currently showing, and
+ * a lifter who squats and then walks to the bench has not changed anything about
+ * their plan. Same reasoning as `CONVERT_FIELD` above, and the same two-places
+ * contract: the constant is shared between the root's template and the root's
+ * own listener.
+ *
+ * **It deliberately carries no `data-lift`, and neither does the fold below
+ * it.** `ptk-meet-warmup` dispatches `NUMBER_FIELD_CHANGE_EVENT` from its own
+ * children and does not stop it, so every figure typed into the warm-up bubbles
+ * to the root's `#onNumber`. None of its field names is one of this file's
+ * constants, so those events fall through `#applyNumber` to `#applyLiftNumber`,
+ * whose opening `if (lift === null) return;` is the only thing that stops them.
+ * A `data-lift` anywhere above the fold defeats that guard and a lifter counting
+ * their flight starts overwriting the attempt weights on the plan.
+ */
+export const WARMUP_LIFT_FIELD = 'warmup-lift';
+
+/**
+ * Which lift the warm-up fold was showing when it reported a change.
+ *
+ * The fourth attribute *name* in this file, after `CHOICE_SLOT_FIELD`,
+ * `BOARD_LIFTER_FIELD` and `CHECKLIST_GROUP_FIELD`, and it exists because the
+ * lift on screen is derived rather than stored: `warmupLift` is clamped to the
+ * lifts the format actually contests, so the two disagree for exactly as long as
+ * it takes a format change to reach the picker. Reading the lift off the DOM the
+ * event came out of is what makes the answers land on the lift the lifter was
+ * looking at; reading the state would file a squat ramp under a bench press.
+ *
+ * `data-warmup-subject` rather than `data-lift` for the reason above.
+ */
+export const WARMUP_SUBJECT_FIELD = 'warmupSubject';
