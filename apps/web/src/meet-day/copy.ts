@@ -25,6 +25,7 @@
  */
 import {
   MAX_WEIGHT_INPUT,
+  RPE_BOUNDS,
   convertWeight,
   formatWeight,
   type AttemptEffort,
@@ -44,6 +45,7 @@ import {
   type LiveTrigger,
   type MaximumSource,
   type MeetAction,
+  type MeetActionProblemCode,
   type MeetGoal,
   type MissReason,
   type PublishedPoundsReason,
@@ -52,6 +54,7 @@ import {
   type ResearchComparison,
   type RefereeLight,
   type RunningTotal,
+  type SubmissionStatus,
   type WeightInputProblem,
   type WeightUnit,
 } from '@platform-toolkit/domain';
@@ -1529,6 +1532,39 @@ export function urgentNoteLabel(kind: UrgentNote['kind']): string {
 export const URGENT_HEADING = 'Needs doing now';
 
 /**
+ * What one step along `SubmissionStatus` was, in the words the button uses.
+ *
+ * `advance-attempt` is one action carrying six destinations, and the live screen
+ * already sends it to two of them -- `selected` when the lifter takes one of
+ * §13's choices, `submitted` when they mark the weight handed in. A single label
+ * covering both has to pick one, and the one it picked said the attempt had gone
+ * to the table. Pressing undo on a weight that has *not* left the phone yet then
+ * reads as taking back a submission, which is the sentence most likely to send a
+ * handler to the expeditor to correct something nobody was told.
+ *
+ * So each destination says what it was. The two the tool cannot reach today are
+ * spelled out rather than folded into a default: `confirmed` and `locked` come
+ * from the table, `planned` and `proposed` from before the lifter answered, and
+ * a wrong-but-plausible sentence on an undo control is worse than a long switch.
+ */
+function advanceDescribed(to: SubmissionStatus): string {
+  switch (to) {
+    case 'planned':
+      return 'putting the attempt back in the plan';
+    case 'proposed':
+      return 'putting the weight forward';
+    case 'selected':
+      return 'declaring the attempt';
+    case 'submitted':
+      return 'handing the attempt in';
+    case 'confirmed':
+      return 'marking the attempt acknowledged';
+    case 'locked':
+      return 'locking the attempt';
+  }
+}
+
+/**
  * §13.9's control, naming what it would take back.
  *
  * An undo button reading only "Undo" asks a lifter to remember what the last
@@ -1547,7 +1583,7 @@ export function undoLabel(action: MeetAction): string {
     case 'set-attempt-weight':
       return `Undo choosing ${formatWeight({ amount: action.kilograms, unit: 'kg' })}`;
     case 'advance-attempt':
-      return 'Undo handing the attempt in';
+      return `Undo ${advanceDescribed(action.to)}`;
     case 'record-result':
       return `Undo recording ${outcomeLabel(action.result.outcome).toLowerCase()}`;
     case 'grant-extra-attempt':
@@ -1592,4 +1628,97 @@ function listText(items: readonly string[]): string {
   if (items.length <= 1) return items.join('');
   const last = items[items.length - 1] ?? '';
   return `${items.slice(0, -1).join(', ')} and ${last}`;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Starting the meet, and going back to the plan.
+ * ---------------------------------------------------------------------------
+ */
+
+export const START_MEET_HEADING = 'Meet day';
+
+/**
+ * Why the plan is not enough to start on.
+ *
+ * §14's named failure is the correct weight submitted for the wrong athlete, and
+ * the name is the only thing on the live screen that guards against it -- so it
+ * is asked for once, here, rather than defaulted to something the lifter would
+ * have to notice was wrong.
+ */
+export const LIFTER_NAME_LABEL = 'Lifter name';
+
+export const LIFTER_NAME_HINT = 'Shown beside every weight handed to the table.';
+
+export const START_MEET_LABEL = 'Start the meet';
+
+/**
+ * What starting does to the plan, said before it is done rather than after.
+ *
+ * The plan is not consumed -- the weights are copied onto the board and the
+ * planning screens are still there behind a link -- and a lifter who thinks
+ * pressing this throws their work away will not press it at the moment it is
+ * worth pressing, which is before the first attempt rather than after it.
+ */
+export const START_MEET_NOTE =
+  'The planned attempts go on the board and can still be changed at the platform. ' +
+  'The plan stays where it is.';
+
+/** Said in place of the control while there is no plan to put on a board. */
+export const START_MEET_NEEDS_A_PLAN =
+  'Agree a maximum for each lift above and the meet can be started here.';
+
+export const BACK_TO_PLAN_LABEL = 'Back to the plan';
+
+/** Said above the planning screens once a meet is running behind them. */
+export const MEET_IS_RUNNING_NOTE =
+  'A meet is running. Changing an answer here does not move a weight already on the board.';
+
+export const RETURN_TO_MEET_LABEL = 'Back to the meet';
+
+/**
+ * A refusal from the document layer, in this tool's words.
+ *
+ * `MeetActionProblem` carries a message of its own and this deliberately does
+ * not use it: those sentences are written for whoever is reading a failed action
+ * in a test, and half of them name a field rather than a thing a lifter did. The
+ * same split as `PlanProblem` (§13.4) -- the domain publishes codes, each tool
+ * writes its own wording.
+ *
+ * Total over the union rather than defaulted, so a new code is a compile error
+ * here. A default would ship the day a code was added, saying "that could not be
+ * recorded" on a screen where the lifter's next move depends on which of two
+ * things went wrong.
+ */
+export function meetProblemSentence(code: MeetActionProblemCode): string {
+  switch (code) {
+    case 'unknown-lifter':
+      return 'That lifter is not in this meet.';
+    case 'unknown-attempt':
+      return 'That attempt is not in this meet.';
+    case 'lifter-name-required':
+      return 'A meet needs a lifter name before it can start.';
+    case 'attempt-already-resolved':
+      return 'That attempt already has a result, so it cannot be changed here.';
+    case 'status-would-go-backwards':
+      return 'That attempt has already gone further than this.';
+    case 'weight-is-not-a-weight':
+      return 'That is not a weight.';
+    case 'weight-not-legal':
+      return 'The rules do not allow that weight for this attempt.';
+    case 'weight-required-before-submitting':
+      return 'Choose a weight before handing the attempt in.';
+    case 'no-changes-remaining':
+      return 'No changes are left on that attempt.';
+    case 'not-a-missed-attempt':
+      return 'An extra attempt can only be granted after a miss.';
+    case 'record-attempt-not-available':
+      return 'A record attempt is not available here.';
+    case 'rpe-out-of-range':
+      return `An RPE has to be between ${String(RPE_BOUNDS.min)} and ${String(RPE_BOUNDS.max)}.`;
+    case 'note-too-long':
+      return 'That note is too long to record.';
+    case 'nothing-to-undo':
+      return 'There is nothing left to undo.';
+  }
 }

@@ -41,33 +41,78 @@
  * cached is `MeetRules.from`, keyed on the profile object -- not to save the
  * work, but because a refused profile logs, and logging it on every keystroke
  * would bury the read that failed under a thousand copies of itself.
+ *
+ * A RUNNING MEET IS A SECOND SCREEN, NOT A SECOND ROOT
+ *
+ * `LiveRun` below is everything live mode needs, taken once when the meet starts
+ * and then never re-read from the session. That is not caching either -- it is
+ * the sentence `MEET_IS_RUNNING_NOTE` promises the lifter, that changing an
+ * answer on the planning screens does not move a weight already on the board.
+ * Recomputing the rules from the currently chosen federation would break it in
+ * the worst available way: a lifter who taps a different federation while
+ * standing at the expeditor's table would have the rest of their meet checked
+ * against a rule book the first four attempts were never checked against.
+ *
+ * The one thing live mode still reads live is the conversion chart, because a
+ * pound figure is a reading of a kilogram attempt (§16) and not a decision.
  */
 import type { MeetRuleProfile, PlatformLift } from '@platform-toolkit/data-contracts';
-import type { ConversionChart, WeightUnit } from '@platform-toolkit/domain';
-import { MeetRules } from '@platform-toolkit/domain';
+import type {
+  AttemptRefusalCode,
+  ConversionChart,
+  LiveTarget,
+  MeetAction,
+  MeetActionProblem,
+  MeetActionProblemCode,
+  MeetTimeline,
+  WeightUnit,
+} from '@platform-toolkit/domain';
+import {
+  MeetRules,
+  applyMeetAction,
+  findAttempt,
+  takenOn,
+  undo,
+  undoableAction,
+} from '@platform-toolkit/domain';
 import { createPreferenceStore, type PreferenceStore } from '@platform-toolkit/preferences';
 import {
   CHOICE_CHANGE_EVENT,
   NUMBER_FIELD_CHANGE_EVENT,
+  TEXT_FIELD_CHANGE_EVENT,
   TOGGLE_GROUP_CHANGE_EVENT,
   type ChoiceChangeDetail,
   type NumberFieldChangeDetail,
+  type TextFieldChangeDetail,
   type ToggleGroupChangeDetail,
 } from '@platform-toolkit/ui';
 import '@platform-toolkit/ui';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
+import { systemClock, type Clock } from '../clock.js';
+
+import './ptk-live-screen.js';
 import './ptk-plan-extras.js';
 import './ptk-plan-method.js';
 import './ptk-plan-screen.js';
 import './ptk-planner-setup.js';
 
 import {
+  BACK_TO_PLAN_LABEL,
   CONVERSION_CONFIRMATION_NOTE,
   CONVERT_ANSWER,
+  LIFTER_NAME_HINT,
+  LIFTER_NAME_LABEL,
+  MEET_IS_RUNNING_NOTE,
+  RETURN_TO_MEET_LABEL,
+  START_MEET_HEADING,
+  START_MEET_LABEL,
+  START_MEET_NEEDS_A_PLAN,
+  START_MEET_NOTE,
   conversionChoices,
   conversionQuestion,
+  meetProblemSentence,
 } from './copy.js';
 import {
   AGE_FIELD,
@@ -91,6 +136,7 @@ import {
   GUIDED_STANDARD_FIELD,
   GUIDED_WEIGHT_FIELD,
   HARD_CUT_FIELD,
+  LIFTER_NAME_FIELD,
   MAXIMUM_JUMP_FIELD,
   MAXIMUM_SOURCE_FIELD,
   METHOD_FIELD,
@@ -107,8 +153,17 @@ import {
   TARGET_TOTAL_FIELD,
   UNIT_FIELD,
 } from './fields.js';
+import { EMPTY_LIVE_VIEW, NOTHING_OBSERVED, buildLiveView, type LivePlanning } from './live.js';
+import { livePlanningFrom, liveTargetsFrom, seedLiveMeet } from './live-session.js';
+import { ATTEMPT_RESULT_EVENT, type AttemptResultDetail } from './ptk-attempt-result.js';
+import { LIVE_CHOICE_EVENT, type LiveChoiceDetail } from './ptk-live-choices.js';
+import { UNDO_REQUEST_EVENT, type UndoRequestDetail } from './ptk-live-screen.js';
 import { CONFIRM_VALUE } from './ptk-plan-method.js';
 import type { ProfilesStatus } from './ptk-planner-setup.js';
+import {
+  SUBMISSION_MARKED_EVENT,
+  type SubmissionMarkedDetail,
+} from './ptk-submission-countdown.js';
 import { EMPTY_VIEW, buildPlan, type PlanContext, type PlannerView } from './plan.js';
 import {
   EMPTY_SESSION,
@@ -147,6 +202,27 @@ export interface FederationChangeDetail {
   readonly federationId: string;
 }
 
+/**
+ * A meet in progress: the document, and everything it is being run against.
+ *
+ * One object rather than five state fields, because all five are set at the same
+ * instant and are meaningless apart. A separate `rules` field would sooner or
+ * later be updated by something that had a fresher one, and the failure -- a meet
+ * half-run under two rule books -- looks like nothing at all on screen.
+ *
+ * `rules`, `planning` and `targets` are the answers as they stood when the meet
+ * started and are never refreshed. See the header: the planning screens remain
+ * open behind live mode, and a weight already on the board does not move because
+ * somebody corrected a figure that produced it.
+ */
+interface LiveRun {
+  readonly rules: MeetRules;
+  readonly lifterId: string;
+  readonly planning: LivePlanning;
+  readonly targets: readonly LiveTarget[];
+  readonly timeline: MeetTimeline;
+}
+
 @customElement('ptk-meet-day-planner')
 export class PtkMeetDayPlanner extends LitElement {
   static override styles = css`
@@ -179,6 +255,43 @@ export class PtkMeetDayPlanner extends LitElement {
       font-size: var(--ptk-font-size-sm);
       color: var(--ptk-color-text-muted);
     }
+
+    .start,
+    .running {
+      display: grid;
+      gap: var(--ptk-space-sm);
+      justify-items: start;
+    }
+
+    .start h2 {
+      margin: 0;
+    }
+
+    .start p,
+    .running p {
+      margin: 0;
+    }
+
+    /*
+     * The name field and the two navigation buttons stretch, because a control
+     * sized to its own label lands wherever the label happens to end -- which on
+     * a 320px column is a 90px "Start the meet" floating in the middle of a row
+     * a thumb is aiming at (§5.7).
+     */
+    .start ptk-text-field,
+    .start ptk-button,
+    .running ptk-button {
+      width: 100%;
+    }
+
+    .problems,
+    .live-problems {
+      display: grid;
+      gap: var(--ptk-space-sm);
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
   `;
 
   /**
@@ -206,7 +319,51 @@ export class PtkMeetDayPlanner extends LitElement {
    */
   @property({ attribute: false }) chart: ConversionChart | null = null;
 
+  /**
+   * Where "now" comes from, and what says when to draw §14.1's minute again.
+   *
+   * A property so a story and a browser test hand in `manualClock` and get a
+   * photograph of one instant. The real clock is the default because the shipped
+   * page has nothing to configure -- see `src/clock.ts` for why the seam exists
+   * at all, and for why nothing below it reads the wall clock.
+   */
+  @property({ attribute: false }) clock: Clock = systemClock();
+
   @state() private session: PlannerSession = EMPTY_SESSION;
+
+  /** The meet, once one has started. `null` is the planning-only state. */
+  @state() private live: LiveRun | null = null;
+
+  /**
+   * Whether the lifter has stepped back to the planning screens mid-meet.
+   *
+   * Separate from `live` because going back must not end the meet: the whole
+   * promise of `START_MEET_NOTE` is that the plan is still there and that
+   * looking at it costs nothing.
+   */
+  @state() private viewingPlan = false;
+
+  /**
+   * §14's guard, and the one answer in this tool that is never written down.
+   *
+   * Not in `PlannerSession` and not in the preference store (§2.3, §13.4). It
+   * exists between the lifter typing it and the meet document taking a copy, and
+   * a reload before that loses it, which is the correct trade for not leaving an
+   * athlete's name on a shared phone.
+   */
+  @state() private lifterName = '';
+
+  /**
+   * Why the last weight was not accepted, in the rule set's own reason codes.
+   *
+   * Handed to the live screen, which renders them under the field they came
+   * from. Kept apart from `problems` because these are answerable -- the lifter
+   * types a different weight -- and the sentences below mostly are not.
+   */
+  @state() private refusals: readonly AttemptRefusalCode[] = [];
+
+  /** What the document refused, as codes. Worded by `meetProblemSentence`. */
+  @state() private problems: readonly MeetActionProblemCode[] = [];
 
   /**
    * The unit the figures on screen were typed in, while that differs from the
@@ -223,13 +380,28 @@ export class PtkMeetDayPlanner extends LitElement {
     super.connectedCallback();
     this.addEventListener(CHOICE_CHANGE_EVENT, this.#onChoice);
     this.addEventListener(NUMBER_FIELD_CHANGE_EVENT, this.#onNumber);
+    this.addEventListener(TEXT_FIELD_CHANGE_EVENT, this.#onText);
     this.addEventListener(TOGGLE_GROUP_CHANGE_EVENT, this.#onToggle);
+    this.addEventListener(LIVE_CHOICE_EVENT, this.#onLiveChoice);
+    this.addEventListener(SUBMISSION_MARKED_EVENT, this.#onSubmissionMarked);
+    this.addEventListener(ATTEMPT_RESULT_EVENT, this.#onAttemptResult);
+    this.addEventListener(UNDO_REQUEST_EVENT, this.#onUndoRequest);
+    this.#syncClock();
   }
 
   override disconnectedCallback(): void {
     this.removeEventListener(CHOICE_CHANGE_EVENT, this.#onChoice);
     this.removeEventListener(NUMBER_FIELD_CHANGE_EVENT, this.#onNumber);
+    this.removeEventListener(TEXT_FIELD_CHANGE_EVENT, this.#onText);
     this.removeEventListener(TOGGLE_GROUP_CHANGE_EVENT, this.#onToggle);
+    this.removeEventListener(LIVE_CHOICE_EVENT, this.#onLiveChoice);
+    this.removeEventListener(SUBMISSION_MARKED_EVENT, this.#onSubmissionMarked);
+    this.removeEventListener(ATTEMPT_RESULT_EVENT, this.#onAttemptResult);
+    this.removeEventListener(UNDO_REQUEST_EVENT, this.#onUndoRequest);
+    // Dropped rather than left running. An interval outliving the element is a
+    // repaint request against a detached tree four times a second, for as long
+    // as the page is open.
+    this.#stopWatching();
     super.disconnectedCallback();
   }
 
@@ -241,11 +413,22 @@ export class PtkMeetDayPlanner extends LitElement {
    * it *also* runs when `view.ts` or a story replaces the store afterwards.
    * Restoring only on connect shows defaults over a device that remembers
    * something else, on some visits and not others.
+   *
+   * The clock is synced here rather than after the render because the two things
+   * that decide whether it should tick -- `live` and `viewingPlan` -- are already
+   * their new values by the time this runs.
    */
   override willUpdate(changed: Map<PropertyKey, unknown>): void {
     if (changed.has('settings')) {
       this.session = loadSession(this.settings);
     }
+    this.#syncClock();
+  }
+
+  /** Planning, or the platform. Never both, and never neither. */
+  override render(): TemplateResult {
+    const run = this.live;
+    return run !== null && !this.viewingPlan ? this.#renderLive(run) : this.#renderPlanning();
   }
 
   /**
@@ -263,9 +446,11 @@ export class PtkMeetDayPlanner extends LitElement {
    * Getting this wrong threw on the first paint of every visit, and TypeScript
    * cannot see it: nothing type-checks a lit-html property binding.
    */
-  override render(): TemplateResult {
+  #renderPlanning(): TemplateResult {
     const view = this.#view();
     return html`
+      ${this.#renderRunning()}
+
       <ptk-planner-setup
         .session=${this.session}
         .profiles=${this.profiles}
@@ -278,7 +463,118 @@ export class PtkMeetDayPlanner extends LitElement {
 
       <ptk-plan-extras .session=${this.session}></ptk-plan-extras>
 
-      ${this.#renderPlan(view)}
+      ${this.#renderPlan(view)} ${this.#renderStart(view)}
+    `;
+  }
+
+  /**
+   * The platform, plus the way back and anything the document refused.
+   *
+   * The refusals go to the live screen and the problems are drawn here, and the
+   * split is not cosmetic: a refused weight belongs under the field it was typed
+   * into, where the lifter is already looking, and everything else is a sentence
+   * about the meet rather than about a control.
+   *
+   * `buildLiveView` answers `null` only for a lifter who is not in the document,
+   * which `seedLiveMeet` makes unreachable -- it returns the id of the lifter it
+   * just added. The fallback is here because the return type says it can, and
+   * `EMPTY_LIVE_VIEW` is a screen that says the meet is over rather than a blank
+   * one (§5.8: a property binding assigns null over the child's own default).
+   */
+  #renderLive(run: LiveRun): TemplateResult {
+    // Read once, here, and handed down. Twice in one paint is two instants on
+    // one screen, which on a sixty-second countdown is a visible stutter.
+    const view = buildLiveView(run.timeline, run.lifterId, {
+      rules: run.rules,
+      chart: this.chart,
+      planning: run.planning,
+      targets: run.targets,
+      observed: NOTHING_OBSERVED,
+      now: this.clock.now(),
+    });
+    return html`
+      <ptk-button class="back" variant="secondary" @click=${this.#onBackToPlan}>
+        ${BACK_TO_PLAN_LABEL}
+      </ptk-button>
+
+      ${this.#renderProblems('live-problems')}
+
+      <ptk-live-screen
+        .view=${view ?? EMPTY_LIVE_VIEW}
+        .chart=${this.chart}
+        .unit=${this.session.setup.unit}
+        .refusals=${this.refusals}
+      ></ptk-live-screen>
+    `;
+  }
+
+  /** Said above the planning screens while a meet is running behind them. */
+  #renderRunning(): TemplateResult | typeof nothing {
+    if (this.live === null) return nothing;
+    return html`
+      <div class="running">
+        <p class="note">${MEET_IS_RUNNING_NOTE}</p>
+        <ptk-button @click=${this.#onReturnToMeet}>${RETURN_TO_MEET_LABEL}</ptk-button>
+      </div>
+    `;
+  }
+
+  /**
+   * The one control that turns a plan into a meet, and the name it needs first.
+   *
+   * Gated on `view.complete` -- three attempts on every contested lift -- rather
+   * than on there being any plan at all. A meet seeded from a half-answered
+   * session opens on a screen whose next action is "choose a weight" for a lift
+   * the lifter thought they had planned, and the reason is two screens back.
+   *
+   * The note is above the button rather than under it because it answers the
+   * question that stops somebody pressing: whether this consumes the plan. Said
+   * afterwards it is a reassurance about something already done.
+   */
+  #renderStart(view: PlannerView | null): TemplateResult | typeof nothing {
+    if (this.live !== null) return nothing;
+    return html`
+      <section class="start">
+        <h2>${START_MEET_HEADING}</h2>
+        ${
+          !view?.complete
+            ? html`<p class="note">${START_MEET_NEEDS_A_PLAN}</p>`
+            : html`
+                <ptk-text-field
+                  data-field=${LIFTER_NAME_FIELD}
+                  label=${LIFTER_NAME_LABEL}
+                  hint=${LIFTER_NAME_HINT}
+                  capitalize="words"
+                  autocomplete="off"
+                  .value=${this.lifterName}
+                ></ptk-text-field>
+                <p class="note">${START_MEET_NOTE}</p>
+                <ptk-button ?disabled=${this.lifterName.trim() === ''} @click=${this.#onStart}>
+                  ${START_MEET_LABEL}
+                </ptk-button>
+              `
+        }
+        ${this.#renderProblems('problems')}
+      </section>
+    `;
+  }
+
+  /**
+   * What the document refused, in this tool's words rather than the domain's.
+   *
+   * See `meetProblemSentence`: the messages on `MeetActionProblem` are written
+   * for whoever is reading a failed action in a test, and half of them name a
+   * field rather than something a lifter did.
+   */
+  #renderProblems(className: string): TemplateResult | typeof nothing {
+    if (this.problems.length === 0) return nothing;
+    return html`
+      <ul class=${className}>
+        ${this.problems.map(
+          (code) =>
+            html`<li><ptk-notice tone="error">${meetProblemSentence(code)}</ptk-notice></li>`,
+        )}
+      </ul>
     `;
   }
 
@@ -656,6 +952,261 @@ export class PtkMeetDayPlanner extends LitElement {
       this.#setSession(convertFigures(this.session, typedIn, this.session.setup.unit));
     }
     this.typedIn = null;
+  }
+
+  /*
+   * ---------------------------------------------------------------------------
+   * Live mode.
+   * ---------------------------------------------------------------------------
+   */
+
+  /**
+   * §14's name, held in memory and nowhere else.
+   *
+   * Guarded on the field although this is, today, the only `ptk-text-field` in
+   * the tool -- §12's note is a `ptk-text-area` and reports through a different
+   * event entirely. So the guard is not defending against the note; it is
+   * defending against the next text field somebody adds, and against a composed
+   * event arriving from a child that is not one of this element's own controls.
+   * The listener is on the host, so anything bubbling up through it lands here.
+   */
+  readonly #onText = (event: CustomEvent<TextFieldChangeDetail>): void => {
+    if (fieldOf(event) !== LIFTER_NAME_FIELD) return;
+    this.lifterName = event.detail.value;
+  };
+
+  /**
+   * The plan, onto a board.
+   *
+   * Not guarded on the name being blank, although the button is disabled for it.
+   * A press landing on the `ptk-button` host's own padding runs the listener
+   * whatever the inner control's state -- a real thumb on a real phone -- and
+   * `add-lifter` refuses an empty name with `lifter-name-required`, which is
+   * already a sentence this screen knows how to say. A second check here would
+   * be a copy of a domain rule in an element, silently answering differently the
+   * day the rule changes.
+   */
+  readonly #onStart = (): void => {
+    const context = this.#context();
+    const view = this.#view();
+    if (context === null || view === null) return;
+
+    const seeded = seedLiveMeet({
+      rules: context.rules,
+      session: this.session,
+      view,
+      lifterName: this.lifterName,
+      at: this.clock.now(),
+    });
+    if (!seeded.ok) {
+      this.problems = seeded.problems.map((problem) => problem.code);
+      return;
+    }
+    if (seeded.unplaced.length > 0) {
+      // A planned weight the same rule set then refused is a defect in this
+      // tool, not something a lifter did, and there is nothing for them to act
+      // on -- the attempt is simply blank and the screen asks them to choose.
+      // Codes only: the messages quote the plan, and §2.3 keeps a lifter's
+      // figures out of the console.
+      console.error(
+        'meet-day: planned weights did not reach the board',
+        seeded.unplaced.map((problem) => problem.code),
+      );
+    }
+
+    this.live = {
+      rules: context.rules,
+      lifterId: seeded.lifterId,
+      planning: livePlanningFrom(view),
+      targets: liveTargetsFrom(this.session),
+      timeline: seeded.timeline,
+    };
+    // A documented mutation survivor: `viewingPlan` is already false wherever
+    // this can run, because only `#onBackToPlan` sets it and that control
+    // exists only while a meet is up -- at which point `#renderStart` draws
+    // nothing to press. So the assignment is unreachable *by argument* rather
+    // than by effect, and it stays: the day a meet can be finished, starting a
+    // second one from the plan screen is exactly the path that needs it, and
+    // the failure would be a board that is running with the plan on screen.
+    this.viewingPlan = false;
+    this.#clearFeedback();
+  };
+
+  readonly #onBackToPlan = (): void => {
+    this.viewingPlan = true;
+  };
+
+  readonly #onReturnToMeet = (): void => {
+    this.viewingPlan = false;
+  };
+
+  /**
+   * §13's choice, which is two actions or one depending on what was chosen.
+   *
+   * A weight is set and then declared, because `actionFor` keys the next action
+   * off the attempt's status and a weight sitting at `planned` leaves the screen
+   * still asking the lifter to choose the thing they just chose. A pass is a
+   * result rather than a weight -- there is no weight to set -- and recording it
+   * is what moves the meet on to the next lift.
+   */
+  readonly #onLiveChoice = (event: CustomEvent<LiveChoiceDetail>): void => {
+    const { attemptId, kilograms } = event.detail;
+    if (kilograms === null) {
+      this.#applyLive({ kind: 'record-result', attemptId, result: { outcome: 'passed' } });
+      return;
+    }
+    if (!this.#applyLive({ kind: 'set-attempt-weight', attemptId, kilograms })) return;
+    this.#applyLive({ kind: 'advance-attempt', attemptId, to: 'selected' });
+  };
+
+  readonly #onSubmissionMarked = (event: CustomEvent<SubmissionMarkedDetail>): void => {
+    this.#applyLive({
+      kind: 'advance-attempt',
+      attemptId: event.detail.attemptId,
+      to: 'submitted',
+    });
+  };
+
+  /**
+   * §12's result, with the lights written *before* the outcome and not after.
+   *
+   * Both orders produce the same document and only one of them produces the
+   * right undo. Recording the result last means the last action is the result,
+   * so §13.9's control takes back the mis-tap it exists for; annotating last
+   * means one press removes the lights and leaves the wrong outcome standing,
+   * on a screen whose button said it would undo recording the attempt.
+   *
+   * The annotation is skipped when there is nothing to say, so an undo after a
+   * result recorded with no lights and no note is still one press.
+   */
+  readonly #onAttemptResult = (event: CustomEvent<AttemptResultDetail>): void => {
+    const { attemptId, result, lights, note } = event.detail;
+    if (lights !== null || note !== null) {
+      if (!this.#applyLive({ kind: 'annotate-attempt', attemptId, lights, note })) return;
+    }
+    this.#applyLive({ kind: 'record-result', attemptId, result });
+  };
+
+  /**
+   * §13.9's undo, declined when the world moved between the paint and the tap.
+   *
+   * The screen sends what it *said* it would take back, and this compares it
+   * with what would actually go. They are the same object when nothing has
+   * changed -- `undoableAction` returns the action off the timeline the view was
+   * built from -- so identity is the whole check. Declining silently is right:
+   * the screen has already repainted with the new label, and an error about a
+   * press that did nothing would be a sentence about a race the lifter cannot
+   * see.
+   */
+  readonly #onUndoRequest = (event: CustomEvent<UndoRequestDetail>): void => {
+    const run = this.live;
+    if (run === null) return;
+    if (undoableAction(run.timeline) !== event.detail.action) return;
+    const result = undo(run.timeline);
+    if (!result.ok) {
+      this.problems = result.problems.map((problem) => problem.code);
+      return;
+    }
+    this.live = { ...run, timeline: result.timeline };
+    this.#clearFeedback();
+  };
+
+  /** One action onto the document, and whatever came back if it was refused. */
+  #applyLive(action: MeetAction): boolean {
+    const run = this.live;
+    if (run === null) return false;
+    const result = applyMeetAction(run.rules, run.timeline, action, this.clock.now());
+    if (!result.ok) {
+      this.#refuse(run, action, result.problems);
+      return false;
+    }
+    this.live = { ...run, timeline: result.timeline };
+    this.#clearFeedback();
+    return true;
+  }
+
+  /**
+   * A refusal, split between the two places a lifter would look for it.
+   *
+   * `weight-not-legal` is one code covering every reason a weight is illegal,
+   * and its message is prose the document built. The reason *codes* are what the
+   * choices element renders under the field, so they are asked for again here --
+   * from the same `MeetRules` the refusal came from, so this cannot disagree
+   * with it. Deriving them instead of pre-checking is deliberate: the document
+   * decides, and this only asks why.
+   */
+  #refuse(run: LiveRun, action: MeetAction, problems: readonly MeetActionProblem[]): void {
+    if (action.kind === 'set-attempt-weight') {
+      const illegal = problems.some((problem) => problem.code === 'weight-not-legal');
+      if (illegal) {
+        this.refusals = this.#refusalsFor(run, action.attemptId, action.kilograms);
+        this.problems = problems
+          .filter((problem) => problem.code !== 'weight-not-legal')
+          .map((problem) => problem.code);
+        return;
+      }
+    }
+    this.refusals = [];
+    this.problems = problems.map((problem) => problem.code);
+  }
+
+  #refusalsFor(run: LiveRun, attemptId: string, kilograms: number): readonly AttemptRefusalCode[] {
+    const found = findAttempt(run.timeline.present, attemptId);
+    if (found === null) return [];
+    const legality = run.rules.isLegalNextAttempt(
+      takenOn(found.lifter, found.attempt.lift),
+      kilograms,
+    );
+    return legality.legal ? [] : legality.reasons;
+  }
+
+  /**
+   * Cleared on every accepted action, both together.
+   *
+   * A refusal that outlives the weight it was about is the worst of the two
+   * available bugs here: the lifter retypes, the table takes it, and the red
+   * sentence under the field still says the rules do not allow it.
+   */
+  #clearFeedback(): void {
+    this.refusals = [];
+    this.problems = [];
+  }
+
+  /*
+   * ---------------------------------------------------------------------------
+   * The clock, attached only while something on screen is moving.
+   * ---------------------------------------------------------------------------
+   */
+
+  #unwatch: (() => void) | null = null;
+
+  /**
+   * Which clock the subscription belongs to, so a swap is noticed.
+   *
+   * Comparing against this rather than tracking a boolean: a story that replaces
+   * `clock` while live mode is up would otherwise keep ticking off the old one,
+   * and the symptom is a countdown that ignores `advance()` -- which reads as
+   * the countdown being broken rather than as the test holding the wrong clock.
+   */
+  #watched: Clock | null = null;
+
+  readonly #onTick = (): void => {
+    this.requestUpdate();
+  };
+
+  #syncClock(): void {
+    const wanted = this.live !== null && !this.viewingPlan ? this.clock : null;
+    if (wanted === this.#watched) return;
+    this.#stopWatching();
+    if (wanted === null) return;
+    this.#watched = wanted;
+    this.#unwatch = wanted.watch(this.#onTick);
+  }
+
+  #stopWatching(): void {
+    this.#unwatch?.();
+    this.#unwatch = null;
+    this.#watched = null;
   }
 
   /**

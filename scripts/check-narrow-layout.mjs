@@ -429,6 +429,31 @@ const MEET_DAY_CLICK_AFTER = ['squat', 'bench', 'deadlift'].map(
 );
 
 /**
+ * A lifter's name, which is the last thing between a plan and a platform.
+ *
+ * In `fillAfter` rather than `fill` because the field does not exist until the
+ * three agreements above have drawn a *complete* plan -- §14's start panel shows
+ * a sentence about needing one until then, and typing into a sentence fails.
+ *
+ * Invented, like every other figure here (§5.1), and one word rather than a
+ * long name: the name is echoed into the live screen's header, so a deliberately
+ * wide one would measure a string this check chose rather than the layout.
+ */
+const MEET_DAY_FILL_AFTER = [
+  { selector: 'ptk-text-field[data-field="lifter-name"] input', value: 'Quintero' },
+];
+
+/**
+ * Start the meet, which is the only way to reach the live screen at all.
+ *
+ * The native control inside the host rather than the host itself, so that a
+ * button still disabled at this point fails the run as an unclickable element
+ * rather than swallowing the press on the host's padding and leaving the settle
+ * below to report the absence of a screen nobody tried to open.
+ */
+const MEET_DAY_CLICK_LAST = ['section.start ptk-button button'];
+
+/**
  * The report shows one lift and one target type at a time, so the widest thing
  * on it has to be navigated to before it can be measured.
  *
@@ -665,6 +690,7 @@ const ROUTES = [
   },
   {
     path: '/meet-day/',
+    label: '/meet-day/ (plan)',
     click: MEET_DAY_CLICK,
     reveal: [],
     fill: MEET_DAY_FILL,
@@ -677,6 +703,40 @@ const ROUTES = [
     // attempt number, a weight in kilograms, the federation's published pounds
     // beside it, a risk word and a rounding note, on one line in 320px.
     settle: ['ptk-plan-screen li.attempt'],
+  },
+  /*
+   * The same path again, driven two presses further, because live mode replaces
+   * the plan rather than appending to it (§13.10).
+   *
+   * A third entry rather than more steps on the one above: `li.attempt` is gone
+   * the moment the meet starts, so a single entry could settle on the plan or on
+   * the platform but not on both -- and dropping the plan's settle to reach the
+   * platform would give up the one assertion that proves the fill and the three
+   * agreements ran in the right order. Two entries measure two screens and each
+   * fails on its own.
+   *
+   * Standalone only, and deliberately not the embed. The embed gives the element
+   * *more* room -- no site gutter -- so the standalone width is the conservative
+   * one, and the chrome difference between the two routes is already measured by
+   * the pair above. A fourth entry would double the slowest route in the file to
+   * re-measure a difference nothing here can change.
+   */
+  {
+    path: '/meet-day/',
+    label: '/meet-day/ (live)',
+    click: MEET_DAY_CLICK,
+    reveal: [],
+    fill: MEET_DAY_FILL,
+    clickAfter: MEET_DAY_CLICK_AFTER,
+    fillAfter: MEET_DAY_FILL_AFTER,
+    clickLast: MEET_DAY_CLICK_LAST,
+    // A choice card, which is the densest thing in the collection and beats the
+    // attempt card it replaces: a weight, the published pound reading, a jump, a
+    // share of the maximum, a projected total, a risk band and up to three
+    // sentences, stacked in 320px between attempts. It is also the only selector
+    // here that cannot match before the meet starts, so it is what makes the
+    // press above load-bearing.
+    settle: ['ptk-live-choices li.card'],
   },
   {
     path: '/meet-day/embed/',
@@ -1080,6 +1140,15 @@ async function reveal(page, route, pass, failures) {
   // disagreeing about what a missing selector means. It means the same in both:
   // a failure, never a skip.
   if (!(await enter(page, route.fillAfter ?? [], where, failures))) return false;
+
+  // A press that needs a field typed into first. The meet-day route is the case
+  // and the reason this is a fourth press slot rather than more entries in
+  // `clickAfter`: Start is disabled until a lifter's name is in the box, and the
+  // box itself does not exist until the three agreements in `clickAfter` have
+  // drawn a complete plan -- so the press is strictly after `fillAfter`, which
+  // no earlier slot can express. Same function as the other two, so all three
+  // agree that an unmatched selector is a failure and never a skip.
+  if (!(await tap(page, route.clickLast ?? [], where, failures))) return false;
 
   // A list, because a screen can have more than one panel that finishes at its
   // own moment and neither one implies the other. Waiting on the earlier of two

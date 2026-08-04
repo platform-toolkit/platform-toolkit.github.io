@@ -138,3 +138,14 @@ export const CHOICE_SLOT_FIELD = 'slot';
 
 /** §13's "a different legal weight", which is a field and not a card. */
 export const OTHER_WEIGHT_FIELD = 'other-weight';
+
+/**
+ * §14's guard against the correct weight going in for the wrong athlete.
+ *
+ * The one field in this tool whose answer is never written to the session and
+ * never reaches the preference store. §13.4's rule is that the setup answers are
+ * settings on a device and the lifter's own facts are not, and a name is the
+ * plainest instance of the second: it goes into the meet document the moment the
+ * meet starts and lives nowhere else.
+ */
+export const LIFTER_NAME_FIELD = 'lifter-name';

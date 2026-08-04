@@ -443,6 +443,23 @@ describe('ptk-live-screen', () => {
     expect(deepText(element)).toContain('Undo recording');
   });
 
+  it('says undo would take back declaring a weight, not handing it to the table', async () => {
+    // `advance-attempt` is one action carrying six destinations and the screen
+    // sends it to two of them. A single label covering both said the attempt had
+    // gone to the table, so pressing undo on a weight still on the phone read as
+    // taking back a submission -- the sentence most likely to send a handler to
+    // the expeditor to correct something nobody was told.
+    const declared = deepText(await mount(atTheTable()));
+    const submitted = deepText(await mount(onThePlatform()));
+
+    // The requirement is that the two read differently. Asserted as a difference
+    // first, because both sides of a `toContain(undoLabel(...))` move together
+    // under exactly the mutation that collapses the branch.
+    expect(declared).not.toBe(submitted);
+    expect(declared).toContain('Undo declaring');
+    expect(submitted).toContain('Undo handing');
+  });
+
   it('reports the action it was labelled with when undo is pressed', async () => {
     // Carried in the event rather than re-read by the caller, because those are
     // two instants: the view repaints four times a second, and between the paint
