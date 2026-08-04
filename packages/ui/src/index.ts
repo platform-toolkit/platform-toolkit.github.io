@@ -26,6 +26,7 @@ import './ptk-plate-stack.js';
 import './ptk-segmented.js';
 import './ptk-select.js';
 import './ptk-text-area.js';
+import './ptk-text-field.js';
 import './ptk-toggle-group.js';
 
 export { PtkButton, type ButtonVariant } from './ptk-button.js';
@@ -60,6 +61,12 @@ export {
   type SelectOption,
 } from './ptk-select.js';
 export { TEXT_AREA_CHANGE_EVENT, PtkTextArea, type TextAreaChangeDetail } from './ptk-text-area.js';
+export {
+  TEXT_FIELD_CHANGE_EVENT,
+  PtkTextField,
+  type TextCapitalization,
+  type TextFieldChangeDetail,
+} from './ptk-text-field.js';
 export {
   TOGGLE_GROUP_CHANGE_EVENT,
   PtkToggleGroup,
