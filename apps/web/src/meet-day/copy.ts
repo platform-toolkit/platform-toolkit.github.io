@@ -75,6 +75,8 @@ import { type Choice } from '@platform-toolkit/ui';
 
 import type { BoardLifterRef, BoardRowConflict } from './board.js';
 import type { LivePosition, NextActionCode, SubmissionUrgency, UrgentNote } from './live.js';
+import type { MeetFileRefusal } from './meet-file.js';
+import type { SaveOutcome } from './meet-store.js';
 import type { HandlerWriteInCode, PackOmissionCode } from './pack.js';
 import type { PlanProblem } from './plan.js';
 import {
@@ -89,6 +91,13 @@ import {
   type LifterSetup,
   type SetupProblem,
 } from './prep.js';
+import {
+  MEET_LIBRARY_MAX,
+  MEET_NAME_MAX,
+  type ImportOutcome,
+  type ImportPreview,
+  type LibraryRefusal,
+} from './saved-meet.js';
 import {
   EQUIPMENT_CATEGORIES,
   PLAN_METHODS,
@@ -2918,3 +2927,239 @@ const PACK_ENUM_CHOICES: Partial<Record<keyof LifterSetup, readonly Choice[]>> =
   handoff: HANDOFF_CHOICES,
   footBlocks: FOOT_BLOCKS_CHOICES,
 };
+
+/*
+ * ---------------------------------------------------------------------------
+ * §24 -- saving, the shelf, and moving a meet between devices.
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * §24.3's warning, in the words the requirement gives.
+ *
+ * Reproduced almost exactly, and that is deliberate rather than lazy: it is the
+ * one sentence in this tool that describes a way for a lifter to lose their
+ * whole plan, and every rewording anybody attempts makes it gentler. "Can
+ * remove the plan" is the honest verb.
+ */
+export const STORAGE_WARNING =
+  'This version stores meets only in this browser. Clearing browser data, using a different device, or losing the device can remove the plan.';
+
+/** The same fact where nothing is being kept at all, which is a different fact. */
+export const STORAGE_WARNING_NOT_DURABLE =
+  'Nothing is being saved. This browser will not keep anything for this page -- a private window and an embedded page both do this -- so the meet is here until the tab closes. Export it if you want to keep it.';
+
+export const STORAGE_EXPORT_ADVICE = 'Export a copy before the meet if you want it somewhere else.';
+
+export const MEET_LIBRARY_HEADING = 'Saved meets';
+
+export const MEET_LIBRARY_EMPTY =
+  'No saved meets yet. The one you are planning is saved as soon as you name it.';
+
+export const MEET_LIBRARY_ARCHIVED_HEADING = 'Finished';
+
+/**
+ * Said when a saved meet is on the device and this build cannot open it.
+ *
+ * It says the meets were left alone because that is the part somebody needs to
+ * know: the instinct on reading the first sentence is to clear the browser and
+ * start again, which is the one action that would actually destroy them.
+ */
+export function unreadableMeetsSentence(count: number): string {
+  if (count === 1) {
+    return 'One saved meet on this device cannot be opened by this version of the tool. It has been left where it is, and may open in a newer one.';
+  }
+  return `${String(count)} saved meets on this device cannot be opened by this version of the tool. They have been left where they are, and may open in a newer one.`;
+}
+
+export function meetSavedSentence(outcome: SaveOutcome): string | null {
+  switch (outcome) {
+    case 'saved':
+      return null;
+    case 'no-storage':
+      return STORAGE_WARNING_NOT_DURABLE;
+    case 'storage-full':
+      return 'There is no room left to save. Delete a finished meet, or export one and then delete it.';
+    case 'failed':
+      return 'The meet could not be saved just now. It is still on screen; try again, or export a copy.';
+  }
+}
+
+export function libraryRefusalSentence(reason: LibraryRefusal): string {
+  switch (reason) {
+    case 'unknown-meet':
+      return 'That meet is no longer on this device.';
+    case 'name-required':
+      return 'Give the meet a name.';
+    case 'name-too-long':
+      return `Keep the name to ${String(MEET_NAME_MAX)} characters or fewer.`;
+    case 'library-full':
+      return `This device holds ${String(MEET_LIBRARY_MAX)} meets. Delete a finished one to make room.`;
+    case 'meet-archived':
+      return 'That meet is finished. Resume it to make changes.';
+  }
+}
+
+/**
+ * Why a file was not read, with the two version cases kept apart.
+ *
+ * §24.4 asks for unsupported and older data to be reported clearly, and the
+ * clear part is the instruction at the end: one of these means update the tool
+ * and one means there is nothing to be done. A single "could not read that
+ * file" would send somebody looking for a corrupted backup that is fine.
+ */
+export function meetFileRefusalSentence(reason: MeetFileRefusal, version?: number): string {
+  switch (reason) {
+    case 'unreadable':
+      return 'That file is not a meet export.';
+    case 'not-a-meet-file':
+      return 'That file is not a meet export from this tool.';
+    case 'newer-version':
+      return `That file was written by a newer version of this tool${
+        version === undefined ? '' : ` (version ${String(version)})`
+      }. Update the tool, or open it on the device that made it.`;
+    case 'older-version':
+      return 'That file was written by an older version of this tool and cannot be opened by this one.';
+    case 'damaged':
+      return 'That file is a meet export, and part of it could not be read.';
+  }
+}
+
+/** What an import is about to do, said before it does it (§24.4). */
+export function importPreviewSentence(preview: ImportPreview): string {
+  const total = preview.entries.length;
+  if (total === 0) return 'That file holds no meets.';
+  const meets = total === 1 ? '1 meet' : `${String(total)} meets`;
+  const conflicts = preview.entries.filter((entry) => entry.disposition === 'conflict').length;
+  const parts = [`${meets} in this file.`];
+  if (conflicts > 0) {
+    parts.push(
+      conflicts === 1
+        ? 'One of them has the same identifier as a meet already here; it will be added as a separate copy, and nothing here is replaced.'
+        : `${String(conflicts)} of them have the same identifiers as meets already here; they will be added as separate copies, and nothing here is replaced.`,
+    );
+  }
+  if (preview.overflow > 0) {
+    parts.push(
+      `There is only room for ${String(total - preview.overflow)} of them. Delete a finished meet first if you want the rest.`,
+    );
+  }
+  return parts.join(' ');
+}
+
+/** What an import did, said afterwards. */
+export function importOutcomeSentence(outcome: ImportOutcome): string {
+  if (outcome.added === 0) return 'Nothing was imported.';
+  const added = outcome.added === 1 ? '1 meet' : `${String(outcome.added)} meets`;
+  const parts = [`Imported ${added}.`];
+  if (outcome.skipped > 0) {
+    parts.push(
+      outcome.skipped === 1
+        ? 'One did not fit and was not imported.'
+        : `${String(outcome.skipped)} did not fit and were not imported.`,
+    );
+  }
+  return parts.join(' ');
+}
+
+/**
+ * The filename an export is offered under.
+ *
+ * The meet's name is not in it, on purpose. A downloaded file lands in a folder
+ * that is often shared, backed up, or shown on a screen behind somebody, and
+ * "Jane's first meet.json" says more about a person than a lifter chose to
+ * publish by pressing Export. The date is enough to tell two exports apart.
+ */
+export function meetExportFilename(isoDate: string): string {
+  return `meet-day-${isoDate}.json`;
+}
+
+export const MEET_EXPORT_LABEL = 'Export saved meets';
+export const MEET_IMPORT_LABEL = 'Import from a file';
+
+/*
+ * The two answers to §24.4's preview.
+ *
+ * "Add them" rather than "Import" or "OK", because the sentence above it has
+ * just said what will happen and the press is the lifter agreeing to that
+ * sentence -- a button repeating the name of the control that opened the file
+ * picker reads as a second attempt at the same step. "Do not add them" rather
+ * than "Cancel" for the reason the shelf's delete panel says "Keep it": on a
+ * panel with two presses a hair apart under a thumb, the safe one has to say
+ * what it protects rather than name a dialog convention.
+ */
+export const MEET_IMPORT_CONFIRM_LABEL = 'Add them';
+export const MEET_IMPORT_CANCEL_LABEL = 'Do not add them';
+export const MEET_DELETE_ALL_LABEL = 'Delete everything saved here';
+
+/** Said above the delete-everything control, which cannot be undone. */
+export const MEET_DELETE_ALL_WARNING =
+  'This removes every meet saved in this browser, including finished ones. It cannot be undone.';
+
+export const MEET_RESUME_LABEL = 'Resume';
+export const MEET_RENAME_LABEL = 'Rename';
+export const MEET_DUPLICATE_LABEL = 'Duplicate';
+export const MEET_ARCHIVE_LABEL = 'Mark finished';
+export const MEET_DELETE_LABEL = 'Delete';
+
+/** The name a duplicate is offered under, trimmed to fit the cap. */
+export function duplicateMeetName(name: string): string {
+  const suffix = ' (copy)';
+  const room = MEET_NAME_MAX - suffix.length;
+  return `${name.length > room ? name.slice(0, room).trimEnd() : name}${suffix}`;
+}
+
+/*
+ * Naming the meet, which is the one thing a lifter has to do before anything is
+ * saved at all.
+ *
+ * The shelf has no create control and must not grow one -- its own header says
+ * why there is no Save button -- so the naming block sits above it, on the
+ * planning screen and the coach board, and disappears the moment there is an
+ * open meet. Two states, never both.
+ */
+export const MEET_NAMING_HEADING = 'This meet';
+
+export const MEET_NAME_LABEL = 'Meet name';
+
+/**
+ * Said under the box, and it is two facts rather than one.
+ *
+ * The first is what the press does, because "saved as soon as you name it" is a
+ * promise the empty shelf already makes and this is where it comes due. The
+ * second is a nudge towards a venue rather than a person: the name is the one
+ * string from this screen that lands in a filename's neighbourhood, shows in a
+ * list somebody may hold up, and travels in an export to another device. §2.3
+ * keeps athlete identity off the disk by default, and a lifter typing their own
+ * name into a box labelled "Meet name" has not been told any of that.
+ */
+export const MEET_NAME_HINT =
+  'Naming it starts saving it in this browser. A venue and a date works better than a person -- the name shows on the shelf and travels in an export.';
+
+export const MEET_CREATE_LABEL = 'Start saving this meet';
+
+/** Said in place of the box once there is a meet to save into. */
+export function openMeetSentence(name: string): string {
+  return `Saving to "${name}". Every change is kept as you make it.`;
+}
+
+/*
+ * §24's three restore reports.
+ *
+ * A saved meet carries the rule book revision it was planned under and the
+ * version of the attempt methodology that drew it, and `saved-meet.ts` is
+ * explicit that recomputing a plan on restore is only safe because those two
+ * figures are beside it. So all three of these say the same two things in
+ * different words: the weights are exactly as they were left, and one of the
+ * things they were derived from has moved. Neither half is safe on its own --
+ * "the rules have changed" with no reassurance reads as a lost plan, and silence
+ * reads as a plan still checked against a rule book nobody has checked it against.
+ */
+export const RESTORE_RULEBOOK_MOVED =
+  'This meet was planned under an earlier revision of that rule book. Your attempts are exactly as you left them; check the increment and the submission deadline against the current rules before meet day.';
+
+export const RESTORE_METHODOLOGY_MOVED =
+  'This meet was planned by an earlier version of this tool. Your attempts are exactly as you left them, and anything worked out from here uses the current method.';
+
+export const RESTORE_PROFILE_MISSING =
+  'The rule book this meet was planned under is not published any more. Your attempts are exactly as you left them, and nothing here can be checked against a federation until you choose one.';

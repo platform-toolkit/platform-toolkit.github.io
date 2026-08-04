@@ -4,6 +4,7 @@
 import { initializeTheme } from '@platform-toolkit/ui';
 
 import { registerServiceWorker } from '../pwa.js';
+import { browserMeetStore } from './meet-store.js';
 import { createPlannerView } from './view.js';
 
 const app = document.querySelector<HTMLElement>('#app');
@@ -27,4 +28,9 @@ initializeTheme();
 // costs nothing here.
 registerServiceWorker();
 
-app.replaceChildren(createPlannerView());
+// §24's shelf, and the only route that gets one. `browserMeetStore` falls back
+// to a page-lifetime shelf where the browser has no storage -- a private window,
+// or storage blocked outright -- rather than to nothing, because a lifter in a
+// private window still has a meet to run and the screen says plainly which of
+// the two they have.
+app.replaceChildren(createPlannerView({ store: browserMeetStore() }));

@@ -42,6 +42,7 @@ import {
 } from '@platform-toolkit/preferences';
 
 import { dataSource } from '../data-source.js';
+import { noMeetStore, type MeetStore } from './meet-store.js';
 import { FEDERATION_CHANGE_EVENT } from './ptk-meet-day-planner.js';
 import './ptk-meet-day-planner.js';
 import type { PtkMeetDayPlanner } from './ptk-meet-day-planner.js';
@@ -55,6 +56,24 @@ export interface PlannerViewOptions {
 
   /** Defaults to this device's ordinary storage. Injected in tests. */
   readonly settings?: PreferenceStore;
+
+  /**
+   * Where §24's saved meets go. Supplied by the page entry; injected in tests.
+   *
+   * Separate from `settings` although both end up on the same storage, because
+   * the two answer different questions and the two routes answer this one
+   * differently. `settings` is a handful of device preferences and the same
+   * store is right everywhere; a saved meet is a document about a person, and
+   * §2.5 forbids an embedded copy of this tool keeping one under somebody
+   * else's origin.
+   *
+   * So this one defaults the *other* way from `settings`: omitting it keeps
+   * nothing. A route added later that forgets to pass a store loses a lifter's
+   * saved meets, which they will notice; the fail-open version writes a
+   * bodyweight and three maximums into an embedder's storage, which nobody
+   * notices at all.
+   */
+  readonly store?: MeetStore;
 }
 
 /**
@@ -69,6 +88,13 @@ export function createPlannerView(options: PlannerViewOptions = {}): PtkMeetDayP
   const element = document.createElement('ptk-meet-day-planner');
   const source = options.source ?? dataSource;
   element.settings = options.settings ?? createPreferenceStore(browserPreferenceStorage());
+  // Restating the element's own class-field default rather than leaving the
+  // property alone, for the reason `ptk-live-screen` restates `deviceHaptics`
+  // (§13.9): a lit-html property binding *assigns*, so the two spellings that
+  // look equivalent are not, and the one that reads as "leave it at the
+  // default" is the one that overwrites it with `undefined`. Written out here
+  // it is also the line somebody sees when they ask what an embed persists.
+  element.store = options.store ?? noMeetStore();
 
   /*
    * Which chart read is still wanted.

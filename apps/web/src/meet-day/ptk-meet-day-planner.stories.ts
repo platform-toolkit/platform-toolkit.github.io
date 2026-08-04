@@ -18,10 +18,13 @@ import {
   EXPECTED_MAXIMUM_FIELD,
   FEDERATION_FIELD,
   LIFTER_NAME_FIELD,
+  MEET_NAME_FIELD,
   MODE_FIELD,
   ROSTER_NAME_FIELD,
 } from './fields.js';
+import { aShelf } from './library-fixture.js';
 import { MEET_PROFILE_FIXTURE } from './meet-rules.fixture.js';
+import { noMeetStore, sessionMeets, type MeetStore } from './meet-store.js';
 import { PROFILE_FIXTURES, plannerSession } from './planner-fixture.js';
 import type { PtkMeetDayPlanner } from './ptk-meet-day-planner.js';
 import './ptk-meet-day-planner.js';
@@ -58,6 +61,16 @@ import { saveSession, type PlannerSession } from './session.js';
  * These stories are for what only the root can be wrong about: which of the five
  * "no plan yet" answers is on screen, and whether the four children agree about
  * one session.
+ *
+ * WHY NO STORY HERE SAVES A MEET TO THE READER'S DEVICE
+ *
+ * Every story hands in a `sessionMeets()` shelf, and the deployed page hands in
+ * a `storedMeets()` one. Storybook runs in a real browser under an origin the
+ * reader did not choose to keep a lifter's document under, and §24's document is
+ * a name, a bodyweight, an age, three maximums and a whole meet -- exactly the
+ * class of thing §2.3 keeps off the disk by default. A device store here would
+ * also carry one story's meet into the next story and into the next session,
+ * which is the autodocs page rendering sixteen screens over one shelf.
  *
  * WHY THE FIFTH ANSWER -- A REFUSED RULE BOOK -- HAS NO STORY
  *
@@ -102,6 +115,29 @@ const COACH = createPreferenceStore(memoryPreferenceStorage());
 const NARROW_COACH = createPreferenceStore(memoryPreferenceStorage());
 const PREP = createPreferenceStore(memoryPreferenceStorage());
 const NARROW_PREP = createPreferenceStore(memoryPreferenceStorage());
+
+/**
+ * A page-lifetime shelf with §24.2's four meets already on it.
+ *
+ * Seeded through the store rather than by setting a property, because there is
+ * no property to set: the shelf the screen shows is read back out of whatever
+ * store it was handed, which is the only route a lifter's own meets take. It
+ * works at module load because `sessionMeets().save` assigns and then resolves,
+ * so the library is held before the element's first `load()` is even issued.
+ *
+ * One per story, for the reason the preference stores above are one per story:
+ * the autodocs page renders every story on one page, and a shared shelf would
+ * put the meet created by `AMeetBeingSavedInto` on all of them.
+ */
+function shelved(): MeetStore {
+  const store = sessionMeets();
+  void store.save(aShelf());
+  return store;
+}
+
+const SHELF = shelved();
+const NARROW_SHELF = shelved();
+const NAMING = sessionMeets();
 
 /**
  * One fixed instant for every story, and deliberately a fake one.
@@ -339,6 +375,37 @@ async function startACoachMeet(canvasElement: HTMLElement): Promise<PtkMeetDayPl
   return element;
 }
 
+/**
+ * §24.1's naming press, which is the only way a meet reaches the shelf.
+ *
+ * Driven rather than seeded for a reason the other play functions here share:
+ * the naming block is on screen exactly while nothing is open, so a story that
+ * seeded a shelf with an open meet on it documents the line that *replaces* this
+ * block and never this block being used. Nothing between the two states can be
+ * reached from outside -- `meetName` is element-local and the create runs in
+ * `#onCreateMeet` -- so the transition is a fact about the interaction.
+ *
+ * The positive control is a row on the shelf and deliberately not the sentence
+ * above it: the naming block withdraws on `activeMeet(this.library)`, so a
+ * create that opened a meet and added nothing to the library would still swap
+ * the block for the line, and the story would publish an empty shelf under a
+ * name saying a meet is being saved into.
+ */
+async function nameThisMeet(canvasElement: HTMLElement): Promise<PtkMeetDayPlanner> {
+  const element = canvasElement.querySelector('ptk-meet-day-planner');
+  if (element === null) throw new Error('No planner rendered.');
+  await settled(element);
+
+  await typeInto(element, MEET_NAME_FIELD, 'County Open');
+  await pressButton(element, 'section.naming ptk-button');
+
+  const row =
+    element.shadowRoot?.querySelector('ptk-meet-library')?.shadowRoot?.querySelector('li.meet') ??
+    null;
+  if (row === null) throw new Error('The meet did not reach the shelf.');
+  return element;
+}
+
 const meta: Meta<PtkMeetDayPlanner> = {
   title: 'Meet day/Planner',
   component: 'ptk-meet-day-planner',
@@ -347,6 +414,11 @@ const meta: Meta<PtkMeetDayPlanner> = {
     settings: {
       control: false,
       description: 'The unit, format, goal and comparison answers. Outlives the tab.',
+    },
+    store: {
+      control: false,
+      description:
+        'Where §24 keeps saved meets. A page-lifetime shelf here; the deployed page uses the device.',
     },
     profiles: {
       control: false,
@@ -368,6 +440,7 @@ const meta: Meta<PtkMeetDayPlanner> = {
   },
   args: {
     settings: FRESH,
+    store: sessionMeets(),
     profiles: PROFILE_FIXTURES,
     status: 'ready',
     chart: null,
@@ -376,6 +449,7 @@ const meta: Meta<PtkMeetDayPlanner> = {
   render: (args) => html`
     <ptk-meet-day-planner
       .settings=${args.settings}
+      .store=${args.store}
       .profiles=${args.profiles}
       status=${args.status}
       .chart=${args.chart}
@@ -491,6 +565,7 @@ export const Narrow: Story = {
     <div style="width: 320px; outline: 1px dashed currentColor;">
       <ptk-meet-day-planner
         .settings=${args.settings}
+        .store=${args.store}
         .profiles=${args.profiles}
         status=${args.status}
         .chart=${args.chart}
@@ -558,6 +633,7 @@ export const NarrowRunning: Story = {
     <div style="width: 320px; outline: 1px dashed currentColor;">
       <ptk-meet-day-planner
         .settings=${args.settings}
+        .store=${args.store}
         .profiles=${args.profiles}
         status=${args.status}
         .chart=${args.chart}
@@ -609,6 +685,7 @@ export const NarrowCoachBoard: Story = {
     <div style="width: 320px; outline: 1px dashed currentColor;">
       <ptk-meet-day-planner
         .settings=${args.settings}
+        .store=${args.store}
         .profiles=${args.profiles}
         status=${args.status}
         .chart=${args.chart}
@@ -665,6 +742,7 @@ export const NarrowPreparationFold: Story = {
     <div style="width: 320px; outline: 1px dashed currentColor;">
       <ptk-meet-day-planner
         .settings=${args.settings}
+        .store=${args.store}
         .profiles=${args.profiles}
         status=${args.status}
         .chart=${args.chart}
@@ -675,4 +753,95 @@ export const NarrowPreparationFold: Story = {
   play: async ({ canvasElement }) => {
     await openThePrepFold(canvasElement);
   },
+};
+
+/**
+ * §24.2's shelf, with four meets on it and one of them open.
+ *
+ * What only this level can be wrong about is the *join*: the shelf is read out
+ * of the store, the newest meet on it is the open one, and opening a meet
+ * restores the screen above it. So the naming block is not here -- it has been
+ * replaced by the one line saying where changes are going, which is the state a
+ * lifter who came back to a meet actually opens the tool in.
+ *
+ * The meets come from `library-fixture.ts`, which walks the real transitions
+ * rather than writing four `SavedMeet` literals. A literal shelf can hold an
+ * archived meet that is also the open one, or a counter behind its own ids, and
+ * nothing on screen would say the state is impossible.
+ *
+ * No restore report on it, and that is the rule working rather than the fixture
+ * being lucky: the saved meet names a federation and the restored session names
+ * none, so §24's drift check has nothing to compare and says nothing. A warning
+ * here would be about a rule book the plan on screen is not being checked
+ * against.
+ */
+export const TheMeetShelf: Story = {
+  args: { store: SHELF },
+};
+
+/**
+ * The press that turns the screen into a meet.
+ *
+ * Naming is what starts *keeping* the screen, not what starts it -- everything
+ * above works unnamed and goes on working if it is never named. That is why
+ * this is an invitation rather than a gate, and why the story worth having is
+ * the one that shows the invitation being taken: after the press the block is
+ * gone, one line says where the changes are going, and the meet is on the shelf.
+ *
+ * Nothing was planned first, deliberately. A meet can be named before a
+ * federation is chosen, and the saved document records that plainly rather than
+ * refusing -- so this is also the story of what an empty meet looks like on the
+ * shelf.
+ */
+export const AMeetBeingSavedInto: Story = {
+  args: { store: NAMING },
+  play: async ({ canvasElement }) => {
+    await nameThisMeet(canvasElement);
+  },
+};
+
+/**
+ * The shelf in a phone-width column (§5.7).
+ *
+ * Five controls to a meet -- open, rename, duplicate, archive, delete -- four
+ * meets, and the warning above them, in 320 pixels. `ptk-meet-library`'s own
+ * stories document the row collapsing; what this one adds is the shelf under
+ * everything else the planning screen is already carrying at that width.
+ * Constrained by a wrapper rather than by a viewport setting, because the
+ * wrapper is what the element's container queries respond to.
+ */
+export const NarrowMeetShelf: Story = {
+  args: { store: NARROW_SHELF },
+  render: (args) => html`
+    <div style="width: 320px; outline: 1px dashed currentColor;">
+      <ptk-meet-day-planner
+        .settings=${args.settings}
+        .store=${args.store}
+        .profiles=${args.profiles}
+        status=${args.status}
+        .chart=${args.chart}
+        .clock=${args.clock}
+      ></ptk-meet-day-planner>
+    </div>
+  `,
+};
+
+/**
+ * The embed, where §24 is withdrawn entirely rather than offered and refused.
+ *
+ * Every other story on this page has a shelf under it. This one has no naming
+ * block, no import and no library, and that absence is the requirement: an
+ * embedded planner must not accumulate a lifter's document in memory belonging
+ * to somebody else's page (§2.5), so the store keeps nothing -- and four
+ * controls that would each refuse are worse than none, which is the rule
+ * `apps/web/CLAUDE.md` states as a button that cannot do anything is never on
+ * screen.
+ *
+ * It is also the element's own default, so this is what a route that forgot to
+ * hand in a store would show. That default is the honest direction: the failure
+ * is a missing feature rather than a lifter's meet written under an origin
+ * nobody chose.
+ */
+export const NoShelfInTheEmbed: Story = {
+  args: { store: noMeetStore() },
 };

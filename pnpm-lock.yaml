@@ -98,6 +98,9 @@ importers:
       lit:
         specifier: 3.3.3
         version: 3.3.3
+      valibot:
+        specifier: 1.4.2
+        version: 1.4.2(typescript@6.0.3)
     devDependencies:
       vite:
         specifier: 'catalog:'

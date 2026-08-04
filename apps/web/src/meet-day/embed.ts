@@ -8,6 +8,7 @@ import {
 } from '@platform-toolkit/configuration';
 import { initializeTheme } from '@platform-toolkit/ui';
 
+import { noMeetStore } from './meet-store.js';
 import { TOOL_ID, createPlannerView } from './view.js';
 
 const app = document.querySelector<HTMLElement>('#app');
@@ -25,7 +26,16 @@ initializeTheme({
 
 // No service worker here, deliberately: embedding a widget must never install
 // anything on the embedder's visitor or cache anything under their origin.
-app.replaceChildren(createPlannerView());
+//
+// §24's shelf is refused for the same reason and one more. A saved meet holds a
+// bodyweight, an age, three maximums and a person's name, and keeping that
+// under an embedder's origin is data this project has no business leaving on
+// somebody else's site -- so `noMeetStore` and not `sessionMeets`, which would
+// accumulate the same thing in memory the parent page shares. It is passed
+// explicitly although it is also `view.ts`'s default: the refusal is a decision
+// about this route, and a decision that is only visible as an omission is one
+// the next person reading this file has no way to see was made.
+app.replaceChildren(createPlannerView({ store: noMeetStore() }));
 
 /**
  * Tells the embedding page how tall this view is.

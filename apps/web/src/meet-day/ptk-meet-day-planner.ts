@@ -103,6 +103,7 @@ import {
   TEXT_FIELD_CHANGE_EVENT,
   TOGGLE_GROUP_CHANGE_EVENT,
   type ChoiceChangeDetail,
+  type NoticeTone,
   type NumberFieldChangeDetail,
   type TextAreaChangeDetail,
   type TextFieldChangeDetail,
@@ -119,6 +120,7 @@ import './ptk-coach-roster.js';
 import './ptk-handler-pack.js';
 import './ptk-live-screen.js';
 import './ptk-meet-checklist.js';
+import './ptk-meet-library.js';
 import './ptk-meet-pack.js';
 import './ptk-meet-prep.js';
 import './ptk-plan-extras.js';
@@ -139,7 +141,13 @@ import {
   HANDLER_PACK_SUMMARY,
   LIFTER_NAME_HINT,
   LIFTER_NAME_LABEL,
+  MEET_CREATE_LABEL,
+  MEET_IMPORT_CANCEL_LABEL,
+  MEET_IMPORT_CONFIRM_LABEL,
   MEET_IS_RUNNING_NOTE,
+  MEET_NAME_HINT,
+  MEET_NAME_LABEL,
+  MEET_NAMING_HEADING,
   MODE_CHOICES,
   MODE_LABEL,
   NO_COLOUR,
@@ -150,6 +158,9 @@ import {
   PACK_SUMMARY,
   PREP_HEADING,
   PREP_SUMMARY,
+  RESTORE_METHODOLOGY_MOVED,
+  RESTORE_PROFILE_MISSING,
+  RESTORE_RULEBOOK_MOVED,
   RETURN_TO_MEET_LABEL,
   START_MEET_HEADING,
   START_MEET_LABEL,
@@ -159,7 +170,14 @@ import {
   UNIT_LABEL,
   conversionChoices,
   conversionQuestion,
+  importOutcomeSentence,
+  importPreviewSentence,
+  libraryRefusalSentence,
+  meetExportFilename,
+  meetFileRefusalSentence,
   meetProblemSentence,
+  meetSavedSentence,
+  openMeetSentence,
 } from './copy.js';
 import {
   AGE_FIELD,
@@ -189,6 +207,7 @@ import {
   LIFTER_NAME_FIELD,
   MAXIMUM_JUMP_FIELD,
   MAXIMUM_SOURCE_FIELD,
+  MEET_NAME_FIELD,
   METHOD_FIELD,
   MINIMUM_JUMP_FIELD,
   MINIMUM_TOTAL_FIELD,
@@ -217,6 +236,8 @@ import {
   type LivePlanning,
 } from './live.js';
 import { livePlanningFrom, liveTargetsFrom, seedLiveMeet } from './live-session.js';
+import { readMeetFile, writeMeetFile } from './meet-file.js';
+import { noMeetStore, type MeetStore, type SaveOutcome } from './meet-store.js';
 import {
   EMPTY_PREP,
   addCustomItem,
@@ -245,6 +266,14 @@ import {
   type PrepAddItemDetail,
   type PrepRemoveItemDetail,
 } from './ptk-meet-checklist.js';
+import {
+  MEET_COMMAND_EVENT,
+  MEET_DELETE_ALL_EVENT,
+  MEET_EXPORT_EVENT,
+  MEET_IMPORT_EVENT,
+  type MeetCommandDetail,
+  type MeetImportDetail,
+} from './ptk-meet-library.js';
 import { CONFIRM_VALUE } from './ptk-plan-method.js';
 import type { ProfilesStatus } from './ptk-planner-setup.js';
 import {
@@ -253,6 +282,29 @@ import {
 } from './ptk-submission-countdown.js';
 import { buildHandlerPack, buildMeetPack, type HandlerPack, type MeetPack } from './pack.js';
 import { EMPTY_VIEW, buildPlan, type PlanContext, type PlannerView } from './plan.js';
+import {
+  EMPTY_LIBRARY,
+  SAVED_MEET_METHODOLOGY_VERSION,
+  activeMeet,
+  archiveMeet,
+  createMeet,
+  deleteMeet,
+  duplicateMeet,
+  fromSavedPrep,
+  importMeets,
+  openMeet,
+  previewImport,
+  readMeetName,
+  renameMeet,
+  saveMeetState,
+  toSavedPrep,
+  type ImportPreview,
+  type LibraryChange,
+  type MeetLibrary,
+  type SavedCoachEntry,
+  type SavedMeet,
+  type SavedMeetState,
+} from './saved-meet.js';
 import {
   EMPTY_SESSION,
   answerFromValue,
@@ -332,10 +384,20 @@ interface LiveRun extends RunningMeet {
  * document: none of it is a fact about the meet, and after §24 the document is
  * something two phones share while the entries are not.
  *
- * The entries are also not persisted (§2.3, §13.4). An identifier is a lot
- * number and a colour is a coach's own shorthand, but the list they are keyed to
- * is a list of athletes' names, and a shared phone at a meet is exactly the
- * device this project does not leave that on.
+ * The entries are saved with the meet as of §24, less `warmup` -- which is a
+ * schedule counted from an instant, so storing it stores a stopwatch and a meet
+ * reopened tomorrow would announce a warm-up that was due nineteen hours ago.
+ * `saved-meet.ts` carries the argument in full. Nothing in this file ever sets
+ * that field, so a restored board has none for the same reason a fresh one has
+ * none, and there is no rebuild to perform.
+ *
+ * That this list is saved at all is a change of position and worth saying so:
+ * §2.3 keeps a lifter's own figures off the disk by default, and the entries are
+ * keyed to a list of athletes' names. What makes it right here is that §24
+ * saves the meet *document* -- which holds those names -- and only ever under a
+ * name the lifter typed into a box that says what naming it does. The entries
+ * are not a second disclosure; leaving them out would mean a restored board came
+ * back with every lot number and colour blank beside the names they belong to.
  *
  * `openLifterId` is which screen is up rather than which lifter matters. The
  * board's own focus row is computed by the domain and changes as clocks run
@@ -344,6 +406,29 @@ interface LiveRun extends RunningMeet {
 interface CoachRun extends RunningMeet {
   readonly entries: readonly CoachBoardEntry[];
   readonly openLifterId: string | null;
+}
+
+/**
+ * The five fields a `SavedMeetState` is assembled from, held for comparison.
+ *
+ * §24.1 lists ten material actions to save after, and the alternative to this is
+ * a save call at each of them -- ten call sites, growing by one every time an
+ * action is added, and silently one short the first time somebody forgets. All
+ * ten write one of these five, every one of them is replaced wholesale rather
+ * than mutated, and `@state` already compares them by identity to decide whether
+ * to repaint. So a five-way identity check in `updated` is exact, costs nothing,
+ * and cannot be forgotten by a handler that has not been written yet.
+ *
+ * Costing nothing matters: the live screen repaints four times a second off the
+ * clock seam, so this runs four times a second for the whole of a meet.
+ * `meet-store.ts` makes the same argument for the map it compares by reference.
+ */
+interface StateSnapshot {
+  readonly mode: PlannerMode;
+  readonly session: PlannerSession;
+  readonly prep: MeetPrep;
+  readonly live: LiveRun | null;
+  readonly coach: CoachRun | null;
 }
 
 @customElement('ptk-meet-day-planner')
@@ -405,6 +490,63 @@ export class PtkMeetDayPlanner extends LitElement {
     .start ptk-button,
     .running ptk-button {
       width: 100%;
+    }
+
+    /*
+     * §24's naming block, and the sentence that replaces it once there is a
+     * meet. The same shape as the Start block above because it is the same kind
+     * of thing -- a heading, a box, a sentence saying what the press does -- and
+     * two visually different treatments for two name fields on one screen would
+     * read as one of them being the more important.
+     */
+    .naming {
+      display: grid;
+      gap: var(--ptk-space-sm);
+      justify-items: start;
+    }
+
+    .naming h2 {
+      margin: 0;
+    }
+
+    .naming p {
+      margin: 0;
+    }
+
+    .naming ptk-text-field,
+    .naming ptk-button {
+      width: 100%;
+    }
+
+    /*
+     * §24.4's preview, bordered for the reason the convert panel is: it appears between
+     * controls the lifter is already using and is waiting on an answer, so
+     * without the border it reads as another part of the shelf rather than as a
+     * question.
+     */
+    .importing {
+      display: grid;
+      gap: var(--ptk-space-sm);
+      padding: var(--ptk-space-md);
+      border: 1px solid var(--ptk-color-border-strong);
+      border-radius: var(--ptk-radius-md);
+      background-color: var(--ptk-color-surface-raised);
+    }
+
+    .importing p {
+      margin: 0;
+    }
+
+    /*
+     * An auto-fit grid over the element's own width (§5.7), so the two answers
+     * sit side by side where there is room and stack on a phone with no media
+     * query. The min(100%, ...) is what collapses the row instead of overflowing
+     * it.
+     */
+    .importing .answers {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+      gap: var(--ptk-space-xs);
     }
 
     .problems,
@@ -506,6 +648,21 @@ export class PtkMeetDayPlanner extends LitElement {
    */
   @property({ attribute: false }) settings: PreferenceStore = createPreferenceStore(null);
 
+  /**
+   * Where §24's saved meets live, defaulted to a store that keeps nothing.
+   *
+   * The same reasoning as `settings` above, and then the opposite conclusion,
+   * which is the part worth reading. `settings` defaults to a working store over
+   * no backing, because a preference that fails to stick costs a lifter one
+   * re-tap. A saved meet is a document about a person, so this one defaults to
+   * `noMeetStore` -- `persistence: 'none'` -- and §24 is then withdrawn from the
+   * screen entirely rather than offered and refused. A story or a test that hands
+   * in nothing therefore gets **no shelf**, not a shelf under a warning; pass
+   * `sessionMeets()` for that screen. The fail-open version would keep a
+   * bodyweight, an age and three maximums under an origin nobody chose.
+   */
+  @property({ attribute: false }) store: MeetStore = noMeetStore();
+
   /** The published rule profiles, or an empty list while there are none. */
   @property({ attribute: false }) profiles: readonly MeetRuleProfile[] = [];
 
@@ -601,8 +758,12 @@ export class PtkMeetDayPlanner extends LitElement {
    * number, and a bag packed for a Saturday. Saving them would mean a lifter
    * arriving at their second meet to last meet's rack heights presented as
    * theirs and half a checklist already ticked, which is worse than an empty
-   * form because it is wrong rather than blank. Persisting a whole meet is
-   * task #52, where it comes with the consent question it needs.
+   * form because it is wrong rather than blank.
+   *
+   * §24 does write it down, and does not contradict any of that: it is saved
+   * into one *named meet* alongside that meet's plan and board, rather than
+   * carried forward into the next one as a device setting. A lifter who never
+   * names a meet still has it held in memory and written to nothing.
    */
   @state() private prep: MeetPrep = EMPTY_PREP;
 
@@ -659,6 +820,84 @@ export class PtkMeetDayPlanner extends LitElement {
    */
   @state() private typedIn: WeightUnit | null = null;
 
+  /*
+   * ---------------------------------------------------------------------------
+   * §24: the shelf, the open meet, and what has been written down.
+   * ---------------------------------------------------------------------------
+   */
+
+  /** Every saved meet on this device, plus which one is open. */
+  @state() private library: MeetLibrary = EMPTY_LIBRARY;
+
+  /** How many saved meets this build could not read. Handed to the shelf. */
+  @state() private unreadable = 0;
+
+  /** The one sentence the shelf shows about the last thing that was tried. */
+  @state() private shelfMessage = '';
+
+  /**
+   * Whether that sentence is a refusal or a report.
+   *
+   * Defaulted to `error` for the reason the shelf's own property is: a refusal
+   * shown as a quiet note is a lifter who believes their meet was saved.
+   */
+  @state() private shelfTone: NoticeTone = 'error';
+
+  /** §24's naming box, cleared by the press that turns it into a meet. */
+  @state() private meetName = '';
+
+  /**
+   * §24.4's "say before it does it", held between the file being read and the
+   * lifter answering. `null` is every other moment.
+   */
+  @state() private importing: ImportPreview | null = null;
+
+  /**
+   * A meet read from the store before the rule profiles arrived.
+   *
+   * The store answers immediately and `profiles` is a network read, so on a
+   * cold visit the meet to restore is known several hundred milliseconds before
+   * the rule book it was planned under. Restoring the session anyway and the
+   * document later would paint one screen, then a different one, and a lifter
+   * typing into the first loses it. So the meet waits here until
+   * `#restoreIfReady` can do the whole of it at once.
+   */
+  #pending: SavedMeet | null = null;
+
+  /**
+   * Which meet the screen currently belongs to, compared against the library.
+   *
+   * Not read off `library.activeMeetId` at the point of use: several commands
+   * change which meet is open as a side effect of doing something else --
+   * `duplicateMeet` opens the copy, `archiveMeet` closes the meet it archives --
+   * so the screen has to notice the change rather than be told about it. Without
+   * this, duplicating meet A while meet B is open leaves B's attempts on screen
+   * and the next auto-save writes them over the copy of A.
+   */
+  #openMeetId: string | null = null;
+
+  /**
+   * The five fields as they were when the last save was started.
+   *
+   * Recorded *before* the write is awaited, deliberately. The state update that
+   * carries the save's own result re-enters `updated`, and a snapshot taken
+   * after the await would not be in place yet -- so the re-entry would find a
+   * change, save again, and the two would take turns for as long as the screen
+   * is open.
+   */
+  #lastSaved: StateSnapshot | null = null;
+
+  /**
+   * The writes, in the order they were started.
+   *
+   * A store write is asynchronous and the screen does not wait for it, so two
+   * changes a keystroke apart are two overlapping writes -- and the store reads
+   * the library, merges and writes it back, so the later one finishing first
+   * loses the earlier one's meet. Chaining is enough because there is only ever
+   * one writer.
+   */
+  #writing: Promise<void> = Promise.resolve();
+
   override connectedCallback(): void {
     super.connectedCallback();
     this.addEventListener(CHOICE_CHANGE_EVENT, this.#onChoice);
@@ -675,6 +914,10 @@ export class PtkMeetDayPlanner extends LitElement {
     this.addEventListener(ROSTER_ADD_EVENT, this.#onRosterAdd);
     this.addEventListener(BOARD_OPEN_EVENT, this.#onBoardOpen);
     this.addEventListener(BOARD_PIN_EVENT, this.#onBoardPin);
+    this.addEventListener(MEET_COMMAND_EVENT, this.#onMeetCommand);
+    this.addEventListener(MEET_EXPORT_EVENT, this.#onMeetExport);
+    this.addEventListener(MEET_IMPORT_EVENT, this.#onMeetImport);
+    this.addEventListener(MEET_DELETE_ALL_EVENT, this.#onDeleteEverything);
     this.#syncClock();
   }
 
@@ -693,6 +936,10 @@ export class PtkMeetDayPlanner extends LitElement {
     this.removeEventListener(ROSTER_ADD_EVENT, this.#onRosterAdd);
     this.removeEventListener(BOARD_OPEN_EVENT, this.#onBoardOpen);
     this.removeEventListener(BOARD_PIN_EVENT, this.#onBoardPin);
+    this.removeEventListener(MEET_COMMAND_EVENT, this.#onMeetCommand);
+    this.removeEventListener(MEET_EXPORT_EVENT, this.#onMeetExport);
+    this.removeEventListener(MEET_IMPORT_EVENT, this.#onMeetImport);
+    this.removeEventListener(MEET_DELETE_ALL_EVENT, this.#onDeleteEverything);
     // Dropped rather than left running. An interval outliving the element is a
     // repaint request against a detached tree four times a second, for as long
     // as the page is open.
@@ -712,12 +959,47 @@ export class PtkMeetDayPlanner extends LitElement {
    * The clock is synced here rather than after the render because the two things
    * that decide whether it should tick -- `live` and `viewingPlan` -- are already
    * their new values by the time this runs.
+   *
+   * §24's shelf is loaded on exactly the same terms and for the same reasons.
+   * `#restoreIfReady` runs *after* the settings branch and not before it: a
+   * resumed meet carries the session it was planned with, and the device
+   * defaults would otherwise be written over it on the same update that
+   * restored it -- a lifter resuming a pound-unit meet on a phone set to
+   * kilograms, with every figure re-read in the wrong unit.
    */
   override willUpdate(changed: Map<PropertyKey, unknown>): void {
     if (changed.has('settings')) {
       this.session = loadSession(this.settings);
     }
+    if (changed.has('store')) {
+      this.#loadLibrary();
+    }
+    this.#restoreIfReady();
     this.#syncClock();
+  }
+
+  /**
+   * §24.1's ten material actions, answered once rather than ten times.
+   *
+   * The alternative is a `#save()` call at each of them: ten call sites today,
+   * one more every time an action is added, and silently one short the first
+   * time somebody forgets -- which is a lifter losing the attempt they just
+   * recorded and nothing on screen saying so. Every one of those ten writes one
+   * of `StateSnapshot`'s five fields, every one is replaced wholesale rather
+   * than mutated, so a five-way identity check here is exact and cannot be
+   * forgotten by a handler nobody has written yet.
+   *
+   * `updated` rather than `willUpdate`, because a save is a consequence of a
+   * change rather than part of deciding what to draw -- and because the state
+   * update carrying the save's own outcome must not run inside the update that
+   * provoked it.
+   */
+  override updated(): void {
+    if (this.#openMeetId === null) return;
+    const snapshot = this.#snapshot();
+    if (this.#lastSaved !== null && sameState(this.#lastSaved, snapshot)) return;
+    this.#lastSaved = snapshot;
+    this.#save(this.#openMeetId);
   }
 
   /** One of four screens: the room, one of its lifters, the plan, or the platform. */
@@ -814,6 +1096,7 @@ export class PtkMeetDayPlanner extends LitElement {
         name=${this.rosterName}
         ?ready=${this.#context() !== null}
       ></ptk-coach-roster>
+      ${this.#renderShelf()}
     `;
     if (run === null || board === null) return screen;
     return html`
@@ -916,6 +1199,7 @@ export class PtkMeetDayPlanner extends LitElement {
       <ptk-plan-extras .session=${this.session}></ptk-plan-extras>
 
       ${this.#renderPlan(view)} ${this.#renderStart(view)} ${this.#renderPrep()}
+      ${this.#renderShelf()}
     `;
     const pack = this.#meetPack(view);
     if (pack === null) return screen;
@@ -1006,9 +1290,10 @@ export class PtkMeetDayPlanner extends LitElement {
    * inside.
    *
    * Only on the solo planning screen. Not on the coach board -- §22.1 is one
-   * lifter's own equipment settings and a per-lifter copy is task #52's problem
-   * -- and not in live mode, where the whole point of folding it away is that
-   * the lifter has something else to look at.
+   * lifter's own equipment settings, and a board runs several people's meets,
+   * so a single copy of it there would be one lifter's rack heights presented
+   * as everybody's -- and not in live mode, where the whole point of folding it
+   * away is that the lifter has something else to look at.
    */
   #renderPrep(): TemplateResult {
     return html`
@@ -1021,6 +1306,112 @@ export class PtkMeetDayPlanner extends LitElement {
           .refusal=${this.customItemRefusal}
         ></ptk-meet-checklist>
       </ptk-disclosure>
+    `;
+  }
+
+  /**
+   * The whole of §24, or none of it.
+   *
+   * One guard in one place rather than three, because the three pieces below are
+   * one feature and a screen offering two of them is worse than a screen
+   * offering none: Import would take a file and add its meets to `this.library`,
+   * where the next `save` discards them silently -- a shelf whose contents
+   * vanish on the next visit.
+   *
+   * `persistence: 'none'` is the embed (§2.5), and there the withdrawal is the
+   * point. Save, Export, Import and Delete everything would each refuse, and
+   * `apps/web/CLAUDE.md` is explicit that a button which cannot do anything is
+   * never on screen. `page` keeps the shelf and says plainly that it goes when
+   * the tab does, because a lifter in a private window still has a meet to run.
+   *
+   * Nothing else guards a write. `#save` is reachable only with a meet open, and
+   * a meet can only be opened from the naming control this returns -- so
+   * withdrawing the shelf withdraws every path into storage as a consequence
+   * rather than as a second check somebody has to remember to keep in step.
+   */
+  #renderShelf(): TemplateResult | typeof nothing {
+    if (this.store.persistence === 'none') return nothing;
+    return html`${this.#renderNaming()} ${this.#renderImporting()} ${this.#renderLibrary()}`;
+  }
+
+  /**
+   * §24.1's naming block, shown only while nothing is being saved into.
+   *
+   * The screen is usable before it is named and stays usable if it is never
+   * named -- naming is what starts *keeping* it, not what starts it. So this is
+   * an invitation rather than a gate, and it withdraws the moment there is a
+   * meet open, replaced by one line saying where the changes are going.
+   *
+   * Below §22 and above the shelf, which is where it belongs on both screens for
+   * the reason §22 sits where it does: the plan is the urgent thing and the
+   * filing is not. It is on the coach screen too, because a coach's board is
+   * exactly the document worth not losing.
+   */
+  #renderNaming(): TemplateResult {
+    const open = activeMeet(this.library);
+    if (open !== null) {
+      return html`<p class="naming muted">${openMeetSentence(open.name)}</p>`;
+    }
+    return html`
+      <section class="naming">
+        <h2>${MEET_NAMING_HEADING}</h2>
+        <ptk-text-field
+          data-field=${MEET_NAME_FIELD}
+          label=${MEET_NAME_LABEL}
+          hint=${MEET_NAME_HINT}
+          .value=${this.meetName}
+        ></ptk-text-field>
+        <ptk-button @click=${this.#onCreateMeet}>${MEET_CREATE_LABEL}</ptk-button>
+      </section>
+    `;
+  }
+
+  /**
+   * §24.4's preview, between the two presses of an import.
+   *
+   * Above the shelf rather than inside it: the sentence describes what the shelf
+   * is about to become, and a panel rendered among the meets it is going to add
+   * to reads as one of them.
+   */
+  #renderImporting(): TemplateResult {
+    const preview = this.importing;
+    if (preview === null) return html``;
+    return html`
+      <section class="importing">
+        <ptk-notice tone="info" role="status"><p>${importPreviewSentence(preview)}</p></ptk-notice>
+        <div class="answers">
+          <ptk-button @click=${this.#onConfirmImport}>${MEET_IMPORT_CONFIRM_LABEL}</ptk-button>
+          <ptk-button variant="secondary" @click=${this.#onCancelImport}
+            >${MEET_IMPORT_CANCEL_LABEL}</ptk-button
+          >
+        </div>
+      </section>
+    `;
+  }
+
+  /**
+   * §24.2's shelf.
+   *
+   * `durable` comes off the store rather than off the last write's outcome,
+   * because the question the warning answers is what this browser *does* with a
+   * write and not whether the last one worked. A shelf that only learned it was
+   * not durable after a save would show the reassuring sentence until the first
+   * keystroke.
+   *
+   * The element keeps a boolean where the store has three answers, and that is
+   * not a lossy narrowing: `none` never reaches here, because `#renderShelf`
+   * renders nothing at all for it. The two values left are the two sentences
+   * §24.3 has.
+   */
+  #renderLibrary(): TemplateResult {
+    return html`
+      <ptk-meet-library
+        .library=${this.library}
+        unreadable=${this.unreadable}
+        ?durable=${this.store.persistence === 'device'}
+        message=${this.shelfMessage}
+        messageTone=${this.shelfTone}
+      ></ptk-meet-library>
     `;
   }
 
@@ -1677,6 +2068,14 @@ export class PtkMeetDayPlanner extends LitElement {
       case ROSTER_NAME_FIELD:
         this.rosterName = value;
         return;
+      case MEET_NAME_FIELD:
+        this.meetName = value;
+        // The shelf's sentence is cleared for the reason the custom-item refusal
+        // is: it is about the name that was in the box, so leaving "Give the
+        // meet a name" up while somebody types one says the tool has not
+        // noticed.
+        this.shelfMessage = '';
+        return;
       case ROSTER_IDENTIFIER_FIELD:
         // Untrimmed, deliberately: it is a lot number as the coach typed it, and
         // `rosterSummary` trims only to decide whether there is one.
@@ -2083,7 +2482,8 @@ export class PtkMeetDayPlanner extends LitElement {
    * enough: an id that does not name somebody in the document writes nothing.
    * Without it a stale `data-lifter` would grow an entry for a lifter who is not
    * in the meet, and `buildBoardView` matches entries to lifters by id -- so it
-   * would sit in the list, invisible, until §24 exported it.
+   * would sit in the list, invisible, and §24 would save it and carry it to the
+   * next device the file is opened on.
    */
   #patchEntry(lifterId: string | null, patch: Partial<Omit<CoachBoardEntry, 'lifterId'>>): void {
     const run = this.coach;
@@ -2095,6 +2495,494 @@ export class PtkMeetDayPlanner extends LitElement {
       : [...run.entries, { lifterId, ...patch }];
     this.coach = { ...run, entries };
   }
+
+  /*
+   * ---------------------------------------------------------------------------
+   * §24: saving, the shelf, and moving a meet between devices.
+   * ---------------------------------------------------------------------------
+   */
+
+  /**
+   * The five fields as one object, for `updated`'s identity check.
+   *
+   * Deliberately the live objects rather than a copy of anything inside them.
+   * Every one of §24.1's ten actions replaces the field it writes -- `this.prep
+   * = withPrepNotes(...)`, `this.coach = { ...run, entries }` -- so a reference
+   * comparison is exact here in a way it would not be in a codebase that
+   * mutated. It is also the only comparison cheap enough: this runs on every
+   * paint, and the coach board paints four times a second for the whole of a
+   * meet, so a structural comparison would walk a document holding eight
+   * lifters' attempts twelve hundred times a minute.
+   */
+  #snapshot(): StateSnapshot {
+    return {
+      mode: this.mode,
+      session: this.session,
+      prep: this.prep,
+      live: this.live,
+      coach: this.coach,
+    };
+  }
+
+  /**
+   * The same five fields flattened into what the store can hold.
+   *
+   * `document` comes from whichever run is up, and `null` when neither is: a
+   * meet named on the planning screen and never started is a real saved meet --
+   * §22's prep and §7's session are most of what a lifter fills in the night
+   * before -- and refusing to save it until a lifter presses Start would lose
+   * exactly the work §24 exists to keep.
+   *
+   * The entries are rebuilt field by field rather than spread, which looks like
+   * ceremony and is the one thing here that must not be simplified. A spread
+   * carries `warmup` through, `JSON.stringify` in the store writes it, and a
+   * meet reopened tomorrow announces a warm-up that was due nineteen hours ago.
+   * `SavedCoachEntry` is `Omit<CoachBoardEntry, 'warmup'>`, so a spread would
+   * also type-check -- an excess property is only refused on an object literal
+   * assigned directly, and this one is inside a `map`.
+   */
+  #savedState(): SavedMeetState {
+    const run = this.coach;
+    return {
+      mode: this.mode,
+      session: this.session,
+      prep: toSavedPrep(this.prep),
+      document: this.live?.timeline.present ?? run?.timeline.present ?? null,
+      lifterId: this.live?.lifterId ?? null,
+      entries: (run?.entries ?? []).map(savedEntry),
+      openLifterId: run?.openLifterId ?? null,
+    };
+  }
+
+  /**
+   * Write the open meet's state into the library, then the library to the store.
+   *
+   * The library half is synchronous and the store half is not, deliberately:
+   * `this.library` is what the shelf renders and what the next save merges into,
+   * so leaving it behind an await would let two saves a keystroke apart both
+   * read the pre-save library and the second one lose the first.
+   *
+   * A refusal here is reported and the write is abandoned. The only reachable
+   * one is `unknown-meet` -- a meet deleted from the shelf while it is open --
+   * and re-creating it silently would resurrect something the lifter has just
+   * confirmed they wanted gone.
+   */
+  #save(id: string): void {
+    const change = saveMeetState(this.library, id, this.#savedState(), this.clock.now());
+    if (!change.ok) {
+      this.#say(libraryRefusalSentence(change.reason), 'error');
+      return;
+    }
+    this.library = change.library;
+    this.#writeLibrary(change.library);
+  }
+
+  /**
+   * The store write, chained so that two of them cannot overtake each other.
+   *
+   * `MeetStore.save` reads the library, merges and writes it back, so an earlier
+   * write finishing after a later one puts the earlier library on the disk --
+   * and the loss is invisible until the next visit. Chaining is enough because
+   * this element is the only writer; a lock would be the same guarantee with a
+   * way to deadlock.
+   *
+   * The `catch` re-enters the same reporting path rather than propagating, which
+   * is what keeps the chain from staying rejected: a rejected promise at the end
+   * of `#writing` makes every later save a no-op, silently, for as long as the
+   * screen is open.
+   */
+  #writeLibrary(library: MeetLibrary): void {
+    this.#writing = this.#writing.then(async () => {
+      try {
+        this.#reportSave(await this.store.save(library));
+      } catch {
+        this.#reportSave('failed');
+      }
+    });
+  }
+
+  /**
+   * What the shelf is told about a write, which for a successful one is nothing.
+   *
+   * `meetSavedSentence` answers `null` for `'saved'` -- a tool that says "saved"
+   * after every keystroke is a tool nobody reads -- so the success path is
+   * silent by construction rather than by a branch here.
+   *
+   * The `no-storage` suppression is the case worth spelling out. In a private
+   * window the store keeps nothing and reports it on every write; the shelf
+   * already carries `STORAGE_WARNING_NOT_DURABLE` permanently for exactly that
+   * configuration. Saying it twice, once permanently and once per keystroke,
+   * reads as something having just gone wrong rather than as the standing state
+   * of the browser. The test is `!== 'device'` rather than `=== 'page'` so a
+   * store added later that keeps nothing inherits the quiet: an unexpected
+   * refusal on a shelf that promised durability is the one worth a sentence, and
+   * that is the only case left.
+   */
+  #reportSave(outcome: SaveOutcome): void {
+    if (outcome === 'no-storage' && this.store.persistence !== 'device') return;
+    const sentence = meetSavedSentence(outcome);
+    if (sentence === null) return;
+    this.#say(sentence, 'error');
+  }
+
+  #say(message: string, tone: NoticeTone): void {
+    this.shelfMessage = message;
+    this.shelfTone = tone;
+  }
+
+  /**
+   * Read the shelf, once per store.
+   *
+   * The result is checked against the store it came from before it is used. A
+   * story that swaps `store` mid-flight -- or a route that hands in a real one
+   * after painting with `noMeetStore` -- otherwise has the first read land after
+   * the second and overwrite it with the library of a store nobody is using,
+   * which is a shelf that keeps reappearing empty.
+   */
+  #loadLibrary(): void {
+    const store = this.store;
+    void store.load().then((stored) => {
+      if (this.store !== store) return;
+      this.unreadable = stored.unreadable;
+      this.#adopt(stored.library);
+    });
+  }
+
+  /**
+   * Take a new library, and follow it if it moved the open meet.
+   *
+   * Every library command funnels through here rather than assigning
+   * `this.library` directly, because several of them change which meet is open
+   * as a side effect of doing something else: `duplicateMeet` opens the copy and
+   * `archiveMeet` closes the meet it archives. The screen has to *notice* that
+   * rather than be told, or duplicating meet A while meet B is open leaves B's
+   * attempts on screen and the next auto-save writes them over the copy of A.
+   *
+   * Closing deliberately leaves the screen exactly as it is. Blanking it would
+   * be the tool throwing away work in response to a press about a different
+   * meet; what happens instead is that the naming block comes back, auto-save
+   * stops, and naming a new meet carries the state on screen into it.
+   */
+  #adopt(library: MeetLibrary): void {
+    this.library = library;
+    const meet = activeMeet(library);
+    const id = meet?.id ?? null;
+    if (id === this.#openMeetId) return;
+    this.#openMeetId = id;
+    if (meet === null) {
+      this.#lastSaved = null;
+      return;
+    }
+    this.#pending = meet;
+    this.#restoreIfReady();
+  }
+
+  /**
+   * Restore the waiting meet once the rule profiles have arrived.
+   *
+   * The store answers off the device and `profiles` is a network read, so on a
+   * cold visit the meet to restore is known several hundred milliseconds before
+   * the rule book it was planned under. Restoring the session immediately and
+   * the document later would paint one screen and then a different one, and a
+   * lifter typing into the first loses it -- so the meet waits in `#pending`
+   * until the whole restore can happen on one update.
+   *
+   * `failed` counts as ready. A rule book that could not be read is not going to
+   * arrive later, and the alternative is a saved meet the lifter can see on the
+   * shelf and can never open.
+   */
+  #restoreIfReady(): void {
+    const meet = this.#pending;
+    if (meet === null || this.status === 'loading') return;
+    this.#pending = null;
+    this.#restore(meet);
+  }
+
+  /**
+   * Put a saved meet on screen, run and all.
+   *
+   * The run is rebuilt rather than stored, which is the same argument
+   * `liveChoicesFor` and `buildLiveView` make (§13.1, §13.5): `rules` comes from
+   * the rule book published *now*, `planning` and `targets` are recomputed from
+   * the restored session, and the document is the only thing that was actually
+   * written down. A stored `LiveRun` would carry a rule book the lifter can no
+   * longer see the source of.
+   *
+   * `startTimeline` rather than the saved history, because the history is not
+   * saved: undo takes back the actions of *this* sitting, and a lifter who
+   * reopens a meet in the morning pressing undo ten times would walk back
+   * yesterday's attempts one at a time. §13.10 made the same call when live mode
+   * seeds a plan.
+   *
+   * `#lastSaved` is set at the end so the restore itself does not immediately
+   * look like a change and write the meet straight back out.
+   */
+  #restore(meet: SavedMeet): void {
+    const state = meet.state;
+    this.mode = state.mode;
+    this.session = state.session;
+    this.prep = fromSavedPrep(state.prep);
+    this.live = null;
+    this.coach = null;
+    this.viewingPlan = false;
+    this.meetName = '';
+    this.importing = null;
+    this.#clearFeedback();
+
+    const context = this.#context();
+    const document = state.document;
+    if (context !== null && document !== null) {
+      const timeline = startTimeline(document);
+      if (state.mode === 'coach') {
+        this.coach = {
+          rules: context.rules,
+          timeline,
+          entries: [...state.entries],
+          openLifterId: state.openLifterId,
+        };
+      } else if (state.lifterId !== null) {
+        const view = this.#view();
+        this.live = {
+          rules: context.rules,
+          timeline,
+          lifterId: state.lifterId,
+          planning: view === null ? NO_PLANNING_AT_ALL : livePlanningFrom(view),
+          targets: liveTargetsFrom(this.session),
+        };
+      }
+    }
+
+    this.#say(this.#restoreReport(meet) ?? '', 'info');
+    this.#lastSaved = this.#snapshot();
+  }
+
+  /**
+   * Which of §24's three drift reports applies, or `null` for none.
+   *
+   * Ordered by how much of the plan is unchecked: a profile that is gone means
+   * nothing on screen can be checked against a federation at all, a revision
+   * that moved means the increment and the deadline may have, and a methodology
+   * that moved means only that anything worked out from here uses a newer
+   * method. One sentence, because three at once is a screen a lifter closes.
+   *
+   * A meet whose recorded federation is not the one the restored session names
+   * reports nothing. That is a lifter who changed federation after naming the
+   * meet: the plan on screen has already been redrawn under the new rule book,
+   * so `rulebookRevision` describes a rule book nothing is being checked against
+   * and comparing it would raise a warning about a change the lifter made
+   * themselves. An unnamed profile -- a meet named before any federation was
+   * chosen -- falls out of the same check.
+   */
+  #restoreReport(meet: SavedMeet): string | null {
+    if (meet.rulesProfileId !== this.session.setup.federationId) return null;
+    const profile = this.profiles.find((candidate) => candidate.id === meet.rulesProfileId) ?? null;
+    if (profile === null) return RESTORE_PROFILE_MISSING;
+    if (profile.source.revision !== meet.rulebookRevision) return RESTORE_RULEBOOK_MOVED;
+    if (meet.methodologyVersion !== SAVED_MEET_METHODOLOGY_VERSION)
+      return RESTORE_METHODOLOGY_MOVED;
+    return null;
+  }
+
+  /**
+   * §24's naming press: the screen becomes a meet, without moving.
+   *
+   * Deliberately not routed through `#adopt`. A create opens the meet it just
+   * made, and `#adopt` restores whatever it opens -- which here would rebuild
+   * `live` and `coach` from the state that was saved a microsecond ago, throwing
+   * away the undo history and, on the coach path, the open lifter's screen. The
+   * saved state *is* the screen, so there is nothing to restore.
+   *
+   * Not guarded on a blank name either, for the reason `#onStart` and
+   * `#onRosterAdd` are not: a press landing on the `ptk-button` host's own
+   * padding runs the listener whatever the inner control's state, and
+   * `readMeetName` refuses an empty name with a sentence this screen can say.
+   */
+  readonly #onCreateMeet = (): void => {
+    const reading = readMeetName(this.meetName);
+    if (!reading.ok) {
+      this.#say(libraryRefusalSentence(reading.reason), 'error');
+      return;
+    }
+    const profile = this.#profile();
+    const change = createMeet(this.library, {
+      name: reading.name,
+      now: this.clock.now(),
+      // Empty when no federation has been chosen, which is a real state: §22's
+      // prep fold is answerable from the first paint and is most of what gets
+      // filled in the night before. `#restoreReport` treats it as nothing to
+      // check rather than as a rule book that disappeared.
+      rulesProfileId: profile?.id ?? '',
+      rulebookRevision: profile?.source.revision ?? '',
+      state: this.#savedState(),
+    });
+    if (!change.ok) {
+      this.#say(libraryRefusalSentence(change.reason), 'error');
+      return;
+    }
+    this.library = change.library;
+    this.#openMeetId = change.library.activeMeetId;
+    this.#lastSaved = this.#snapshot();
+    this.meetName = '';
+    this.#say('', 'info');
+    this.#writeLibrary(change.library);
+  };
+
+  /**
+   * §24.2's five per-meet presses, applied and then followed.
+   *
+   * The command is turned into a `LibraryChange` by a pure function in
+   * `saved-meet.ts` and this handler does nothing but report the refusal and
+   * hand the result to `#adopt`. `duplicateMeet` and `archiveMeet` are the two
+   * that move the open meet as a side effect, which is `#adopt`'s whole job.
+   *
+   * `?? ''` on the name is not defensive padding: the detail's `name` is
+   * optional because three of the five commands have no name, so a forged event
+   * missing one reaches `readMeetName('')` and is refused with "Give the meet a
+   * name" rather than silently renaming a meet to nothing.
+   */
+  readonly #onMeetCommand = (event: CustomEvent<MeetCommandDetail>): void => {
+    const change = this.#applyCommand(event.detail);
+    if (!change.ok) {
+      this.#say(libraryRefusalSentence(change.reason), 'error');
+      return;
+    }
+    this.#say('', 'info');
+    this.#adopt(change.library);
+    this.#writeLibrary(change.library);
+  };
+
+  #applyCommand(detail: MeetCommandDetail): LibraryChange {
+    const now = this.clock.now();
+    switch (detail.kind) {
+      case 'resume':
+        return openMeet(this.library, detail.meetId);
+      case 'rename':
+        return renameMeet(this.library, detail.meetId, detail.name ?? '');
+      case 'duplicate':
+        return duplicateMeet(this.library, detail.meetId, detail.name ?? '', now);
+      case 'archive':
+        return archiveMeet(this.library, detail.meetId, detail.archived ?? false);
+      case 'delete':
+        return deleteMeet(this.library, detail.meetId);
+    }
+  }
+
+  /**
+   * §24.4's export: every saved meet, as one file.
+   *
+   * The whole shelf rather than the open meet, because the thing this is for is
+   * moving to another device or keeping a copy off a browser that clears its
+   * storage -- and a lifter who has to export five meets one at a time exports
+   * none of them.
+   *
+   * The anchor is never attached to the document. A detached one still opens the
+   * download, and attaching it would put a control in the light DOM of a page
+   * that renders everything else inside a shadow root.
+   */
+  readonly #onMeetExport = (): void => {
+    const now = this.clock.now();
+    const url = URL.createObjectURL(
+      new Blob([writeMeetFile(this.library.meets, now)], { type: 'application/json' }),
+    );
+    const link = window.document.createElement('a');
+    link.href = url;
+    link.download = meetExportFilename(isoDateOf(now));
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  /**
+   * §24.4's import, which is two presses because it says what it will do first.
+   *
+   * The file is read and parsed here and *nothing* is written; what comes back
+   * is an `ImportPreview`, held in `@state` and rendered as a panel above the
+   * shelf. That panel is drawn by this element rather than by
+   * `ptk-meet-library`, deliberately: the shelf reports what it is given and
+   * knows nothing about a file, and giving it a confirmation flow would put half
+   * an import in each of two files.
+   *
+   * A file holding no meets is reported on the shelf and opens no panel. A
+   * confirm button over an empty preview asks the lifter to agree to nothing.
+   */
+  readonly #onMeetImport = (event: CustomEvent<MeetImportDetail>): void => {
+    void this.#readImport(event.detail.file);
+  };
+
+  async #readImport(file: File): Promise<void> {
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      this.#say(meetFileRefusalSentence('unreadable'), 'error');
+      return;
+    }
+    const reading = readMeetFile(text);
+    if (!reading.ok) {
+      this.#say(meetFileRefusalSentence(reading.reason, reading.foundVersion), 'error');
+      return;
+    }
+    const preview = previewImport(this.library, reading.file.meets);
+    if (preview.entries.length === 0) {
+      this.#say(importPreviewSentence(preview), 'error');
+      return;
+    }
+    this.#say('', 'info');
+    this.importing = preview;
+  }
+
+  /**
+   * The second press: the meets are added, and none of them is opened.
+   *
+   * `importMeets` sets no `activeMeetId`, so the meet on screen stays the meet
+   * on screen and `#adopt` is not called -- which is the right behaviour and
+   * worth stating, because the obvious alternative is to open what just arrived.
+   * A lifter importing a backup on the morning of a meet would then have the
+   * screen they are standing at the expeditor's table with replaced by a file.
+   */
+  readonly #onConfirmImport = (): void => {
+    const preview = this.importing;
+    if (preview === null) return;
+    this.importing = null;
+    const outcome = importMeets(this.library, preview);
+    this.library = outcome.library;
+    this.#say(importOutcomeSentence(outcome), outcome.added === 0 ? 'error' : 'info');
+    this.#writeLibrary(outcome.library);
+  };
+
+  readonly #onCancelImport = (): void => {
+    this.importing = null;
+    this.#say('', 'info');
+  };
+
+  /**
+   * §24.2's delete-everything, which the shelf has already asked twice about.
+   *
+   * The screen is left alone for the reason closing a meet leaves it alone: the
+   * press was about what is on the disk, and blanking the plan somebody is
+   * looking at is a second destruction nobody asked for. What it does do is stop
+   * saving -- there is no meet to save into -- so the naming block comes back
+   * and says so.
+   *
+   * Nothing is said afterwards. The shelf visibly empties and prints its own
+   * "nothing saved here" line, which is the report; a sentence beside an empty
+   * shelf saying everything was deleted is the same fact twice.
+   */
+  readonly #onDeleteEverything = (): void => {
+    this.#openMeetId = null;
+    this.#lastSaved = null;
+    this.#pending = null;
+    this.library = EMPTY_LIBRARY;
+    this.unreadable = 0;
+    this.importing = null;
+    this.#say('', 'info');
+    this.#writing = this.#writing.then(async () => {
+      try {
+        await this.store.clear();
+      } catch {
+        this.#reportSave('failed');
+      }
+    });
+  };
 
   /*
    * ---------------------------------------------------------------------------
@@ -2195,6 +3083,67 @@ function attributeOf(event: Event, name: string): string | null {
     if (value !== undefined) return value;
   }
   return null;
+}
+
+/**
+ * Whether two snapshots are the same five objects.
+ *
+ * Reference equality per field, which is exact here because every action in
+ * this file replaces the field it writes rather than mutating it. The argument
+ * for not comparing structurally is in `#snapshot`; the argument for comparing
+ * at all is that `updated` runs on every paint and the coach board paints four
+ * times a second, so an unconditional save would write the same document to the
+ * disk twelve hundred times a minute for the whole of a meet.
+ */
+function sameState(left: StateSnapshot, right: StateSnapshot): boolean {
+  return (
+    left.mode === right.mode &&
+    left.session === right.session &&
+    left.prep === right.prep &&
+    left.live === right.live &&
+    left.coach === right.coach
+  );
+}
+
+/**
+ * A board entry with the stopwatch taken off it.
+ *
+ * Field by field rather than a rest-spread, because `warmup` is the one field
+ * that must not be written down and `exactOptionalPropertyTypes` makes the
+ * omission visible only if each optional field is spelled. A `const { warmup:
+ * _drop, ...rest } = entry` would do the same job in one line and would also
+ * carry any field added to `CoachBoardEntry` later straight into the saved
+ * document, silently -- which for the next timing field is the same bug again.
+ */
+function savedEntry(entry: CoachBoardEntry): SavedCoachEntry {
+  const saved: { -readonly [K in keyof SavedCoachEntry]: SavedCoachEntry[K] } = {
+    lifterId: entry.lifterId,
+  };
+  if (entry.identifier !== undefined) saved.identifier = entry.identifier;
+  if (entry.colour !== undefined) saved.colour = entry.colour;
+  if (entry.platformCall !== undefined) saved.platformCall = entry.platformCall;
+  if (entry.handlers !== undefined) saved.handlers = entry.handlers;
+  if (entry.rackId !== undefined) saved.rackId = entry.rackId;
+  if (entry.pinned !== undefined) saved.pinned = entry.pinned;
+  return saved;
+}
+
+/**
+ * The local calendar date, for the exported filename.
+ *
+ * `toISOString` is the one-line version and is wrong west of Greenwich for the
+ * last hours of the evening: it would date a file exported at ten at night with
+ * tomorrow, so a lifter exporting the night before a meet gets a file named for
+ * the meet day and another one named the same the following morning. §5.5's
+ * "never use `Date` for a calendar date" is the same hazard read the other way,
+ * and there is no `PlainDate` here because this is not a domain figure -- it is
+ * the local day, taken from the local fields.
+ */
+function isoDateOf(now: number): string {
+  const when = new Date(now);
+  const month = String(when.getMonth() + 1).padStart(2, '0');
+  const day = String(when.getDate()).padStart(2, '0');
+  return `${String(when.getFullYear())}-${month}-${day}`;
 }
 
 declare global {

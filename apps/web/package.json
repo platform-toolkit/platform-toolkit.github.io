@@ -17,7 +17,8 @@
     "@platform-toolkit/domain": "workspace:*",
     "@platform-toolkit/preferences": "workspace:*",
     "@platform-toolkit/ui": "workspace:*",
-    "lit": "3.3.3"
+    "lit": "3.3.3",
+    "valibot": "1.4.2"
   },
   "devDependencies": {
     "vite": "catalog:"

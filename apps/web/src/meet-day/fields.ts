@@ -282,3 +282,19 @@ export const PREP_NOTES_FIELD = 'prep-notes';
  */
 export const REMOVE_CUSTOM_ITEM_FIELD = 'remove-custom-item';
 export const CUSTOM_ITEM_ID_FIELD = 'item';
+
+/**
+ * §24's name, which is what turns a screen into a saved meet.
+ *
+ * The fourth text field the root listens for, and the third that is deliberately
+ * not one of the others: `LIFTER_NAME_FIELD` starts a solo meet, `ROSTER_NAME_FIELD`
+ * adds a row to a running board, and this one names the *document* the other two
+ * end up inside. All three are a name in a box on the same host, so one constant
+ * covering two of them would file a meet under an athlete or start a meet by
+ * naming it.
+ *
+ * The shelf's own rename box does not use this. It reports through the element's
+ * own `@state` draft and arrives as a `MeetCommandDetail`, because a rename is
+ * about a meet that is not the open one and the root has no field to write it to.
+ */
+export const MEET_NAME_FIELD = 'meet-name';

@@ -498,6 +498,35 @@ const MEET_DAY_PREP_CLICK = ['ptk-disclosure.prep summary'];
 const MEET_DAY_PACK_CLICK = ['section.pack ptk-button button'];
 
 /**
+ * Name a meet and start saving into it, so §24's shelf has a row on it.
+ *
+ * The shelf is on screen from the first paint of either planning screen, but an
+ * empty one is a heading, two buttons and a sentence saying there is nothing
+ * here -- and the row is where the width actually goes: a meet name a lifter
+ * typed, the date it was saved, and five controls under it (Open, Rename,
+ * Duplicate, Archive, Delete). Settling on the element rather than on a row
+ * would measure the empty state at every width and report the shelf as clear.
+ *
+ * The fill and the press are in `fillAfter` and `clickLast` rather than earlier
+ * because both routes reach §24 below the plan, and the plan has to be drawn
+ * before the presses above these run in the order their own comments describe.
+ * Nothing about §24 needs the plan -- naming a meet is deliberately available
+ * before there is anything to save (§24.1) -- so this is a sequencing
+ * convenience, not a dependency, and that is worth saying because the opposite
+ * reading would make a reordering here look safe.
+ *
+ * Unlike Start, the press is on the host and not the native control inside it:
+ * the Create button carries no `disabled`, so there is no state for the inner
+ * selector to catch, and a name-shaped press on a host is what the element's own
+ * tests do.
+ */
+const MEET_DAY_SHELF_FILL = [
+  { selector: 'ptk-text-field[data-field="meet-name"] input', value: 'County Open' },
+];
+
+const MEET_DAY_SHELF_CLICK = ['section.naming ptk-button'];
+
+/**
  * §6.1's other branch, then the rule book the meet is created against.
  *
  * The mode tile is named by the value inside it rather than by `.first()`, which
@@ -783,7 +812,8 @@ const ROUTES = [
     reveal: [],
     fill: MEET_DAY_FILL,
     clickAfter: MEET_DAY_CLICK_AFTER,
-    clickLast: [...MEET_DAY_PREP_CLICK, ...MEET_DAY_PACK_CLICK],
+    fillAfter: MEET_DAY_SHELF_FILL,
+    clickLast: [...MEET_DAY_PREP_CLICK, ...MEET_DAY_PACK_CLICK, ...MEET_DAY_SHELF_CLICK],
     // An attempt card, not a field and not the plan element itself. The element
     // is in the DOM from the first paint carrying one sentence about a
     // federation nobody has chosen; a card exists only once all three
@@ -805,11 +835,19 @@ const ROUTES = [
     // only once the plan behind it does, which is the same gate the first
     // selector names -- and it is the line the sheet is widest on, an attempt
     // number, a weight, the published pounds and a subtotal in 320px.
+    //
+    // Then §24's shelf, named by a saved row for the reason the sheet is named
+    // by an attempt row: the element is on screen from the first paint and an
+    // empty shelf measures nothing worth measuring. A row exists only if the
+    // fill and the press above both landed, which is also what makes this the
+    // one selector here that proves the shelf renders at all -- on a route whose
+    // store is the browser's, which is the only configuration §24 is offered in.
     settle: [
       'ptk-plan-screen li.attempt',
       'ptk-meet-prep ptk-text-area[data-field="deadliftNotes"]',
       'ptk-meet-checklist ptk-toggle-group[data-group="bring"]',
       'ptk-meet-pack li.attempt',
+      'ptk-meet-library li.meet',
     ],
   },
   /*
@@ -867,7 +905,8 @@ const ROUTES = [
     reveal: [],
     fill: MEET_DAY_COACH_FILL,
     clickAfter: MEET_DAY_COACH_CLICK_AFTER,
-    clickLast: [...MEET_DAY_COACH_CLICK_LAST, ...MEET_DAY_PACK_CLICK],
+    fillAfter: MEET_DAY_SHELF_FILL,
+    clickLast: [...MEET_DAY_COACH_CLICK_LAST, ...MEET_DAY_PACK_CLICK, ...MEET_DAY_SHELF_CLICK],
     // A board row and the widest thing inside the fold below it, because the
     // screen paints in two stages and both halves are measured: the row exists
     // only if the press above created a meet document, and the colour tiles
@@ -884,10 +923,17 @@ const ROUTES = [
     // board, and what has to have arrived is a lifter on it. This is the widest
     // thing the tool draws on paper or on screen -- a name, a board identifier,
     // who is handling, and three lift rows of three cells each.
+    //
+    // Then §24's shelf, which is on the coach screen for the reason it is on the
+    // solo one: a coach's board is exactly the document worth not losing. It is
+    // measured on both because the two screens are different widths above it and
+    // a shelf row is the same width on each -- so a column that has run out of
+    // room by the time §24 is reached runs out on one screen and not the other.
     settle: [
       'ptk-coach-board article.row',
       'ptk-coach-roster ptk-choice-group[data-field="roster-colour"]',
       'ptk-handler-pack .lifter',
+      'ptk-meet-library li.meet',
     ],
   },
   {
@@ -1038,6 +1084,35 @@ const MEASURE = `(() => {
     // generate a box, and it inherits, so this catches a hidden ancestor too.
     if (element.getClientRects().length === 0) continue;
     if (style.visibility === 'hidden') continue;
+
+    // Taken out of the interface by its own two attributes, and therefore not a
+    // target anybody can aim a thumb at.
+    //
+    // Both are required, and requiring both is the whole of what makes this
+    // narrow enough to be safe. \`aria-hidden\` alone is a decorative glyph that a
+    // sighted person still taps; \`tabindex="-1"\` alone is a control reached by
+    // pointer but skipped in the tab order, which is a real target and often a
+    // large one. Together they say the element is in neither interface: no
+    // keyboard route, no accessibility tree, and -- since these are only ever
+    // written on something clipped to a pixel -- no visible box to press.
+    //
+    // The case is \`ptk-meet-library\`'s file input, which is the collection's
+    // first visually-hidden *control*. It is clipped rather than
+    // \`display: none\` because Safari will not let a script open a display-none
+    // picker, so it keeps a 1x1 rect, and \`MEASURE\`'s no-rects rule correctly
+    // does not fire. It was then reported twice at every width, as a 1x1 tap
+    // target and as a 13px font -- and both fixes available at the element
+    // (padding it to 44px, or setting its font size) would have satisfied this
+    // check while changing nothing a person could see. So the check is what was
+    // wrong, not the element.
+    //
+    // Stated on the element itself and never walked up the tree. An ancestor
+    // rule reads as the more thorough version and is how a whole panel of real
+    // controls gets skipped in silence: one \`aria-hidden\` left on a wrapper
+    // during a refactor and the check goes on printing "passed".
+    if (element.getAttribute('aria-hidden') === 'true' && element.getAttribute('tabindex') === '-1') {
+      continue;
+    }
 
     // The label a person reading the failure can act on. Four sources in order,
     // because a control inside a shared component usually has no text of its

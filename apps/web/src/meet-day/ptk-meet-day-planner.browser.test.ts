@@ -75,6 +75,7 @@ import {
   FEDERATION_FIELD,
   FORMAT_FIELD,
   LIFTER_NAME_FIELD,
+  MEET_NAME_FIELD,
   MODE_FIELD,
   OTHER_WEIGHT_FIELD,
   PREP_NOTES_FIELD,
@@ -84,7 +85,10 @@ import {
   ROSTER_NAME_FIELD,
   UNIT_FIELD,
 } from './fields.js';
+import { aShelf } from './library-fixture.js';
+import { writeMeetFile } from './meet-file.js';
 import { MEET_PROFILE_FIXTURE } from './meet-rules.fixture.js';
+import { type MeetStore, noMeetStore, sessionMeets, storedMeets } from './meet-store.js';
 import { CUSTOM_ITEM_MAX, PREP_NOTES_MAX } from './prep.js';
 import { PROBABILITY_WORDS, PROFILE_FIXTURES, plannerSession } from './planner-fixture.js';
 import { BOARD_OPEN_EVENT, type BoardOpenDetail } from './ptk-coach-board.js';
@@ -97,6 +101,7 @@ import {
   PtkMeetDayPlanner,
 } from './ptk-meet-day-planner.js';
 import './ptk-meet-day-planner.js';
+import { EMPTY_LIBRARY, EMPTY_SAVED_STATE, type MeetLibrary, createMeet } from './saved-meet.js';
 import { MEET_DAY_PREFERENCES, loadSession, saveSession } from './session.js';
 
 const teardown: (() => void)[] = [];
@@ -113,6 +118,7 @@ interface Options {
   readonly status?: ProfilesStatus;
   readonly within?: HTMLElement;
   readonly clock?: ManualClock;
+  readonly store?: MeetStore;
 }
 
 /**
@@ -136,6 +142,11 @@ async function mount(options: Options = {}): Promise<PtkMeetDayPlanner> {
   element.profiles = options.profiles ?? PROFILE_FIXTURES;
   element.status = options.status ?? 'ready';
   element.clock = options.clock ?? manualClock(FIXED_INSTANT);
+  // §24 withdraws itself entirely under `noMeetStore`, so this default is what
+  // puts every other test in this file on the embed's side of that branch --
+  // the shelf is out of the way unless a test asks for it, and no test can
+  // reach the device the suite is running on.
+  element.store = options.store ?? noMeetStore();
   (options.within ?? document.body).append(element);
   teardown.push(() => {
     element.remove();
@@ -571,6 +582,160 @@ async function removeRow(element: PtkMeetDayPlanner, label: string): Promise<voi
   );
   if (button === undefined) throw new Error(`No way to remove "${label}".`);
   await press(element, button);
+}
+
+/** §24.2's shelf, which is absent rather than empty where nothing is kept. */
+function shelf(element: PtkMeetDayPlanner): Element | null {
+  return element.shadowRoot?.querySelector('ptk-meet-library') ?? null;
+}
+
+/** §24.1's invitation, which withdraws the moment a meet is open. */
+function naming(element: PtkMeetDayPlanner): Element | null {
+  return element.shadowRoot?.querySelector('section.naming') ?? null;
+}
+
+/** The line that replaces it, saying where the changes are going. */
+function openLine(element: PtkMeetDayPlanner): string | null {
+  return element.shadowRoot?.querySelector('p.naming')?.textContent.trim() ?? null;
+}
+
+/** What each meet on the shelf is called, in the order they are listed. */
+function shelfNames(element: PtkMeetDayPlanner): string[] {
+  const rows = shelf(element)?.shadowRoot?.querySelectorAll('li.meet h4') ?? [];
+  return [...rows].map((row) => row.textContent.trim());
+}
+
+/**
+ * The one sentence the planner put on the shelf, and not the other two.
+ *
+ * The shelf renders three notices from three different facts -- what this
+ * browser does with a write, how many meets this build cannot open, and whatever
+ * the root last said -- and only the last of those is this file's business.
+ * `role="status"` is what distinguishes it in the markup as well as to a reader.
+ */
+function shelfMessage(element: PtkMeetDayPlanner): string {
+  const notice = shelf(element)?.shadowRoot?.querySelector('ptk-notice[role="status"] p');
+  return notice?.textContent.trim() ?? '';
+}
+
+/** §24.3's warning, which is the first notice on the shelf and always there. */
+function storageSentence(element: PtkMeetDayPlanner): string {
+  return shelf(element)?.shadowRoot?.querySelector('ptk-notice p')?.textContent.trim() ?? '';
+}
+
+/**
+ * Waits for a write, which nothing on screen is waiting for.
+ *
+ * `#writeLibrary` chains onto a private promise so two saves cannot overtake
+ * each other, and no render awaits the result -- so `updateComplete` says
+ * nothing about whether the shelf reached the store. A macrotask is the honest
+ * wait: every link in that chain is a microtask over a store that answers
+ * synchronously, and a test counting microtasks would pass until somebody added
+ * a link and then fail somewhere else entirely.
+ */
+async function afterStorage(element: PtkMeetDayPlanner): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
+  await settled(element);
+}
+
+/** What is actually on the device, rather than what the screen believes. */
+async function stored(store: MeetStore): Promise<MeetLibrary> {
+  return (await store.load()).library;
+}
+
+/** A mounted root that has already read whatever the store was holding. */
+async function mountShelved(options: Options = {}): Promise<PtkMeetDayPlanner> {
+  const element = await mount({ store: sessionMeets(), ...options });
+  await afterStorage(element);
+  return element;
+}
+
+/** Names the meet and presses §24.1's one control, the way a thumb does. */
+async function nameMeet(element: PtkMeetDayPlanner, name: string): Promise<void> {
+  if (name !== '') await type(element, MEET_NAME_FIELD, name);
+  const block = naming(element);
+  if (block === null) throw new Error('There is nothing on screen to name a meet with.');
+  const control = block.querySelector('ptk-button');
+  if (control === null) throw new Error('The naming block has no control.');
+  await press(element, control);
+  await afterStorage(element);
+}
+
+/** §24.4's preview, which stands between a chosen file and the shelf. */
+function importing(element: PtkMeetDayPlanner): Element | null {
+  return element.shadowRoot?.querySelector('section.importing') ?? null;
+}
+
+/**
+ * Hands a file to the shelf's own picker, rather than forging what it reports.
+ *
+ * The input is visually clipped and reached through a button beside it, which
+ * is the one control in this tool a test could skip without noticing: a shelf
+ * whose picker was wired to nothing would pass a forged-event test exactly as
+ * the working one does.
+ */
+async function chooseFile(element: PtkMeetDayPlanner, file: File): Promise<void> {
+  const input = shelf(element)?.shadowRoot?.querySelector('input[type="file"]');
+  if (!(input instanceof HTMLInputElement)) throw new Error('The shelf has no file picker.');
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  input.files = transfer.files;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  await afterStorage(element);
+}
+
+/** Presses the first of the preview's two answers. */
+async function confirmImport(element: PtkMeetDayPlanner): Promise<void> {
+  const panel = importing(element);
+  if (panel === null) throw new Error('There is no import waiting to be confirmed.');
+  const control = panel.querySelector('ptk-button');
+  if (control === null) throw new Error('The preview panel has no answers on it.');
+  await press(element, control);
+  await afterStorage(element);
+}
+
+/** Presses one of the shelf's own footer controls. */
+async function pressShelf(element: PtkMeetDayPlanner, command: string): Promise<void> {
+  const host = shelf(element)?.shadowRoot?.querySelector(`ptk-button[data-command="${command}"]`);
+  if (host === null || host === undefined) throw new Error(`No "${command}" control on the shelf.`);
+  await press(element, host);
+  await afterStorage(element);
+}
+
+/**
+ * A saved meet, built by the transitions rather than written out as a literal.
+ *
+ * The same reason `library-fixture.ts` gives: a literal can hold a shelf whose
+ * counter is behind its own identifiers, or an archived meet that is also the
+ * open one, and a test asserting the screen copes with one proves the screen
+ * copes with something that cannot arrive.
+ */
+function savedShelf(patch: {
+  readonly name: string;
+  readonly rulesProfileId: string;
+  readonly rulebookRevision: string;
+}): MeetLibrary {
+  const change = createMeet(EMPTY_LIBRARY, {
+    name: patch.name,
+    now: FIXED_INSTANT,
+    rulesProfileId: patch.rulesProfileId,
+    rulebookRevision: patch.rulebookRevision,
+    // The federation the saved session names, always -- `#restoreReport` is
+    // silent unless it matches the meet's own, so a fixture that left this at
+    // `EMPTY_SESSION` would report nothing whatever the revision said.
+    state: { ...EMPTY_SAVED_STATE, session: plannerSession() },
+  });
+  if (!change.ok) throw new Error(`The fixture meet was refused: ${change.reason}.`);
+  return change.library;
+}
+
+/** A page-lifetime store already holding a shelf, the way a reload finds one. */
+async function heldShelf(library: MeetLibrary): Promise<MeetStore> {
+  const store = sessionMeets();
+  await store.save(library);
+  return store;
 }
 
 describe('ptk-meet-day-planner', () => {
@@ -1984,5 +2149,246 @@ describe('ptk-meet-day-planner', () => {
 
     expect(planScreen(element)).not.toBeNull();
     expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
+  });
+});
+
+/**
+ * §24, which is the only part of this tool that outlives the tab it ran in.
+ *
+ * Four things here can only be wrong at the root, and none of them can fail in
+ * `meet-store.test.ts` or in `ptk-meet-library`'s own suite:
+ *
+ * 1. **The withdrawal.** One guard decides whether the embed gets §24 at all,
+ *    and every other test in this file runs on the withdrawn side of it by
+ *    construction -- `mount` defaults to `noMeetStore`, so the shelf is absent
+ *    from seventy-odd screens that never mention it.
+ * 2. **The one press that starts saving.** `meetName` is element-local and the
+ *    meet is created inside the handler, so the transition from the invitation
+ *    to the line saying where changes go cannot be seeded. It has to be driven.
+ * 3. **Every later change reaching the store with nobody pressing anything.**
+ *    That is `updated()` calling `#save`, and it is observable only by reading
+ *    the store back -- the screen shows the same thing either way.
+ * 4. **What comes back.** A restore puts a session on screen that nobody
+ *    answered, and reports drift in the rule book underneath it.
+ */
+describe('the meet shelf', () => {
+  it('renders neither the shelf nor a way to start saving where nothing is kept', async () => {
+    // The embed (§2.5). Save, Export, Import and Delete everything would each
+    // refuse, so none of them is on screen -- and the screen behind them is
+    // untouched, which is what the prep fold is doing here.
+    const element = await mount();
+
+    expect(shelf(element)).toBeNull();
+    expect(naming(element)).toBeNull();
+    expect(prepFold(element)).not.toBeNull();
+  });
+
+  it('renders both halves of it where the page will keep a meet', async () => {
+    const element = await mountShelved();
+
+    expect(shelf(element)).not.toBeNull();
+    expect(naming(element)).not.toBeNull();
+  });
+
+  it('says a different thing about a device shelf and a shelf that lasts the tab', async () => {
+    // The whole reason `MeetPersistence` is three values rather than a boolean:
+    // one of the two says the meet is only on this device, the other says it is
+    // gone when the tab closes, and a lifter acts differently on each. Asserted
+    // as a difference first, because both sentences live in `copy.ts` and an
+    // assertion against the constant moves with it (§13.8).
+    const device = await mountShelved({ store: storedMeets(memoryPreferenceStorage()) });
+    const page = await mountShelved({ store: sessionMeets() });
+
+    expect(storageSentence(device)).not.toBe(storageSentence(page));
+    expect(storageSentence(device)).toContain('only in this browser');
+    expect(storageSentence(page)).toContain('Nothing is being saved');
+    expect(shelf(device)?.hasAttribute('durable')).toBe(true);
+    expect(shelf(page)?.hasAttribute('durable')).toBe(false);
+  });
+
+  it('puts the named meet on the shelf and withdraws the invitation', async () => {
+    const element = await mountShelved();
+
+    await nameMeet(element, 'Winter Open');
+
+    // The row first: a create that opened a meet and filed nothing would still
+    // swap the block for the line, and the line is the half a reader trusts.
+    expect(shelfNames(element)).toEqual(['Winter Open']);
+    expect(naming(element)).toBeNull();
+    expect(openLine(element)).toContain('Winter Open');
+  });
+
+  it('refuses a meet with no name, on the control that is deliberately not disabled', async () => {
+    // `#onCreateMeet` does not guard on a blank name, on purpose: `readMeetName`
+    // refuses with a sentence the screen can say, and a disabled Start with no
+    // explanation beside it is the version a lifter cannot get past.
+    const element = await mountShelved();
+
+    await nameMeet(element, '');
+
+    expect(shelfNames(element)).toEqual([]);
+    expect(shelfMessage(element)).toContain('name');
+
+    // The control, on the same screen, still works -- so the refusal above is
+    // the name being refused and not the press going nowhere.
+    await nameMeet(element, 'Spring Classic');
+    expect(shelfNames(element)).toEqual(['Spring Classic']);
+    expect(shelfMessage(element)).toBe('');
+  });
+
+  it('writes every later change into the store with nobody pressing anything', async () => {
+    // §24.1's promise, and the only assertion in this file that has to go
+    // through the store: the screen shows the typed figure whether or not it
+    // was ever filed, because the field holds what was typed into it.
+    const store = sessionMeets();
+    const element = await mountShelved({ store });
+    await choose(element, FEDERATION_FIELD, MEET_PROFILE_FIXTURE.id);
+    await nameMeet(element, 'Summer Nationals');
+
+    const before = await stored(store);
+    expect(before.meets[0]?.state.session.figures.squat.expectedMaximum).toBe('');
+
+    await type(element, EXPECTED_MAXIMUM_FIELD, '182.5', 'squat');
+    await afterStorage(element);
+
+    const after = await stored(store);
+    expect(after.meets[0]?.state.session.figures.squat.expectedMaximum).toBe('182.5');
+  });
+
+  it('brings a saved meet back onto the screen with nobody answering anything', async () => {
+    const store = await heldShelf(
+      savedShelf({
+        name: 'Autumn Qualifier',
+        rulesProfileId: MEET_PROFILE_FIXTURE.id,
+        rulebookRevision: MEET_PROFILE_FIXTURE.source.revision,
+      }),
+    );
+
+    const element = await mountShelved({ store });
+
+    // The plan screen appears when a federation is chosen and not before, so its
+    // presence here is the saved session having been adopted -- there is no tile
+    // press anywhere in this test.
+    expect(planScreen(element)).not.toBeNull();
+    expect(openLine(element)).toContain('Autumn Qualifier');
+    expect(shelfMessage(element)).toBe('');
+
+    // The control: mounted against an empty shelf, the same element asks for a
+    // federation instead.
+    expect(planScreen(await mountShelved())).toBeNull();
+  });
+
+  it('reports a rule book that moved under a saved meet, and only that meet', async () => {
+    const moved = await heldShelf(
+      savedShelf({
+        name: 'Winter Open',
+        rulesProfileId: MEET_PROFILE_FIXTURE.id,
+        rulebookRevision: 'an-earlier-revision',
+      }),
+    );
+    const element = await mountShelved({ store: moved });
+
+    expect(shelfMessage(element)).toContain('earlier revision of that rule book');
+    // The attempts are still there. A report that also emptied the screen would
+    // be the tool deciding the plan is unsafe, which §24 does not do.
+    expect(planScreen(element)).not.toBeNull();
+
+    // A meet planned under a federation the session no longer names says
+    // nothing, however far the revision has moved -- there is nothing to check
+    // it against, and a warning about a rule book nobody is planning under is
+    // one the lifter cannot act on.
+    const elsewhere = await heldShelf(
+      savedShelf({
+        name: 'Winter Open',
+        rulesProfileId: 'a-federation-nobody-chose',
+        rulebookRevision: 'an-earlier-revision',
+      }),
+    );
+    expect(shelfMessage(await mountShelved({ store: elsewhere }))).toBe('');
+  });
+
+  it('empties the shelf, brings the invitation back, and leaves the plan alone', async () => {
+    // The documented decision: Delete everything is about the filing cabinet and
+    // not about the meet on screen. A lifter who clears the shelf mid-plan and
+    // watched their attempts go with it has lost the thing they came for.
+    const store = sessionMeets();
+    const element = await planned({ store });
+    await afterStorage(element);
+    await nameMeet(element, 'Summer Nationals');
+    expect(shelfNames(element)).toEqual(['Summer Nationals']);
+
+    await pressShelf(element, 'arm-all');
+    await pressShelf(element, 'delete-all');
+
+    expect(shelfNames(element)).toEqual([]);
+    expect((await stored(store)).meets).toEqual([]);
+    expect(naming(element)).not.toBeNull();
+    expect(attemptLists(element)).toBe(3);
+  });
+
+  it('adds the meets in a chosen file in two presses, and opens none of them', async () => {
+    const element = await mountShelved();
+    const file = new File([writeMeetFile(aShelf().meets, FIXED_INSTANT)], 'meets.json', {
+      type: 'application/json',
+    });
+
+    await chooseFile(element, file);
+
+    // The preview is a gate rather than a report: nothing has been added yet.
+    expect(importing(element)).not.toBeNull();
+    expect(shelfNames(element)).toEqual([]);
+
+    await confirmImport(element);
+
+    expect(importing(element)).toBeNull();
+    expect(shelfNames(element).sort()).toEqual([
+      'Autumn Qualifier',
+      'Spring Classic',
+      'Summer Nationals',
+      'Winter Open',
+    ]);
+    // Adding a meet is not opening it. An import that opened one would replace
+    // whatever is on screen with somebody else's session, which on a phone
+    // handed over at a meet is the whole of the damage.
+    expect(naming(element)).not.toBeNull();
+    expect(openLine(element)).toBeNull();
+  });
+
+  it('exports the whole shelf, including the meets already finished', async () => {
+    const store = await heldShelf(aShelf());
+    const element = await mountShelved({ store });
+    const blobs: Blob[] = [];
+    // The handler clicks a detached anchor, so the click has to be caught rather
+    // than watched: left alone it asks the browser running this suite for a
+    // download, which is not a thing a test should be starting.
+    const created = vi.spyOn(URL, 'createObjectURL').mockImplementation((source) => {
+      if (source instanceof Blob) blobs.push(source);
+      return 'blob:stub';
+    });
+    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    const clicked = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined);
+    teardown.push(() => {
+      created.mockRestore();
+      revoked.mockRestore();
+      clicked.mockRestore();
+    });
+
+    await pressShelf(element, 'export');
+
+    const anchor: unknown = clicked.mock.contexts[0];
+    if (!(anchor instanceof HTMLAnchorElement)) throw new Error('Nothing was clicked.');
+    expect(anchor.download).toMatch(/^meet-day-\d{4}-\d{2}-\d{2}\.json$/u);
+
+    const written = blobs[0];
+    if (written === undefined) throw new Error('Nothing was written to export.');
+    const text = await written.text();
+    // All four, not the two that are still resumable and not the open one: a
+    // backup that quietly left out the finished meets is discovered when
+    // somebody goes looking for last season's numbers.
+    for (const name of ['Winter Open', 'Spring Classic', 'Summer Nationals', 'Autumn Qualifier']) {
+      expect(text).toContain(name);
+    }
   });
 });
