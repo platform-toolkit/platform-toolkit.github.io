@@ -140,6 +140,21 @@ export const CHOICE_SLOT_FIELD = 'slot';
 export const OTHER_WEIGHT_FIELD = 'other-weight';
 
 /**
+ * §21's board, which is the second attribute *name* in this file.
+ *
+ * Same shape as `CHOICE_SLOT_FIELD` and the same reason, arriving on a screen
+ * with several lifters on it rather than several cards: a row's controls carry
+ * `data-lifter` followed by the lifter id, and the handler reads
+ * `dataset.lifter`. A lifter id is the one key on this screen that survives a
+ * rebuild -- the board repaints off the clock seam four times a second and its
+ * rows are re-sorted by urgency as clocks run down, so a row index would name
+ * whichever lifter had moved into that position between the press starting and
+ * the handler running. The failure is a pin, or a switch to a live screen,
+ * landing on the wrong athlete.
+ */
+export const BOARD_LIFTER_FIELD = 'lifter';
+
+/**
  * §14's guard against the correct weight going in for the wrong athlete.
  *
  * The one field in this tool whose answer is never written to the session and

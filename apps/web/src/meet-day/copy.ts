@@ -34,7 +34,13 @@ import {
   type AttemptStatus,
   type AttemptWeight,
   type BombOutRisk,
+  type CoachBoardActionCode,
+  type CoachBoardRemaining,
+  type CoachBoardUrgency,
+  type CurrentAttempt,
   type DataConfidence,
+  type HandlerAssignment,
+  type HandlerResponsibility,
   type EvidenceAge,
   type JumpEvidence,
   type LiveAttempt,
@@ -48,7 +54,11 @@ import {
   type MeetActionProblemCode,
   type MeetGoal,
   type MissReason,
+  type PlatformCall,
   type PublishedPoundsReason,
+  type RackAdvisory,
+  type RackLoad,
+  type RackSequence,
   type Readiness,
   type RecordedResult,
   type ResearchComparison,
@@ -61,6 +71,7 @@ import {
 import type { MeetFormat, PlatformLift } from '@platform-toolkit/data-contracts';
 import { type Choice } from '@platform-toolkit/ui';
 
+import type { BoardLifterRef, BoardRowConflict } from './board.js';
 import type { LivePosition, NextActionCode, SubmissionUrgency, UrgentNote } from './live.js';
 import type { PlanProblem } from './plan.js';
 import {
@@ -1722,3 +1733,419 @@ export function meetProblemSentence(code: MeetActionProblemCode): string {
       return 'There is nothing left to undo.';
   }
 }
+
+/*
+ * ---------------------------------------------------------------------------
+ * §21, the coach board.
+ *
+ * Everything below is read at a glance, sideways, by somebody who is walking.
+ * Two wording rules follow from that and are worth stating before the switches:
+ *
+ *   - **Every sentence is about one lifter and says what to do.** A board is a
+ *     triage list, and a row reading "final warm-up due" is a status where
+ *     "Take the final warm-up" is an instruction. The urgency labels are the
+ *     one exception, because a section heading is not an instruction.
+ *   - **Colour is never in the words and never on its own** (§21). Nothing here
+ *     says "the red lifter"; the identifier is what names somebody at a
+ *     distance, and `coachBoard` guarantees every row has one.
+ * ---------------------------------------------------------------------------
+ */
+
+export const BOARD_HEADING = 'Coach board';
+
+/** Said in place of the rows, so an empty board is a state rather than a blank. */
+export const BOARD_EMPTY_NOTE = 'No lifters on the board yet.';
+
+/**
+ * The one sentence the board owes a coach who is reading it as a queue.
+ *
+ * The order is worked out from clocks and schedules, and a coach who is not told
+ * that reads it as the order they typed the lifters in and stops trusting it the
+ * first time it changes under them.
+ */
+export const BOARD_ORDER_NOTE = 'Ordered by what needs doing first, not by flight order.';
+
+/**
+ * §21's seven levels, as section headings.
+ *
+ * Total over the union rather than defaulted, the same rule as
+ * {@link meetProblemSentence}: an eighth level added to the ladder is a compile
+ * error here rather than a row filed under a heading somebody invented.
+ */
+export function boardUrgencyLabel(urgency: CoachBoardUrgency): string {
+  switch (urgency) {
+    case 'submission-deadline':
+      return 'Clock running';
+    case 'called-or-on-deck':
+      return 'At the platform';
+    case 'equipment-or-wrapping':
+      return 'Wrapping or equipment';
+    case 'final-warm-up':
+      return 'Final warm-up';
+    case 'other-warm-ups':
+      return 'Warming up';
+    case 'upcoming-flight':
+      return 'Coming up';
+    case 'non-urgent-preparation':
+      return 'Nothing timed';
+  }
+}
+
+/**
+ * The one thing to do about a lifter, in the imperative.
+ *
+ * §21 asks for "the one action needed", and an imperative is the difference
+ * between a board a coach acts on and a board a coach interprets. The last two
+ * are the honest non-instructions and are phrased so they do not read like one.
+ */
+export function boardActionSentence(action: CoachBoardActionCode): string {
+  switch (action) {
+    case 'declare-the-next-attempt':
+      return 'Choose the next weight.';
+    case 'hand-the-weight-to-the-table':
+      return 'Get the weight to the table.';
+    case 'get-to-the-platform':
+      return 'Get to the platform.';
+    case 'start-equipment-or-wrapping':
+      return 'Start wrapping or kit.';
+    case 'take-the-final-warm-up':
+      return 'Take the final warm-up.';
+    case 'start-the-warm-up':
+      return 'Start the warm-up.';
+    case 'wait-for-the-flight':
+      return 'Nothing due yet.';
+    case 'nothing-time-bound':
+      return 'Nothing on the clock.';
+  }
+}
+
+/** Where the lifter stands relative to the bar, as the room announced it. */
+export function platformCallLabel(call: PlatformCall): string {
+  switch (call) {
+    case 'called':
+      return 'Called';
+    case 'on-deck':
+      return 'On deck';
+    case 'in-the-hole':
+      return 'In the hole';
+  }
+}
+
+/** §21.3's list of what a handler has been asked to cover. */
+export function handlerResponsibilityLabel(responsibility: HandlerResponsibility): string {
+  switch (responsibility) {
+    case 'attempt-submission':
+      return 'attempt cards';
+    case 'warm-up-loading':
+      return 'loading';
+    case 'wrapping-or-equipment':
+      return 'wraps and kit';
+    case 'platform-escort':
+      return 'the walk out';
+    case 'food-or-hydration':
+      return 'food and drink';
+    case 'video':
+      return 'video';
+    case 'general':
+      return 'anything';
+  }
+}
+
+/**
+ * One handler and what they are on.
+ *
+ * A handler with no responsibilities named is reported as such rather than left
+ * off: §21.3's point is that a coach can see who is covering a lifter, and a
+ * name with nothing beside it still answers that.
+ */
+export function handlerLine(handler: HandlerAssignment): string {
+  if (handler.responsibilities.length === 0) return handler.name;
+  return `${handler.name}: ${listText(handler.responsibilities.map(handlerResponsibilityLabel))}`;
+}
+
+/**
+ * Seconds until the next thing, or how far past it the lifter already is.
+ *
+ * The negative case is the one this exists for. `coachBoard` reports a moment
+ * that has passed as a negative figure and never clamps it (§13.3), so clamping
+ * it here would tell a coach who is four minutes behind that they are on time --
+ * which is the same failure one layer up, and the layer that shows it.
+ */
+export function boardCountdownText(seconds: number | null): string | null {
+  if (seconds === null) return null;
+  if (seconds < 0) return `${countdownText(-seconds)} late`;
+  return `${countdownText(seconds)} to go`;
+}
+
+/**
+ * What is left to lift, as two counts rather than one.
+ *
+ * §21's "attempts remaining" is ambiguous on a board showing three lifts, and
+ * the two readings send a coach to different lifters -- one attempt left on the
+ * squat is a lifter about to move rooms, one attempt left in the meet is a
+ * lifter about to finish.
+ */
+export function attemptsRemainingText(remaining: CoachBoardRemaining): string {
+  const onLift = remaining.attemptsOnThisLift;
+  const inMeet = remaining.attemptsInTheMeet;
+  if (inMeet === 0) return 'Finished';
+  return `${String(onLift)} left on this lift, ${String(inMeet)} in the meet`;
+}
+
+/**
+ * The attempt the coach is working towards.
+ *
+ * The weight is left out and rendered separately, because §16 makes it two
+ * figures -- kilograms and a published pound reading -- and folding them into a
+ * sentence here would put the tool in the business of writing the number a
+ * handler reads aloud at the table.
+ */
+export function boardAttemptLine(current: CurrentAttempt): string {
+  const lift = liftLabel(current.lift);
+  const attempt = `attempt ${String(current.attemptNumber)}`;
+  if (current.kind === 'competition') return `${lift}, ${attempt}`;
+  return `${lift}, ${attempt} (${extraAttemptKindWord(current.kind)})`;
+}
+
+/** A non-competition attempt named in a word, so a row cannot read as the round. */
+function extraAttemptKindWord(kind: CurrentAttempt['kind']): string {
+  switch (kind) {
+    case 'competition':
+      return 'competition';
+    case 'record':
+      return 'record attempt';
+    case 'extra':
+      return 'extra attempt';
+  }
+}
+
+/**
+ * §21.3's list, which needs a heading because a bare name under a row is a guess.
+ *
+ * A row already carries a lifter's name; a second name below it with nothing
+ * saying what it is reads as a second lifter, on the one screen that exists to
+ * tell several of them apart.
+ */
+export const BOARD_HANDLERS_HEADING = 'Handlers';
+
+/** Said where a row has no attempt to point at, rather than leaving the line out. */
+export const BOARD_NO_ATTEMPT = 'No attempt owed.';
+
+/** Said where an attempt is owed and nobody has put a weight on it yet. */
+export const BOARD_NO_WEIGHT = 'No weight chosen.';
+
+/*
+ * ---------------------------------------------------------------------------
+ * §21.2, the clashes.
+ * ---------------------------------------------------------------------------
+ */
+
+export const BOARD_CONFLICTS_HEADING = 'Clashes';
+
+/** The count, as a heading a coach can act on rather than a badge. */
+export function conflictCountText(count: number): string {
+  if (count === 0) return 'No clashes.';
+  return `${String(count)} clash${count === 1 ? '' : 'es'} between lifters.`;
+}
+
+/**
+ * A lifter, as this board names them at a distance.
+ *
+ * Both halves, always. The identifier alone is a bib number nobody has learned
+ * yet and the name alone is two lifters called Sam, which is exactly the flight
+ * where a clash warning matters.
+ */
+export function boardLifterText(ref: BoardLifterRef): string {
+  return `${ref.name} (${ref.identifier})`;
+}
+
+function boardNameList(refs: readonly BoardLifterRef[]): string {
+  // The domain guarantees a conflict names at least two lifters, so this list is
+  // never empty in practice. It is written to read anyway, because a sentence
+  // with a hole where a name should be is worse than a vague one, and a board is
+  // read at a glance by somebody who will not stop to work out what happened.
+  if (refs.length === 0) return 'another lifter';
+  return listText(refs.map(boardLifterText));
+}
+
+/**
+ * One clash, told from this row's point of view.
+ *
+ * Total over the union, and each sentence names the *other* lifters rather than
+ * the pair, because the same clash is rendered on both rows -- a sentence
+ * listing both reads on Bo's row as a third lifter nobody can find.
+ */
+export function conflictSentence(conflict: BoardRowConflict): string {
+  const others = boardNameList(conflict.others);
+  switch (conflict.code) {
+    case 'submission-deadlines-overlap':
+      return `Declaration clock closes alongside ${others}.`;
+    case 'called-at-the-same-time':
+      return `Due at the platform alongside ${others}.`;
+    case 'handler-in-two-places':
+      return `${conflict.handlerName ?? 'The same handler'} is wanted here and by ${others}.`;
+    case 'wrapping-at-the-same-time':
+      return `Wrapping or kit at the same time as ${others}.`;
+    case 'shared-rack-loading-clash':
+      return `Wants the shared bar at a different weight from ${others}.`;
+    case 'warm-up-during-another-attempt':
+      return `Final warm-up lands during the attempt of ${others}.`;
+    case 'change-moves-the-order':
+      return `Changing this weight moves the order against ${others}.`;
+  }
+}
+
+/**
+ * Which of the two to go to first, and why.
+ *
+ * `either-order` is the reason that must not read as advice -- the domain still
+ * names a lifter there, because a screen has to draw something, and a view that
+ * printed "go to Bo first" off that field would be inventing a recommendation
+ * out of document order.
+ */
+export function conflictOrderText(conflict: BoardRowConflict): string {
+  if (conflict.reason === 'either-order') {
+    return 'Either order. Nothing here separates them.';
+  }
+  const who = conflict.servedFirst
+    ? 'Go here first'
+    : `Go to ${boardNameList(conflict.others)} first`;
+  return `${who}: ${conflictReasonWords(conflict.reason)}.`;
+}
+
+function conflictReasonWords(reason: BoardRowConflict['reason']): string {
+  switch (reason) {
+    case 'sooner-deadline':
+      return 'their clock closes first and the rulebook enforces it';
+    case 'already-called':
+      return 'the platform does not wait';
+    case 'needed-sooner':
+      return 'their moment comes first';
+    case 'fixed-versus-movable':
+      return 'their moment cannot be moved and the other can';
+    case 'either-order':
+      // Unreachable through `conflictOrderText`, which answers the tie above.
+      // Kept because this function is total over the union and a default here
+      // would be the one place a new reason could ship unworded.
+      return 'nothing separates them';
+  }
+}
+
+/** How far apart the two moments are, where there is a gap worth stating. */
+export function separationText(seconds: number | null): string | null {
+  if (seconds === null) return null;
+  if (seconds === 0) return 'At the same moment.';
+  return `${countdownText(seconds)} apart.`;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * §21.4, the shared warm-up bar.
+ * ---------------------------------------------------------------------------
+ */
+
+export const RACK_HEADING = 'Shared bars';
+
+/** Said in place of the panel, because an unshared room is an answer (§21.4). */
+export const RACK_NONE_NOTE = 'No shared warm-up bars are set up.';
+
+export function rackLabel(rackId: string): string {
+  return `Bar ${rackId}`;
+}
+
+/**
+ * One load: the weight, when it has to be on, and what it costs to get there.
+ *
+ * The plate figure is per side and says so, because a coach reading "4 plates"
+ * and carrying four is a coach who has to go back.
+ */
+export function rackLoadLine(load: RackLoad): string {
+  const weight = formatWeight({ amount: load.loading.total, unit: 'kg' });
+  const due = boardCountdownText(load.dueInSeconds) ?? '';
+  if (load.change === null) return `${weight} -- ${due}`;
+  return `${weight} -- ${due}, ${plateMovesText(load.plateMoves)}`;
+}
+
+export function plateMovesText(plateMoves: number): string {
+  if (plateMoves === 0) return 'no plates to move';
+  return `${String(plateMoves)} plate${plateMoves === 1 ? '' : 's'} a side`;
+}
+
+/** Who is on a load, named so a coach can call across the room. */
+export function rackTakersText(refs: readonly BoardLifterRef[]): string {
+  if (refs.length === 0) return 'Nobody named.';
+  return `For ${listText(refs.map(boardLifterText))}.`;
+}
+
+/**
+ * What sharing the bar saved, or that it saved nothing.
+ *
+ * Shown rather than asserted, and the equal case is stated rather than hidden:
+ * a coach who has set up a shared bar and got nothing back from it should be
+ * able to see that, because the answer might be to find a second rack.
+ */
+export function rackSavingText(sequence: RackSequence): string {
+  const saved = sequence.plateMovesUnshared - sequence.plateMoves;
+  if (saved <= 0)
+    return `${plateMovesText(sequence.plateMoves)} across the run. Sharing saves none.`;
+  return `${plateMovesText(sequence.plateMoves)} across the run, ${String(saved)} fewer than one bar each.`;
+}
+
+/**
+ * Where the timing and the plate maths wanted different things.
+ *
+ * Both codes are the same fact from two directions and both name the cost,
+ * because the advisory is a request to go and move plates rather than a warning
+ * that something is wrong -- §21.4 keeps the timing and charges for it.
+ */
+export function rackAdvisorySentence(advisory: RackAdvisory): string {
+  switch (advisory.code) {
+    case 'bar-goes-back-down':
+      return `The bar comes back down here, ${plateMovesText(advisory.plateMoves)}.`;
+    case 'same-weight-twice':
+      return `The same weight is loaded twice, ${plateMovesText(advisory.plateMoves)}.`;
+  }
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * §21.1, pinning and switching.
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * The pin, worded as what pressing it does rather than as a state.
+ *
+ * A pin does not move a row -- `coach-board.ts` says so outright, because a rank
+ * a coach has learned to scan cannot change meaning the moment somebody is
+ * pinned -- so the label must not suggest it does.
+ */
+export function pinLabel(pinned: boolean): string {
+  return pinned ? 'Unpin' : 'Pin';
+}
+
+export function pinDescription(ref: BoardLifterRef, pinned: boolean): string {
+  return `${pinLabel(pinned)} ${boardLifterText(ref)}`;
+}
+
+/** §21.1's one-tap switch to a lifter's own live screen. */
+export const BOARD_OPEN_LABEL = 'Open';
+
+export function openDescription(ref: BoardLifterRef): string {
+  return `Open ${boardLifterText(ref)}`;
+}
+
+/**
+ * The filter's own question, which is not the same string as its one answer.
+ *
+ * A checkbox group takes its accessible name from the legend, so a group
+ * labelled "Pinned only" holding a box labelled "Pinned only" is announced
+ * twice and says nothing about what the second one does.
+ */
+export const BOARD_FILTER_LABEL = 'Which lifters to show';
+
+/** The filter, so a coach running two lifters out of forty can say so. */
+export const PINNED_ONLY_LABEL = 'Pinned only';
+
+/** Said where the filter is on and has hidden everybody. */
+export const NO_PINNED_LIFTERS = 'No lifters are pinned.';
