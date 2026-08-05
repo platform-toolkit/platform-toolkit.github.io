@@ -20,6 +20,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import type { Equipment } from '../warm-up/equipment.js';
 import {
   MEET_FILE_KIND,
   type MeetFileReading,
@@ -32,7 +33,17 @@ import {
   SAVED_MEET_VERSION,
   type SavedMeet,
   type SavedMeetState,
+  toSavedWarmup,
 } from './saved-meet.js';
+import {
+  DEFAULT_WARM_UP_ROOM,
+  EMPTY_PREFERENCES,
+  EMPTY_PROGRESS,
+  EMPTY_WARMUP_STATE,
+  EMPTY_WARMUP_STATES,
+  type MeetWarmupState,
+  SETS_BOUNDS,
+} from './warmup.js';
 
 const NOW = 1_770_000_000_000;
 
@@ -336,6 +347,163 @@ describe("§9.4's history entry", () => {
 
     expect(refusal(readMeetFile(withReason('platform-error')))).toBe('accepted');
     expect(refusal(readMeetFile(withReason('bad-day')))).toBe('damaged');
+  });
+});
+
+describe("§20's warm-up answers", () => {
+  /** A room somebody set up, rather than the default one. */
+  const ROOM: Equipment = {
+    ...DEFAULT_WARM_UP_ROOM,
+    inventory: {
+      kg: [
+        { weight: 25, pairs: null, fullDiameter: true },
+        { weight: 2.5, pairs: 2, fullDiameter: false },
+      ],
+      lb: [],
+    },
+  };
+
+  /** One lift's worth of every kind of answer §20 takes. */
+  const ANSWERED: MeetWarmupState = {
+    room: ROOM,
+    preferences: {
+      ...EMPTY_PREFERENCES,
+      restSeconds: '150',
+      sharedRackLifters: '2',
+      delayPreference: 'repeat-a-light-movement',
+      prep: {
+        ...EMPTY_PREFERENCES.prep,
+        'knee-wraps': { minutes: '6', when: 'after-the-final-warm-up' },
+      },
+    },
+    progress: { ...EMPTY_PROGRESS, place: 'earlier-flight-running', flightSize: '14' },
+    weights: [
+      { index: 0, text: '60' },
+      { index: 3, text: '132.5' },
+    ],
+    reps: [{ index: 0, text: '5' }],
+  };
+
+  const WARMED: SavedMeet = {
+    ...MEET,
+    state: {
+      ...EMPTY_SAVED_STATE,
+      warmup: toSavedWarmup({
+        states: { ...EMPTY_WARMUP_STATES, squat: ANSWERED },
+        lift: 'bench',
+        byLifter: new Map([['lifter-2', { ...EMPTY_WARMUP_STATES, deadlift: ANSWERED }]]),
+      }),
+    },
+  };
+
+  /** A meet as a build that had never heard of §20's fold wrote it. */
+  function beforeThereWasOne(state: SavedMeetState): Record<string, unknown> {
+    const { warmup: _warmup, ...rest } = state;
+    return rest;
+  }
+
+  it('comes back field for field, both paths and all', () => {
+    // The whole object rather than a spot check, for §9.4's reason above and
+    // one of its own: every figure here is typed text, so a field dropped at
+    // the boundary is a blank box rather than an error, and the lifter's answer
+    // is simply not there the next morning. The board half is the part most
+    // likely to go missing, because a `Map` stringifies to `{}` in silence.
+    const reading = readMeetFile(writeMeetFile([WARMED], NOW));
+
+    expect(reading.ok).toBe(true);
+    if (!reading.ok) return;
+    expect(reading.file.meets[0]).toEqual(WARMED);
+  });
+
+  it('reads a meet saved before there was a warm-up to save', () => {
+    // The `history` claim one release later, and it has to be true for the same
+    // meets: a required field would fail every shelf written before §20 shipped
+    // at the parser, which `#restoreReport` counts as unreadable.
+    const older = readMeetFile(envelope({ ...MEET, state: beforeThereWasOne(EMPTY_SAVED_STATE) }));
+
+    expect(refusal(older)).toBe('accepted');
+    expect(older.ok ? older.file.meets[0]?.state.warmup : undefined).toBeNull();
+
+    // The control, because "accepted" would also be what a parser that stopped
+    // reading the state at all produced.
+    const { openLifterId: _openLifterId, ...withoutARequiredKey } = EMPTY_SAVED_STATE;
+    expect(refusal(readMeetFile(envelope({ ...MEET, state: withoutARequiredKey })))).toBe(
+      'damaged',
+    );
+  });
+
+  it('accepts a bar this build has no preset for', () => {
+    // Why `barId` is free text rather than a picklist: the preset catalogue is
+    // whatever this build happens to ship, so a file exported by a build with
+    // one more bar in it would be refused whole -- over a field whose own reader
+    // already falls back to the custom bar. The control is that the field is
+    // still a string.
+    //
+    // The saved shape is spelled out here rather than built by `toSavedWarmup`,
+    // for the reason the refusal below it is: the converter takes a
+    // `WarmupAnswers`, whose `barId` is a `string`, so a test feeding it the
+    // number that makes the control a control does not compile. Vitest strips
+    // types and would have run it anyway -- `typecheck:tests` is what said so.
+    function withBar(barId: unknown): string {
+      return envelope({
+        ...WARMED,
+        state: {
+          ...WARMED.state,
+          warmup: {
+            states: { ...EMPTY_WARMUP_STATES, squat: { ...ANSWERED, room: { ...ROOM, barId } } },
+            lift: 'squat',
+            byLifter: [],
+          },
+        },
+      });
+    }
+
+    expect(refusal(readMeetFile(withBar('deadlift-bar-2029')))).toBe('accepted');
+    expect(refusal(readMeetFile(withBar(20)))).toBe('damaged');
+  });
+
+  it('refuses a plate weight that is not a finite number', () => {
+    // The one place in a saved meet where a number reaches arithmetic with no
+    // parse in front of it. A bar or a plate of `Infinity` is caught nowhere
+    // downstream: `planWarmup` answers a ramp of `Infinity` and no error at all.
+    // JSON carries it as an exponent no `double` can hold, which is why this is
+    // a substitution in the text rather than a value in an object literal --
+    // `JSON.stringify(Infinity)` is `null`, and would test the wrong refusal.
+    const text = envelope(WARMED);
+
+    expect(refusal(readMeetFile(text))).toBe('accepted');
+    expect(refusal(readMeetFile(text.replace('"weight":25', '"weight":1e999')))).toBe('damaged');
+  });
+
+  it('refuses answers outside the shapes the fold can produce', () => {
+    function withState(state: Partial<Record<string, unknown>>): string {
+      return envelope({
+        ...MEET,
+        state: {
+          ...EMPTY_SAVED_STATE,
+          warmup: {
+            states: {
+              ...EMPTY_WARMUP_STATES,
+              squat: { ...EMPTY_WARMUP_STATE, ...state },
+            },
+            lift: 'squat',
+            byLifter: [],
+          },
+        },
+      });
+    }
+
+    // A control first: the same shape with nothing wrong in it.
+    expect(refusal(readMeetFile(withState({})))).toBe('accepted');
+    // A place the picker cannot answer.
+    const elsewhere = withState({ progress: { ...EMPTY_PROGRESS, place: 'warming-up' } });
+    expect(refusal(readMeetFile(elsewhere))).toBe('damaged');
+    // More set answers than `SETS_BOUNDS.max` sets could ever have.
+    const tooMany = Array.from({ length: SETS_BOUNDS.max + 1 }, (_unused, index) => ({
+      index,
+      text: '60',
+    }));
+    expect(refusal(readMeetFile(withState({ weights: tooMany })))).toBe('damaged');
   });
 });
 

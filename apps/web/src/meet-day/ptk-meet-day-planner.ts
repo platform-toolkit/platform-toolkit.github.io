@@ -317,6 +317,7 @@ import { buildHandlerPack, buildMeetPack, type HandlerPack, type MeetPack } from
 import { EMPTY_VIEW, buildPlan, type PlanContext, type PlannerView } from './plan.js';
 import {
   EMPTY_LIBRARY,
+  NO_WARMUP_ANSWERS,
   SAVED_MEET_METHODOLOGY_VERSION,
   activeMeet,
   archiveMeet,
@@ -324,6 +325,7 @@ import {
   deleteMeet,
   duplicateMeet,
   fromSavedPrep,
+  fromSavedWarmup,
   importMeets,
   openMeet,
   previewImport,
@@ -331,6 +333,7 @@ import {
   renameMeet,
   saveMeetState,
   toSavedPrep,
+  toSavedWarmup,
   type ImportPreview,
   type LibraryChange,
   type MeetLibrary,
@@ -338,6 +341,7 @@ import {
   type SavedHistory,
   type SavedMeet,
   type SavedMeetState,
+  type SavedWarmup,
 } from './saved-meet.js';
 import {
   EMPTY_SESSION,
@@ -472,19 +476,26 @@ interface CoachRun extends RunningMeet {
 }
 
 /**
- * The five fields a `SavedMeetState` is assembled from, held for comparison.
+ * The fields a `SavedMeetState` is assembled from, held for comparison.
  *
  * §24.1 lists ten material actions to save after, and the alternative to this is
  * a save call at each of them -- ten call sites, growing by one every time an
- * action is added, and silently one short the first time somebody forgets. All
- * ten write one of these five, every one of them is replaced wholesale rather
- * than mutated, and `@state` already compares them by identity to decide whether
- * to repaint. So a five-way identity check in `updated` is exact, costs nothing,
- * and cannot be forgotten by a handler that has not been written yet.
+ * action is added, and silently one short the first time somebody forgets. Every
+ * one of those actions writes one of the fields below, every one of them is
+ * replaced wholesale rather than mutated, and `@state` already compares them by
+ * identity to decide whether to repaint. So an identity check per field in
+ * `updated` is exact, costs nothing, and cannot be forgotten by a handler that
+ * has not been written yet.
  *
  * Costing nothing matters: the live screen repaints four times a second off the
  * clock seam, so this runs four times a second for the whole of a meet.
  * `meet-store.ts` makes the same argument for the map it compares by reference.
+ *
+ * The three warm-up fields are held separately rather than folded into `live`
+ * and `coach`, because they are answered from the *planning* screen as well --
+ * §20's fold is open the night before, with no run of either kind. Reading them
+ * off a run would mean an evening's worth of answers that auto-save records as
+ * no change at all.
  */
 interface StateSnapshot {
   readonly mode: PlannerMode;
@@ -492,6 +503,9 @@ interface StateSnapshot {
   readonly prep: MeetPrep;
   readonly live: LiveRun | null;
   readonly coach: CoachRun | null;
+  readonly warmups: WarmupStates;
+  readonly warmupLift: PlatformLift;
+  readonly coachWarmups: WarmupsByLifter;
 }
 
 @customElement('ptk-meet-day-planner')
@@ -925,14 +939,12 @@ export class PtkMeetDayPlanner extends LitElement {
    * they came with. Folding the solo state in under a synthetic id would make
    * every read of it a lookup that can miss.
    *
-   * Not saved with the meet. §24's `SavedCoachEntry` omits the schedule for a
-   * reason `saved-meet.ts` argues at length, and the *answers* are a larger
-   * question -- `MeetWarmupState.room` is a whole `Equipment` -- with a schema
-   * surface of its own at `meet-file.ts`'s trust boundary. Backlog #82, as an
-   * additive optional field with no `SAVED_MEET_VERSION` bump, the way
-   * `SavedMeetStateSchema.history` was added. So a coach who reopens tomorrow's
-   * meet retypes the warm-up, which is the honest narrowing rather than a
-   * half-saved one.
+   * Saved with the meet, as `SavedWarmup.byLifter`, and sparse: the map gains a
+   * key only when a coach types something about that athlete, so the file carries
+   * an entry per lifter answered for rather than per lifter on the roster. That
+   * matters here more than on the solo path -- three lifts of `Equipment` is
+   * about five kilobytes, and a full flight of them would be most of what the
+   * store has.
    */
   @state() private coachWarmups: WarmupsByLifter = NO_WARMUPS;
 
@@ -1140,8 +1152,8 @@ export class PtkMeetDayPlanner extends LitElement {
    * one more every time an action is added, and silently one short the first
    * time somebody forgets -- which is a lifter losing the attempt they just
    * recorded and nothing on screen saying so. Every one of those ten writes one
-   * of `StateSnapshot`'s five fields, every one is replaced wholesale rather
-   * than mutated, so a five-way identity check here is exact and cannot be
+   * of `StateSnapshot`'s fields, every one is replaced wholesale rather than
+   * mutated, so a field-by-field identity check here is exact and cannot be
    * forgotten by a handler nobody has written yet.
    *
    * `updated` rather than `willUpdate`, because a save is a consequence of a
@@ -3244,11 +3256,14 @@ export class PtkMeetDayPlanner extends LitElement {
       prep: this.prep,
       live: this.live,
       coach: this.coach,
+      warmups: this.warmups,
+      warmupLift: this.warmupLift,
+      coachWarmups: this.coachWarmups,
     };
   }
 
   /**
-   * The same five fields flattened into what the store can hold.
+   * The same fields flattened into what the store can hold.
    *
    * `document` comes from whichever run is up, and `null` when neither is: a
    * meet named on the planning screen and never started is a real saved meet --
@@ -3275,7 +3290,40 @@ export class PtkMeetDayPlanner extends LitElement {
       entries: (run?.entries ?? []).map(savedEntry),
       openLifterId: run?.openLifterId ?? null,
       history: this.#historyEntry(),
+      warmup: this.#savedWarmup(),
     };
+  }
+
+  /**
+   * §20's answers, or `null` where nobody has opened the fold.
+   *
+   * The guard is three identity comparisons against the class-field defaults, and
+   * it is exact rather than approximate for `#warmupTimelines`' reason: every
+   * writer in `warmup.ts` replaces the state wholesale, so a state that is still
+   * `EMPTY_WARMUP_STATES` is one nothing has been typed into. What it is *not* is
+   * a test for "the answers are all blank" -- a lifter who typed a figure and
+   * deleted it again writes an equal-but-distinct object and saves the whole
+   * thing. That is the right way round: the cheap check catches the common case,
+   * and the expensive one would be a deep walk of two plate inventories on every
+   * keystroke to save a kilobyte.
+   *
+   * `SavedWarmup` argues the size question in full. In short, an always-present
+   * empty answer is five kilobytes on every saved meet whose fold was never
+   * opened, and most saved meets are exactly that.
+   */
+  #savedWarmup(): SavedWarmup | null {
+    if (
+      this.warmups === EMPTY_WARMUP_STATES &&
+      this.warmupLift === NO_WARMUP_ANSWERS.lift &&
+      this.coachWarmups === NO_WARMUPS
+    ) {
+      return null;
+    }
+    return toSavedWarmup({
+      states: this.warmups,
+      lift: this.warmupLift,
+      byLifter: this.coachWarmups,
+    });
   }
 
   /**
@@ -3500,6 +3548,16 @@ export class PtkMeetDayPlanner extends LitElement {
     this.meetName = '';
     this.importing = null;
     this.#clearFeedback();
+
+    // All three together, and assigned unconditionally. `fromSavedWarmup` answers
+    // the empties for a meet with no warm-up in it, which is what makes this a
+    // *restore* rather than a merge: switching from a meet whose squat room is
+    // kilogram plates to one saved before §20 existed must leave the second one
+    // showing the defaults, not the first one's rack.
+    const warmup = fromSavedWarmup(state.warmup);
+    this.warmups = warmup.states;
+    this.warmupLift = warmup.lift;
+    this.coachWarmups = warmup.byLifter;
 
     const context = this.#context();
     const document = state.document;
@@ -3935,7 +3993,10 @@ function sameState(left: StateSnapshot, right: StateSnapshot): boolean {
     left.session === right.session &&
     left.prep === right.prep &&
     left.live === right.live &&
-    left.coach === right.coach
+    left.coach === right.coach &&
+    left.warmups === right.warmups &&
+    left.warmupLift === right.warmupLift &&
+    left.coachWarmups === right.coachWarmups
   );
 }
 

@@ -2,13 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * §24's library, tested for the four things that lose a lifter's meet.
+ * §24's library, tested for the five things that lose a lifter's meet.
  *
  * **The set that JSON eats.** `MeetPrep.done` round-trips through a list, and
  * the test that matters is the one that goes all the way there and back through
  * an actual `JSON.parse(JSON.stringify(...))` -- a test that only calls the two
  * converters would pass with a `Set` still in the middle of the saved shape,
  * which is exactly the bug (`{}`, no error, every tick gone).
+ *
+ * **The map JSON eats the same way, plus a key nobody typed.** §20's board is a
+ * `ReadonlyMap` and stringifies to the same silent `{}`, so it is saved as a list
+ * -- and comes back through `new Map(...)` rather than a record, because a lifter
+ * id arrives from an imported file and `constructor` is a legal one.
  *
  * **Writing to a meet that is over.** Archiving closes the meet, because an
  * archive that stays open is a screen whose auto-saves are all being refused.
@@ -32,6 +37,7 @@ import {
   EMPTY_SAVED_STATE,
   MEET_LIBRARY_MAX,
   MEET_NAME_MAX,
+  NO_WARMUP_ANSWERS,
   SAVED_MEET_METHODOLOGY_VERSION,
   SAVED_MEET_VERSION,
   activeMeet,
@@ -43,6 +49,7 @@ import {
   duplicateMeet,
   findMeet,
   fromSavedPrep,
+  fromSavedWarmup,
   importMeets,
   type MeetLibrary,
   type NewMeet,
@@ -54,7 +61,15 @@ import {
   type SavedMeet,
   saveMeetState,
   toSavedPrep,
+  toSavedWarmup,
 } from './saved-meet.js';
+import {
+  EMPTY_PREFERENCES,
+  EMPTY_WARMUP_STATE,
+  EMPTY_WARMUP_STATES,
+  type MeetWarmupState,
+  type WarmupStates,
+} from './warmup.js';
 
 const NOW = 1_770_000_000_000;
 
@@ -120,6 +135,60 @@ describe('the saved prep shape', () => {
   it('starts a saved state from an empty prep with nothing ticked', () => {
     expect(EMPTY_SAVED_STATE.prep.done).toEqual([]);
     expect(EMPTY_SAVED_STATE.document).toBeNull();
+  });
+});
+
+describe("§20's warm-up answers", () => {
+  const answered: MeetWarmupState = {
+    ...EMPTY_WARMUP_STATE,
+    preferences: { ...EMPTY_PREFERENCES, restSeconds: '150' },
+    weights: [{ index: 2, text: '82.5' }],
+  };
+  const states: WarmupStates = { ...EMPTY_WARMUP_STATES, bench: answered };
+
+  it('carries all three fields there and back', () => {
+    const back = fromSavedWarmup(
+      toSavedWarmup({ states, lift: 'deadlift', byLifter: new Map([['lifter-2', states]]) }),
+    );
+    expect(back.lift).toBe('deadlift');
+    expect(back.states.bench.preferences.restSeconds).toBe('150');
+    expect(back.byLifter.get('lifter-2')?.bench.weights).toEqual([{ index: 2, text: '82.5' }]);
+  });
+
+  it('writes the board as a list rather than an object', () => {
+    // The same failure `MeetPrep.done` has, and just as quiet: `JSON.stringify`
+    // writes a `Map` as `{}`. Read back through `unknown` rather than off the
+    // `any` `JSON.parse` returns, for the reason the prep test above gives.
+    const written: unknown = JSON.parse(
+      JSON.stringify(toSavedWarmup({ states, lift: 'squat', byLifter: new Map([['a', states]]) })),
+    );
+    if (typeof written !== 'object' || written === null || !('byLifter' in written)) {
+      throw new Error('The written warm-up has no board at all.');
+    }
+    expect(Array.isArray(written.byLifter)).toBe(true);
+    expect(written.byLifter).toHaveLength(1);
+  });
+
+  it('keeps a lifter filed under `constructor` out of the prototype', () => {
+    // Why `fromSavedWarmup` rebuilds through `new Map(...)`. A lifter id comes
+    // off an imported file, so this is the one path a foreign key reaches; under
+    // a plain object the read below answers a function typed as a `WarmupStates`
+    // and the first thing to touch it throws with no lifter in the stack.
+    const back = fromSavedWarmup({
+      states: EMPTY_WARMUP_STATES,
+      lift: 'squat',
+      byLifter: [{ lifterId: 'constructor', states }],
+    });
+    expect(back.byLifter.get('constructor')?.bench.preferences.restSeconds).toBe('150');
+    expect(back.byLifter.get('__proto__')).toBeUndefined();
+    expect(back.byLifter.size).toBe(1);
+  });
+
+  it('answers the empties for a meet saved before there was a warm-up', () => {
+    expect(fromSavedWarmup(null)).toBe(NO_WARMUP_ANSWERS);
+    expect(NO_WARMUP_ANSWERS.states).toBe(EMPTY_WARMUP_STATES);
+    expect(NO_WARMUP_ANSWERS.byLifter.size).toBe(0);
+    expect(EMPTY_SAVED_STATE.warmup).toBeNull();
   });
 });
 

@@ -406,6 +406,167 @@ const SavedHistorySchema = v.object({
 
 /*
  * ---------------------------------------------------------------------------
+ * §20's warm-up answers.
+ *
+ * Every figure below is a capped string, which is `warmup.ts`'s rule rather
+ * than a choice made here: a field a lifter cleared mid-thought is not a zero,
+ * so the answers are held as typed and read through `FieldReading` at the point
+ * something needs a number. That makes this half of the schema uncommonly dull,
+ * and the interesting half is the room -- the only place in a saved meet where a
+ * number reaches arithmetic without a parse in front of it.
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * A bar or a pair of collars, bounded because nothing downstream bounds it.
+ *
+ * `equipment.ts` makes this argument about its own preference bounds and it is
+ * the stronger reason of the two here: a ramp built on a bar of 1e308 is a ramp
+ * of `Infinity`, computed without an error, drawn on a screen. A tonne is past
+ * every implement anybody has stood under and short of the values that break the
+ * arithmetic.
+ */
+const Implement = v.object({
+  amount: v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(1000)),
+  unit: v.picklist(['kg', 'lb'] as const),
+});
+
+/**
+ * One denomination on the rack. `pairs: null` is the domain's "enough of these".
+ *
+ * Note that this is *not* the encoding `equipment.ts` stores a preference in,
+ * where the same null is written as a zero because the preferences package has
+ * no nullable builder (§5.12). JSON has one, so the honest shape is used here --
+ * and reusing the preference encoding would mean a saved meet whose plate counts
+ * only make sense to a reader that knows about a constraint from another package.
+ */
+const PlateDenominationSchema = v.object({
+  weight: v.pipe(v.number(), v.finite(), v.minValue(0), v.maxValue(1000)),
+  pairs: v.nullable(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(1000))),
+  fullDiameter: v.boolean(),
+});
+
+/**
+ * The warm-up room, which is tool 2's `Equipment` and not a second model.
+ *
+ * `barId` and `collarId` are free text rather than the two picklists the presets
+ * would make, and that is deliberate on the same grounds the responsibilities
+ * tuple above is *not*. A responsibility is a closed vocabulary the domain owns,
+ * so a spelling of it here can be wrong. A preset id is a catalogue this build
+ * happens to ship: a file exported by a build with one more bar in it would be
+ * refused whole, over a field whose own reader already falls back to the custom
+ * bar when it meets an id it does not know.
+ */
+const EquipmentSchema = v.object({
+  plateUnit: v.picklist(['kg', 'lb'] as const),
+  barId: text(60),
+  customBar: Implement,
+  collarId: text(60),
+  customCollars: Implement,
+  /**
+   * Both units written out, for `PlannerSessionSchema.figures`' reason: `v.record`
+   * infers every key optional and `Equipment.inventory` is total, so a parsed
+   * record would not be assignable and the compile-time check at the foot of the
+   * file would be what caught it.
+   *
+   * Capped at twice the longest catalogue. `toggleDenomination` can only ever
+   * insert a weight the interface offered, so a longer list is a file that was
+   * written by something else -- and the cost of accepting it is a plate search
+   * over a list somebody chose the length of.
+   */
+  inventory: v.object({
+    kg: v.pipe(v.array(PlateDenominationSchema), v.maxLength(32)),
+    lb: v.pipe(v.array(PlateDenominationSchema), v.maxLength(32)),
+  }),
+});
+
+const PrepAnswerSchema = v.object({
+  minutes: Figure,
+  when: v.picklist(['before-the-ramp', 'after-the-final-warm-up'] as const),
+});
+
+/**
+ * One answer per preparation, written out rather than recorded.
+ *
+ * Total over `PrepKind`, so the five keys are spelled. Which of them a meet
+ * *offers* is `prepKindsFor`'s question and depends on the format, so a
+ * bench-only meet holds four rows nobody will see -- that is what `warmup.ts`
+ * chose when it made the state total rather than partial, and a schema that
+ * agreed with the screen instead of with the type would refuse a full-power meet
+ * whose format was corrected to bench-only after the wraps were answered for.
+ */
+const PrepAnswersSchema = v.object({
+  'knee-wraps': PrepAnswerSchema,
+  'bench-shirt': PrepAnswerSchema,
+  'squat-suit': PrepAnswerSchema,
+  'deadlift-suit': PrepAnswerSchema,
+  other: PrepAnswerSchema,
+});
+
+const WarmupPreferencesSchema = v.object({
+  leadMinimumMinutes: Figure,
+  leadMaximumMinutes: Figure,
+  restSeconds: Figure,
+  setSeconds: Figure,
+  maximumSets: Figure,
+  sharedRackLifters: Figure,
+  delayPreference: v.picklist(['wait', 'repeat-a-light-movement', 'continue'] as const),
+  prep: PrepAnswersSchema,
+});
+
+const MeetProgressSchema = v.object({
+  place: v.picklist(['earlier-flight-running', 'own-flight-running'] as const),
+  currentRound: Figure,
+  currentPosition: Figure,
+  attemptsLeftInTheRunningFlight: Figure,
+  wholeFlightsBetween: Figure,
+  flightSize: Figure,
+  attemptsCompleted: Figure,
+  minutesSinceSessionStart: Figure,
+  breakMinutes: Figure,
+  delayMinutes: Figure,
+  targetRound: Figure,
+  targetPosition: Figure,
+});
+
+/**
+ * The per-set overrides, held by index into a ramp that no longer exists.
+ *
+ * Bounded at `SETS_BOUNDS.max`, which is the field's ceiling and not the ramp's:
+ * `MAX_RAMP_SETS` is seven, so twenty is already more entries than any reachable
+ * ramp has rows. The cap is about the size of a file rather than about the shape
+ * of a warm-up -- an answer naming a set the rebuilt ramp does not have is
+ * dropped by `warmup.ts` without a word, which is the right behaviour there and
+ * is why an unbounded list here would simply be carried around for ever.
+ */
+const SetAnswersSchema = v.pipe(
+  v.array(v.object({ index: Ordinal, text: Figure })),
+  v.maxLength(20),
+);
+
+const MeetWarmupStateSchema = v.object({
+  room: EquipmentSchema,
+  preferences: WarmupPreferencesSchema,
+  progress: MeetProgressSchema,
+  weights: SetAnswersSchema,
+  reps: SetAnswersSchema,
+});
+
+/** Three states, written out for `WarmupStates`' own totality reason. */
+const WarmupStatesSchema = v.object({
+  squat: MeetWarmupStateSchema,
+  bench: MeetWarmupStateSchema,
+  deadlift: MeetWarmupStateSchema,
+});
+
+const SavedWarmupSchema = v.object({
+  states: WarmupStatesSchema,
+  lift: PlatformLift,
+  byLifter: v.array(v.object({ lifterId: Identifier, states: WarmupStatesSchema })),
+});
+
+/*
+ * ---------------------------------------------------------------------------
  * A saved meet, and a file of them.
  * ---------------------------------------------------------------------------
  */
@@ -431,6 +592,16 @@ const SavedMeetStateSchema = v.object({
    * a meet and nothing else.
    */
   history: v.optional(v.nullable(SavedHistorySchema), null),
+  /**
+   * Optional with a default for `history`'s reason, one release later.
+   *
+   * The same claim, and it has to be true for the same meets: every shelf written
+   * before §20 shipped has no such key, a required field would fail all of them
+   * at the parser, and `#restoreReport` counts a parse failure as unreadable. So
+   * the release that started saving a warm-up would blank the shelf of every
+   * lifter who had planned a meet without one.
+   */
+  warmup: v.optional(v.nullable(SavedWarmupSchema), null),
 });
 
 export const SavedMeetSchema = v.object({

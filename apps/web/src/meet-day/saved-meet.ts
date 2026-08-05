@@ -12,13 +12,16 @@
  *
  * WHY THE SAVED SHAPE IS WRITTEN OUT AGAIN INSTEAD OF REUSING THE LIVE TYPES
  *
- * Most of it is the live types, and where it is, it says so. Three places it is
+ * Most of it is the live types, and where it is, it says so. Four places it is
  * not, and each of them is the reason the split exists at all:
  *
  * - `MeetPrep.done` is a `ReadonlySet`, which `JSON.stringify` writes as `{}`.
  *   A set saved that way is not corrupt and does not throw: it comes back empty,
  *   so a lifter reopens the tool to a checklist with every tick gone and no
  *   evidence that anything failed.
+ * - `WarmupsByLifter` is a `ReadonlyMap` and stringifies to the same `{}`, with
+ *   the same silence. See {@link SavedWarmup}, which also has a reason of its
+ *   own for not going back through a plain object.
  * - `MeetRules` is a smart-constructed object built from a published profile. It
  *   is not saved; it is rebuilt on the way back in, which is also the only way a
  *   restored meet is guaranteed to be running under rules this build agrees
@@ -36,6 +39,7 @@
  * is created and never recomputed. A meet that was planned under one reading of
  * §9.3 says so for ever, which is the whole point of stamping it.
  */
+import type { PlatformLift } from '@platform-toolkit/data-contracts';
 import {
   ATTEMPT_PLAN_METHODOLOGY_VERSION,
   type CoachBoardEntry,
@@ -46,6 +50,12 @@ import {
 
 import { EMPTY_PREP, type CustomChecklistItem, type LifterSetup, type MeetPrep } from './prep.js';
 import { EMPTY_SESSION, type PlannerSession } from './session.js';
+import {
+  EMPTY_WARMUP_STATES,
+  NO_WARMUPS,
+  type WarmupStates,
+  type WarmupsByLifter,
+} from './warmup.js';
 
 /*
  * ---------------------------------------------------------------------------
@@ -117,6 +127,117 @@ export function fromSavedPrep(saved: SavedPrep): MeetPrep {
   };
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * §20's warm-up answers.
+ * ---------------------------------------------------------------------------
+ */
+
+/** One lifter's three ramps on the coach path. */
+export interface SavedLifterWarmup {
+  readonly lifterId: string;
+  readonly states: WarmupStates;
+}
+
+/**
+ * §20's answers, and none of what §20 worked out from them.
+ *
+ * THE ANSWERS, NEVER THE SCHEDULE
+ *
+ * The rule `warmup.ts` states for a paint, arriving here as the reason this type
+ * holds what it holds. A `MeetWarmupSchedule` is counted backward from a platform
+ * estimate at one instant and `WarmupTimeline` stamps that instant on it, so a
+ * saved one is wrong by however long the file sat on the shelf -- and wrong in
+ * the direction §5.5 forbids everywhere on this screen, telling a lifter they
+ * have twenty minutes when the flight ahead finished last night. The answers have
+ * no instant in them: they are what somebody typed, they are small, and
+ * `buildMeetWarmup` turns them back into a schedule counted from now.
+ *
+ * `SavedCoachEntry` makes the same call about the same field from the other end.
+ *
+ * WHY THE BOARD IS A LIST AND COMES BACK A `Map`
+ *
+ * `WarmupsByLifter` is a `ReadonlyMap`, and `JSON.stringify` writes one as `{}` --
+ * the `MeetPrep.done` failure exactly, silent in the same way. A list of entries
+ * is the shape that survives.
+ *
+ * It must not come back as a plain object, and that is a separate point.
+ * `warmup.ts` chose a `Map` because a lifter id can arrive from an imported meet
+ * file, and a record inherits `Object.prototype` -- so an athlete filed under
+ * `constructor` reads back as a function typed as a `WarmupStates`. Rebuilding
+ * through `new Map(...)` in {@link fromSavedWarmup} keeps that hole shut on the
+ * one path that actually takes a foreign file.
+ *
+ * WHY THIS WHOLE FIELD IS NULLABLE RATHER THAN AN EMPTY ONE
+ *
+ * A `MeetWarmupState` carries an `Equipment`, which is two plate inventories --
+ * about a kilobyte -- and there are three of them per lifter. An always-present
+ * empty answer would therefore put five kilobytes on every saved meet whose fold
+ * was never opened, times `MEET_LIBRARY_MAX`, in a store measured in hundreds of
+ * kilobytes and shared with everything else on the origin. `null` is the state
+ * most saved meets are in and it costs nothing to write down.
+ *
+ * `byLifter` is sparse for the same reason and gets it for free: the map gains a
+ * key only when somebody types. A lifter who typed and then cleared every field
+ * keeps their entry, since comparing two of these for emptiness would be a deep
+ * walk on every keystroke to save a kilobyte.
+ */
+export interface SavedWarmup {
+  /** The solo path's three ramps, total over `PlatformLift`. */
+  readonly states: WarmupStates;
+  /** Which lift the fold was showing. A choice, so it is restored rather than reset. */
+  readonly lift: PlatformLift;
+  /** §21's board, only for the lifters somebody has answered for. */
+  readonly byLifter: readonly SavedLifterWarmup[];
+}
+
+/**
+ * The same three as the planner holds them, travelling together.
+ *
+ * The planner keeps them as three separate `@state` fields, because they move
+ * independently and Lit compares them one at a time. They are one object at this
+ * seam because the save and the restore have to agree about all three at once:
+ * two of the three restored is a fold showing the squat ramp with the bench
+ * answers in it.
+ */
+export interface WarmupAnswers {
+  readonly states: WarmupStates;
+  readonly lift: PlatformLift;
+  readonly byLifter: WarmupsByLifter;
+}
+
+/**
+ * Nothing typed, which is what a restored meet with no warm-up in it becomes.
+ *
+ * `'squat'` is the planner's own default for the picker and is repeated here
+ * rather than imported from it, because this module is pure and the planner is an
+ * element. The two are held together by `#restore` assigning all three fields
+ * from here, so a drift would show up as the fold opening on the wrong lift for
+ * every restored meet rather than as a subtle one.
+ */
+export const NO_WARMUP_ANSWERS: WarmupAnswers = {
+  states: EMPTY_WARMUP_STATES,
+  lift: 'squat',
+  byLifter: NO_WARMUPS,
+};
+
+export function toSavedWarmup(answers: WarmupAnswers): SavedWarmup {
+  return {
+    states: answers.states,
+    lift: answers.lift,
+    byLifter: [...answers.byLifter].map(([lifterId, states]) => ({ lifterId, states })),
+  };
+}
+
+export function fromSavedWarmup(saved: SavedWarmup | null): WarmupAnswers {
+  if (saved === null) return NO_WARMUP_ANSWERS;
+  return {
+    states: saved.states,
+    lift: saved.lift,
+    byLifter: new Map(saved.byLifter.map((entry) => [entry.lifterId, entry.states])),
+  };
+}
+
 /** Which of §6.1's two screens the meet was being run from. */
 export type SavedMode = 'solo' | 'coach';
 
@@ -130,12 +251,17 @@ export type SavedMode = 'solo' | 'coach';
  * and the board would age it against `now` and announce that the third warm-up
  * was due nineteen hours ago.
  *
- * There is no rebuild to perform. Nothing in this tool sets the field today --
- * §20's warm-up screen is the follow-up that will -- so a restored board has no
- * schedule for the same reason a fresh one has none, and the omission costs
- * nothing that reopening a meet does not already cost. When that screen lands,
- * this stays an omission: a ramp is counted from the platform estimate at the
- * instant it is asked for, which is the one thing a saved document cannot hold.
+ * There is no rebuild to perform, and §20 shipping has not changed that. Nothing
+ * ever sets the field on the list this type is taken from: the planner attaches a
+ * schedule in `#boardEntries`, at paint time, to a copy handed straight to the
+ * board and thrown away afterwards. So a restored board has no schedule for the
+ * same reason a fresh one has none, and it gets one on its first paint.
+ *
+ * What §20 did add is the *answers* behind that schedule, and those are saved --
+ * see {@link SavedWarmup}, which is where the same argument decides the opposite
+ * way. A ramp is counted from the platform estimate at the instant it is asked
+ * for and is the one thing a saved document cannot hold; the questions it was
+ * counted from are the one thing worth holding.
  */
 export type SavedCoachEntry = Omit<CoachBoardEntry, 'warmup'>;
 
@@ -211,6 +337,11 @@ export interface SavedHistory {
  * countdown restored an hour later reports the truth -- that the minute is long
  * gone -- rather than resuming with fifty seconds left. That is a property of
  * the document and needs nothing here.
+ *
+ * **§20's warm-up schedule**, whose answers *are* here. The same distinction the
+ * plan draws one bullet up, with a sharper edge on it: a restored plan computed
+ * from stale rules is at least reported, and a restored schedule would simply be
+ * a countdown that started yesterday. {@link SavedWarmup}.
  */
 export interface SavedMeetState {
   readonly mode: SavedMode;
@@ -229,6 +360,11 @@ export interface SavedMeetState {
    * the equipment mixture §9.4 exists to separate.
    */
   readonly history: SavedHistory | null;
+  /**
+   * §20's answers, or `null` where nobody has opened the fold. See
+   * {@link SavedWarmup} for why the answers are here and the schedule is not.
+   */
+  readonly warmup: SavedWarmup | null;
 }
 
 export const EMPTY_SAVED_STATE: SavedMeetState = {
@@ -240,6 +376,7 @@ export const EMPTY_SAVED_STATE: SavedMeetState = {
   entries: [],
   openLifterId: null,
   history: null,
+  warmup: null,
 };
 
 export interface SavedMeet {

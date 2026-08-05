@@ -2923,6 +2923,41 @@ describe('ptk-meet-day-planner', () => {
       expect(bench).not.toEqual(squat);
     });
 
+    it("saves §20's answers with the meet and brings them back", async () => {
+      // §13.18's order lesson, arriving on the field it was written about:
+      // `#save` returns immediately while there is no open meet id, so an
+      // answer typed before the meet is named is written only by the save that
+      // naming itself performs -- and a test that names last therefore passes
+      // against a root that performs no per-change save at all. The name goes
+      // first, and the store is read at two instants either side of one answer.
+      //
+      // Read off the store rather than off the screen for §13.14's reason: the
+      // box is bound to a property, so it keeps what was typed whether or not
+      // the answer reached the record. The second mount is the other half of
+      // that -- a build that has only ever seen the store, which is what a
+      // lifter opening the tool the next morning is.
+      const store = sessionMeets();
+      const element = await planned({ store });
+      await nameMeet(element, 'Winter Open');
+      await openWarmup(element);
+      const rung = firstSetIndex(element);
+
+      const before = await stored(store);
+      expect(before.meets[0]?.state.warmup).toBeNull();
+
+      await enter(element, setBox(element, rung), '62.5');
+      await afterStorage(element);
+
+      const after = await stored(store);
+      expect(after.meets[0]?.state.warmup?.states.squat.weights).toEqual([
+        { index: rung, text: '62.5' },
+      ]);
+
+      const reopened = await mountShelved({ store });
+      await openWarmup(reopened);
+      expect(innerValue(setBox(reopened, rung))).toBe('62.5');
+    });
+
     it('has no accessibility violations with the fold open', async () => {
       const element = await openWarmup(await planned());
       const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
@@ -3209,6 +3244,34 @@ describe('ptk-meet-day-planner', () => {
         // and move with any change to it, and the lift is the fact this wiring
         // is the only carrier of.
         expect(rosterLeads(element)).toEqual([expect.stringContaining('Squat')]);
+      });
+
+      it("saves a board lifter's warm-up answers under their own id", async () => {
+        // §13.19's M9 shape, on the one field of the three that has no on-screen
+        // observable at all. `#savedWarmup` writes the solo ramps, the picker's
+        // lift and the board's answers as one object, so a `byLifter` dropped at
+        // that seam is invisible to every DOM assertion in this file -- the fold
+        // on screen goes on showing what was typed either way (§13.14) -- and
+        // shows up as a coach reopening tomorrow's meet with one lifter's whole
+        // morning missing.
+        //
+        // The meet is named first for §13.18's reason, and the shelf is reachable
+        // here at all because `#renderShelf` is called from `#renderCoach` too.
+        const store = sessionMeets();
+        const element = await coachBoardWith([SQUATTER, PRESSER], { store });
+        await nameMeet(element, 'Regional Open');
+        await openNamed(element, PRESSER);
+        await declareOpener(element, '100');
+        await openWarmup(element);
+        await enter(element, setBox(element, firstSetIndex(element)), '62.5');
+        await afterStorage(element);
+
+        const saved = (await stored(store)).meets[0]?.state.warmup;
+        expect(saved?.byLifter).toHaveLength(1);
+        // The control, and the half that says the two paths are filed apart
+        // rather than one being written over the other: nobody has answered
+        // anything on the solo ramps, so they are still the empty ones.
+        expect(saved?.states.squat.weights).toEqual([]);
       });
     });
   });
