@@ -51,12 +51,19 @@ type Story = StoryObj<PtkMeetPack>;
 /**
  * A lifter who used the whole tool, printing the night before.
  *
- * Nine attempts with the branches under them, the setup answers off §22, a
- * checklist part-way through, their own note, and the pound column read off the
- * published chart (§16). Two of the sixteen setup answers are deliberately
- * blank -- the monolift setting and the bench safety height -- because an
- * unanswered fact draws a ruled line to write on rather than an empty gap, and
- * a sheet that answered everything would leave that branch undocumented.
+ * Nine attempts with the branches under them, §23.1's warm-up ramp counted back
+ * from each opener, the setup answers off §22, a checklist part-way through,
+ * their own note, and the pound column read off the published chart (§16). Two
+ * of the sixteen setup answers are deliberately blank -- the monolift setting
+ * and the bench safety height -- because an unanswered fact draws a ruled line
+ * to write on rather than an empty gap, and a sheet that answered everything
+ * would leave that branch undocumented.
+ *
+ * The ramp is where this fixture is least symmetrical, on purpose. §20 is
+ * answered differently on each lift: squat shares a rack, bench is counted for a
+ * room loaded in pounds, and deadlift was never opened. So the bench rungs read
+ * in pounds under attempts written in kilograms -- which is correct, and is the
+ * thing a reviewer should check the "Counted for" line against.
  */
 export const AWholeDay: Story = {};
 
@@ -81,7 +88,11 @@ export const WithNoPoundColumn: Story = {
  * Every section with nothing to say either draws a ruled line or is dropped,
  * and which of the two is right differs per section: the setup facts are lines
  * to write on, the schedule and the notes are simply absent, and the attempts
- * section says so in a sentence rather than printing an empty list.
+ * section says so in a sentence rather than printing an empty list. The warm-up
+ * ramp is the third answer -- dropped *and* named at the foot, because it is
+ * counted back from an opener and there is no opener here to count back from.
+ * The other three stories all print one, including the one that answered §20
+ * with nothing: a ramp needs an opener, not an answer.
  */
 export const NothingAnsweredYet: Story = {
   args: { pack: blankPack() },

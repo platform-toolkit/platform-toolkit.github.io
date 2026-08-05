@@ -1002,6 +1002,13 @@ const ROUTES = [
     // two number fields side by side under a heading, and it exists only for
     // the rungs `isAdjustable` allows a weight on, so a ramp that came out
     // bar-only would settle on the first selector and draw none of these.
+    //
+    // And §23.1's ramp, which is a second row shape on the same sheet rather
+    // than more of the first: a rung carries a name column wide enough to line
+    // six weights up under one another and then a whole phrase -- "142.5 kg, 1
+    // rep" -- where an attempt row carries a bare figure. The name column has a
+    // `min-width` in `em`, so it is the one thing on the sheet that grows with
+    // the text-scaling passes rather than merely rewrapping under them.
     settle: [
       'ptk-plan-screen li.attempt',
       'ptk-meet-warmup ol.timeline li',
@@ -1009,6 +1016,7 @@ const ROUTES = [
       'ptk-meet-prep ptk-text-area[data-field="deadliftNotes"]',
       'ptk-meet-checklist ptk-toggle-group[data-group="bring"]',
       'ptk-meet-pack li.attempt',
+      'ptk-meet-pack li.rung',
       'ptk-meet-library li.meet',
     ],
   },

@@ -89,11 +89,17 @@ import {
 import type { MeetFormat, PlatformLift } from '@platform-toolkit/data-contracts';
 import { type Choice } from '@platform-toolkit/ui';
 
+import { describeEquipment, type Equipment } from '../warm-up/equipment.js';
 import type { BoardLifterRef, BoardRowConflict, WarmupLead } from './board.js';
 import type { LivePosition, NextActionCode, SubmissionUrgency, UrgentNote } from './live.js';
 import type { MeetFileRefusal } from './meet-file.js';
 import type { SaveOutcome } from './meet-store.js';
-import type { HandlerWriteInCode, PackOmissionCode } from './pack.js';
+import type {
+  HandlerWriteInCode,
+  PackOmissionCode,
+  PackWarmupAdvisoryCode,
+  PackWarmupSet,
+} from './pack.js';
 import type { PlanProblem } from './plan.js';
 import {
   CUSTOM_ITEM_MAX,
@@ -2888,6 +2894,122 @@ export const PACK_ATTEMPTS_HEADING = 'Planned attempts';
 
 export const PACK_TARGETS_HEADING = 'What you came for';
 
+/*
+ * -----------------------------------------------------------------------------
+ * §23.1's warm-up ramp.
+ * -----------------------------------------------------------------------------
+ */
+
+export const PACK_WARMUP_HEADING = 'Warm-up';
+
+/**
+ * The heading over one lift's rungs.
+ *
+ * Names the lift, because §23's reader has the sheet folded to one block and a
+ * ramp is three sections away from the attempts it belongs to. "Warm-up" over a
+ * column of weights on a full-power sheet is three ramps' worth of ambiguity in
+ * the one place a wrong reading has somebody warming up for the wrong lift.
+ */
+export function packWarmupLiftHeading(lift: PlatformLift): string {
+  return `${liftLabel(lift)} warm-up`;
+}
+
+/**
+ * The assumption every weight under it is standing on.
+ *
+ * A printed ramp is only right for the room it was counted for, and the room is
+ * an answer somebody gave on a phone the night before -- possibly the default
+ * this tool started them on, in a venue they had not seen yet. On a screen that
+ * assumption is one tap away in §20's own fold; on paper it has to be beside the
+ * numbers, or the first unloadable weight reads as a broken tool rather than as a
+ * room that turned out to have different plates.
+ */
+export function packWarmupRoomText(room: Equipment): string {
+  return `Counted for: ${describeEquipment(room)}`;
+}
+
+/**
+ * When to start, as a lead rather than as a time or a countdown.
+ *
+ * The same figure and the same rounding as `handlerPackWarmupLeadText` far below,
+ * and deliberately not the same sentence: that one labels itself with the lift
+ * because a roster puts three ramps on one row, and it is read by a handler who
+ * subtracts it from a board. This one sits under a heading that already names the
+ * lift and is read by the lifter it belongs to.
+ *
+ * **Both ends are ceiled**, which rounds the ramp *earlier*. See the note on
+ * `handlerPackWarmupLeadText`: for a lead, the cautious direction is the one that
+ * costs standing about rather than the one that costs the attempt. Do not "fix"
+ * this to floor its shorter end the way an estimate does.
+ *
+ * Nothing clamps the range, so an inverted or non-positive lead has to be
+ * answered rather than printed: "0 minutes" on paper reads as a ramp that starts
+ * when the bar is called.
+ */
+export function packWarmupLeadText(minimumSeconds: number, maximumSeconds: number): string {
+  const shortest = Math.ceil(minimumSeconds / 60);
+  const longest = Math.ceil(maximumSeconds / 60);
+  if (shortest <= 0 || longest < shortest) {
+    return 'This ramp does not fit before the bar. Start it as soon as your flight is called.';
+  }
+  if (shortest === longest) {
+    return `Start about ${String(longest)} minutes before you are called.`;
+  }
+  return `Start ${String(shortest)}-${String(longest)} minutes before you are called.`;
+}
+
+/**
+ * What a rung is called, in tool 2's own words.
+ *
+ * "Empty bar" and "Warm-up N" are `stageName`'s wording in
+ * `apps/web/src/warm-up/ptk-lift-card.ts`, repeated rather than imported: that
+ * function takes a `SessionRow`, which is tool 2's own shape and reaches nothing
+ * here. What matters is that the numbering agrees, because the ordinal is what
+ * ties a printed rung to the row a lifter adjusted on the phone -- and it counts
+ * only the movable sets, so the first numbered rung is always "Warm-up 1"
+ * whatever sits above it.
+ *
+ * A null ordinal is the empty bar and nothing else (`pack.ts` derives it from
+ * `isAdjustable`), so there is no third case to answer.
+ */
+export function packWarmupSetLabel(ordinal: number | null): string {
+  return ordinal === null ? 'Empty bar' : `Warm-up ${String(ordinal)}`;
+}
+
+/**
+ * One rung: what is on the bar and what to do with it.
+ *
+ * Words rather than the screen's `120 kg x 3`, because this sheet is read aloud
+ * across a warm-up room and a multiplication sign is not a word. The repeat count
+ * is only ever above one on the empty bar, and it is spelled out for the same
+ * reason.
+ */
+export function packWarmupSetText(set: PackWarmupSet): string {
+  const reps = `${String(set.reps)} rep${set.reps === 1 ? '' : 's'}`;
+  const weight = formatWeight(set.weight);
+  return set.count > 1 ? `${weight}, ${reps}, ${String(set.count)} times` : `${weight}, ${reps}`;
+}
+
+/**
+ * What is worth saying about a ramp on paper, total over the three durable codes.
+ *
+ * Deliberately not the domain's own `advisory.message`, which every screen prints
+ * verbatim. Those sentences are written for a reader who can tap the control they
+ * are about; two of these three are about a decision the lifter already made
+ * (`pack.ts` says which are kept and why), and on paper what matters is what to do
+ * about it now, with no control in reach.
+ */
+export function packWarmupAdvisorySentence(code: PackWarmupAdvisoryCode): string {
+  switch (code) {
+    case 'sharing-a-rack':
+      return 'These times assume the bar comes free in turn. If the queue is longer than you said, take sets off the bottom rather than rushing the top.';
+    case 'equipment-prep-does-not-fit-the-lead':
+      return 'Your gear takes longer to get on than the gap you left before the bar, so the start above already allows for it.';
+    case 'the-ramp-was-shortened':
+      return 'This is a shortened ramp: you asked for fewer sets than the full one has.';
+  }
+}
+
 export const PACK_CHECKLIST_HEADING = 'Checklist';
 
 export const PACK_NOTES_HEADING = 'Your notes';
@@ -2995,7 +3117,11 @@ export const PACK_NO_WEIGHT = 'Pass / stop this lift';
 export function packOmissionSentence(code: PackOmissionCode): string {
   switch (code) {
     case 'warm-up-ramp':
-      return 'No warm-up ramp is printed. This tool has not been told what bar and plates the warm-up room has, and a ramp against the wrong plate set is a set of weights that room cannot load.';
+      // Reworded when §23.1 started printing the ramp: the reason it can be
+      // missing is no longer that the tool has never been told about the room --
+      // §20 asks -- but that a ramp is counted back from an opener and there is
+      // no agreed opener on this sheet to count back from.
+      return 'No warm-up ramp is printed. A ramp is counted back from your opener, and no opener has been agreed on the plan yet.';
     case 'records':
       return 'No record list is printed. This tool has not read a record book for this meet; the figures under "What you came for" are the ones you typed in.';
     case 'qualifying-standards':

@@ -54,6 +54,8 @@ import {
   type MeetPrep,
 } from './prep.js';
 import { EMPTY_SESSION, confirmMaximum, withFigures, type PlannerSession } from './session.js';
+import { EMPTY_WARMUP_STATES, type WarmupStates } from './warmup.js';
+import { aPoundRoom, sharingARack } from './warmup-fixture.js';
 
 const LIFTS: readonly PlatformLift[] = ['squat', 'bench', 'deadlift'];
 
@@ -100,8 +102,27 @@ export function packOf(session: PlannerSession, patch: Partial<PackRequest> = {}
     checklistContext: ORDINARY,
     lifterName: 'Dana Okafor',
     at: PACK_AT,
+    warmups: EMPTY_WARMUP_STATES,
     ...patch,
   });
+}
+
+/**
+ * §20 answered, differently on each of the three lifts.
+ *
+ * The default above is `EMPTY_WARMUP_STATES`, which is not a blank ramp -- a
+ * ramp is counted back from the opener, so an unopened §20 fold still prints six
+ * rungs off the default room (§13.19 records the same asymmetry reaching §23.2's
+ * roster). That makes the default the *interesting* state for most assertions and
+ * leaves three things with no coverage at all: the room line when the room is not
+ * the default one, the pound-unit rungs, and the advisories. Hence one state per
+ * lift rather than one repeated three times.
+ *
+ * Deadlift is deliberately left on the default, so any sheet built from this can
+ * still show what an unanswered lift prints beside two answered ones.
+ */
+export function answeredWarmups(): WarmupStates {
+  return { ...EMPTY_WARMUP_STATES, squat: sharingARack(), bench: aPoundRoom() };
 }
 
 /**
@@ -156,6 +177,7 @@ export function fullPack(session: PlannerSession = planned()): MeetPack {
     chart: CHARTED_CONTEXT.chart,
     view: buildPlan(session, CHARTED_CONTEXT),
     prep: filledPrep(),
+    warmups: answeredWarmups(),
   });
 }
 

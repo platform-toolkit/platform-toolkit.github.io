@@ -14,7 +14,7 @@
  * neither shows up in a test written as "the heading is on the screen", because
  * on this sheet every heading is.
  *
- * So each of the eight sections is asserted in *both* of its states, against
+ * So each of the nine sections is asserted in *both* of its states, against
  * `fullPack()` and `blankPack()`, and the states come out of `pack-fixture.ts`
  * through the tool's own transitions so neither is a sheet the builder could not
  * produce.
@@ -272,14 +272,105 @@ describe('ptk-meet-pack', () => {
   });
 
   it('names what is not on the sheet rather than leaving it out silently', async () => {
-    const element = await mount();
-    const omissions = query(element, 'section.omissions').at(0);
-    if (omissions === undefined) throw new Error('The sheet declares no omissions.');
+    const filled = await mount();
+    const empty = await mount(blankPack());
+    const printed = query(filled, 'section.omissions').at(0);
+    const missing = query(empty, 'section.omissions').at(0);
+    if (printed === undefined || missing === undefined) {
+      throw new Error('The sheet declares no omissions.');
+    }
 
-    // Three, and the same three on every pack `pack.ts` builds: the warm-up
-    // ramp, records, and qualifying standards. A section a reader checks once
-    // and stops looking for, which is why it is last.
-    expect(omissions.querySelectorAll(':scope > ul > li')).toHaveLength(3);
+    // Two on every pack `pack.ts` builds -- records and qualifying standards --
+    // and a third when there is no opener to count a ramp back from. Asserted in
+    // both states rather than as a fixed count, because the count is the one
+    // thing about this section that moved when §23.1 started printing the ramp.
+    expect(printed.querySelectorAll(':scope > ul > li')).toHaveLength(2);
+    expect(missing.querySelectorAll(':scope > ul > li')).toHaveLength(3);
+    expect(deepText(missing)).toContain('no opener has been agreed');
+    expect(deepText(printed)).not.toContain('no opener has been agreed');
+  });
+
+  /*
+   * ---------------------------------------------------------------------------
+   * §23.1's warm-up ramp.
+   * ---------------------------------------------------------------------------
+   */
+
+  it('prints a ramp per lift and drops the section for a sheet with no opener', async () => {
+    const filled = await mount();
+    const empty = await mount(blankPack());
+
+    expect(query(filled, 'section.ramp')).toHaveLength(1);
+    expect(query(filled, 'section.lift-ramp')).toHaveLength(3);
+    expect(query(filled, 'li.rung').length).toBeGreaterThan(3);
+    // The other half of the pair above: the ramp is the one section on this
+    // sheet that is dropped *and* declared, so a version that dropped it
+    // silently passes every assertion in the first half.
+    expect(query(empty, 'section.ramp')).toHaveLength(0);
+    expect(query(empty, 'li.rung')).toHaveLength(0);
+  });
+
+  it('puts the lead above the rungs, because it is the only line about when', async () => {
+    const element = await mount();
+    const block = query(element, 'section.lift-ramp').at(0);
+    if (block === undefined) throw new Error('The sheet printed no ramp.');
+
+    const lead = block.querySelector('p.lead');
+    const rungs = block.querySelector('ol');
+    if (lead === null || rungs === null) throw new Error('The ramp has no lead or no rungs.');
+    // A lead and not a time of day and not a countdown -- the fragment is pinned
+    // rather than compared against `packWarmupLeadText`, which would move the
+    // expected value with the code (§13.8).
+    expect(lead.textContent).toContain('before you are called');
+    expect(lead.compareDocumentPosition(rungs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('states the room every weight under it is standing on', async () => {
+    const element = await mount();
+    const rooms = query(element, 'section.lift-ramp p.room');
+
+    expect(rooms).toHaveLength(3);
+    // `fullPack()` puts bench in a pound room and leaves the other two on the
+    // default, so one line in three says pounds -- which is what says the room is
+    // read per ramp rather than printed once from whatever the tool started the
+    // lifter on. It is also the case that costs the most: bench's rungs are in
+    // pounds while every attempt above them on the sheet is in kilograms.
+    const lines = rooms.map((room) => room.textContent);
+    expect(lines.filter((line) => line.includes('lb plates'))).toHaveLength(1);
+    expect(lines.filter((line) => line.includes('kg plates'))).toHaveLength(2);
+  });
+
+  it('names every rung, so no weight sits under a heading on its own', async () => {
+    const element = await mount();
+    const block = query(element, 'section.lift-ramp').at(0);
+    if (block === undefined) throw new Error('The sheet printed no ramp.');
+
+    const rungs = [...block.querySelectorAll('li.rung')];
+    expect(rungs.length).toBeGreaterThan(3);
+    expect(block.querySelectorAll('li.rung .name')).toHaveLength(rungs.length);
+    // Tool 2's own vocabulary, and its own numbering: the bar is not counted, so
+    // the first thing a lifter can move is always "Warm-up 1". A sheet that
+    // numbered the bar would be off by one against the phone all the way up.
+    expect(rungs.at(0)?.querySelector('.name')?.textContent).toBe('Empty bar');
+    expect(rungs.at(1)?.querySelector('.name')?.textContent).toBe('Warm-up 1');
+    expect(deepText(block)).toContain('reps');
+  });
+
+  it('prints an advisory that is still true tomorrow and none that is not', async () => {
+    const element = await mount();
+    const blocks = query(element, 'section.lift-ramp');
+    const squat = blocks.at(0);
+    if (squat === undefined) throw new Error('The sheet printed no ramp.');
+
+    // §20's shared-rack answer, which is a fact about the room and reads the
+    // same in the morning. Exactly one of the three blocks carries a line, and
+    // that lift carries exactly one -- the schedule behind every one of them also
+    // carries the standing "meet staff are authoritative" advisory, so a sheet
+    // printing what the domain hands it would put a line under all three
+    // (`pack.ts` says which codes are kept and why).
+    expect(squat.querySelectorAll('ul.advisories > li')).toHaveLength(1);
+    expect(deepText(squat)).toContain('comes free in turn');
+    expect(query(element, 'ul.advisories')).toHaveLength(1);
   });
 
   /*
@@ -305,6 +396,11 @@ describe('ptk-meet-pack', () => {
 
     expect(query(element, '.trigger').length).toBeGreaterThan(0);
     expect(query(element, '.contingency').length).toBeGreaterThan(0);
+    // `section` in the same grouped rule reaches §23.1's ramp, which is why no
+    // second rule was written for it -- and this is the DOM half that says the
+    // selector reaches something. A ramp split over a fold is the same failure
+    // as a split contingency: six rungs are read from the top down.
+    expect(query(element, 'section.lift-ramp').length).toBeGreaterThan(0);
     // Half a decision at the foot of a page is the lost sheet §23's copy is
     // written against -- a reader with the trigger on one side of a fold and
     // the weights on the other. Named with the whole comma-separated selector

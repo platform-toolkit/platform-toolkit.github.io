@@ -1449,6 +1449,11 @@ export class PtkMeetDayPlanner extends LitElement {
       checklistContext: this.#checklistContext(),
       lifterName: this.lifterName,
       at: this.clock.now(),
+      // `this.warmups`, never `this.coachWarmups`: §23.1's sheet is printed by
+      // the person who answered §20 on this device, and a handler has one set of
+      // answers for twelve people. The roster's own warm-up figure stays the lead
+      // `buildHandlerPack` already carries per lifter (§13.19).
+      warmups: this.warmups,
     });
   }
 

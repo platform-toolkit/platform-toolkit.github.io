@@ -59,36 +59,54 @@
  * appears, and the substitution means the contingency table exists for a lifter
  * who has not typed their name yet rather than being silently empty for them.
  *
+ * THE RAMP IS PRINTED HERE AND NOT ON §23.2's ROSTER
+ *
+ * A warm-up ramp needs the warm-up room's bar and plates, and §20's screen asks
+ * *this device's* owner for them. That is the whole difference between the two
+ * sheets: the one-lifter sheet below is printed by the person who answered, so
+ * the ramp on it is counted against the plates they described, whereas a handler
+ * printing §23.2's roster has one set of answers for twelve people. Printing a
+ * ramp against an invented plate set puts weights on paper the room may not be
+ * able to load, which is the failure `findLoading` returns `null` to prevent. So
+ * §23.2 still prints only the durable lead off each schedule
+ * ({@link HandlerPackLifter.warmupLead}), which needs no plates, and this sheet
+ * prints the rungs with {@link PackWarmup.room} beside them saying what they were
+ * counted for.
+ *
+ * WHAT THE RAMP DROPS ON THE WAY TO PAPER
+ *
+ * Every other figure on a `MeetWarmupSchedule` is seconds from the instant it was
+ * built. A sheet is read hours after it leaves the printer, on the day the flight
+ * is running late, so "in 40 minutes" printed at nine and read at eleven sends a
+ * lifter to the rack cold and an hour early. What survives is the *lead* --
+ * `warmupLeadRange` cancels the platform estimate out of both ends -- and that is
+ * the only timing figure on the block. The same test applies to the advisories:
+ * {@link PACK_WARMUP_ADVISORIES} is the three that are still true tomorrow, and
+ * `behind-the-warm-up-timeline` is left off because it is a statement about the
+ * clock at the moment of printing.
+ *
  * WHAT §23 ASKS FOR THAT THIS TOOL CANNOT PRODUCE YET
  *
- * Warm-ups, records and qualifying standards, and each is a missing *source*
- * rather than missing work here:
+ * Records and qualifying standards, and both are a missing *source* rather than
+ * missing work here: they are ingested for other tools and nothing in the planner
+ * reads them. What the planner does hold is §8.3's targets, which are the
+ * lifter's own figures for the same questions, and those *are* printed.
  *
- * - A warm-up ramp needs the warm-up room's bar and plates. §20's warm-up screen
- *   now asks for them, but it asks *this device's* owner: the answers live in the
- *   session and on the coach board, so the one-lifter sheet below is printed by
- *   somebody who has them and §23.2's roster is printed by a handler who has one
- *   set of them for twelve people. Printing a ramp against an invented plate set
- *   puts weights on paper the room may not be able to load, which is the failure
- *   `findLoading` returns `null` to prevent. So the *ramp* is still omitted here;
- *   what §23.2 does print is the durable lead off each schedule
- *   ({@link HandlerPackLifter.warmupLead}), which needs no plates.
- * - Records and qualifying standards are ingested for other tools but nothing in
- *   the planner reads them. What the planner does hold is §8.3's targets, which
- *   are the lifter's own figures for the same questions, and those *are* printed.
- *
- * All three are declared in {@link MeetPack.omissions} rather than left out
- * silently. A sheet that is missing a section it was promised reads as a lost
- * page, and a lifter who thinks they have lost a page goes looking for it during
- * their warm-up.
+ * Both are declared in {@link MeetPack.omissions} rather than left out silently,
+ * and so is the ramp on the sheet that has no opener to count one back from. A
+ * sheet that is missing a section it was promised reads as a lost page, and a
+ * lifter who thinks they have lost a page goes looking for it during their
+ * warm-up.
  */
 import {
   applyMeetAction,
   attemptsOn,
   attemptWeightFor,
   findLifter,
+  isAdjustable,
   liftsInFormat,
   liveChoicesFor,
+  warmupLeadRange,
   type AttemptWeight,
   type ConversionChart,
   type LiveAttempt,
@@ -100,11 +118,16 @@ import {
   type MeetDocument,
   type MeetRules,
   type MeetTimeline,
+  type MeetWarmupAdvisoryCode,
+  type MeetWarmupSchedule,
   type RecordedResult,
+  type WarmupLeadRange,
+  type Weight,
   type WeightUnit,
 } from '@platform-toolkit/domain';
 import type { MeetFormat, PlatformLift } from '@platform-toolkit/data-contracts';
 
+import type { Equipment } from '../warm-up/equipment.js';
 import { type BoardRowConflict, type BoardView, type WarmupLead } from './board.js';
 import { liveTargetsFrom, seedLiveMeet } from './live-session.js';
 import { type AttemptView, type LiftPlanView, type PlannerView } from './plan.js';
@@ -118,6 +141,7 @@ import {
   type MeetPrep,
 } from './prep.js';
 import type { PlannerSession } from './session.js';
+import { buildMeetWarmup, scheduleOf, type WarmupStates } from './warmup.js';
 
 /*
  * ---------------------------------------------------------------------------
@@ -139,6 +163,18 @@ export interface PackRequest {
   readonly view: PlannerView;
   readonly prep: MeetPrep;
   readonly checklistContext: ChecklistContext;
+  /**
+   * §20's answers, per lift, as this device's owner gave them.
+   *
+   * The whole record rather than one lift's, because a sheet is printed once and
+   * carries every lift the meet contests -- the screen shows one at a time
+   * because a phone has room for one, which is not a constraint paper has.
+   *
+   * Never a roster's answers. See the module header: the ramp is printable here
+   * precisely because the person holding this sheet is the person who described
+   * the room.
+   */
+  readonly warmups: WarmupStates;
   /** As typed on the start control. May be blank; see the module header. */
   readonly lifterName: string;
   /** From `apps/web/src/clock.ts`. Stamped on the scratch actions and never printed. */
@@ -151,8 +187,77 @@ export interface PackRequest {
  * ---------------------------------------------------------------------------
  */
 
-/** A section §23 asks for that this tool has no source of truth for. */
+/** A section §23 asks for that this sheet has nothing to fill with. */
 export type PackOmissionCode = 'warm-up-ramp' | 'records' | 'qualifying-standards';
+
+/**
+ * The advisories about a ramp that are still true tomorrow.
+ *
+ * Three of the five. `behind-the-warm-up-timeline` is a statement about the
+ * clock at the instant the schedule was built -- printed, it tells a lifter they
+ * are late for a warm-up they have not started, on a sheet they picked up hours
+ * afterwards. `meet-staff-are-authoritative` is not dropped but promoted: §20.1
+ * forbids implying otherwise, so the block prints it once as a line of its own
+ * rather than as one bullet among several, the same arrangement §20's screen
+ * uses.
+ *
+ * A tuple with `satisfies` rather than a filter over a list of exclusions, so
+ * that a sixth advisory added to the domain is a decision somebody has to make
+ * here rather than a bullet that silently never appears -- or worse, one that
+ * silently does.
+ */
+export const PACK_WARMUP_ADVISORIES = [
+  'sharing-a-rack',
+  'equipment-prep-does-not-fit-the-lead',
+  'the-ramp-was-shortened',
+] as const satisfies readonly MeetWarmupAdvisoryCode[];
+
+export type PackWarmupAdvisoryCode = (typeof PACK_WARMUP_ADVISORIES)[number];
+
+/** One rung of the printed ramp. */
+export interface PackWarmupSet {
+  /**
+   * Tool 2's numbering, which counts only the sets a lifter can put a weight on.
+   *
+   * `null` for the bar-only sets, which are numbered in neither tool. Decided
+   * here rather than in the element for the reason everything else on this sheet
+   * is: `ptk-meet-pack` computes nothing, and an ordinal computed at render time
+   * is one more thing that can disagree with the screen it was printed from.
+   */
+  readonly ordinal: number | null;
+  /**
+   * The total on the bar, in the *room's* plate unit.
+   *
+   * Not the unit the meet is scored in, and the two are routinely different: a
+   * lifter plans in kilograms and warms up on whatever bar the venue put in the
+   * back room. Printing this in the document's unit sends them hunting for a
+   * plate nobody painted.
+   */
+  readonly weight: Weight;
+  readonly reps: number;
+  /** How many times this identical set is taken. Only the empty bar exceeds one. */
+  readonly count: number;
+}
+
+/** §23.1's warm-up ramp for one lift, as it survives being printed. */
+export interface PackWarmup {
+  readonly lift: PlatformLift;
+  /**
+   * The room the ramp was counted for, carried so the sheet can state it.
+   *
+   * The equipment itself rather than a sentence about it, because the wording
+   * lives in `copy.ts` and tool 2 already has one (`describeEquipment`). It is on
+   * the sheet at all because a printed ramp is a set of weights whose whole
+   * validity rests on an assumption about a room the lifter may not have looked
+   * in yet -- an unstated assumption on paper is a wrong weight nobody can trace.
+   */
+  readonly room: Equipment;
+  /** Lightest first, ending with the last warm-up before the platform. */
+  readonly sets: readonly PackWarmupSet[];
+  /** How long before the bar the ramp starts: the one timing figure paper keeps. */
+  readonly lead: WarmupLeadRange;
+  readonly advisories: readonly PackWarmupAdvisoryCode[];
+}
 
 /** The top of the sheet: which meet, under which rules, read on which day. */
 export interface PackHeading {
@@ -282,6 +387,13 @@ export interface MeetPack {
   readonly otherSetup: readonly PackSetupFact[];
   readonly lifts: readonly PackLift[];
   readonly plannedTotalKilograms: number | null;
+  /**
+   * §20's ramp per lift, for the lifts that have an opener to count back from.
+   *
+   * Empty is a real state and the common one the night before, which is why
+   * `'warm-up-ramp'` is in {@link MeetPack.omissions} exactly when this is empty.
+   */
+  readonly warmups: readonly PackWarmup[];
   readonly targets: readonly PackTarget[];
   readonly checklist: readonly ChecklistRow[];
   readonly checklistProgress: ChecklistProgress;
@@ -313,6 +425,7 @@ export const EMPTY_PACK: MeetPack = {
   otherSetup: [],
   lifts: [],
   plannedTotalKilograms: null,
+  warmups: [],
   targets: [],
   checklist: [],
   checklistProgress: { total: 0, done: 0, remaining: 0 },
@@ -540,6 +653,82 @@ function contingenciesFor(
 
 /*
  * ---------------------------------------------------------------------------
+ * §20's ramp, from §20.
+ * ---------------------------------------------------------------------------
+ */
+
+/** The durable codes as a widened list, so `includes` narrows a domain code. */
+const DURABLE_WARMUP_ADVISORIES: readonly MeetWarmupAdvisoryCode[] = PACK_WARMUP_ADVISORIES;
+
+/**
+ * The rungs, numbered the way tool 2 and §20's screen number them.
+ *
+ * A running counter rather than a slice-and-filter per set: the same answer, and
+ * the ordinal is what a lifter reads out loud at a rack, so it has to be the
+ * *same* number the screen showed them an hour earlier.
+ */
+function warmupSetsOf(schedule: MeetWarmupSchedule): readonly PackWarmupSet[] {
+  const unit = schedule.plan.setup.plateUnit;
+  let ordinal = 0;
+  return schedule.plan.warmups.map((set) => {
+    const adjustable = isAdjustable(set);
+    if (adjustable) ordinal += 1;
+    return {
+      ordinal: adjustable ? ordinal : null,
+      weight: { amount: set.loading.total, unit },
+      reps: set.reps,
+      count: set.count,
+    };
+  });
+}
+
+/**
+ * One ramp per lift the plan has an opener for.
+ *
+ * The opener comes off the `PlannerView` and not off the session, for the reason
+ * §20's fold reads it there: the figure on the view has been rounded onto the
+ * federation's grid and clamped, so a ramp counted back from the typed one would
+ * end at a weight that is not the one printed three sections above it.
+ *
+ * A lift whose ramp `buildMeetWarmup` refuses is dropped rather than printed as a
+ * problem. The refusals are all "there is no opener yet" in different words
+ * (`warmup.ts`), and the sheet already says that in one place -- the omission
+ * line -- rather than once per lift.
+ */
+function warmupsFor(request: PackRequest): readonly PackWarmup[] {
+  const warmups: PackWarmup[] = [];
+  for (const plan of request.view.lifts) {
+    const opener = plan.attempts[0]?.weight.kilograms;
+    if (opener === undefined) continue;
+    const state = request.warmups[plan.lift];
+    const schedule = scheduleOf(
+      buildMeetWarmup(
+        state,
+        {
+          lift: plan.lift,
+          opener: { amount: opener, unit: 'kg' },
+          attemptsPerLift: request.rules.profile.attemptsPerLift,
+        },
+        request.session.setup.format,
+        request.at,
+      ),
+    );
+    if (schedule === null) continue;
+    warmups.push({
+      lift: plan.lift,
+      room: state.room,
+      sets: warmupSetsOf(schedule),
+      lead: warmupLeadRange(schedule),
+      advisories: schedule.advisories
+        .map((advisory) => advisory.code)
+        .filter((code): code is PackWarmupAdvisoryCode => DURABLE_WARMUP_ADVISORIES.includes(code)),
+    });
+  }
+  return warmups;
+}
+
+/*
+ * ---------------------------------------------------------------------------
  * Building it.
  * ---------------------------------------------------------------------------
  */
@@ -575,6 +764,7 @@ export function buildMeetPack(request: PackRequest): MeetPack {
   }));
 
   const checklist = checklistFor(prep, request.checklistContext);
+  const warmups = warmupsFor(request);
 
   return {
     heading: {
@@ -590,6 +780,7 @@ export function buildMeetPack(request: PackRequest): MeetPack {
     otherSetup: setupFactsFor(prep.setup, OTHER_SETUP_FIELDS, false),
     lifts,
     plannedTotalKilograms: view.plannedTotalKilograms,
+    warmups,
     targets: targets.map((target) => ({
       kind: target.kind,
       measure: target.measure,
@@ -600,7 +791,15 @@ export function buildMeetPack(request: PackRequest): MeetPack {
     checklist,
     checklistProgress: checklistProgress(checklist),
     notes: prep.notes,
-    omissions: ['warm-up-ramp', 'records', 'qualifying-standards'],
+    // The ramp is declared missing only when there is none, which is a plan with
+    // no opener on any lift. The other two are missing from every pack this tool
+    // builds, and a list assembled by concatenation rather than by a filter over
+    // a constant keeps that difference visible in the source.
+    omissions: [
+      ...(warmups.length === 0 ? (['warm-up-ramp'] as const) : []),
+      'records',
+      'qualifying-standards',
+    ],
   };
 }
 

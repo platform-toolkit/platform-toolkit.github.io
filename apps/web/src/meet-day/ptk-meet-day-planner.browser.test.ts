@@ -2958,6 +2958,40 @@ describe('ptk-meet-day-planner', () => {
       expect(innerValue(setBox(reopened, rung))).toBe('62.5');
     });
 
+    /**
+     * §23.1's rungs, read out of the sheet rather than off the whole element.
+     *
+     * The fold's timeline and the sheet's ramp are two renderings of the same
+     * answers by two different elements, so a whole-element read is satisfied
+     * by the fold sitting three sections above it -- §13.9's `.pounds` lesson,
+     * on a screen that now draws the same ramp twice.
+     */
+    function sheetRungs(element: PtkMeetDayPlanner): number {
+      const sheet = element.shadowRoot?.querySelector('ptk-meet-pack');
+      if (sheet === null || sheet === undefined) throw new Error('No printable sheet on screen.');
+      return sheet.shadowRoot?.querySelectorAll('li.rung').length ?? 0;
+    }
+
+    it("counts §23.1's printed ramp off the answers given on this screen", async () => {
+      // The only observable the `warmups` argument to `buildMeetPack` has
+      // anywhere. `pack.test.ts` and the sheet's own browser tests each build a
+      // `PackRequest` by hand, so a planner handing the builder nobody's answers
+      // still prints a wholly plausible sheet -- default room, default rest, no
+      // advisories -- and passes every assertion in both files. §13.19's M9,
+      // arriving on the field it was written about.
+      const element = await openWarmup(await planned());
+      const before = sheetRungs(element);
+
+      // A preference rather than a per-set weight, because a preference fans out
+      // to every lift (`withWarmupFor`): all three ramps shorten at once, so a
+      // sheet that read one lift's answers onto all three cannot pass this by
+      // reading the wrong lift.
+      await typeDeep(element, 'maximumSets', '2');
+
+      expect(before).toBeGreaterThan(3);
+      expect(sheetRungs(element)).toBeLessThan(before);
+    });
+
     it('has no accessibility violations with the fold open', async () => {
       const element = await openWarmup(await planned());
       const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });

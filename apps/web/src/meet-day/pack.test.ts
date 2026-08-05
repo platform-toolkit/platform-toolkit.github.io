@@ -50,7 +50,7 @@ import {
 } from './board-fixture.js';
 import { liveTargetsFrom } from './live-session.js';
 import { rulesFor } from './meet-rules.fixture.js';
-import { PACK_AT as AT, handlerPackOf, packOf, planned } from './pack-fixture.js';
+import { PACK_AT as AT, answeredWarmups, handlerPackOf, packOf, planned } from './pack-fixture.js';
 import {
   EMPTY_HANDLER_PACK,
   EMPTY_PACK,
@@ -58,16 +58,30 @@ import {
   buildHandlerPack,
   type MeetPack,
   type PackContingency,
+  type PackWarmup,
 } from './pack.js';
 import { CHARTED_CONTEXT, PLAN_CONTEXT } from './planner-fixture.js';
 import { buildPlan } from './plan.js';
 import { EMPTY_PREP, withLifterSetup, withPrepNotes } from './prep.js';
 import { EMPTY_SESSION, confirmMaximum, withFigures, withTargets } from './session.js';
+import { buildMeetWarmup, scheduleOf } from './warmup.js';
 
 function liftIn(pack: MeetPack, lift: PlatformLift) {
   const found = pack.lifts.find((candidate) => candidate.lift === lift);
   if (found === undefined) throw new Error(`the pack has no ${lift}`);
   return found;
+}
+
+/**
+ * The heaviest rung on a ramp, which is the one nearest the opener.
+ *
+ * Throws rather than answering zero for a ramp that is not there: "the top rung
+ * did not move" and "there is no ramp" are the same number otherwise, and the
+ * second is what a builder that stopped working looks like.
+ */
+function topRungOf(warmup: PackWarmup | undefined): number {
+  if (warmup === undefined || warmup.sets.length === 0) throw new Error('no ramp was built');
+  return Math.max(...warmup.sets.map((set) => set.weight.amount));
 }
 
 function rowFor(
@@ -356,8 +370,132 @@ describe('buildMeetPack', () => {
     expect(total?.label).not.toBe('');
   });
 
-  it('declares the warm-up ramp and the record sections missing rather than omitting them silently', () => {
-    expect(packOf(planned()).omissions).toEqual([
+  /*
+   * ---------------------------------------------------------------------------
+   * §23.1's warm-up ramp.
+   * ---------------------------------------------------------------------------
+   */
+
+  it('counts a ramp back from every opener the plan agreed on', () => {
+    const pack = packOf(planned());
+
+    expect(pack.warmups.map((warmup) => warmup.lift)).toEqual(['squat', 'bench', 'deadlift']);
+    for (const warmup of pack.warmups) {
+      const opener = liftIn(pack, warmup.lift).attempts[0]?.weight.kilograms;
+      expect(opener).toBeGreaterThan(0);
+      expect(warmup.sets.length).toBeGreaterThan(1);
+      // Every rung under the opener, and the ramp rising towards it. Stated as a
+      // shape rather than as six figures: the weights are `planWarmup`'s and it
+      // has its own suite, so a copy of them here could not fail independently.
+      const weights = warmup.sets.map((set) => set.weight.amount);
+      expect(Math.max(...weights)).toBeLessThan(opener ?? 0);
+      expect([...weights].sort((left, right) => left - right)).toEqual(weights);
+    }
+  });
+
+  /*
+   * The control the shape assertion above cannot carry: a ramp that ignored the
+   * opener and printed a constant would satisfy every line of it.
+   */
+  it('moves the whole ramp when the opener does', () => {
+    const lighter = packOf(planned('140')).warmups[0];
+    const heavier = packOf(planned('240')).warmups[0];
+
+    expect(lighter?.lift).toBe('squat');
+    expect(heavier?.lift).toBe('squat');
+    expect(topRungOf(lighter)).toBeLessThan(topRungOf(heavier));
+  });
+
+  /*
+   * The claim the whole of §23.1's ramp block rests on. Everything else a
+   * `MeetWarmupSchedule` carries is seconds-from-build, so a sheet holding one
+   * would be wrong by however long the paper sat in a gym bag -- and wrong in the
+   * direction that tells a lifter they have time they do not have. Asserted as
+   * two packs built an hour apart being identical rather than as the absence of a
+   * field, because a field added later would pass an absence test written today.
+   */
+  it('prints nothing that ages, so two sheets built an hour apart read alike', () => {
+    const early = packOf(planned(), { at: AT });
+    const late = packOf(planned(), { at: AT + 3_600_000 });
+
+    expect(late.warmups).toEqual(early.warmups);
+  });
+
+  /*
+   * §20's room is not the meet's. A lifter warming up on pound plates still
+   * competes in kilograms, so the rungs and the attempts above them are in
+   * different units on the same sheet -- which reads as a bug unless the room is
+   * printed beside them, and is one if the rungs are quietly converted.
+   */
+  it('gives each ramp the plate unit of the room it was counted for', () => {
+    const pack = packOf(planned(), { warmups: answeredWarmups() });
+
+    const squat = pack.warmups.find((warmup) => warmup.lift === 'squat');
+    const bench = pack.warmups.find((warmup) => warmup.lift === 'bench');
+    expect(squat?.sets.every((set) => set.weight.unit === 'kg')).toBe(true);
+    expect(bench?.sets.every((set) => set.weight.unit === 'lb')).toBe(true);
+    expect(bench?.room.plateUnit).toBe('lb');
+    expect(squat?.room.plateUnit).toBe('kg');
+  });
+
+  /*
+   * The ordinal is what ties a printed rung to the row the lifter moved in §20's
+   * adjust fold, and tool 2 numbers only the sets that can be moved. Both halves
+   * are asserted, because a numbering that counted the bar as one would be off by
+   * exactly one for the whole ramp -- which looks right until somebody compares
+   * the paper with the phone.
+   */
+  it('numbers only the rungs a lifter can move', () => {
+    const warmup = packOf(planned()).warmups[0];
+    if (warmup === undefined) throw new Error('the fixture built no squat ramp');
+
+    const bars = warmup.sets.filter((set) => set.ordinal === null);
+    const numbered = warmup.sets.filter((set) => set.ordinal !== null);
+    expect(bars.length).toBeGreaterThan(0);
+    expect(numbered.map((set) => set.ordinal)).toEqual(numbered.map((_set, index) => index + 1));
+    // Only the empty bar is ever taken more than once, which is what lets the
+    // sheet spell the repeat out rather than print a times sign.
+    expect(numbered.every((set) => set.count === 1)).toBe(true);
+  });
+
+  /*
+   * Two of the domain's five advisory codes are about *now* -- one says the ramp
+   * is behind the timeline this second, the other is the standing reminder that
+   * meet staff are authoritative, which every screen already prints. Neither
+   * belongs on paper. The control is the schedule itself: it carries the standing
+   * one on every answer (§13.3), so an unfiltered sheet would print it.
+   */
+  it('keeps only the advisories still true tomorrow', () => {
+    const states = answeredWarmups();
+    const opener = liftIn(packOf(planned()), 'squat').attempts[0]?.weight.kilograms;
+    if (opener === undefined) throw new Error('the fixture planned no squat opener');
+    const schedule = scheduleOf(
+      buildMeetWarmup(
+        states.squat,
+        { lift: 'squat', opener: { amount: opener, unit: 'kg' }, attemptsPerLift: 3 },
+        'full-power',
+        AT,
+      ),
+    );
+    expect(schedule?.advisories.map((advisory) => advisory.code)).toContain(
+      'meet-staff-are-authoritative',
+    );
+
+    const printed = packOf(planned(), { warmups: states }).warmups.find(
+      (warmup) => warmup.lift === 'squat',
+    );
+
+    expect(printed?.advisories).toContain('sharing-a-rack');
+    expect(printed?.advisories).not.toContain('meet-staff-are-authoritative');
+    expect(printed?.advisories).not.toContain('behind-the-warm-up-timeline');
+  });
+
+  it('declares the ramp missing only when there is no opener to count back from', () => {
+    // The two record sections are missing from every sheet this tool builds; the
+    // ramp is the one of the three that comes and goes, so it needs both states.
+    expect(packOf(planned()).omissions).toEqual(['records', 'qualifying-standards']);
+    expect(packOf(EMPTY_SESSION).warmups).toEqual([]);
+    expect(packOf(EMPTY_SESSION).omissions).toEqual([
       'warm-up-ramp',
       'records',
       'qualifying-standards',

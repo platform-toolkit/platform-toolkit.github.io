@@ -37,6 +37,15 @@
  * planning screen, which is a stronger guarantee than a button -- there is no
  * state in which Print yields a blank page.
  *
+ * WHY THE RAMP IS THE ONE SECTION WITH A TIME ON IT
+ *
+ * §23.1's warm-up block prints a lead ("start 12-14 minutes before you are
+ * called") and nothing else about when. Every other figure a `MeetWarmupSchedule`
+ * carries counts from the instant it was built, so it is wrong by the time the
+ * paper is folded in a gym bag; a lead is a duration relative to the call and
+ * survives being written down. `pack.ts`'s header says which figures were dropped
+ * on the way here and why. Nothing in this file computes either kind.
+ *
  * WHY IT IS WHITE-ON-BLACK NOWHERE
  *
  * The screen half honours the theme like everything else. The print half forces
@@ -60,6 +69,7 @@ import {
   PACK_SETUP_BLANK_NOTE,
   PACK_SETUP_HEADING,
   PACK_TARGETS_HEADING,
+  PACK_WARMUP_HEADING,
   SETUP_LABELS,
   attemptKilogramsText,
   attemptLabel,
@@ -76,6 +86,12 @@ import {
   packSlotHeading,
   packSubtotalText,
   packTitle,
+  packWarmupAdvisorySentence,
+  packWarmupLeadText,
+  packWarmupLiftHeading,
+  packWarmupRoomText,
+  packWarmupSetLabel,
+  packWarmupSetText,
   triggerSentence,
 } from './copy.js';
 import {
@@ -86,6 +102,7 @@ import {
   type PackLift,
   type PackSetupFact,
   type PackTarget,
+  type PackWarmup,
 } from './pack.js';
 import type { ChecklistRow } from './prep.js';
 
@@ -171,7 +188,8 @@ export class PtkMeetPack extends LitElement {
 
     .attempt,
     .branch,
-    .row {
+    .row,
+    .rung {
       display: flex;
       flex-wrap: wrap;
       gap: var(--ptk-space-xs) var(--ptk-space-sm);
@@ -180,6 +198,29 @@ export class PtkMeetPack extends LitElement {
 
     .weight {
       font-weight: 600;
+    }
+
+    /*
+     * A rung carries "25 kg, 5 reps" rather than a bare figure, so it is not a
+     * weight -- both because bolding a whole phrase emphasises nothing, and
+     * because a §16 assertion selecting .weight would start reading a warm-up
+     * weight instead of an attempt. That class has now collided in four places
+     * in this directory; the note in this tool's CLAUDE.md says to assume a bare
+     * class is taken.
+     */
+    .rung .load {
+      font-weight: 600;
+    }
+
+    /*
+     * Wide enough that six rungs' weights line up under one another, and no
+     * wider. The span carries the muted class rather than a colour of its own,
+     * so that the print block's existing muted rule reaches it -- a second muted
+     * colour declared here would print grey on paper and nothing would catch it,
+     * because getComputedStyle in a test is always reading the screen half.
+     */
+    .rung .name {
+      min-width: 6.5em;
     }
 
     .contingency {
@@ -281,8 +322,8 @@ export class PtkMeetPack extends LitElement {
           </p>
         </header>
         ${this.#renderSetup()} ${this.#renderSchedule()} ${this.#renderAttempts()}
-        ${this.#renderTargets()} ${this.#renderChecklist()} ${this.#renderNotes()}
-        ${this.#renderOmissions()}
+        ${this.#renderWarmup()} ${this.#renderTargets()} ${this.#renderChecklist()}
+        ${this.#renderNotes()} ${this.#renderOmissions()}
       </article>
     `;
   }
@@ -400,6 +441,62 @@ export class PtkMeetPack extends LitElement {
           ${row.branches.map((branch) => html`<li class="branch">${renderBranch(branch)}</li>`)}
         </ul>
       </div>
+    `;
+  }
+
+  /*
+   * Below the attempts and above the targets, which is the order the day
+   * happens in rather than the order §23 lists its sections. A ramp is counted
+   * back from an opener, so it is unreadable before the opener it belongs to has
+   * been seen -- and it is over before the first target on the sheet is in
+   * reach. Dropped entirely when `pack.ts` produced none, in which case the
+   * omissions section at the foot says so in a sentence.
+   */
+  #renderWarmup(): TemplateResult | typeof nothing {
+    if (this.pack.warmups.length === 0) return nothing;
+    return html`
+      <section class="ramp">
+        <h4>${PACK_WARMUP_HEADING}</h4>
+        ${this.pack.warmups.map((warmup) => this.#renderLiftWarmup(warmup))}
+      </section>
+    `;
+  }
+
+  /*
+   * The lead is printed above the rungs and not below them, against the reading
+   * order of the ramp itself. It is the only thing on the block that is about
+   * *when*, and a lifter checking this section between flights is checking
+   * whether it is time yet -- putting it under six rungs is putting it under the
+   * part they already know.
+   */
+  #renderLiftWarmup(warmup: PackWarmup): TemplateResult {
+    return html`
+      <section class="lift-ramp">
+        <h5>${packWarmupLiftHeading(warmup.lift)}</h5>
+        <p class="lead">
+          ${packWarmupLeadText(warmup.lead.minimumSeconds, warmup.lead.maximumSeconds)}
+        </p>
+        <ol>
+          ${warmup.sets.map(
+            (set) => html`
+              <li class="rung">
+                <span class="name muted">${packWarmupSetLabel(set.ordinal)}</span>
+                <span class="load">${packWarmupSetText(set)}</span>
+              </li>
+            `,
+          )}
+        </ol>
+        <p class="muted room">${packWarmupRoomText(warmup.room)}</p>
+        ${
+          warmup.advisories.length === 0
+            ? nothing
+            : html`<ul class="advisories">
+                ${warmup.advisories.map(
+                  (code) => html`<li class="muted">${packWarmupAdvisorySentence(code)}</li>`,
+                )}
+              </ul>`
+        }
+      </section>
     `;
   }
 
