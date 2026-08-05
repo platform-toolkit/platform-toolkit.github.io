@@ -42,6 +42,10 @@
       "@platform-toolkit/qualification-check/element": [
         "./packages/qualification-check/src/element/index.ts"
       ],
+      "@platform-toolkit/training-logbook": ["./packages/training-logbook/src/index.ts"],
+      "@platform-toolkit/training-logbook/element": [
+        "./packages/training-logbook/src/element/index.ts"
+      ],
       "@platform-toolkit/ui": ["./packages/ui/src/index.ts"]
     }
   },

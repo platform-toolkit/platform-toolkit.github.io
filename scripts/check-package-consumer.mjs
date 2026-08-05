@@ -71,20 +71,30 @@ const PACKAGES_ROOT = join(REPOSITORY_ROOT, 'packages');
 const SCRATCH_ROOT = join(homedir(), '.ptk-pack-check');
 
 /**
- * The packages a third party is meant to be able to install.
+ * The packages a third party is meant to be able to install, each with the source
+ * that consumes it.
  *
- * One entry today. Section 15 makes every tool a package eventually (#76), and each
- * one joins this list as it lands -- the dependency closure is worked out from the
- * manifests, so a tool that pulls in a new workspace package needs no edit here.
- */
-const CONSUMABLE = ['@platform-toolkit/qualification-check'];
-
-/**
- * The consumer source. Deliberately uses a value from every entry point rather than
+ * Section 15 makes every tool a package eventually (#76), and each one joins this
+ * list as it lands -- the dependency closure is worked out from the manifests, so a
+ * tool that pulls in a new workspace package needs no edit here.
+ *
+ * The two sources belong to the entry rather than to the file, because a shared one
+ * could only import what every package happens to have in common, and what they have
+ * in common is nothing: the entry points differ per tool, and the entry points are
+ * the thing under test. `consumer` is type-checked and never run; `smoke` is run and
+ * must therefore stay clear of anything that needs a DOM.
+ *
+ * Each `consumer` deliberately uses a *value* from every entry point rather than
  * importing for side effects: an `import` with no binding can be elided by the
  * compiler, and an elided import proves nothing about whether the file exists.
+ *
+ * @type {readonly { name: string, slug: string, consumer: string, smoke: string }[]}
  */
-const CONSUMER_SOURCE = `import {
+const CONSUMABLE = [
+  {
+    name: '@platform-toolkit/qualification-check',
+    slug: 'qualification-check',
+    consumer: `import {
   ATHLETE_SEARCH_EVENT,
   PROFILE_IMPORT_TAG,
   QUALIFICATION_CHECK_TAG,
@@ -128,19 +138,101 @@ export function consume(): string {
     reading.ok,
   ].join(' ');
 }
-`;
-
-/**
- * The runtime smoke. Core only, and it asserts rather than prints, so a module that
- * resolves but exports nothing useful still fails.
- */
-const SMOKE_SOURCE = `import { emptyTypedResult, mayPreselect } from '@platform-toolkit/qualification-check/core';
+`,
+    // The runtime smoke. Core only, and it asserts rather than prints, so a module
+    // that resolves but exports nothing useful still fails.
+    smoke: `import { emptyTypedResult, mayPreselect } from '@platform-toolkit/qualification-check/core';
 
 const form = emptyTypedResult();
 if (typeof form !== 'object' || form === null) throw new Error('emptyTypedResult returned nothing');
 if (mayPreselect('measured') !== true) throw new Error('mayPreselect disagrees with its own rule');
 if (mayPreselect('spelled') !== false) throw new Error('mayPreselect disagrees with its own rule');
-`;
+`,
+  },
+  {
+    name: '@platform-toolkit/training-logbook',
+    slug: 'training-logbook',
+    consumer: `import {
+  TRAINING_LOGBOOK_TAG,
+  WORKOUT_STARTED_EVENT,
+  defineTrainingLogbook,
+  type SaveState,
+  type WorkoutEventDetail,
+} from '@platform-toolkit/training-logbook/element';
+import {
+  createWorkout,
+  emptyPerformance,
+  workoutProgress,
+} from '@platform-toolkit/training-logbook/core';
+import {
+  createRepository,
+  memoryLogbookStore,
+  type TrainingLogbookRepository,
+} from '@platform-toolkit/training-logbook/storage';
+import { SCHEMA_VERSION } from '@platform-toolkit/training-logbook';
+import type { WorkoutSession } from '@platform-toolkit/training-logbook/types';
+
+export function consumeTrainingLogbook(): string {
+  // Annotated on purpose: an inferred type would still compile if the shipped
+  // \`./types\` entry point resolved to nothing, and \`WorkoutSession\` is what a
+  // consumer reading a backup file off disk has to name. It is exported from there
+  // and, as a type, from the root -- but not from \`./core\`, which is the entry
+  // point such a consumer would otherwise reach for.
+  const workout: WorkoutSession = createWorkout(
+    { nextId: () => 'invented-id', at: '2026-01-01T09:00:00.000Z' },
+    { localDate: '2026-01-01', title: 'Invented session' },
+  );
+  const progress = workoutProgress(workout);
+  const blank = emptyPerformance();
+  const define: () => unknown = defineTrainingLogbook;
+  // The storage seam, annotated for the same reason. Section 15 puts storage behind
+  // an adapter the host supplies, so a host with its own database implements
+  // \`LogbookStore\` and gets this back -- and a build that shipped \`./storage\`
+  // without its declarations would leave that host casting, which is the one thing
+  // the seam exists to spare it.
+  const repository: TrainingLogbookRepository = createRepository(memoryLogbookStore(), {
+    now: () => '2026-01-01T09:00:00.000Z',
+    applicationVersion: 'invented',
+  });
+  const save: SaveState = repository.durable ? 'saved' : 'unavailable';
+  const started: WorkoutEventDetail = { workoutId: workout.id };
+  return [
+    TRAINING_LOGBOOK_TAG,
+    WORKOUT_STARTED_EVENT,
+    String(SCHEMA_VERSION),
+    workout.status,
+    String(progress.total),
+    blank.load.kind,
+    typeof define,
+    save,
+    started.workoutId,
+  ].join(' ');
+}
+`,
+    // Core and storage, because the in-memory adapter is the one a host with no
+    // IndexedDB is handed and it therefore has to work with no browser at all. That
+    // is also the assertion worth making here: if \`./storage\` ever drags the DOM in
+    // behind it, this is the only test in the repository that would notice.
+    smoke: `import { createWorkout, workoutProgress } from '@platform-toolkit/training-logbook/core';
+import { createRepository, memoryLogbookStore } from '@platform-toolkit/training-logbook/storage';
+
+const context = { nextId: () => 'invented-id', at: '2026-01-01T09:00:00.000Z' };
+const workout = createWorkout(context, { localDate: '2026-01-01' });
+if (workout.status !== 'draft') throw new Error('a new workout is not a draft');
+if (workoutProgress(workout).total !== 0) throw new Error('an empty workout counts sets');
+
+const repository = createRepository(memoryLogbookStore(), {
+  now: () => '2026-01-01T09:00:00.000Z',
+  applicationVersion: 'invented',
+});
+if (repository.durable) throw new Error('the memory store claims to keep things');
+await repository.saveActiveWorkout(workout);
+const reread = await repository.loadActiveWorkout();
+if (reread === null) throw new Error('the repository lost the workout it was handed');
+if (reread.id !== workout.id) throw new Error('the repository returned a different workout');
+`,
+  },
+];
 
 /**
  * A plain consumer's compiler settings, and every difference from
@@ -271,7 +363,7 @@ async function resolveClosure(workspace, failures) {
   /** @type {Map<string, string>} registry package name to the directory that wants it */
   const external = new Map();
 
-  const queue = [...CONSUMABLE];
+  const queue = CONSUMABLE.map((entry) => entry.name);
   while (queue.length > 0) {
     const name = queue.shift();
     if (name === undefined || packed.has(name)) continue;
@@ -384,8 +476,15 @@ async function assemble(consumer, packed, external) {
     `${JSON.stringify(CONSUMER_TSCONFIG, null, 2)}\n`,
   );
   await mkdir(join(consumer, 'src'), { recursive: true });
-  await writeFile(join(consumer, 'src', 'consumer.ts'), CONSUMER_SOURCE);
-  await writeFile(join(consumer, 'src', 'smoke.mjs'), SMOKE_SOURCE);
+  // One file per package rather than one file importing everything. A single
+  // consumer would stop at the first package whose declarations do not compile, and
+  // the report would then name one tool and stay silent about the rest -- which is
+  // the wrong shape for a check that gains an entry per tool. `tsc` compiles the
+  // whole `src` directory in one pass either way.
+  for (const entry of CONSUMABLE) {
+    await writeFile(join(consumer, 'src', `${entry.slug}.consumer.ts`), entry.consumer);
+    await writeFile(join(consumer, 'src', `${entry.slug}.smoke.mjs`), entry.smoke);
+  }
 }
 
 /**
@@ -410,7 +509,7 @@ function run(what, command, args, cwd, failures) {
 
 async function main() {
   const workspace = await readWorkspace();
-  for (const name of CONSUMABLE) {
+  for (const { name } of CONSUMABLE) {
     const directory = workspace.get(name);
     if (directory === undefined) {
       console.error(`No workspace package publishes ${name}.`);
@@ -446,13 +545,15 @@ async function main() {
     failures,
   );
 
-  run(
-    'the pure core does not run in Node from the tarball',
-    process.execPath,
-    [join('src', 'smoke.mjs')],
-    consumer,
-    failures,
-  );
+  for (const entry of CONSUMABLE) {
+    run(
+      `${entry.name}'s pure core does not run in Node from the tarball`,
+      process.execPath,
+      [join('src', `${entry.slug}.smoke.mjs`)],
+      consumer,
+      failures,
+    );
+  }
 
   if (failures.length > 0) {
     console.error(`Package-consumer check failed:\n  ${failures.join('\n  ')}`);

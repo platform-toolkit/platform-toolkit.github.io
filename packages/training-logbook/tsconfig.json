@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    // Same arrangement as `qualification-check`: the DOM libraries arrive with
+    // `src/element/` and `src/local-storage/`, not with the core. Nothing under
+    // `src/core/` may touch them (section 15), and the compiler is not what
+    // enforces that -- `core/index.ts` is the published boundary and a review of
+    // its imports is. What these buy is that a core file reaching for `window`
+    // or `indexedDB` fails at its own import rather than at whatever consumed it.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.fixture.ts", "src/**/*.stories.ts"],
+  "references": [{ "path": "../domain" }, { "path": "../ui" }]
+}

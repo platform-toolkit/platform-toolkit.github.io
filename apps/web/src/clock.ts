@@ -77,6 +77,33 @@
  */
 
 /**
+ * The reader's own calendar day, as `YYYY-MM-DD`.
+ *
+ * Built from the local fields and never from `toISOString`, which is §5.5's
+ * hazard read from the other side: an instant is a point on the globe and a
+ * calendar day is not. At ten at night in California `toISOString` already says
+ * tomorrow, so a lifter checking a deadline the evening before is told entry has
+ * closed, and a session logged that evening is filed under a day they did not
+ * train on. West of Greenwich the error is a day in one direction and east of it
+ * a day in the other.
+ *
+ * Here rather than in each tool's transport because this file is the only thing
+ * in the repository that reads the wall clock, and the local day is a wall-clock
+ * read. It was written out twice before this -- once per tool that needed it --
+ * and a rule this quiet is one that gets a third copy with `toISOString` in it.
+ *
+ * Not `PlainDate`: that models a date somebody stated, with a parser that can
+ * refuse. This is the device's answer to "what day is it here", which cannot
+ * fail and has nothing to validate.
+ */
+export function localCalendarDay(now: number): string {
+  const when = new Date(now);
+  const month = String(when.getMonth() + 1).padStart(2, '0');
+  const day = String(when.getDate()).padStart(2, '0');
+  return `${String(when.getFullYear())}-${month}-${day}`;
+}
+
+/**
  * A source of the current instant that also says when to look again.
  *
  * Two methods rather than an event target: everything a screen needs is "what

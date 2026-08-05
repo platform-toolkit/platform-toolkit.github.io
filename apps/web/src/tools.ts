@@ -72,4 +72,17 @@ export const TOOLS: readonly Tool[] = [
       'What your results say about the meets you could enter, and every question the entry form will ask that an archive cannot answer.',
     embedPath: 'qualify/embed/uspa/',
   },
+  {
+    id: 'logbook',
+    name: 'Training Logbook',
+    summary:
+      // "On this device" is the whole promise and it belongs in the first
+      // sentence anybody reads about the tool. Every other tool on this hub
+      // answers a question and forgets it; this one is asked to keep something,
+      // and a lifter deciding whether to trust it with a training year needs to
+      // know where it goes before they tap. It is also the honest limit -- there
+      // is no account and no sync, and the backup is how training moves.
+      'Plan a session, tick off each set as you finish it, and keep the record on this device.',
+    embedPath: 'logbook/embed/',
+  },
 ];

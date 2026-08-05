@@ -173,6 +173,18 @@ export const LIFTS: readonly LiftDefinition[] = [
     primary: false,
     ...THREE_BY_FIVE,
   },
+  // A squat with a different bar on the back, which is an equipment fact and not
+  // a warm-up one -- the ramp is a squat's, and the bar's own weight comes from
+  // the lifter's equipment profile, where a safety bar is heavier than the 20 kg
+  // the default assumes.
+  {
+    id: 'safety-bar-squat',
+    name: 'Safety-Bar Squat',
+    group: 'squat-variants',
+    family: 'squat-press',
+    primary: false,
+    ...THREE_BY_FIVE,
+  },
 
   {
     id: 'close-grip-bench-press',
@@ -193,6 +205,14 @@ export const LIFTS: readonly LiftDefinition[] = [
   {
     id: 'incline-bench-press',
     name: 'Incline Bench Press',
+    group: 'press-variants',
+    family: 'squat-press',
+    primary: false,
+    ...THREE_BY_FIVE,
+  },
+  {
+    id: 'pause-bench-press',
+    name: 'Pause Bench Press',
     group: 'press-variants',
     family: 'squat-press',
     primary: false,
@@ -250,6 +270,14 @@ export const LIFTS: readonly LiftDefinition[] = [
   {
     id: 'deficit-deadlift',
     name: 'Deficit Deadlift',
+    group: 'pull-variants',
+    family: 'deadlift',
+    primary: false,
+    ...THREE_BY_FIVE,
+  },
+  {
+    id: 'pause-deadlift',
+    name: 'Pause Deadlift',
     group: 'pull-variants',
     family: 'deadlift',
     primary: false,

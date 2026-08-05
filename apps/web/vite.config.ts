@@ -210,6 +210,32 @@ function readDataOrigin(raw: string | undefined): string | undefined {
   return parsed.origin;
 }
 
+/**
+ * What a file this site writes says it was written by.
+ *
+ * The training logbook stamps this into every backup it hands a lifter, and the
+ * question it has to answer is asked much later than the download: somebody
+ * opens a JSON file from eight months ago and wants to know which build produced
+ * it, usually because something in it does not read the way they expect.
+ *
+ * A version from `package.json` cannot answer that -- every package here is
+ * `0.0.0` and nothing bumps them, because the site is deployed rather than
+ * published. The commit is the only identifier that actually distinguishes two
+ * builds of this repository, it is public in a public repository, and it is the
+ * one thing that leads straight back to the code that wrote the file. Twelve
+ * hex characters rather than forty because that is what a person reads and
+ * types, and it is still specific enough to check out.
+ *
+ * `development` off CI, which is honest rather than a fallback: a file written
+ * by an unbuilt working tree names no commit, and the alternative -- reading git
+ * from the build -- would put a dirty tree's SHA in a file and claim the code
+ * that is committed under it wrote it.
+ */
+function readApplicationVersion(): string {
+  const sha = process.env['GITHUB_SHA'];
+  return sha === undefined || sha === '' ? 'development' : sha.slice(0, 12);
+}
+
 const dataOrigin = readDataOrigin(process.env['PTK_DATA_ORIGIN']);
 const dataBaseUrl = dataOrigin === undefined ? `${base}data/` : `${dataOrigin}/`;
 const CONTENT_SECURITY_POLICY = buildContentSecurityPolicy(
@@ -226,6 +252,7 @@ export default defineConfig({
   // the build. An explicit list cannot publish something nobody listed.
   define: {
     __PTK_DATA_BASE_URL__: JSON.stringify(dataBaseUrl),
+    __PTK_APPLICATION_VERSION__: JSON.stringify(readApplicationVersion()),
   },
   build: {
     target: 'es2022',
@@ -250,6 +277,8 @@ export default defineConfig({
         'meet-day-embed': here('meet-day/embed/index.html'),
         qualify: here('qualify/index.html'),
         'qualify-embed': here('qualify/embed/uspa/index.html'),
+        logbook: here('logbook/index.html'),
+        'logbook-embed': here('logbook/embed/index.html'),
       },
     },
   },

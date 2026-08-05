@@ -16,3 +16,12 @@
  * is also what widens `connect-src`.
  */
 declare const __PTK_DATA_BASE_URL__: string;
+
+/**
+ * Which build wrote a file this site produced.
+ *
+ * The short commit on CI, `development` anywhere else. Stamped into the training
+ * logbook's JSON backup, which is read months later by somebody who needs to
+ * know what made it.
+ */
+declare const __PTK_APPLICATION_VERSION__: string;

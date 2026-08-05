@@ -3,7 +3,7 @@
 
 import { DataSourceError, type DataSource } from '@platform-toolkit/data-access';
 import type { CategoryCatalog } from '@platform-toolkit/data-contracts';
-import type { CalendarDay, CatalogVocabulary } from '@platform-toolkit/qualification-check';
+import type { CatalogVocabulary } from '@platform-toolkit/qualification-check';
 import {
   ATHLETE_SEARCH_EVENT,
   QUALIFICATION_CHECK_TAG,
@@ -13,7 +13,7 @@ import {
   type StandardsNeededDetail,
 } from '@platform-toolkit/qualification-check/element';
 
-import { systemClock, type Clock } from '../clock.js';
+import { localCalendarDay, systemClock, type Clock } from '../clock.js';
 import { dataSource } from '../data-source.js';
 
 /** Identifier for this tool, and what it calls itself in a height message. */
@@ -334,7 +334,7 @@ async function lookUpAthletes(
  */
 function startToday(element: PtkQualificationCheck, clock: Clock): void {
   const refresh = (): void => {
-    element.today = localDayOf(clock.now());
+    element.today = localCalendarDay(clock.now());
   };
 
   refresh();
@@ -343,25 +343,6 @@ function startToday(element: PtkQualificationCheck, clock: Clock): void {
       refresh();
     }
   });
-}
-
-/**
- * The reader's own calendar day, as `YYYY-MM-DD`.
- *
- * Built from the local fields and never from `toISOString`, which is the same
- * hazard section 5.5 names from the other side: an instant is a point on the
- * globe and a calendar day is not. At ten at night in California `toISOString`
- * already says tomorrow, so a lifter checking a qualifier the evening before the
- * deadline would be told entry had closed. West of Greenwich the error is a day
- * in one direction and east of it a day in the other, and both of them land on
- * exactly the reader who is closest to the deadline and least able to absorb
- * being wrong about it.
- */
-function localDayOf(now: number): CalendarDay {
-  const when = new Date(now);
-  const month = String(when.getMonth() + 1).padStart(2, '0');
-  const day = String(when.getDate()).padStart(2, '0');
-  return `${String(when.getFullYear())}-${month}-${day}`;
 }
 
 /**

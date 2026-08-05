@@ -79,6 +79,8 @@ const PAGES = [
   { path: '/meet-day/embed/', installable: false },
   { path: '/qualify/', installable: true },
   { path: '/qualify/embed/uspa/', installable: false },
+  { path: '/logbook/', installable: true },
+  { path: '/logbook/embed/', installable: false },
 ];
 
 /**

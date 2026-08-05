@@ -1004,6 +1004,136 @@ const QUALIFY_CHOOSE_LAST = [
 const QUALIFY_SETTLE = ['ptk-standing-report li.lift', 'ptk-meet-reading p.meet-name'];
 
 /**
+ * Open the planner and put two lifts in it.
+ *
+ * Two, and specifically these two. One row measures a row; two measure the gap
+ * between them and the second heading, which is where a list stops being a card
+ * and starts being a layout. The overhead press is the longest primary name the
+ * catalogue holds and the squat is the shortest, so the pair also spans the
+ * widest and narrowest heading the screen can draw.
+ *
+ * Named by `data-exercise` rather than pressed by position, which reads like a
+ * violation of the rule the `choose` steps follow and is not one. That rule is
+ * about **published data** -- a federation's weight classes and equipment
+ * categories arrive in an artifact and get renamed by their governing body, so
+ * naming one here would deliver a data refresh as a layout failure. These four
+ * ids are `LIFTS` in `packages/domain`, ordinary source in this repository:
+ * renaming one is a compile-visible edit somebody makes on purpose, and this
+ * check failing is the correct answer to it.
+ */
+const LOGBOOK_PLAN_CLICK = [
+  'ptk-training-logbook ptk-button[data-action="start-workout"] button',
+  'ptk-workout-builder ptk-button[data-exercise="squat"] button',
+  'ptk-workout-builder ptk-button[data-exercise="overhead-press"] button',
+];
+
+/**
+ * A title and a working weight for each lift.
+ *
+ * Sets and reps are left alone: the catalogue puts a default in both boxes, and
+ * typing over a number with another number of the same length measures nothing.
+ * The weight boxes start empty, so filling them is what makes the row render its
+ * third control at full width -- and 142.5 rather than 140 because a decimal is
+ * a character wider and this is a 320px column.
+ *
+ * Every figure is invented (§5.1), and the title is deliberately a long one: it
+ * is free text a lifter types, it is the widest single string on the planner, and
+ * it is the string that has to wrap rather than push the page sideways.
+ */
+const LOGBOOK_PLAN_FILL = [
+  {
+    selector: 'ptk-workout-builder [data-field="title"] input',
+    value: 'Invented Tuesday — heavy squat and press',
+  },
+  { selector: 'ptk-workout-builder li[data-row="0"] [data-field="weight"] input', value: '142.5' },
+  { selector: 'ptk-workout-builder li[data-row="1"] [data-field="weight"] input', value: '62.5' },
+];
+
+/**
+ * The weight box just typed into, which is the one input on the planner a `fill`
+ * has put a value in.
+ *
+ * `settled()` asks an input for a *value* and everything else merely for
+ * existence, so the row's sets box -- the obvious thing to wait for -- would sit
+ * here holding a default that arrived before the row was laid out, and the date
+ * field would wait out all hundred polls against a screen that rendered
+ * perfectly. Row 1 rather than row 0: the second tile's press is the one that
+ * proves both landed.
+ *
+ * The save line is named as well, and it is the slow half. It appears only when
+ * the repository has answered, which is an IndexedDB open and four reads -- so a
+ * planner measured without it is a planner measured one paint before a sentence
+ * arrives above it.
+ */
+const LOGBOOK_PLAN_SETTLE = [
+  'ptk-training-logbook p.save',
+  'ptk-workout-builder li[data-row="1"] [data-field="weight"] input',
+];
+
+/** Start the session the planner has just been given. */
+const LOGBOOK_START = ['ptk-workout-builder ptk-button[data-action="start"] button'];
+
+/**
+ * Tick the first set off, then open its editor.
+ *
+ * Both, because they are the two states a row has and the second is the taller
+ * one: a completed row grows an "edited" line, and the editor unfolds two number
+ * fields and a save button inside a list item that is already indented. That is
+ * the densest thing this tool draws in a phone column, and it is drawn *inside* a
+ * row rather than in a dialog, so it inherits every level of padding above it --
+ * which is exactly the nesting §5.7 says eats a 320px column at 200% text.
+ */
+const LOGBOOK_LOG_CLICK = [
+  'ptk-active-workout ptk-button[data-action="complete"] button',
+  'ptk-active-workout ptk-button[data-action="edit"] button',
+];
+
+/**
+ * The row that has been ticked off, and the editor open inside it.
+ *
+ * `li[data-set].done` carries the class only once the set is recorded, so it is
+ * the press being proven rather than the row existing. The save button exists
+ * only while the editor is open, and it is the last thing rendered in it -- so
+ * waiting for it waits for the whole fold.
+ *
+ * Not the editor's own number fields, tempting as they are: their values come
+ * from the performance being corrected, and a set completed at its planned
+ * weight with no weight typed leaves the box empty. `settled()` would then poll a
+ * hundred times against a perfectly rendered editor and report a layout failure.
+ */
+const LOGBOOK_LOG_SETTLE = [
+  'ptk-active-workout li[data-set].done',
+  'ptk-active-workout ptk-button[data-action="save-edit"] button',
+];
+
+/**
+ * Ask to finish, then answer the question that asking raises.
+ *
+ * Nothing has been ticked off on this route, so every set is outstanding and the
+ * panel draws its disposition question -- which is the state worth measuring, and
+ * the only one where the panel is more than two sentences and two buttons. The
+ * radio is pressed by position because there are exactly two, both from a closed
+ * union in this repository's own source.
+ */
+const LOGBOOK_FINISH_CLICK = [
+  'ptk-active-workout ptk-button[data-action="finish"] button',
+  'ptk-active-workout .finish ptk-choice-group input',
+];
+
+/**
+ * The confirm button with its disabled attribute gone.
+ *
+ * It is rendered from the first paint of the panel and starts disabled, so its
+ * mere existence proves only that the panel opened. Enabled proves the radio
+ * above it was answered -- and answering is also what draws the sentence
+ * explaining what the chosen disposition does to the sets nobody did, which is
+ * the tallest line in the panel and the reason this route exists.
+ */
+const LOGBOOK_FINISH_SETTLE = [
+  'ptk-active-workout .finish ptk-button[data-action="finish-confirm"] button:not([disabled])',
+];
+
+/**
  * The routes, and what has to happen before each is worth measuring.
  *
  * A path may appear more than once. Platform Targets shows one of two whole
@@ -1410,6 +1540,66 @@ const ROUTES = [
     clickAfter: QUALIFY_CLICK_AFTER,
     chooseLast: QUALIFY_CHOOSE_LAST,
     settle: QUALIFY_SETTLE,
+  },
+  {
+    path: '/logbook/',
+    label: '/logbook/ (home)',
+    // No steps at all, which is unusual here and is the point: this is the whole
+    // screen a returning lifter lands on, and everything on it -- the storage
+    // sentence, the history, the unit control, the backup fold -- is drawn before
+    // anything is pressed. The other three entries all walk away from it, so
+    // without this row the landing screen would be the one surface in the tool
+    // measured at no width at all.
+    click: [],
+    reveal: [],
+    fill: [],
+    // The storage line, which is the last thing to arrive and the only thing here
+    // that waits on anything: it is drawn from the repository, and the repository
+    // is an IndexedDB open away.
+    settle: ['ptk-training-logbook p.save'],
+  },
+  {
+    path: '/logbook/',
+    label: '/logbook/ (plan)',
+    click: LOGBOOK_PLAN_CLICK,
+    reveal: [],
+    fill: LOGBOOK_PLAN_FILL,
+    settle: LOGBOOK_PLAN_SETTLE,
+  },
+  {
+    path: '/logbook/',
+    label: '/logbook/ (logging)',
+    click: LOGBOOK_PLAN_CLICK,
+    reveal: [],
+    fill: LOGBOOK_PLAN_FILL,
+    clickAfter: LOGBOOK_START,
+    clickLast: LOGBOOK_LOG_CLICK,
+    settle: LOGBOOK_LOG_SETTLE,
+  },
+  {
+    path: '/logbook/',
+    label: '/logbook/ (finishing)',
+    click: LOGBOOK_PLAN_CLICK,
+    reveal: [],
+    fill: LOGBOOK_PLAN_FILL,
+    clickAfter: LOGBOOK_START,
+    clickLast: LOGBOOK_FINISH_CLICK,
+    settle: LOGBOOK_FINISH_SETTLE,
+  },
+  {
+    // One entry for the framed copy, the way meet-day gets one: the chrome around
+    // it differs by a header and the tool inside it does not, so a second and
+    // third framed screen would re-measure the same components at the same widths
+    // for the cost of ten more page loads. The logging screen is the one to keep
+    // -- it is the densest, and it is the screen a lifter is actually looking at
+    // while the tool is doing its job.
+    path: '/logbook/embed/',
+    click: LOGBOOK_PLAN_CLICK,
+    reveal: [],
+    fill: LOGBOOK_PLAN_FILL,
+    clickAfter: LOGBOOK_START,
+    clickLast: LOGBOOK_LOG_CLICK,
+    settle: LOGBOOK_LOG_SETTLE,
   },
 ];
 

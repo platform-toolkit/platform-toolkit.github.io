@@ -35,6 +35,7 @@ const workspaceSource = [
   'ingestion',
   'preferences',
   'qualification-check',
+  'training-logbook',
   'ui',
 ].map((name) => ({
   find: new RegExp(`^@platform-toolkit/${name}$`),
@@ -127,6 +128,42 @@ const projects: TestProjectInlineConfiguration[] = [
     test: {
       name: 'qualification-check-browser',
       root: './packages/qualification-check',
+      include: ['src/**/*.browser.test.ts'],
+      browser: {
+        enabled: true,
+        provider: playwright(),
+        instances: [{ browser: 'chromium' }],
+        headless: true,
+        screenshotFailures: false,
+      },
+    },
+  },
+  {
+    test: {
+      // Node, for the same section 15 reason as `qualification-check` above: the
+      // core of a tool holds no Lit, no DOM, no storage and no clock, and a bare
+      // Node run is what proves it. The in-memory repository is covered here too
+      // -- it is an ordinary object, not a browser feature.
+      name: 'training-logbook',
+      root: './packages/training-logbook',
+      environment: 'node',
+      include: ['src/**/*.test.ts'],
+      // The browser suite below matches the same glob, so it has to be excluded
+      // by name. Vitest replaces the default exclude list rather than adding to
+      // it, so the standard entries are repeated here.
+      exclude: ['**/node_modules/**', '**/dist/**', 'src/**/*.browser.test.ts'],
+    },
+  },
+  {
+    // The elements and the IndexedDB adapter, in a real browser. The adapter is
+    // the reason this project is not optional: a fake IndexedDB would answer
+    // questions with its own transaction semantics, and the two failures worth
+    // catching -- a transaction that commits before an awaited callback resolves,
+    // and a private-browsing context that refuses to open a database at all --
+    // are precisely the ones a fake gets wrong.
+    test: {
+      name: 'training-logbook-browser',
+      root: './packages/training-logbook',
       include: ['src/**/*.browser.test.ts'],
       browser: {
         enabled: true,

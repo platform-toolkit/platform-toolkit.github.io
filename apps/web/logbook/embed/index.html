@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" data-theme-mode="system">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Training Logbook (embedded)</title>
+    <!--
+      Embedding this route is intentional and unrestricted: any site may frame it.
+      No frame-ancestors directive and no X-Frame-Options are set anywhere.
+
+      Framing grants the parent page no access to anything inside. Theme is
+      accepted only through the documented query parameter and validated
+      postMessage payloads, and the only message sent outward is this frame's
+      height -- never a lift, a weight, a note, or anything else the visitor
+      typed. There is no message that could carry a workout and there must never
+      be one.
+
+      `?theme=light|dark` forces a theme for embedders whose page is not the same
+      colour as the visitor's operating system. Left off, the view follows
+      `prefers-color-scheme`; the visitor is never asked to choose twice.
+
+      No federation segment, unlike the Platform Targets embed: this tool applies
+      no federation's rules and reads no published data.
+
+      One thing is genuinely different in a frame, and the tool says so on screen
+      rather than in this comment: a browser may give a third-party frame storage
+      that is partitioned per embedding site, or refuse it entirely. Where it is
+      partitioned, training logged here belongs to this host page and is not the
+      training a lifter sees at /logbook/; where it is refused, nothing outlives
+      the tab. The JSON backup is on this page for that reason and is the way out
+      of either case.
+    -->
+    <!--
+      A tab icon and nothing else. No manifest and no apple-touch-icon here, on
+      purpose and enforced by `scripts/check-pwa.mjs`: framing a widget must not
+      offer to install anything on the embedder's visitor. A favicon offers
+      nothing -- it is what a browser shows when somebody opens this URL directly
+      to see what they are about to frame.
+    -->
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <script src="/theme-boot.js"></script>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body data-embedded="true">
+    <main id="app">
+      <noscript>
+        <p>
+          The training logbook needs JavaScript. It keeps your training in this browser's own
+          storage and sends nothing anywhere.
+        </p>
+      </noscript>
+    </main>
+    <script type="module" src="/src/logbook/embed.ts"></script>
+  </body>
+</html>

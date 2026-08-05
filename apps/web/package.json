@@ -17,6 +17,7 @@
     "@platform-toolkit/domain": "workspace:*",
     "@platform-toolkit/preferences": "workspace:*",
     "@platform-toolkit/qualification-check": "workspace:*",
+    "@platform-toolkit/training-logbook": "workspace:*",
     "@platform-toolkit/ui": "workspace:*",
     "lit": "3.3.3",
     "valibot": "1.4.2"
