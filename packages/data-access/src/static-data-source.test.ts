@@ -55,6 +55,13 @@ const VALID_META = {
       byteLength: 640,
       schemaVersion: 1,
     },
+    // Also a constant name, and for the same reason as the rule book.
+    'qualifying-meets': {
+      path: 'artifacts/qualifying-meets.579bdf2468ace013.json',
+      sha256: '7'.repeat(64),
+      byteLength: 704,
+      schemaVersion: 1,
+    },
     // Two of the results archive: the fixed-name document that says whether
     // there is an archive at all, and exactly one of its several hundred hash
     // buckets. Publishing one bucket is the realistic case -- a reader fetches
@@ -670,6 +677,146 @@ describe('meet rule profiles', () => {
     });
 
     await expect(source.getMeetRuleProfiles()).rejects.toThrow(DataSourceError);
+  });
+});
+
+const QUALIFYING_MEETS_URL = '/data/artifacts/qualifying-meets.579bdf2468ace013.json';
+
+/**
+ * An invented federation's criteria for an invented meet.
+ *
+ * Invented for §5.1's reason and for one more that is specific to this corpus: a
+ * real meet's criteria are a page somebody edits, and a fixture holding them
+ * keeps asserting a closed qualifying window long after the announcement moved.
+ */
+const QUALIFYING_MEET_BOOK = {
+  federations: [
+    {
+      federationId: 'example',
+      label: 'Example Federation',
+      weightClass: {
+        mayMoveUp: true,
+        moveUpRequiresHigherStandard: true,
+        mayMoveDown: false,
+        moveUpRequiresVacancy: true,
+        quotation:
+          'A lifter may move up one class with that class total and a place on the roster.',
+      },
+      gearLadder: [
+        { competedIn: 'Example Raw', standardReachedIn: 'Example Raw', opens: ['Example Raw'] },
+      ],
+      testedCrossoverAllowed: null,
+      conditions: [],
+      source: {
+        label: 'Example Federation Technical Rules',
+        url: 'https://example.test/rulebook.pdf',
+        revision: '2026v1',
+        sections: ['5.1.10 (a)'],
+        verifiedOn: '2026-08-01',
+      },
+    },
+  ],
+  meets: [
+    {
+      id: 'example-championship-2027',
+      label: 'Example Federation Championship 2027',
+      federationId: 'example',
+      sanctionedBy: 'Example Federation',
+      held: { from: '2027-01-16', to: '2027-01-17' },
+      location: 'Example Hall, Nowhere',
+      sanctionNumber: null,
+      offerings: [{ discipline: 'Full Power', equipment: ['Example Raw'] }],
+      testedOffering: 'both',
+      entryClosesOn: '2027-01-02',
+      entry: {
+        kind: 'standard',
+        routes: [
+          {
+            id: 'class-total',
+            label: 'Class total',
+            standard: {
+              kind: 'classification',
+              standardId: 'example-class',
+              orAbove: true,
+              divisionBasis: 'lifters-age-division',
+            },
+            performance: {
+              federationNames: null,
+              tested: null,
+              territory: null,
+              description: 'From an Example Federation event.',
+            },
+            window: { from: '2026-01-01', to: '2026-12-31' },
+            appliesToTested: null,
+            quotation: 'An Example Class total or above is required to qualify.',
+            dispute: null,
+          },
+        ],
+      },
+      conditions: [],
+      source: {
+        label: 'Example Federation Championship 2027',
+        url: 'https://example.test/championship-2027/',
+        verifiedOn: '2026-08-05',
+      },
+    },
+  ],
+};
+
+describe('qualifying meets', () => {
+  const routes = { '/data/meta.json': VALID_META, [QUALIFYING_MEETS_URL]: QUALIFYING_MEET_BOOK };
+
+  it('resolves the whole book through the index, with no identifier to supply', async () => {
+    const fetch = routingFetch(routes);
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    await expect(source.getQualifyingMeets()).resolves.toEqual(QUALIFYING_MEET_BOOK);
+    expect(fetch.calls).toEqual(['/data/meta.json', QUALIFYING_MEETS_URL]);
+  });
+
+  it('answers null when a build has transcribed no meets', async () => {
+    // A real state and not a failure: the criteria are transcribed by hand, so a
+    // build with none is a qualification screen that says so. Distinguishable
+    // from a failed read, because only one of the two is worth a reload button.
+    const { 'qualifying-meets': _omitted, ...withoutMeets } = VALID_META.artifacts;
+    const source = createStaticDataSource({
+      baseUrl: '/data/',
+      fetch: routingFetch({ '/data/meta.json': { ...VALID_META, artifacts: withoutMeets } }),
+    });
+    await expect(source.getQualifyingMeets()).resolves.toBeNull();
+  });
+
+  it('refuses a book of meets with no federation rules behind them', async () => {
+    // Whether a lifter may enter turns on the weight-class and gear rules as much
+    // as on the total. A book without them draws a fraction of the criteria while
+    // looking complete, which is the failure this screen exists to not commit.
+    const source = createStaticDataSource({
+      baseUrl: '/data/',
+      fetch: routingFetch({
+        '/data/meta.json': VALID_META,
+        [QUALIFYING_MEETS_URL]: { ...QUALIFYING_MEET_BOOK, federations: [] },
+      }),
+    });
+
+    await expect(source.getQualifyingMeets()).rejects.toThrow(DataSourceError);
+  });
+
+  it('refuses a meet whose citation is not https', async () => {
+    // Rendered into an `href` under the criteria a lifter is deciding on. A
+    // `javascript:` URL validates as a URL and runs when they tap the source line.
+    const [meet] = QUALIFYING_MEET_BOOK.meets;
+    const source = createStaticDataSource({
+      baseUrl: '/data/',
+      fetch: routingFetch({
+        '/data/meta.json': VALID_META,
+        [QUALIFYING_MEETS_URL]: {
+          ...QUALIFYING_MEET_BOOK,
+          meets: [{ ...meet, source: { ...meet?.source, url: 'javascript:alert(1)' } }],
+        },
+      }),
+    });
+
+    await expect(source.getQualifyingMeets()).rejects.toThrow(DataSourceError);
   });
 });
 

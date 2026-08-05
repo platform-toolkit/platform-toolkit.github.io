@@ -40,6 +40,8 @@ import {
   ConversionChartSchema,
   MEET_RULES_ARTIFACT_ID,
   MeetRuleBookSchema,
+  QUALIFYING_MEETS_ARTIFACT_ID,
+  QualifyingMeetBookSchema,
   categoryCatalogArtifactId,
   conversionChartArtifactId,
   type CategoryCatalog,
@@ -58,6 +60,7 @@ import {
 } from '../sources/classification-standards.js';
 import { buildConversionChart } from '../sources/conversion-chart.js';
 import { buildMeetRuleBook } from '../sources/meet-rules.js';
+import { buildQualifyingMeetBook } from '../sources/qualification.js';
 import { buildRecordBook, readRecordSourceReferences } from '../sources/records.js';
 import { writePublication } from '../write-publication.js';
 
@@ -74,6 +77,7 @@ const CATEGORY_SOURCES = join(SOURCE_ROOT, 'categories');
 const CLASSIFICATION_SOURCES = join(SOURCE_ROOT, 'classifications');
 const CONVERSION_SOURCES = join(SOURCE_ROOT, 'conversions');
 const MEET_RULE_SOURCES = join(SOURCE_ROOT, 'meet-rules');
+const QUALIFICATION_SOURCES = join(SOURCE_ROOT, 'qualification');
 const RECORD_SOURCES = join(SOURCE_ROOT, 'records');
 const ATHLETE_SOURCES = join(SOURCE_ROOT, 'athletes');
 
@@ -133,6 +137,14 @@ async function main(): Promise<void> {
   // a category the federation publishes no standards for.
   const catalogs = new Map<string, CategoryCatalog>();
 
+  // And the classification ladder each federation actually published, for the
+  // same reason and one step further along. A qualifying route names a standard
+  // by reference, so this is what the qualification adapter checks those
+  // references against -- and it has to be the ids that reached the artifacts,
+  // not the ids the mapping asked for, because a row the classification adapter
+  // withheld is a standard no lifter can ever be shown as having met.
+  const standardsByFederation = new Map<string, ReadonlySet<string>>();
+
   for (const document of await readSourceDocuments(CATEGORY_SOURCES)) {
     const { catalog, freshness } = buildCategoryCatalog(document.value);
     const id = categoryCatalogArtifactId(catalog.id);
@@ -184,6 +196,12 @@ async function main(): Promise<void> {
       artifacts.push(shard);
     }
     sources.push(freshness);
+
+    const standardIds = new Set<string>();
+    for (const table of tables) {
+      for (const standard of table.standards) standardIds.add(standard.id);
+    }
+    standardsByFederation.set(federationId, standardIds);
 
     // Said out loud rather than left to the diff. A withheld row is a category a
     // lifter will find empty, and the number going up is the signal that upstream
@@ -300,6 +318,38 @@ async function main(): Promise<void> {
     value: book,
   });
   sources.push(...meetRuleFreshness);
+
+  // Qualification criteria, one artifact for the same reason the rule book is
+  // one: the tool's first question is which meet, and it cannot draw that list
+  // without every meet in hand.
+  //
+  // It runs after the classifications and not beside them, because it is the one
+  // source that is checked against another source's *output*. Every qualifying
+  // route names a classification standard by reference, and a reference the
+  // published ladder does not carry resolves to nothing -- which the screen draws
+  // as "you have not qualified", a real answer that nobody investigates and that
+  // turns away every lifter who could have entered.
+  const qualificationDocuments = await readSourceDocuments(QUALIFICATION_SOURCES);
+  const { book: qualifyingMeets, freshness: qualificationFreshness } = buildQualifyingMeetBook(
+    qualificationDocuments.map((document) => document.value),
+    standardsByFederation,
+  );
+  artifacts.push({
+    id: QUALIFYING_MEETS_ARTIFACT_ID,
+    schema: QualifyingMeetBookSchema,
+    schemaVersion: SCHEMA_VERSION,
+    value: qualifyingMeets,
+  });
+  sources.push(...qualificationFreshness);
+
+  // Said out loud, because a meet corpus shrinks as well as grows -- meets are
+  // held and drop out -- and the count is the only place a transcription that
+  // silently stopped being maintained becomes visible.
+  console.log(
+    `${QUALIFICATION_SOURCES}: published qualification criteria for ` +
+      `${String(qualifyingMeets.meets.length)} meets across ` +
+      `${String(qualifyingMeets.federations.length)} federations.`,
+  );
 
   await publishAthleteMirror(artifacts, sources);
 

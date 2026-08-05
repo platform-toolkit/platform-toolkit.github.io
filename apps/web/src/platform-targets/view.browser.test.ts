@@ -115,6 +115,7 @@ function sourceThat(stubs: Stubs = {}): DataSource & Asked {
     },
     getConversionChart: () => Promise.resolve(null),
     getMeetRuleProfiles: () => Promise.resolve(null),
+    getQualifyingMeets: () => Promise.resolve(null),
     getAthleteMirror: () => Promise.resolve(null),
     findAthletes: () => Promise.resolve({ outcome: 'found', matches: [] }),
     getClassifications: (query) => {

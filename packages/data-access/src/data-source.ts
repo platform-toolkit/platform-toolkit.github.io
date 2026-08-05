@@ -36,6 +36,7 @@ import type {
   ConversionChartData,
   DataMeta,
   MeetRuleBook,
+  QualifyingMeetBook,
   RecordBook,
   SexCategory,
 } from '@platform-toolkit/data-contracts';
@@ -294,6 +295,32 @@ export interface DataSource {
    * only one of them is worth offering a reload for.
    */
   getMeetRuleProfiles(options?: ReadOptions): Promise<MeetRuleBook | null>;
+
+  /**
+   * Every meet whose published qualification criteria have been transcribed, and
+   * the federation entry rules they are read against, or `null` if none are.
+   *
+   * Takes no identifier, like `getMeetRuleProfiles` and for the same reason: the
+   * tool's first question is *which meet*, and it cannot draw that control
+   * without the list. Asking for one meet by id would mean the caller already
+   * knew the answer.
+   *
+   * The federation rules arrive in the same book rather than through a second
+   * method, because they are not optional context. Whether a lifter may enter
+   * turns on the weight-class and gear rules as much as on the total, and a
+   * screen that could load a meet's criteria without them is a screen that can
+   * show half the criteria while looking complete.
+   *
+   * Nothing here rules on eligibility, and nothing below it may: what comes back
+   * is what a federation and a meet published, each sentence with the citation it
+   * was read from. Deciding whether a lifter meets it is the domain's, and saying
+   * so on screen is the tool's -- always as "these are the published criteria",
+   * never as a verdict.
+   *
+   * `null` is an answer rather than a failure, as everywhere else here. A build
+   * that has transcribed no meets is a build whose qualification screen says so.
+   */
+  getQualifyingMeets(options?: ReadOptions): Promise<QualifyingMeetBook | null>;
 
   /**
    * What results archive this build published, or `null` if it published none.

@@ -22,6 +22,8 @@ import {
   DataMetaSchema,
   MEET_RULES_ARTIFACT_ID,
   MeetRuleBookSchema,
+  QUALIFYING_MEETS_ARTIFACT_ID,
+  QualifyingMeetBookSchema,
   RecordBookSchema,
   athleteArtifactId,
   athleteLookupKey,
@@ -38,6 +40,7 @@ import {
   type ConversionChartData,
   type DataMeta,
   type MeetRuleBook,
+  type QualifyingMeetBook,
   type RecordBook,
 } from '@platform-toolkit/data-contracts';
 import type * as v from 'valibot';
@@ -213,6 +216,12 @@ export function createStaticDataSource(options: StaticDataSourceOptions): DataSo
       // index like everything else, so a build that published no profiles
       // resolves to `null` rather than to a request for a file that is not there.
       return readArtifact(MEET_RULES_ARTIFACT_ID, MeetRuleBookSchema, readOptions);
+    },
+
+    getQualifyingMeets(readOptions?: ReadOptions): Promise<QualifyingMeetBook | null> {
+      // A constant name, like the rule book, and for the same reason: one book,
+      // and the caller's first question is which meet is in it.
+      return readArtifact(QUALIFYING_MEETS_ARTIFACT_ID, QualifyingMeetBookSchema, readOptions);
     },
 
     getAthleteMirror(readOptions?: ReadOptions): Promise<AthleteMirrorInfo | null> {

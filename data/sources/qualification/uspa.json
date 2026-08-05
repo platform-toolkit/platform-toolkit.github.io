@@ -1,0 +1,309 @@
+{
+  "$comment": [
+    "USPA's meet qualification criteria: the entry rules that come from the rulebook,",
+    "and the published criteria of individual meets.",
+    "",
+    "Two kinds of thing live in this file and they are kept apart on purpose.",
+    "`entryRules` is transcribed from the rulebook cited in `rulebook`, which prints a",
+    "revision and can be digested, so a change announces itself. `meets` is transcribed",
+    "from meet announcements, which carry no revision, are edited in place, and expire.",
+    "Each meet therefore carries its own `source` with the day a person read it, and",
+    "that date is the only thing standing between a screen and a criterion that changed",
+    "last Tuesday.",
+    "",
+    "WHAT IS TRANSCRIBED AND WHAT IS A READING",
+    "",
+    "Every quotation is the document's own words. Three things below are readings and",
+    "are called out because a later reader deserves to know:",
+    "",
+    "  * `entryRules.weightClass` is sec. 5.1.10 (a) turned into four flags. The",
+    "    rulebook states 5.1.10 (a) TWICE, in two paragraphs both numbered (a). They",
+    "    agree on all four flags -- move up yes, move up needs the heavier class total,",
+    "    move down no, move up needs room -- and the second adds a meet director's",
+    "    approval, which is carried as a condition rather than folded into a flag.",
+    "  * `entryRules.testedCrossoverAllowed` is null, and that is a finding rather than",
+    "    an omission. The rulebook states the parallel rule for RECORDS (\"Tested records",
+    "    may only be established in tested competitions. Non-tested records may only be",
+    "    established in non-tested competitions.\") and states nothing about whether a",
+    "    tested total qualifies a lifter for untested entry. A rule about records is not",
+    "    a rule about qualification. Where a meet announces the split itself it is on",
+    "    that meet's routes.",
+    "  * The 2026 IPL Olympia's non-tested standard is encoded as International Elite,",
+    "    which is the STRICTER of the two the announcement gives. The `dispute` carries",
+    "    both readings verbatim so the screen can show the conflict rather than resolve",
+    "    it silently. Telling a lifter they need more is recoverable; telling them they",
+    "    need less sends them to Las Vegas unqualified.",
+    "",
+    "WHY ONLY FUTURE MEETS ARE HERE",
+    "",
+    "Past meets were read during this transcription and deliberately left out. Their",
+    "criteria are settled history and their windows have closed, so publishing them",
+    "gives a lifter nothing to act on and gives every screen a list to filter. The",
+    "adapter does NOT refuse a meet for being past -- it takes no clock, because a",
+    "time-dependent refusal fails a refresh unattended at two in the morning for being",
+    "correct, which is the trap `records.data.test.ts` already documents. Pastness is",
+    "the screen's computation against today.",
+    "",
+    "HOW THIS WAS VERIFIED, 2026-08-05",
+    "",
+    "  1. The rulebook PDF downloaded and digested. It is byte-identical to the pin",
+    "     already carried by `data/sources/meet-rules/uspa.json`, so `rulebook.sha256`",
+    "     is that same digest and `check:upstream` already watches these bytes.",
+    "  2. Read as text with `pdftotext -layout`; sec. 5.1.10 (a), 5.1.10 (b) and the two",
+    "     passages under Item 6.3 and Item 9.4 read back against the extracted text.",
+    "  3. Each meet re-fetched from its announcement on the date in its `source`, and",
+    "     every figure below read off that fetch rather than off an earlier note.",
+    "  4. Absence checked as well as presence. The American Cup announcement was",
+    "     searched for a qualifying total and states none -- which is recorded as",
+    "     `kind: \"unstated\"` and NOT as `kind: \"open\"`, because the page never says",
+    "     entry is ungated. Those are different facts and only one of them is the",
+    "     federation's.",
+    "",
+    "THE PDF IS NOT COMMITTED, for the reason the meet-rules document gives."
+  ],
+  "id": "uspa",
+  "label": "USPA",
+  "provenance": {
+    "id": "uspa-qualification",
+    "label": "USPA meet qualification criteria",
+    "document": "USPA Technical Rules and published meet announcements",
+    "url": "https://uspa.net/rulebook",
+    "sections": ["5.1.10 (a)", "5.1.10 (b)", "Item 6.3 Competition Rules", "Item 9.4 General"],
+    "retrievedAt": "2026-08-05T00:00:00.000Z"
+  },
+  "rulebook": {
+    "$comment": "The same bytes `data/sources/meet-rules/uspa.json` pins, verified byte-identical rather than taken on trust. Two documents naming one digest is intentional: they transcribe different sections of one PDF, and `check:upstream` re-digesting it once covers both.",
+    "revision": "2025v1",
+    "sha256": "ef23ed9f46c2177f0904fea92c8ee80fa7515321af44ad2eee81bd01fdccb842",
+    "url": "https://uspa.net/rulebook"
+  },
+  "entryRules": {
+    "weightClass": {
+      "mayMoveUp": true,
+      "moveUpRequiresHigherStandard": true,
+      "mayMoveDown": false,
+      "moveUpRequiresVacancy": true,
+      "quotation": "In these competitions, lifters may not go down a weight class from the class they qualified for, unless they have a qualifying total at the lower weight class from a previous event. They may, however, go up one weight class as long as they have 1) met the qualifying total for the higher weight class, and 2) a vacancy is available on the roster that will allow the meet director to move the athlete to a new day or flight as necessitated by the change."
+    },
+    "gearLadder": [
+      { "competedIn": "Raw", "standardReachedIn": "Raw", "opens": ["Raw"] },
+      { "competedIn": "Raw", "standardReachedIn": "Classic Raw", "opens": ["Raw", "Classic Raw"] },
+      {
+        "competedIn": "Raw",
+        "standardReachedIn": "Single Ply",
+        "opens": ["Raw", "Classic Raw", "Single Ply"]
+      },
+      { "competedIn": "Classic Raw", "standardReachedIn": "Classic Raw", "opens": ["Classic Raw"] },
+      {
+        "competedIn": "Classic Raw",
+        "standardReachedIn": "Single Ply",
+        "opens": ["Classic Raw", "Single Ply"]
+      },
+      {
+        "competedIn": "Classic Raw",
+        "standardReachedIn": "Multi Ply",
+        "opens": ["Classic Raw", "Single Ply", "Multi Ply"]
+      },
+      { "competedIn": "Single Ply", "standardReachedIn": "Single Ply", "opens": ["Single Ply"] },
+      {
+        "competedIn": "Single Ply",
+        "standardReachedIn": "Multi Ply",
+        "opens": ["Single Ply", "Multi Ply"]
+      }
+    ],
+    "testedCrossoverAllowed": null,
+    "conditions": [
+      {
+        "id": "weight-class-change-approval",
+        "label": "A weight class change needs the meet director's approval",
+        "detail": "The rulebook states the weight class rule twice, and the second statement adds a requirement the first does not: at regional, national and world level meets the meet director must approve the change. Meeting the heavier class total is necessary and is not sufficient.",
+        "quotation": "For all regional, national and world level meets, which span multiple days with qualifying requirements based on weight class, will be allowed to move up one weight class if the following criteria are met: a. There is space available at the higher weight class. b. The qualifying total requirements for the higher weight class have been met during the meet's qualifying period c. The meet director approves of the weight class change."
+      },
+      {
+        "id": "no-vacancy-means-guest-lifter",
+        "label": "Without room in the class, the entry becomes a guest entry",
+        "detail": "A lifter whose weight class change cannot be accommodated keeps their place on the original roster and lifts as a guest, which is not a competitive entry and takes no placing.",
+        "quotation": "If a lifter cannot meet the above criteria for a weight class change, the lifter may remain on the originally scheduled roster and only participate as a guest lifter."
+      },
+      {
+        "id": "unqualified-entry-reclassified",
+        "label": "An entrant found unqualified is reclassified as a guest",
+        "detail": "What happens when this question is answered wrongly. It lands after the meet, on the official results, and it takes any record set there with it.",
+        "quotation": "A lifter who competes in a contest that requires a qualifying total, who we subsequently learn wasn't qualified, will be reclassified as a guest lifter on the official contest results and any state, national or world record lifts will be disqualified."
+      },
+      {
+        "id": "international-lifters-on-visas",
+        "label": "International lifters competing on a visa",
+        "detail": "A restriction no total can satisfy: it closes the national championships to these lifters outright, while the North American Championships stay open to any IPL lifter who meets the criteria.",
+        "quotation": "International lifters here on visas may: 1) compete in regional USPA meets if they are a USPA member 2) may not set U.S. records and may not compete in national championships. At North American Championships all IPL lifters who meet the qualifying requirements are eligible to compete."
+      },
+      {
+        "id": "adaptive-athlete-waiver",
+        "label": "A Class 4 route for waivered adaptive athletes",
+        "detail": "A separate and lower standard for lifters granted a waiver under sec. 9.1.1, covering the three championships that require a qualifying total. It is a condition rather than a route because it turns on a waiver this project cannot see.",
+        "quotation": "Special and Disabled athletes that have been granted a waiver per sec. 9.1.1, and who have achieved a class 4 qualifying total in a USPA meet within the designated qualification period of time, are eligible to register, if spots are available and the meet director is reasonably able to provide for any special accommodations , for all National Championships, North American Championships, and IPL World Championships."
+      }
+    ]
+  },
+  "meets": [
+    {
+      "id": "ipl-olympia-2026",
+      "label": "2026 IPL Olympia",
+      "sanctionedBy": "IPL",
+      "held": { "from": "2026-09-25", "to": "2026-09-26" },
+      "location": "Las Vegas Convention Center, South Hall, Las Vegas, Nevada",
+      "sanctionNumber": null,
+      "offerings": [
+        { "discipline": "Full Power", "equipment": ["Raw", "Classic Raw", "Single Ply"] },
+        { "discipline": "Bench Only", "equipment": ["Raw", "Single Ply", "Multi Ply"] },
+        { "discipline": "Deadlift Only", "equipment": ["Raw", "Single Ply", "Multi Ply"] }
+      ],
+      "testedOffering": "both",
+      "entryClosesOn": null,
+      "entry": {
+        "kind": "standard",
+        "routes": [
+          {
+            "id": "tested-elite",
+            "label": "Elite total, tested",
+            "standard": {
+              "kind": "classification",
+              "standardId": "elite",
+              "orAbove": true,
+              "divisionBasis": "lifters-age-division"
+            },
+            "performance": {
+              "federationNames": null,
+              "tested": true,
+              "territory": null,
+              "description": "From a drug tested event held by an IPL affiliate. Lifters from the United States must achieve the total at a USPA or IPL event."
+            },
+            "window": { "from": "2024-10-05", "to": "2026-08-23" },
+            "appliesToTested": true,
+            "quotation": "Tested: Elite Total required in your age group (Open, Junior, Masters) for Full Power, Bench Only, and Deadlift Only from an IPL-affiliate drug tested event.",
+            "dispute": null
+          },
+          {
+            "id": "non-tested-international-elite",
+            "label": "International Elite total, non-tested",
+            "standard": {
+              "kind": "classification",
+              "standardId": "international-elite",
+              "orAbove": true,
+              "divisionBasis": "lifters-age-division"
+            },
+            "performance": {
+              "federationNames": null,
+              "tested": null,
+              "territory": null,
+              "description": "From an event held by an IPL affiliate. Lifters from the United States must achieve the total at a USPA or IPL event."
+            },
+            "window": { "from": "2024-10-05", "to": "2026-08-23" },
+            "appliesToTested": false,
+            "quotation": "Non-Tested: International Elite Total required in your age group (Open, Junior, Masters) for Full Power, Bench Only, and Deadlift Only from an IPL-affiliate event.",
+            "dispute": {
+              "summary": "The announcement names two different standards for non-tested entry. The stricter of the two is encoded here; both readings are below because the page has not been corrected and either could be the one enforced at registration.",
+              "readings": [
+                {
+                  "where": "Event Details",
+                  "quotation": "*Non-Tested: Elite total from an IPL affiliate event."
+                },
+                {
+                  "where": "Do I Qualify?",
+                  "quotation": "Non-Tested: International Elite Total required in your age group (Open, Junior, Masters) for Full Power, Bench Only, and Deadlift Only from an IPL-affiliate event."
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "conditions": [
+        {
+          "id": "ipl-and-affiliate-membership",
+          "label": "IPL and IPL affiliate membership, before the entry form",
+          "detail": "Both memberships must already exist when the entry form is submitted, which is earlier than the deadline a lifter would assume.",
+          "quotation": "You must have an active IPL membership & your IPL Affiliate Membership before submitting your entry form."
+        },
+        {
+          "id": "usa-lifters-uspa-membership",
+          "label": "United States lifters also need USPA membership",
+          "quotation": "USA Lifters: You must have an active USPA membership",
+          "detail": "A second membership on top of the IPL one, for lifters entering from the United States."
+        },
+        {
+          "id": "usa-lifters-qualifying-event",
+          "label": "United States lifters qualify at a USPA or IPL event",
+          "detail": "Narrows both routes for lifters from the United States: an IPL affiliate elsewhere does not satisfy it.",
+          "quotation": "USA lifters must achieve a qualifying total in a USPA or IPL event."
+        },
+        {
+          "id": "no-memberships-at-the-meet",
+          "label": "Memberships are not sold at the meet",
+          "detail": "The usual last resort is closed, which makes the membership conditions above hard deadlines rather than paperwork.",
+          "quotation": "Memberships will NOT be sold at the meet."
+        },
+        {
+          "id": "daily-lifter-cap",
+          "label": "Forty-five lifters a day",
+          "detail": "A qualified lifter can still be shut out by the cap, so meeting a standard is necessary and is not sufficient.",
+          "quotation": "Limited to 45 lifters per day | Two platforms"
+        },
+        {
+          "id": "multi-ply-listed-in-categories-only",
+          "label": "Multi ply appears in the categories and not in the schedule",
+          "detail": "The announcement offers Bench Only and Deadlift Only in multi ply under its event categories, while its day-by-day lifting schedule lists only raw and single ply for those two disciplines. The categories are what is published above; read them against the entry form before entering multi ply.",
+          "quotation": null
+        },
+        {
+          "id": "classification-ladder-is-the-affiliates",
+          "label": "The standard is resolved against the USPA ladder",
+          "detail": "The announcement links the IPL's own classification calculator. This tool resolves both routes against the USPA classification standards it publishes, which is the ladder a United States lifter qualifying at a USPA event is measured on. Where the two bodies differ, the announcement's calculator is the one that decides entry.",
+          "quotation": null
+        }
+      ],
+      "source": {
+        "label": "2026 IPL Olympia",
+        "url": "https://uspa.net/2025-ipl-olympia/",
+        "verifiedOn": "2026-08-05"
+      }
+    },
+    {
+      "id": "uspa-american-cup-2027",
+      "label": "2027 USPA Tested and Open American Cup",
+      "sanctionedBy": "USPA",
+      "held": { "from": "2027-01-23", "to": "2027-01-24" },
+      "location": "Los Angeles Convention Center, South Hall, Los Angeles, California",
+      "sanctionNumber": null,
+      "offerings": [
+        { "discipline": "Full Power", "equipment": ["Raw", "Classic Raw", "Single Ply"] },
+        { "discipline": "Bench Only", "equipment": ["Raw", "Classic Raw", "Single Ply"] },
+        { "discipline": "Deadlift Only", "equipment": ["Raw", "Classic Raw", "Single Ply"] }
+      ],
+      "testedOffering": "both",
+      "entryClosesOn": "2027-01-08",
+      "entry": {
+        "kind": "unstated",
+        "detail": "The announcement lists the disciplines, the gear categories, a fifty-lifter daily cap, the weigh-in times and a closing date, and names no qualifying total for entry. The only total it mentions is one earned here toward a later national or IPL meet."
+      },
+      "conditions": [
+        {
+          "id": "daily-lifter-cap",
+          "label": "Fifty lifters a day",
+          "detail": "This meet fills to a cap rather than closing on a standard, so entry turns on the date rather than on a total.",
+          "quotation": "Limited To 50 Lifters Per Day"
+        },
+        {
+          "id": "no-same-day-weigh-ins",
+          "label": "No same-day weigh-ins",
+          "detail": "Saturday's lifters weigh in on the Friday and Sunday's on the Saturday. It decides travel rather than entry, and it is the condition most often found out too late.",
+          "quotation": "No same-day weigh-ins under any circumstances."
+        }
+      ],
+      "source": {
+        "label": "USPA Tested and Open 2027 American Cup at the LA Fit Expo",
+        "url": "https://uspa.net/event/uspa-tested-and-open-2027-american-cup-at-la-fit-expo-los-angeles-california",
+        "verifiedOn": "2026-08-05"
+      }
+    }
+  ]
+}
