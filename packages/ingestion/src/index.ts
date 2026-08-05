@@ -8,10 +8,10 @@
  * fetching lives here and only here, which is what keeps the published
  * application free of any code path that requests a user-supplied URL.
  *
- * Categories and classifications are adapted here today; the OpenPowerlifting
- * mirror, qualification rules, and records follow. Each adapter produces a value;
- * turning values into published files is `publication.ts`, and only
- * `publication.ts`.
+ * Categories, classifications, records, conversions, meet rules and the results
+ * archive are adapted here today; qualification rules follow. Each adapter
+ * produces a value; turning values into published files is `publication.ts`, and
+ * only `publication.ts`.
  */
 
 export { NonSerializableValueError, canonicalJson } from './canonical-json.js';
@@ -31,6 +31,19 @@ export {
   type PublicationRequest,
   type PublishedFile,
 } from './publication.js';
+export {
+  AthleteCorpusError,
+  AthleteMirrorDocumentSchema,
+  buildAthleteMirror,
+  projectCorpusRow,
+  readCorpusColumns,
+  summarizeWithheld,
+  type AthleteMirror,
+  type AthleteMirrorDocument,
+  type AthleteMirrorResult,
+  type CorpusColumns,
+  type WithheldEntryRow,
+} from './sources/athlete-mirror.js';
 export {
   CategorySourceDocumentSchema,
   CategorySourceError,
@@ -76,6 +89,12 @@ export {
   type MeetRulesSourceDocument,
   type MeetRulesSourceResult,
 } from './sources/meet-rules.js';
+export {
+  DuplicateAthleteError,
+  UnreachableAthleteError,
+  shardAthleteMirror,
+  type AthleteShardArtifact,
+} from './shard-athletes.js';
 export {
   ClassificationShardNamingError,
   DuplicateClassificationTableError,

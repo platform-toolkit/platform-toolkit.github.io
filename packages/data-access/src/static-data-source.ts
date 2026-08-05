@@ -13,6 +13,9 @@
  * which one it got.
  */
 import {
+  ATHLETE_MIRROR_ARTIFACT_ID,
+  AthleteMirrorInfoSchema,
+  AthleteShardSchema,
   CategoryCatalogSchema,
   ClassificationBookSchema,
   ConversionChartSchema,
@@ -20,11 +23,16 @@ import {
   MEET_RULES_ARTIFACT_ID,
   MeetRuleBookSchema,
   RecordBookSchema,
+  athleteArtifactId,
+  athleteLookupKey,
+  athleteShardBucket,
   categoryCatalogArtifactId,
   classificationArtifactId,
   conversionChartArtifactId,
+  findAthleteHistories,
   recordArtifactId,
   type ArtifactReference,
+  type AthleteMirrorInfo,
   type CategoryCatalog,
   type ClassificationBook,
   type ConversionChartData,
@@ -35,6 +43,7 @@ import {
 import type * as v from 'valibot';
 
 import type {
+  AthleteLookup,
   ClassificationSetQuery,
   DataSource,
   DataSourceKind,
@@ -204,6 +213,43 @@ export function createStaticDataSource(options: StaticDataSourceOptions): DataSo
       // index like everything else, so a build that published no profiles
       // resolves to `null` rather than to a request for a file that is not there.
       return readArtifact(MEET_RULES_ARTIFACT_ID, MeetRuleBookSchema, readOptions);
+    },
+
+    getAthleteMirror(readOptions?: ReadOptions): Promise<AthleteMirrorInfo | null> {
+      // A constant name, like the rule book, and for a stronger reason: there are
+      // hundreds of shards and no way to enumerate them, so this is the only
+      // artifact whose absence can mean "this build published no archive". A
+      // build without it is normal -- the archive is optional and large.
+      return readArtifact(ATHLETE_MIRROR_ARTIFACT_ID, AthleteMirrorInfoSchema, readOptions);
+    },
+
+    async findAthletes(name: string, readOptions?: ReadOptions): Promise<AthleteLookup> {
+      // The fold runs here, below the seam, because which characters survive it
+      // is a property of how the archive was indexed. A caller that folded first
+      // would be a caller that has to change when the indexing does -- and the
+      // symptom of the two drifting apart is a lookup that finds nobody, which
+      // is a real answer for most names and so would never be investigated.
+      const key = athleteLookupKey(name);
+      if (key === null) {
+        return { outcome: 'unusable' };
+      }
+
+      const shard = await readArtifact(
+        athleteArtifactId(athleteShardBucket(key)),
+        AthleteShardSchema,
+        readOptions,
+      );
+      if (shard === null) {
+        // No such bucket in the index. Either this build published no archive or
+        // nobody in it hashes here; both mean the same thing to a reader, and
+        // the prior question was already answered by `getAthleteMirror`.
+        return { outcome: 'found', matches: [] };
+      }
+
+      // Every match, never the first. Two people's names fold together often
+      // enough to be certain it happens, and merging their histories would put
+      // somebody else's total on the screen that says whether a lifter qualifies.
+      return { outcome: 'found', matches: findAthleteHistories(shard, key) };
     },
   };
 }

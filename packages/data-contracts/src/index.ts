@@ -31,6 +31,26 @@ export {
   type WeightClassLadderData,
 } from './categories.js';
 export {
+  ATHLETE_SHARD_COUNT,
+  athleteArtifactId,
+  athleteLookupKey,
+  athleteShardBucket,
+} from './athlete-shards.js';
+export {
+  ATHLETE_MIRROR_ARTIFACT_ID,
+  AthleteAgeSchema,
+  AthleteEntrySchema,
+  AthleteHistorySchema,
+  AthleteMirrorInfoSchema,
+  AthleteShardSchema,
+  findAthleteHistories,
+  type AthleteAge,
+  type AthleteEntry,
+  type AthleteHistory,
+  type AthleteMirrorInfo,
+  type AthleteShard,
+} from './athletes.js';
+export {
   CategoryCatalogSchema,
   categoryCatalogArtifactId,
   type CategoryCatalog,

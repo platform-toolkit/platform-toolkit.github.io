@@ -55,6 +55,22 @@ const VALID_META = {
       byteLength: 640,
       schemaVersion: 1,
     },
+    // Two of the results archive: the fixed-name document that says whether
+    // there is an archive at all, and exactly one of its several hundred hash
+    // buckets. Publishing one bucket is the realistic case -- a reader fetches
+    // the one its name hashes into and nothing else.
+    'athlete-mirror': {
+      path: 'artifacts/athlete-mirror.2468ace013579bdf.json',
+      sha256: '5'.repeat(64),
+      byteLength: 320,
+      schemaVersion: 1,
+    },
+    'athletes-191': {
+      path: 'artifacts/athletes-191.ace013579bdf2468.json',
+      sha256: '6'.repeat(64),
+      byteLength: 1024,
+      schemaVersion: 1,
+    },
   },
 };
 
@@ -654,6 +670,230 @@ describe('meet rule profiles', () => {
     });
 
     await expect(source.getMeetRuleProfiles()).rejects.toThrow(DataSourceError);
+  });
+});
+
+const MIRROR_URL = '/data/artifacts/athlete-mirror.2468ace013579bdf.json';
+const BUCKET_URL = '/data/artifacts/athletes-191.ace013579bdf2468.json';
+
+/** Invented. Nobody has competed under any of this (§5.1). */
+const MIRROR_INFO = {
+  id: 'athlete-mirror',
+  label: 'Competition results archive',
+  attribution: 'This page uses data from the Invented project.',
+  sourceUrl: 'https://example.test/invented-latest.zip',
+  scopeNote: 'Lifters with at least one result under an invented federation.',
+  athleteCount: 2,
+  entryCount: 2,
+};
+
+/** One mirrored result, written out so a field added to the contract fails loudly. */
+const ENTRY = {
+  date: '2026-03-14',
+  federation: 'INVF',
+  parentFederation: null,
+  meetName: 'Invented Open',
+  event: 'SBD',
+  equipment: 'Raw',
+  division: null,
+  ageClass: null,
+  age: null,
+  tested: null,
+  sex: 'F',
+  bodyweightKg: 60,
+  weightClassKg: '60',
+  squatKg: 100,
+  benchKg: 60,
+  deadliftKg: 120,
+  totalKg: 280,
+  place: '1',
+};
+
+/**
+ * The one bucket the fixture index publishes, holding two lifters.
+ *
+ * `Kestrel Vale` and `Kestrel  Vale` are two people whose names fold to one key,
+ * which is the case this seam exists to keep apart. `Sable Mabry` is in the same
+ * bucket only because the hash put them there -- a bucket is a hash partition and
+ * means nothing to a reader, so a shard always holds strangers.
+ *
+ * All three names really do hash into 191 under `athleteShardBucket`, and the
+ * bucket is written out here as a literal rather than computed, so that the test
+ * states the published side of the contract independently. Computing it would
+ * keep this passing while the published files moved.
+ */
+const BUCKET = {
+  bucket: 191,
+  bucketCount: 512,
+  athletes: [
+    { key: 'kestrelvale', name: 'Kestrel  Vale', entries: [ENTRY] },
+    { key: 'kestrelvale', name: 'Kestrel Vale', entries: [ENTRY] },
+    { key: 'sablemabry', name: 'Sable Mabry', entries: [ENTRY] },
+  ],
+};
+
+describe('the results archive', () => {
+  const routes = {
+    '/data/meta.json': VALID_META,
+    [MIRROR_URL]: MIRROR_INFO,
+    [BUCKET_URL]: BUCKET,
+  };
+
+  it('answers what archive this build published before any name is typed', async () => {
+    const fetch = routingFetch(routes);
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    await expect(source.getAthleteMirror()).resolves.toEqual(MIRROR_INFO);
+    expect(fetch.calls).toEqual(['/data/meta.json', MIRROR_URL]);
+  });
+
+  it('answers null when a build published no archive at all', async () => {
+    // Not an error and not "nobody by that name". The archive is an optional
+    // part of a build -- it is large and it comes from outside -- and a screen
+    // that offers to search one that is not there is offering a control that can
+    // only disappoint. `null` means draw the manual route and no search box.
+    const { 'athlete-mirror': _omitted, ...withoutMirror } = VALID_META.artifacts;
+    const source = createStaticDataSource({
+      baseUrl: '/data/',
+      fetch: routingFetch({ '/data/meta.json': { ...VALID_META, artifacts: withoutMirror } }),
+    });
+
+    await expect(source.getAthleteMirror()).resolves.toBeNull();
+  });
+
+  it('refuses an archive whose source link is not https', async () => {
+    // Rendered into an `href` beside the credit its licence asks for. A
+    // `javascript:` URL published by accident validates as a URL and runs when
+    // somebody taps the attribution line.
+    const source = createStaticDataSource({
+      baseUrl: '/data/',
+      fetch: routingFetch({
+        '/data/meta.json': VALID_META,
+        [MIRROR_URL]: { ...MIRROR_INFO, sourceUrl: 'javascript:alert(1)' },
+      }),
+    });
+
+    await expect(source.getAthleteMirror()).rejects.toThrow(DataSourceError);
+  });
+
+  it('fetches only the bucket the typed name hashes into, and returns only that lifter', async () => {
+    // Two claims, and they are the same claim from either end. A reader
+    // downloads one file of several hundred and nothing enumerates the rest --
+    // and a bucket is a hash partition, so most of what arrives in it is
+    // strangers. Returning the file's contents would answer a search for one
+    // lifter with a list of everyone the hash happened to seat beside them.
+    const fetch = routingFetch(routes);
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    const found = await source.findAthletes('Sable Mabry');
+
+    expect(found).toEqual({ outcome: 'found', matches: [BUCKET.athletes[2]] });
+    expect(fetch.calls).toEqual(['/data/meta.json', BUCKET_URL]);
+  });
+
+  it('takes what a person typed, not a key', async () => {
+    // Folding a name is a property of how the archive is indexed, so it happens
+    // below the seam. A caller that pre-normalised would be a caller that breaks
+    // when the indexing changes -- and the symptom of the two drifting apart is
+    // a lookup that finds nobody, which is a real answer for most names and so
+    // would never be investigated.
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch: routingFetch(routes) });
+
+    await expect(source.findAthletes('  SABLE   mabry  ')).resolves.toEqual({
+      outcome: 'found',
+      matches: [BUCKET.athletes[2]],
+    });
+  });
+
+  it('returns every lifter whose name folds to the same key', async () => {
+    // Two people, and the caller has to show both. Picking one would put
+    // somebody else's total on the screen that tells a lifter whether they may
+    // enter a meet (§5.5, ambiguity is an outcome and not a tie to break). Note
+    // that both spellings ask the same question, because the fold is what the
+    // question is asked in.
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch: routingFetch(routes) });
+    const both = { outcome: 'found', matches: [BUCKET.athletes[0], BUCKET.athletes[1]] };
+
+    await expect(source.findAthletes('Kestrel Vale')).resolves.toEqual(both);
+    await expect(source.findAthletes('Kestrel  Vale')).resolves.toEqual(both);
+  });
+
+  it('says a name is unusable rather than searching for nothing', async () => {
+    // A name in a script the index does not fold to Latin letters. There is no
+    // key, so there is no bucket -- and "we cannot look that up" is a different
+    // sentence from "nobody is called that", because only one of them is worth
+    // suggesting another spelling for.
+    const fetch = routingFetch(routes);
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch });
+
+    await expect(source.findAthletes('\u4e2d\u6587')).resolves.toEqual({ outcome: 'unusable' });
+    // And it costs nothing. Not even the index is read.
+    expect(fetch.calls).toEqual([]);
+  });
+
+  it('reports an unpublished bucket as nobody, not as a failure', async () => {
+    // Most buckets are absent from a build that published a small archive, and a
+    // reader asking for one is asking a perfectly ordinary question. The prior
+    // question -- is there an archive at all -- was already answered by
+    // `getAthleteMirror`.
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch: routingFetch(routes) });
+
+    await expect(source.findAthletes('Wren Ashby')).resolves.toEqual({
+      outcome: 'found',
+      matches: [],
+    });
+  });
+
+  it('reports a published bucket holding nobody by that name as nobody', async () => {
+    // `Merrow Ottersby` hashes into 191 and is not in it. The same answer as an
+    // unpublished bucket, reached the other way, and the reason the outcome does
+    // not distinguish them: which of the two happened is a fact about how the
+    // archive was partitioned, and no screen has anything different to say.
+    const source = createStaticDataSource({ baseUrl: '/data/', fetch: routingFetch(routes) });
+
+    await expect(source.findAthletes('Merrow Ottersby')).resolves.toEqual({
+      outcome: 'found',
+      matches: [],
+    });
+  });
+
+  it('refuses a shard that does not match the contract', async () => {
+    // A bomb-out written as a zero rather than as `null` is the exact coercion
+    // the contract forbids, and it would put a lifter at the bottom of a ladder
+    // they were never on.
+    const source = createStaticDataSource({
+      baseUrl: '/data/',
+      fetch: routingFetch({
+        '/data/meta.json': VALID_META,
+        [BUCKET_URL]: {
+          ...BUCKET,
+          athletes: [
+            { key: 'kestrelvale', name: 'Kestrel Vale', entries: [{ ...ENTRY, squatKg: 0 }] },
+          ],
+        },
+      }),
+    });
+
+    await expect(source.findAthletes('Kestrel Vale')).rejects.toThrow(DataSourceError);
+  });
+
+  it('keeps the typed name out of a failed read', async () => {
+    // Section 2.3, and the enforcement is structural: `DataSourceError` names the
+    // artifact it was reading and has nowhere to put the input. A search box
+    // wired to an error reporter would otherwise ship a name off the device on
+    // every flaky request.
+    const source = createStaticDataSource({
+      baseUrl: '/data/',
+      fetch: (input: string) =>
+        Promise.resolve(
+          input === '/data/meta.json' ? jsonResponse(VALID_META) : jsonResponse({}, 503),
+        ),
+    });
+
+    const error = await rejection(source.findAthletes('Kestrel Vale'));
+
+    expect(error.message).not.toContain('Kestrel');
+    expect(error.message).toBe('Could not read "athletes-191": http 503');
   });
 });
 

@@ -29,6 +29,8 @@
  * and stay out of the argument.
  */
 import type {
+  AthleteHistory,
+  AthleteMirrorInfo,
   CategoryCatalog,
   ClassificationBook,
   ConversionChartData,
@@ -101,6 +103,32 @@ export interface ClassificationSetQuery {
   readonly sex: SexCategory;
   readonly equipmentId: string;
 }
+
+/**
+ * What came back from a lookup by name.
+ *
+ * A union rather than an array, because "we cannot look that up" and "nobody is
+ * called that" are different sentences and only one of them is worth suggesting
+ * a different spelling for. This is the only method on the seam whose *input*
+ * can be unusable, which is why it is the only one shaped this way.
+ *
+ * The third possibility -- that this build published no archive at all -- is
+ * deliberately not here. It is not an outcome of a lookup; it is a fact about
+ * the build, it is the same answer for every name, and a screen needs it
+ * *before* it offers a search box. `getAthleteMirror` answers it.
+ */
+export type AthleteLookup =
+  /**
+   * Nothing in the input can be looked up: it is blank, punctuation, or written
+   * in a script the archive's own index does not fold to Latin letters.
+   */
+  | { readonly outcome: 'unusable' }
+  /**
+   * The archive was read. `matches` is empty when it holds nobody by that name,
+   * and holds more than one when two people's names fold together -- which
+   * happens, and which the caller must show rather than resolve (section 5.5).
+   */
+  | { readonly outcome: 'found'; readonly matches: readonly AthleteHistory[] };
 
 export interface ReadOptions {
   /**
@@ -266,4 +294,40 @@ export interface DataSource {
    * only one of them is worth offering a reload for.
    */
   getMeetRuleProfiles(options?: ReadOptions): Promise<MeetRuleBook | null>;
+
+  /**
+   * What results archive this build published, or `null` if it published none.
+   *
+   * Asked before a search box is drawn, not after a search fails. The archive is
+   * an optional part of a build -- it is large, it comes from outside, and a
+   * build without it is a complete and correct site -- so a screen that offers
+   * to search one that is not there is offering a control that can only
+   * disappoint. `null` means render the manual route and no search box.
+   *
+   * What comes back is deliberately about the archive and not about any lifter:
+   * the credit its licence asks for, a sentence saying who is in it, and the two
+   * counts that let a reader judge whether "not found" means anything. All of it
+   * is needed on screen the moment the search box exists.
+   */
+  getAthleteMirror(options?: ReadOptions): Promise<AthleteMirrorInfo | null>;
+
+  /**
+   * Every lifter in the archive whose name matches what was typed.
+   *
+   * Takes what a person wrote, not a key -- folding a name to something lookup-
+   * shaped is a property of how the archive is indexed, and a caller that did it
+   * would be a caller that breaks when the indexing changes. Callers must not
+   * pre-normalise; the same fold has to run on both sides or the two stop
+   * meeting.
+   *
+   * Never throws for a name it cannot use. See {@link AthleteLookup}: an
+   * unusable input and an empty archive are answers, and only a genuinely failed
+   * read is a `DataSourceError`.
+   *
+   * More than one match is normal and is not an error -- two people's names fold
+   * together. The caller shows them and lets the reader choose; nothing here or
+   * below may pick one, because picking wrong shows a lifter somebody else's
+   * total on the screen that tells them whether they may enter a meet.
+   */
+  findAthletes(name: string, options?: ReadOptions): Promise<AthleteLookup>;
 }

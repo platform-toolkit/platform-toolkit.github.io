@@ -3,6 +3,7 @@
 
 export {
   DataSourceError,
+  type AthleteLookup,
   type ClassificationSetQuery,
   type DataSource,
   type DataSourceFailureReason,

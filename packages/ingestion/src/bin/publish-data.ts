@@ -27,11 +27,15 @@
  * number on a lifter's screen.
  */
 import { createHash } from 'node:crypto';
-import { readFile, readdir, rm } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { readFile, readdir, rm, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
+import { createInterface } from 'node:readline';
 
 import {
+  ATHLETE_MIRROR_ARTIFACT_ID,
+  AthleteMirrorInfoSchema,
   CategoryCatalogSchema,
   ConversionChartSchema,
   MEET_RULES_ARTIFACT_ID,
@@ -43,8 +47,10 @@ import {
 } from '@platform-toolkit/data-contracts';
 
 import { planPublication, type ArtifactSource } from '../publication.js';
+import { shardAthleteMirror } from '../shard-athletes.js';
 import { shardClassificationBook } from '../shard-classifications.js';
 import { shardRecordBook } from '../shard-records.js';
+import { buildAthleteMirror, summarizeWithheld } from '../sources/athlete-mirror.js';
 import { buildCategoryCatalog } from '../sources/category-catalog.js';
 import {
   buildClassificationTables,
@@ -69,6 +75,25 @@ const CLASSIFICATION_SOURCES = join(SOURCE_ROOT, 'classifications');
 const CONVERSION_SOURCES = join(SOURCE_ROOT, 'conversions');
 const MEET_RULE_SOURCES = join(SOURCE_ROOT, 'meet-rules');
 const RECORD_SOURCES = join(SOURCE_ROOT, 'records');
+const ATHLETE_SOURCES = join(SOURCE_ROOT, 'athletes');
+
+/**
+ * The environment variable that turns the results archive on.
+ *
+ * Every other source in this script publishes from a document in the repository,
+ * so a checkout is enough to reproduce a build. This one cannot work that way:
+ * the archive is 816 MB of CSV rebuilt upstream every week, far too large to
+ * commit and pointless to pin. It is downloaded to a gitignored `.cache/` and
+ * this variable names the extracted file.
+ *
+ * Unset means publish nothing and say so in one line. That is the default on
+ * purpose and it is not a stub -- a build without the archive is a complete site
+ * whose lookup screen honestly reports that no archive was published, which is a
+ * state `getAthleteMirror` exists to express. Turning it on in CI is one variable
+ * and roughly 217 MB of published output, which is a decision with a person
+ * behind it rather than a consequence of merging this file.
+ */
+const CORPUS_VARIABLE = 'PTK_ATHLETE_CORPUS';
 
 /**
  * Where a classification mapping's committed upstream dataset lives.
@@ -276,6 +301,8 @@ async function main(): Promise<void> {
   });
   sources.push(...meetRuleFreshness);
 
+  await publishAthleteMirror(artifacts, sources);
+
   if (artifacts.length === 0) {
     // Publishing an empty index would replace a working site's data with a
     // valid document describing nothing, and every tool would report that its
@@ -298,6 +325,100 @@ async function main(): Promise<void> {
   console.log(
     `Published ${String(summary.fileCount)} files (${String(summary.totalBytes)} bytes) to ${OUTPUT_DIRECTORY}.`,
   );
+}
+
+/**
+ * Publishes the results archive, if this build was pointed at one.
+ *
+ * Its own function rather than another block in `main`, because it is the one
+ * source that can be absent by design and the early return is the whole point.
+ *
+ * The archive is streamed twice and never held: `openRows` opens a fresh reader
+ * each time it is called, so the adapter can learn who is in scope on one pass
+ * and project them on the next without four million entries in memory. See the
+ * adapter's header for why one pass cannot do it.
+ */
+async function publishAthleteMirror(
+  artifacts: ArtifactSource<unknown>[],
+  sources: SourceFreshness[],
+): Promise<void> {
+  const corpusPath = process.env[CORPUS_VARIABLE];
+  if (corpusPath === undefined || corpusPath === '') {
+    console.log(
+      `${CORPUS_VARIABLE} is unset; publishing no results archive. The lookup screen ` +
+        'will report that this build has none, which is a supported state.',
+    );
+    return;
+  }
+
+  const corpus = resolve(process.cwd(), corpusPath);
+  // Checked before the documents are read, so a mistyped path fails on the path
+  // rather than a hundred lines later inside a stream, where the error arrives
+  // as a failed read of something the message does not name.
+  const stats = await stat(corpus).catch((cause: unknown) => {
+    throw new Error(`${CORPUS_VARIABLE} names ${corpusPath}, which cannot be read.`, { cause });
+  });
+  if (!stats.isFile()) {
+    throw new Error(`${CORPUS_VARIABLE} names ${corpusPath}, which is not a file.`);
+  }
+
+  const documents = await readSourceDocuments(ATHLETE_SOURCES);
+  const [document, ...extra] = documents;
+  if (document === undefined) {
+    throw new Error(
+      `${CORPUS_VARIABLE} is set but ${ATHLETE_SOURCES} holds no document saying what to ` +
+        'mirror out of it. The scope is data, never a default (section 5.1).',
+    );
+  }
+  if (extra.length > 0) {
+    // One archive, one scope. Two documents would each mirror an overlapping set
+    // of lifters into the same buckets, and the sharder would refuse the
+    // duplicate -- correctly, but with a message about a key rather than about
+    // the two files that caused it.
+    throw new Error(
+      `${ATHLETE_SOURCES} holds ${String(documents.length)} documents; the archive takes one.`,
+    );
+  }
+
+  const openRows = (): AsyncIterable<string> =>
+    createInterface({
+      input: createReadStream(corpus, { encoding: 'utf8' }),
+      // A row split across a chunk boundary otherwise arrives as two rows, both
+      // of which project into nonsense that passes every check.
+      crlfDelay: Number.POSITIVE_INFINITY,
+    });
+
+  const { mirror, info, freshness, withheld } = await buildAthleteMirror(document.value, openRows);
+
+  let entryCount = 0;
+  let bucketCount = 0;
+  for (const shard of shardAthleteMirror(mirror.athletes, SCHEMA_VERSION)) {
+    artifacts.push(shard);
+    entryCount += shard.entryCount;
+    bucketCount += 1;
+  }
+
+  // The one artifact that answers "is there an archive here at all", published
+  // last of the group so it reads as the summary it is.
+  artifacts.push({
+    id: ATHLETE_MIRROR_ARTIFACT_ID,
+    schema: AthleteMirrorInfoSchema,
+    schemaVersion: SCHEMA_VERSION,
+    value: info,
+  });
+  sources.push(freshness);
+
+  // Counts and never a name (section 2.3). These four numbers are what a person
+  // reading the build log needs: a mirror that halved, or a withheld count that
+  // jumped, is upstream having changed something.
+  console.log(
+    `${document.path}: mirrored ${String(info.athleteCount)} lifters and ` +
+      `${String(entryCount)} entries into ${String(bucketCount)} buckets, ` +
+      `withheld ${String(withheld.length)} rows.`,
+  );
+  if (withheld.length > 0) {
+    console.log(`  ${summarizeWithheld(withheld)}`);
+  }
 }
 
 /**

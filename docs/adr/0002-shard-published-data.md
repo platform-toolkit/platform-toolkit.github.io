@@ -1,7 +1,9 @@
 # 2. Shard published data, and cap one artifact at two megabytes
 
 **Status:** accepted — 2026-07-31; shard key amended 2026-08-01, see
-[Amendment](#amendment-2026-08-01-the-record-shard-key-is-four-axes-not-two)
+[Amendment](#amendment-2026-08-01-the-record-shard-key-is-four-axes-not-two); extended to a corpus
+with no readable axis 2026-08-05, see
+[Amendment](#amendment-2026-08-05-a-corpus-with-no-readable-axis-is-split-on-a-hash)
 
 ## Context
 
@@ -126,3 +128,57 @@ The change reaches `RecordShardKey`, `recordShardKey`, `sameRecordShard` and `re
 cheap because nothing was published yet — the amendment is filed now, before a corpus lands, rather
 than after somebody's cached artifacts have to be invalidated for it. The consequence noted above,
 that the spike should be rerun when the shard key changes, is what this amendment is.
+
+## Amendment 2026-08-05: a corpus with no readable axis is split on a hash
+
+Both shard keys above name axes a lifter would recognise, and both were chosen by asking what a
+single screen needs at once. The athlete mirror cannot be keyed that way, and saying why is the
+whole of this amendment.
+
+A lookup against the mirror supplies one thing: a name. Every other property of a lifter — their
+federation, their weight class, their division, the years they competed — is something the mirror is
+being asked _for_, so none of them is available to choose an artifact with. The only input is the
+input.
+
+The obvious split on that input is the first letter of the name, and it is the wrong one. Human
+names are not uniformly distributed across the alphabet, so the budget would be set by whichever
+letter is largest while most requests fetched a nearly empty file. **A hash is uniform by
+construction**, which is the entire reason to give up a partition name anybody can read.
+
+Measured on the real corpus — 593,144 mirrored entries across 94,236 distinct lookup keys, which is
+the subset in scope, not the whole upstream archive:
+
+| buckets | median shard | largest shard | against the 2 MB budget |
+| ------- | ------------ | ------------- | ----------------------- |
+| 512     | 410 KB       | 592 KB        | largest is 29 %         |
+
+The spread between smallest and largest is a factor of about two. A first-letter split of the same
+data spans two orders of magnitude, which is the comparison worth keeping: uniformity is not a
+tidiness argument here, it is what makes one budget hold for every partition.
+
+**The bucket count is a constant in `data-contracts`, not a field in `meta.json`.** Both the build
+and the browser compute a bucket and they have to agree. A published count lets them disagree for
+exactly one deploy — a browser on an old bundle reading a new count, or the reverse — and the
+symptom is not an error. It is a lookup that resolves to no artifact, which renders as "no results
+for that name", which is a real and unremarkable answer nobody investigates. A constant both sides
+import cannot drift, and changing it is a deliberate republication of every shard, which is what
+changing it actually is.
+
+**One artifact of the mirror keeps a fixed name.** With hundreds of hashed shards and no way to
+enumerate them, there is otherwise no way to ask the prior question — did this build publish an
+archive at all — except by fetching a bucket and reading "no" into a missing file. That conflates
+two sentences a screen has to keep apart: _this build published no results archive_, which means
+stop offering to search it, and _nobody in the archive is called that_, which means try another
+spelling. So `athlete-mirror` is published under a constant id and carries the count, the scope
+sentence and the upstream credit; the shards carry the lifters.
+
+### What this costs, stated rather than buried
+
+At 512 buckets the mirror is roughly 217 MB of published JSON, against about 81 MB for everything
+else in the set combined. That is a real cost to a repository served from GitHub Pages, and it is
+why the mirror is **not published by default**: `publish-data` emits it only when
+`PTK_ATHLETE_CORPUS` names an extracted CSV, and prints one line saying so when it does not. CI is
+unchanged. Turning it on is one environment variable and is a decision about what to put in public,
+not a build detail.
+
+The 168 MB source archive is downloaded to a gitignored `.cache/` and is never committed.

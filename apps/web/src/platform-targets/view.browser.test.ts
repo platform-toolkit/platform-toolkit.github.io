@@ -77,10 +77,11 @@ interface Asked {
 /**
  * A source that records what it was asked for.
  *
- * Conversion charts and meet rules are not read by this view, so those methods
- * answer `null` rather than throwing: a stub that threw would turn "nothing asks
- * for this" into a failure the day something does, which is a worse way to find
- * out.
+ * Conversion charts, meet rules and the athlete archive are not read by this
+ * view, so those methods answer emptily rather than throwing: a stub that threw
+ * would turn "nothing asks for this" into a failure the day something does,
+ * which is a worse way to find out. The archive answers as a build that
+ * published none, which is what this tool's data set is.
  */
 function sourceThat(stubs: Stubs = {}): DataSource & Asked {
   const federations: string[] = [];
@@ -114,6 +115,8 @@ function sourceThat(stubs: Stubs = {}): DataSource & Asked {
     },
     getConversionChart: () => Promise.resolve(null),
     getMeetRuleProfiles: () => Promise.resolve(null),
+    getAthleteMirror: () => Promise.resolve(null),
+    findAthletes: () => Promise.resolve({ outcome: 'found', matches: [] }),
     getClassifications: (query) => {
       classificationPartitions.push(`${query.federationId} ${query.sex} ${query.equipmentId}`);
       return classifications();
