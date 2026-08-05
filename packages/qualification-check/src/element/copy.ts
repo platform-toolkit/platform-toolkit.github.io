@@ -1,8 +1,9 @@
 // Copyright 2026 Jason Smathers
 // SPDX-License-Identifier: Apache-2.0
 
-import type { Lift, TestedOffering } from '@platform-toolkit/data-contracts';
+import type { AthleteHistory, Lift, TestedOffering } from '@platform-toolkit/data-contracts';
 
+import type { ProfileQueryProblem } from '../core/profile.js';
 import type { RegistrationAxis, TestedProposal } from '../core/registration.js';
 import type {
   TypedResultForm,
@@ -536,6 +537,147 @@ export const CONDITION_SOURCE: Readonly<Record<UncheckableCondition['from'], str
   meet: 'This meet',
   federation: 'Federation rules',
 };
+
+/**
+ * The words the archive lookup says.
+ *
+ * The panel offers to find a named person, which makes it the one place in the
+ * collection where the subject of the screen may not be the person reading it --
+ * the brief's meet director checking a registration. Section 2.3 is sharper here for
+ * that reason, and so is the copy: what the lookup does with what was typed, what it
+ * keeps, and how sure it is that the lifter it found is the right one all have to be
+ * on the screen rather than in a policy nobody opens.
+ *
+ * Nothing here says "your" results until a lifter has been chosen, and after that it
+ * says the name. A panel that greets a meet director as the lifter they looked up is
+ * a small thing that makes every sentence under it read as being about the wrong
+ * person.
+ */
+export const IMPORT_NOTES = {
+  heading: 'Find results in the archive',
+
+  /**
+   * Where the lookup goes, which is nowhere.
+   *
+   * True and worth a sentence: the fold and the hash both run in the browser, and
+   * the request that leaves is for a numbered bucket of the archive. A reader has no
+   * way to know that, and the assumption in its place -- a name posted to a search
+   * endpoint -- is the assumption that makes looking somebody else up feel like
+   * something to avoid.
+   */
+  privacy:
+    'The search runs in this tab. What you type is turned into a bucket number here and only the bucket is fetched, so the name itself is never sent anywhere. Nothing found is saved.',
+
+  label: 'Name or profile link',
+  hint: 'The name a lifter competes under, or the address of their profile page.',
+  search: 'Search',
+
+  /** A control that answers in a second still needs a state between press and answer. */
+  searching: 'Searching the archive.',
+
+  /**
+   * A failed read, said without a reason code.
+   *
+   * The alternative route is on the same page and costs a minute, so the useful
+   * sentence points at it rather than explaining a fault the reader cannot fix.
+   */
+  failed: 'The archive could not be read just now. Try again, or type results in below.',
+
+  /**
+   * What was read out of a pasted link.
+   *
+   * Shown always, not only when the search fails. A link read wrongly and a name
+   * spelled wrongly produce the same empty answer, and only one of them is the
+   * reader's mistake -- printing the term is how they can tell which happened.
+   */
+  readFromLink: 'Read from that link:',
+
+  /**
+   * The archive cannot index what was typed, which is not the same as not finding it.
+   *
+   * Its own sentence because the repair is different. "Nobody by that name" invites
+   * another spelling of the same name; this one means the input folded away to
+   * nothing -- punctuation, or a script the archive's index does not carry -- and
+   * another spelling of it will fold away too.
+   */
+  unusable:
+    'The archive cannot look that up. It indexes Latin letters and digits, so a name written in another script has to be given the way the archive spells it.',
+
+  /** Nobody by that name, distinguished from an archive that could not be read. */
+  none: 'Nobody in the archive is listed under that name. Check the spelling, or type results in below.',
+
+  matchesHeading: 'Which lifter',
+
+  /**
+   * More than one match is normal, and the reason it happens has to be said.
+   *
+   * Two names fold to one lookup key often enough to be certain of it. A reader
+   * shown two similar rows with no explanation assumes the archive is duplicated and
+   * picks either; what is true is that these are different people whose results are
+   * not combined, and picking the wrong one puts somebody else's total on a screen
+   * about entering a meet.
+   */
+  matchesNote:
+    'More than one lifter is listed under that name. They are different people and their results are not combined. Pick the one you meant.',
+
+  /** A single match is still a choice, because the tool cannot know it is the right person. */
+  oneMatchNote: 'One lifter is listed under that name. Check it is the one you meant.',
+
+  /** What a chosen lifter's results replaced, said before somebody notices it happened. */
+  chosen: 'Results in the reading below are from the archive for:',
+  chosenNote:
+    'Anything typed in before this was replaced. Results can still be added and removed below.',
+  clear: 'Clear these results',
+
+  /** The archive's own credit, its coverage, and the two counts that size it. */
+  archiveHeading: 'The archive',
+  athleteCountLabel: 'Lifters',
+  entryCountLabel: 'Entries',
+
+  /**
+   * Block-level, and never inside a sentence.
+   *
+   * An inline link cannot be given a 44 px tap target without its padding growing
+   * over the prose above it -- the failure `ptk-meet-reading`'s citation was found
+   * to have, by `check:narrow` and not by reading (section 5.7).
+   */
+  sourceLink: 'Read the archive in full',
+} as const;
+
+/** Why nothing searchable could be read out of the field. */
+export const PROFILE_QUERY_PROBLEMS: Readonly<Record<ProfileQueryProblem, string>> = {
+  blank: 'Type a name, or paste a link to a profile.',
+  'link-without-a-lifter':
+    'That link does not name a lifter. Paste the address of a profile page, or type the name instead.',
+};
+
+/**
+ * One archive match, on the one line a reader picks between.
+ *
+ * The name alone is not enough and that is the whole difficulty: the matches shown
+ * together are the ones whose names fold to the same key, so they are by
+ * construction the names hardest to tell apart. What separates them is what they
+ * lifted and when, so the label carries the count and the span -- a reader who
+ * competed from 2019 recognises their own row at a glance and could not have picked
+ * it from two spellings of the same name.
+ *
+ * The archive's own spelling is printed unchanged, suffix included. That suffix is
+ * frequently the only thing distinguishing two real people, and tidying it away
+ * would leave the reader choosing at random.
+ */
+export function athleteMatchLabel(history: AthleteHistory): string {
+  const { entries } = history;
+  // Non-empty and oldest first, by the contract's own schema, so both ends exist.
+  const first = entries[0];
+  const last = entries[entries.length - 1];
+  if (first === undefined || last === undefined) return history.name;
+
+  const count = entries.length === 1 ? '1 result' : `${String(entries.length)} results`;
+  const from = first.date.slice(0, 4);
+  const to = last.date.slice(0, 4);
+  const span = from === to ? from : `${from} to ${to}`;
+  return `${history.name}. ${count}, ${span}.`;
+}
 
 /**
  * The words the whole screen is framed in.

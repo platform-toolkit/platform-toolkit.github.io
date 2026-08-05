@@ -5,8 +5,8 @@
  * The whole tool, driven the way a lifter drives it, in a real browser.
  *
  * Every other suite in this package tests a function against a fixture. This one
- * tests the *wiring*: six custom elements in five shadow roots, connected by six
- * composed events and nothing else. Tool 5 is the reason it exists -- every fixture in
+ * tests the *wiring*: seven custom elements in six shadow roots, connected by composed
+ * events and nothing else. Tool 5 is the reason it exists -- every fixture in
  * that directory drove the document, so nothing drove the tool until a root-level
  * test played a whole meet through the elements, and the first time one did it found
  * three of nine attempts with no control to move them onto the platform.
@@ -48,7 +48,7 @@ import {
 } from '../core/qualification.fixture.js';
 import type { CalendarDay } from '../types.js';
 
-import { ANSWER_NOTES, CHECK_NOTES, STANDARDS_STATUS_NOTES } from './copy.js';
+import { ANSWER_NOTES, CHECK_NOTES, IMPORT_NOTES, STANDARDS_STATUS_NOTES } from './copy.js';
 import { defineQualificationCheck } from './index.js';
 import type { PtkMeetReading } from './ptk-meet-reading.js';
 import {
@@ -57,8 +57,10 @@ import {
   type StandardsNeededDetail,
 } from './ptk-qualification-check.js';
 import type { PtkRegistrationAnswers } from './ptk-registration-answers.js';
+import type { PtkProfileImport } from './ptk-profile-import.js';
 import type { PtkResultLog } from './ptk-result-log.js';
 import type { PtkStandingReport } from './ptk-standing-report.js';
+import { aMirror, twoNamesakes } from './story.fixture.js';
 
 /**
  * A day inside the fixture meet's entry window.
@@ -109,7 +111,15 @@ async function mount(
   properties: Partial<
     Pick<
       PtkQualificationCheck,
-      'importedEntries' | 'vocabulary' | 'tables' | 'book' | 'today' | 'standardsStatus'
+      | 'importedEntries'
+      | 'vocabulary'
+      | 'tables'
+      | 'book'
+      | 'today'
+      | 'standardsStatus'
+      | 'mirror'
+      | 'lookup'
+      | 'lookupStatus'
     >
   > = {},
 ): Promise<PtkQualificationCheck> {
@@ -345,6 +355,26 @@ async function typeDate(
   await element.updateComplete;
 }
 
+/**
+ * Picks one of the archive's candidates, from outside the panel that offers them.
+ *
+ * Three shadow roots deep, and deliberately driven by a click rather than by dispatching
+ * {@link ATHLETE_CHOSEN_EVENT} at the root. Firing the event directly would test the
+ * root's handler against an event this suite wrote, and the failure it is here to catch
+ * is the panel's event not reaching the root at all.
+ */
+async function importAthlete(element: PtkQualificationCheck, value: string): Promise<void> {
+  const panel: PtkProfileImport = inRoot(element, 'ptk-profile-import');
+  const wrapper = panel.shadowRoot?.querySelector('[data-picker="athlete"]');
+  const group = wrapper?.querySelector('ptk-choice-group');
+  const radio = [...(group?.shadowRoot?.querySelectorAll('input') ?? [])].find(
+    (input) => input.value === value,
+  );
+  if (radio === undefined) throw new Error(`The archive is offering no candidate "${value}".`);
+  radio.click();
+  await element.updateComplete;
+}
+
 /** The three text fields a result needs, and the button that submits it. */
 async function typeResult(
   element: PtkQualificationCheck,
@@ -432,6 +462,53 @@ describe('ptk-qualification-check', () => {
     const left = inRoot(element, 'ptk-result-log').entries;
     expect(left.length).toBe(1);
     expect(left[0]?.meetName).toBe(entry().meetName);
+  });
+
+  it('leaves the archive off the page entirely when the build published none', async () => {
+    const element = await mount();
+
+    // Production today: root section 9's mirror gate is shut, so `getAthleteMirror()`
+    // answers `null` and the manual route is the whole tool. Not a disabled search box
+    // and not an empty section either -- an empty one still carries the bottom margin
+    // every other section gets, which is a gap above "Your results" on every page load.
+    expect(has(element, 'ptk-profile-import')).toBe(false);
+    expect(readAll(element)).not.toContain(IMPORT_NOTES.heading);
+  });
+
+  it('takes the results of the lifter the reader picked out of the archive', async () => {
+    const element = await mount({
+      mirror: aMirror(),
+      lookup: { outcome: 'found', matches: twoNamesakes() },
+    });
+
+    await importAthlete(element, '1');
+
+    // The event crossed two shadow boundaries and was adopted by the element that drew
+    // the panel, rather than being handed back by a consumer. An element that renders a
+    // control and then needs its consumer to feed that control's output into one of its
+    // own properties has a hole in it.
+    const log: PtkResultLog = inRoot(element, 'ptk-result-log');
+    expect(log.entries.length).toBe(1);
+    expect(readAll(log)).toContain('Invented Autumn Classic');
+  });
+
+  it('starts the reading over when a second lifter is imported', async () => {
+    const element = await mount({
+      mirror: aMirror(),
+      lookup: { outcome: 'found', matches: twoNamesakes() },
+    });
+    await importAthlete(element, '0');
+    await answerEverything(element);
+    expect(has(element, 'ptk-standing-report')).toBe(true);
+
+    await importAthlete(element, '1');
+
+    // The reset is the whole point and it is not tidiness. Those five answers are
+    // statements about the lifter the previous results belonged to, and carrying them
+    // would grade a different person's history under the first one's weight class and
+    // division with nothing on screen to show that it had happened.
+    expect(has(element, 'ptk-standing-report')).toBe(false);
+    expect(readAll(inRoot(element, 'ptk-result-log'))).not.toContain('Invented Spring Open');
   });
 
   it('reads a single registration without making the reader tick it', async () => {

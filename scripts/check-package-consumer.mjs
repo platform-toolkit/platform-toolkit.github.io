@@ -84,8 +84,19 @@ const CONSUMABLE = ['@platform-toolkit/qualification-check'];
  * importing for side effects: an `import` with no binding can be elided by the
  * compiler, and an elided import proves nothing about whether the file exists.
  */
-const CONSUMER_SOURCE = `import { defineQualificationCheck, QUALIFICATION_CHECK_TAG } from '@platform-toolkit/qualification-check/element';
-import { emptyTypedResult, mayPreselect } from '@platform-toolkit/qualification-check/core';
+const CONSUMER_SOURCE = `import {
+  ATHLETE_SEARCH_EVENT,
+  PROFILE_IMPORT_TAG,
+  QUALIFICATION_CHECK_TAG,
+  defineQualificationCheck,
+  type AthleteMatches,
+  type LookupStatus,
+} from '@platform-toolkit/qualification-check/element';
+import {
+  emptyTypedResult,
+  mayPreselect,
+  readProfileQuery,
+} from '@platform-toolkit/qualification-check/core';
 import { proposeSex } from '@platform-toolkit/qualification-check';
 import type { CategoryProposal } from '@platform-toolkit/qualification-check/types';
 
@@ -97,9 +108,25 @@ export function consume(): string {
   const form = emptyTypedResult();
   const preselects = mayPreselect('measured');
   const define: () => unknown = defineQualificationCheck;
-  return [QUALIFICATION_CHECK_TAG, proposal.proposed, form.date, preselects, typeof define].join(
-    ' ',
-  );
+  // The import route's whole seam, annotated for the same reason. A consumer wiring
+  // its own archive to the panel needs all three of these and gets none of them from
+  // \`data-access\`, which this package deliberately does not depend on -- so a build
+  // that shipped the element without its types would leave that consumer casting.
+  const status: LookupStatus = 'searching';
+  const answer: AthleteMatches = { outcome: 'found', matches: [] };
+  const reading = readProfileQuery('Jane Invented');
+  return [
+    QUALIFICATION_CHECK_TAG,
+    PROFILE_IMPORT_TAG,
+    ATHLETE_SEARCH_EVENT,
+    proposal.proposed,
+    form.date,
+    preselects,
+    typeof define,
+    status,
+    answer.outcome,
+    reading.ok,
+  ].join(' ');
 }
 `;
 

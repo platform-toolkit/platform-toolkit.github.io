@@ -6,8 +6,13 @@
  *
  * Results, then which of them to read, then how this federation would register the
  * lifter, then what that comes to -- with a meet's own criteria folded in on top
- * when one is picked. Four elements below this one each answer a piece of that, and
+ * when one is picked. Five elements below this one each answer a piece of that, and
  * this element owns the only thing none of them can: the state that connects them.
+ *
+ * The import panel sits above all of it and is the only part that can be absent: a
+ * consumer with no athlete archive leaves {@link mirror} at `null`, the panel renders
+ * nothing, and what remains is the manual path -- which root section 1 requires to be
+ * fully functional on its own, and which is the path in production today.
  *
  * WHY THE SEQUENCE IS DOWN THE PAGE AND NOT BEHIND STEPS
  *
@@ -35,6 +40,7 @@
  */
 import type {
   AthleteEntry,
+  AthleteMirrorInfo,
   ClassificationTable,
   QualifyingMeetBook,
   SexCategory,
@@ -66,7 +72,14 @@ import type {
   StandingReport,
 } from '../types.js';
 
-import { CHECK_NOTES, WINDOW_PROBLEMS, observedRegistrationLabel } from './copy.js';
+import { CHECK_NOTES, IMPORT_NOTES, WINDOW_PROBLEMS, observedRegistrationLabel } from './copy.js';
+import { PICKER_DATASET_KEY, PICKER_MEET, PICKER_STANDING, datasetOn } from './pickers.js';
+import {
+  ATHLETE_CHOSEN_EVENT,
+  type AthleteChosenDetail,
+  type AthleteMatches,
+  type LookupStatus,
+} from './ptk-profile-import.js';
 import {
   REGISTRATION_ANSWERS_EVENT,
   type RegistrationAnswersDetail,
@@ -79,21 +92,6 @@ import type { StandardsStatus } from './ptk-standing-report.js';
 const BOUND_DATASET_KEY = 'bound';
 const BOUND_FROM = 'from';
 const BOUND_TO = 'to';
-
-/**
- * The `data-` key naming the two pickers this element owns.
- *
- * Both handlers below check it, and neither is optional. Every control on this
- * screen is inside this element's shadow tree, and a `ptk-choice-group` or
- * `ptk-select` change is composed -- so the registration answers' five controls
- * report to their own element *and* arrive here. Without the key a sex tile reads
- * as a standing tile, and a weight-class selection reads as a meet identifier:
- * `findQualifyingMeet` then finds nothing, and the screen answers a question about
- * a lifter's weight class with "that meet is not in the published list".
- */
-const PICKER_DATASET_KEY = 'picker';
-const PICKER_STANDING = 'standing';
-const PICKER_MEET = 'meet';
 
 /** What the meet select reports when the reader picks nothing. */
 const NO_MEET = '';
@@ -169,6 +167,26 @@ export class PtkQualificationCheck extends LitElement {
   `;
 
   /**
+   * The archive the import panel searches, or `null` for no archive at all.
+   *
+   * `null` is not an error state and not a loading state -- it is the shape of a
+   * consumer that has no athlete mirror, which today is every consumer including this
+   * repository's own (root section 9's gate is unopened). The panel renders nothing
+   * and the reader is on the manual path with no dead search box in front of them.
+   * Every honest failure of an archive that *does* exist is a `DataSourceError` the
+   * consumer swallows, so it arrives here as the same `null`, and that is deliberate:
+   * "we could not reach the archive" is a sentence about the consumer's infrastructure
+   * and this screen is not the place a lifter should read it.
+   */
+  @property({ attribute: false }) mirror: AthleteMirrorInfo | null = null;
+
+  /** The answer to the search the panel last asked for, or `null` before any. */
+  @property({ attribute: false }) lookup: AthleteMatches | null = null;
+
+  /** Whether {@link lookup} is the answer yet. */
+  @property({ attribute: false }) lookupStatus: LookupStatus = 'idle';
+
+  /**
    * A history that arrived from the archive, if one did.
    *
    * Read once, into the list below, rather than merged on every render. The list is
@@ -181,8 +199,14 @@ export class PtkQualificationCheck extends LitElement {
    *
    * Setting this again replaces the whole list, typed results included. That is the
    * honest reading of a second import -- a different lifter's history is a different
-   * question -- but it does mean a consumer must set it when a profile is imported and
-   * not rebuild the array on every render.
+   * question -- but it does mean a consumer must not rebuild the array on every
+   * render.
+   *
+   * This is for a consumer that already holds a history, from its own account system
+   * or a fixture. It is not how the import panel below feeds the screen: that arrives
+   * as {@link ATHLETE_CHOSEN_EVENT} from inside this element's own shadow tree and is
+   * adopted here, so a consumer that renders the panel has to wire nothing back. Both
+   * routes land in the same list by the same rule.
    */
   @property({ attribute: false }) importedEntries: readonly AthleteEntry[] = [];
 
@@ -279,6 +303,24 @@ export class PtkQualificationCheck extends LitElement {
     this.meetId = value === null || value === NO_MEET ? null : value;
   };
 
+  /**
+   * Takes the results of whoever the reader picked out of the archive.
+   *
+   * Handled here rather than left to bubble out to the consumer, even though it does
+   * bubble and a consumer may listen. The panel is inside this element's shadow tree
+   * because this element put it there, and an element that renders a control and then
+   * needs its consumer to feed that control's output back into one of its own
+   * properties has a hole in it -- the same reason the result form's entries are
+   * consumed here and not round-tripped.
+   *
+   * No `data-picker` guard, unlike the two handlers above: this event is this
+   * package's own and there is exactly one element that fires it. The guard exists for
+   * the generic change events that every control in the tree dispatches.
+   */
+  readonly #onChosen = (event: CustomEvent<AthleteChosenDetail>): void => {
+    this.#adopt(event.detail.athlete.entries);
+  };
+
   override connectedCallback(): void {
     super.connectedCallback();
     this.addEventListener(RESULT_ENTERED_EVENT, this.#onEntered);
@@ -287,13 +329,25 @@ export class PtkQualificationCheck extends LitElement {
     this.addEventListener(DATE_FIELD_CHANGE_EVENT, this.#onDate);
     this.addEventListener(CHOICE_CHANGE_EVENT, this.#onChoice);
     this.addEventListener(SELECT_CHANGE_EVENT, this.#onSelect);
+    this.addEventListener(ATHLETE_CHOSEN_EVENT, this.#onChosen);
   }
 
   protected override willUpdate(changed: PropertyValues<this>): void {
-    if (changed.has('importedEntries')) {
-      this.entries = this.importedEntries;
-      this.#selectStanding(null);
-    }
+    if (changed.has('importedEntries')) this.#adopt(this.importedEntries);
+  }
+
+  /**
+   * Starts the reading over on somebody else's results.
+   *
+   * The reset is the whole point and it is not tidiness. A standing is chosen by a key
+   * built out of the results in the list, and the answers are five statements about
+   * the lifter those results belong to. Carrying either across an import would grade
+   * the new history under the previous lifter's weight class and division, and the
+   * screen has no way to show that it had done so.
+   */
+  #adopt(entries: readonly AthleteEntry[]): void {
+    this.entries = entries;
+    this.#selectStanding(null);
   }
 
   /**
@@ -351,8 +405,8 @@ export class PtkQualificationCheck extends LitElement {
     const done = await super.getUpdateComplete();
     const children =
       this.shadowRoot?.querySelectorAll(
-        'ptk-date-field, ptk-choice-group, ptk-select, ptk-result-form, ptk-result-log,' +
-          ' ptk-registration-answers, ptk-standing-report, ptk-meet-reading',
+        'ptk-date-field, ptk-choice-group, ptk-select, ptk-profile-import, ptk-result-form,' +
+          ' ptk-result-log, ptk-registration-answers, ptk-standing-report, ptk-meet-reading',
       ) ?? [];
     await Promise.all(
       [...children]
@@ -373,9 +427,32 @@ export class PtkQualificationCheck extends LitElement {
 
     return html`
       <p class="intro">${CHECK_NOTES.intro}</p>
-      ${this.#renderResults()} ${this.#renderWindow()} ${this.#renderStandings(standings, standing)}
+      ${this.#renderImport()} ${this.#renderResults()} ${this.#renderWindow()}
+      ${this.#renderStandings(standings, standing)}
       ${standing === null ? nothing : this.#renderReading(standing, vocabulary)}
     `;
+  }
+
+  /**
+   * The archive search, above the results it fills in.
+   *
+   * The section wrapper is conditional and not just the panel's contents, because an
+   * empty `<section>` still carries the bottom margin every other one on this page
+   * gets -- a gap above "Your results" on every page load in production, where the
+   * mirror is `null`.
+   */
+  #renderImport(): TemplateResult | typeof nothing {
+    const { mirror } = this;
+    if (mirror === null) return nothing;
+
+    return html`<section>
+      <h2>${IMPORT_NOTES.heading}</h2>
+      <ptk-profile-import
+        .mirror=${mirror}
+        .lookup=${this.lookup}
+        .status=${this.lookupStatus}
+      ></ptk-profile-import>
+    </section>`;
   }
 
   #renderResults(): TemplateResult {
@@ -672,16 +749,6 @@ export class PtkQualificationCheck extends LitElement {
     this.standingKey = key;
     this.answers = {};
   }
-}
-
-/** The innermost `data-` value of one key on an event's path, or `null`. */
-function datasetOn(event: Event, key: string): string | null {
-  for (const target of event.composedPath()) {
-    if (!(target instanceof HTMLElement)) continue;
-    const value = target.dataset[key];
-    if (value !== undefined) return value;
-  }
-  return null;
 }
 
 declare global {

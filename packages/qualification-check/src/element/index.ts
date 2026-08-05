@@ -13,14 +13,15 @@
  * through a transitive dependency. So no file here carries a `@customElement`
  * decorator, and this is the only module that touches `customElements`.
  *
- * All six tags are defined together, and that is not a convenience. Five of them are
- * inside the sixth's shadow root; defining only the root would leave a page of
+ * All seven tags are defined together, and that is not a convenience. Six of them are
+ * inside the seventh's shadow root; defining only the root would leave a page of
  * unupgraded elements that render nothing and report no error, which is the worst
  * failure mode available -- a blank tool with a clean console.
  */
 import type { LitElement } from 'lit';
 
 import { MEET_READING_TAG, PtkMeetReading } from './ptk-meet-reading.js';
+import { PROFILE_IMPORT_TAG, PtkProfileImport } from './ptk-profile-import.js';
 import { PtkQualificationCheck, QUALIFICATION_CHECK_TAG } from './ptk-qualification-check.js';
 import { PtkRegistrationAnswers, REGISTRATION_ANSWERS_TAG } from './ptk-registration-answers.js';
 import { PtkResultForm, RESULT_FORM_TAG } from './ptk-result-form.js';
@@ -29,7 +30,9 @@ import { PtkStandingReport, STANDING_REPORT_TAG } from './ptk-standing-report.js
 
 export {
   MEET_READING_TAG,
+  PROFILE_IMPORT_TAG,
   PtkMeetReading,
+  PtkProfileImport,
   PtkQualificationCheck,
   PtkRegistrationAnswers,
   PtkResultForm,
@@ -42,6 +45,14 @@ export {
   STANDING_REPORT_TAG,
 };
 
+export {
+  ATHLETE_CHOSEN_EVENT,
+  ATHLETE_SEARCH_EVENT,
+  type AthleteChosenDetail,
+  type AthleteMatches,
+  type AthleteSearchDetail,
+  type LookupStatus,
+} from './ptk-profile-import.js';
 export { STANDARDS_NEEDED_EVENT, type StandardsNeededDetail } from './ptk-qualification-check.js';
 export {
   REGISTRATION_ANSWERS_EVENT,
@@ -54,6 +65,7 @@ export type { StandardsStatus } from './ptk-standing-report.js';
 /** Every tag this package owns, paired with what to register under it. */
 const ELEMENTS: readonly (readonly [string, typeof LitElement])[] = [
   [MEET_READING_TAG, PtkMeetReading],
+  [PROFILE_IMPORT_TAG, PtkProfileImport],
   [REGISTRATION_ANSWERS_TAG, PtkRegistrationAnswers],
   [RESULT_FORM_TAG, PtkResultForm],
   [RESULT_LOG_TAG, PtkResultLog],

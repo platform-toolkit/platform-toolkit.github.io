@@ -3,10 +3,11 @@
 Open-source tools for the powerlifting community. Each one works on its own, and any site may embed
 a single tool without taking the rest.
 
-**Status: early development.** The site is live at <https://platform-toolkit.github.io>. Four tools
-ship today. Platform Targets is usable end to end for classification standards: pick a category,
-enter what you have lifted, and it tells you where that places and how far the next class is.
-Records, meet qualification, and profile import are not built yet.
+**Status: early development.** The site is live at <https://platform-toolkit.github.io>. Six tools
+ship today. Platform Targets is usable end to end for classification standards and for records: pick
+a category, enter what you have lifted, and it tells you where that places and how far the next
+thing is. Its profile import is not built yet — Qualification Check is where importing a lifter's
+results landed first.
 
 ## The tools
 
@@ -32,8 +33,12 @@ From there it shows current classification and the exact gap to the next one, pe
 total. A total left blank is added up from the three lifts, and the field says so — a typed total
 always wins, because a lifter entering one directly is asserting it came from a different day.
 
-Still to come: applicable records at state, national, and IPL World level, and whether a chosen
-meet's published criteria are met — per discipline, and per equipment category.
+Records are there too, at state, national and IPL World level, matched exactly on every axis — sex,
+equipment, weight class, division and discipline. Exactly, and never widened to a broader category:
+a record from a category you are not in is a comparison against a lift nobody in yours has made.
+
+Still to come here: profile import, and reading a chosen meet's published criteria. That second one
+is built, in Qualification Check below.
 
 ### Warm-Up Calculator
 
@@ -96,6 +101,50 @@ test load rather than from a set at a weight you chose, so they answer a differe
 The spread between equations is shown as what it is: disagreement between published models. It is
 not a confidence interval, not a margin of error, and says nothing about how likely any figure is.
 No attempt is labelled safe, and nothing here is an opener.
+
+### Meet Day Planner
+
+Nine attempts, on a bar that can actually be loaded to them.
+
+Plan the day, then run it. In the plan you set openers and the two attempts after each, and every
+figure is checked against what your federation's bar and plates can be loaded to — a weight the
+platform cannot make is shown as exactly that, with the nearest loadable weight either side, and is
+never quietly moved. What each attempt asks of you and how much of the plan is standing on it are
+kept apart, because those are two different questions and one of them is the one that ends a day
+early.
+
+On the day it becomes a live document. Attempts are submitted, taken, and marked good or no lift;
+the next attempt is chosen against what has already happened rather than against what was planned in
+the kitchen a week ago; and every change can be undone, whole-world, because a mis-tap during a
+flight is not a moment to start editing state carefully. A coach running several lifters gets one
+board with all of them on it, each with their own warm-up ramp timed to their own flight.
+
+It also prints. The Meet Pack is a paper fallback for the room where the phone is in a bag on the
+other side of the venue — one sheet per lifter, or a handler's roster for the whole squad.
+
+Nothing about a meet leaves the device. Saved meets live in the browser that saved them.
+
+### Qualification Check
+
+A lifter's published results, read against a meet's published entry criteria.
+
+Two things a person currently correlates by hand: what a federation says a meet requires, and what a
+lifter has actually totalled. This puts them side by side — classification per lift and on the
+total, drug-tested status, the qualifying window each result falls inside, and, for a meet that has
+been transcribed, each of that meet's routes in turn with the sentence it was read from beside it.
+
+**It does not tell anybody whether they may enter a meet.** A federation decides that, and this tool
+has no way to know what a federation will decide. Where the answer is not knowable from published
+figures — a category the federation does not publish, a result outside the window, an age the
+archive records only approximately — the reading says so in those words rather than guessing. If a
+lifter competed in more than one weight class inside the window, or once tested and once untested,
+every possibility is shown.
+
+Results can be typed in, and that path is complete on its own. Where a build has published a results
+archive, they can also be searched for by name — and a pasted profile link is reduced to the name in
+it before anything else happens, because the tool does not fetch an address somebody handed it. Two
+people under one name is ordinary rather than exceptional, so the tool always asks which; it never
+picks, not even when the archive returns exactly one lifter.
 
 ## Architecture
 
@@ -235,10 +284,19 @@ Tools whose answers do not depend on a federation have no such segment:
 | Warm-Up Calculator    | `/warm-up/embed/`               |
 | Pounds and Kilograms  | `/convert/embed/uspa/`          |
 | One-Rep Max Estimator | `/one-rep-max/embed/`           |
+| Meet Day Planner      | `/meet-day/embed/`              |
+| Qualification Check   | `/qualify/embed/uspa/`          |
 
 An embed route is chrome-free: no site header, no navigation, and no link out of the frame. It also
 installs nothing on your visitors — no service worker is registered and no web app manifest is
 linked from a framed document, so embedding a tool never caches anything under your origin.
+
+A frame is the fastest route and not the only one. Qualification Check is also a package —
+`packages/qualification-check/`, with its own README covering the custom elements, the events, and
+the shared data contracts that let one tool's output become another's input. The site consumes it
+exactly the way a third party would, which is the property that keeps it honest: if the site can do
+something the package cannot, that is a bug in the package. The other tools are still reachable only
+through their frames.
 
 ## Theming
 
@@ -339,6 +397,17 @@ the file is the size the manifest claims, and asserts the embed route registered
 Imported athlete data and profile URLs are not persisted by default. Athlete names and full profile
 URLs are kept out of logs, and athlete identity is never included in error reports.
 
+**A name searched for in the results archive never leaves the browser.** There is no server to send
+it to, and the lookup is not built as one: the browser folds the name to an index key, works out
+which of 512 shards that key falls in, and asks for that shard by number. What the host serving the
+files sees is a request for a numbered file, which is also what it sees when somebody with a
+different name in a different country asks. A pasted profile link is reduced to the name in it
+before any of that, and the address itself is never fetched, stored or sent anywhere.
+
+This matters most for the case the tools were built for, which is a meet director looking somebody
+else up: the subject of that lookup is not the person at the keyboard and has consented to nothing
+beyond their results being public.
+
 ## Data sources
 
 All public. Source, retrieval time, and revision are recorded for every artifact and surfaced in the
@@ -346,7 +415,11 @@ app, per tier — a state record and a national record can differ in age, and sh
 for both would misrepresent the newer one.
 
 Competition results come from the OpenPowerlifting bulk dataset, which carries a public-domain
-waiver. Only its published data is consumed; none of its application code is used.
+waiver. Only its published data is consumed; none of its application code is used. **No build has
+published that archive yet** — it is an order of magnitude larger than everything else here
+combined, so putting it in public is a separate decision. Until it is made, Qualification Check
+draws no search box at all, which is the honest rendering of an archive that is not there, and every
+result is typed in.
 
 ### Keeping them current
 

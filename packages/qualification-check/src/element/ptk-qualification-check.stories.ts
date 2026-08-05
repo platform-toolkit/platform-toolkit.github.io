@@ -5,8 +5,8 @@
  * The whole tool, in the states a lifter or a meet director opens it in.
  *
  * The composite root is the one element here whose stories are worth *pressing* rather
- * than looking at: five of the six tags are inside its shadow root and the only thing
- * that connects them is six composed events. A screenshot of this element proves that
+ * than looking at: six of the seven tags are inside its shadow root and the only thing
+ * that connects them is composed events. A screenshot of this element proves that
  * the markup exists; typing a result into it and watching a grade appear two boxes down
  * proves the tool works, and that is a distinction section 13 paid for.
  *
@@ -38,7 +38,7 @@ import {
 
 // Through the package entry and behind an explicit call, not a side-effecting relative
 // import. A relative import here would load the source copy of every element and define
-// six tags a second time: the registry throws on the second write, the story still looks
+// seven tags a second time: the registry throws on the second write, the story still looks
 // right because the first definition already won, and the only symptom is a console
 // error -- which `smoke-stories.mjs` fails on, for exactly this reason.
 defineQualificationCheck();

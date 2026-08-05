@@ -5,6 +5,7 @@ import { DataSourceError, type DataSource } from '@platform-toolkit/data-access'
 import type { CategoryCatalog } from '@platform-toolkit/data-contracts';
 import type { CalendarDay, CatalogVocabulary } from '@platform-toolkit/qualification-check';
 import {
+  ATHLETE_SEARCH_EVENT,
   QUALIFICATION_CHECK_TAG,
   STANDARDS_NEEDED_EVENT,
   defineQualificationCheck,
@@ -53,10 +54,9 @@ export interface QualificationCheckViewOptions {
  * This is the only file in the tool that knows a transport exists, and unlike
  * the other tools that is not merely a convention here: the element lives in
  * `@platform-toolkit/qualification-check`, which has no dependency on
- * `data-access` at all. A third-party consumer supplies these four properties
- * from wherever its own data lives, and this file is the shell's answer to the
- * same question -- section 15's rule that the shell may do nothing a consumer
- * cannot.
+ * `data-access` at all. A third-party consumer supplies these properties from
+ * wherever its own data lives, and this file is the shell's answer to the same
+ * question -- section 15's rule that the shell may do nothing a consumer cannot.
  *
  * No preference store is passed, and that is a decision rather than an
  * omission. Everything a reader types here is a competition result belonging to
@@ -75,7 +75,9 @@ export function createQualificationCheckView(
 
   startCatalog(element, source, options.federationId);
   startMeets(element, source);
+  startAthleteMirror(element, source);
   watchForStandards(element, source, options.federationId);
+  watchForAthleteSearch(element, source);
   startToday(element, options.clock ?? systemClock());
 
   return element;
@@ -164,6 +166,32 @@ function startMeets(element: PtkQualificationCheck, source: DataSource): void {
 }
 
 /**
+ * Asks whether there is an athlete archive to search at all.
+ *
+ * `null` is the answer in production today and will be until root section 9's
+ * mirror gate is opened, which is a decision about publishing 217 MB and not a
+ * decision this file gets to make. The element renders no search box for a
+ * `null` mirror, so the whole import path simply is not on the page — which is
+ * the right shape for a feature whose data may or may not exist, and the reason
+ * nothing here reports its absence.
+ *
+ * A failure is swallowed into the same `null` for that reason, and the element's
+ * own documentation says so. "The archive index could not be fetched" is a
+ * sentence about this deployment's plumbing, and putting it over a search box
+ * that would not have worked anyway tells a lifter checking a total something
+ * they can do nothing with.
+ */
+function startAthleteMirror(element: PtkQualificationCheck, source: DataSource): void {
+  void (async (): Promise<void> => {
+    try {
+      element.mirror = await source.getAthleteMirror();
+    } catch (caught) {
+      reportFailure('athlete archive', caught);
+    }
+  })();
+}
+
+/**
  * Fetches a partition of the classification standards whenever the tool says it
  * needs one.
  *
@@ -223,6 +251,62 @@ async function loadStandards(
     }
     element.standardsStatus = 'failed';
     reportFailure('classification standards', caught);
+  }
+}
+
+/**
+ * Searches the archive whenever the import panel asks it to.
+ *
+ * The term reaches this file and goes no further than the seam. It is not
+ * logged, not stamped into a URL, not put in an error payload, and not kept
+ * after the read settles — section 2.3, sharpened by the case the brief names: a
+ * meet director looking up a third party is searching for somebody who is not in
+ * the room and who agreed to none of this.
+ *
+ * The seam is what makes that more than a promise. `findAthletes` folds the name
+ * into a lookup key *in the browser*, derives a bucket number from it, and
+ * fetches the shard for that bucket — so what leaves the tab is an integer, and
+ * the name never appears in a request at all. That property lives in
+ * `static-data-source.ts` and this file must not undo it: do not add a query
+ * parameter, and do not "improve" this into a search endpoint.
+ */
+function watchForAthleteSearch(element: PtkQualificationCheck, source: DataSource): void {
+  let inFlight: AbortController | null = null;
+
+  element.addEventListener(ATHLETE_SEARCH_EVENT, (event) => {
+    // Abandoned rather than awaited, the same way a standards partition is, and
+    // with a worse failure if it were not: two searches settling out of order
+    // put the *first* name's namesakes under the second name's heading, and
+    // every one of them is a real person whose results are about to be read as
+    // somebody else's.
+    inFlight?.abort();
+    const controller = new AbortController();
+    inFlight = controller;
+    element.lookupStatus = 'searching';
+    void lookUpAthletes(element, source, event.detail.term, controller.signal);
+  });
+}
+
+async function lookUpAthletes(
+  element: PtkQualificationCheck,
+  source: DataSource,
+  term: string,
+  signal: AbortSignal,
+): Promise<void> {
+  try {
+    const lookup = await source.findAthletes(term, { signal });
+    if (signal.aborted) {
+      return;
+    }
+    element.lookup = lookup;
+    element.lookupStatus = 'idle';
+  } catch (caught) {
+    if (signal.aborted) {
+      // Superseded by a later search. The reader is waiting on that one.
+      return;
+    }
+    element.lookupStatus = 'failed';
+    reportFailure('athlete archive', caught);
   }
 }
 

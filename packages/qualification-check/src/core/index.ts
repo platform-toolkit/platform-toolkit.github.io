@@ -46,6 +46,13 @@ export {
   type TestedProposal,
 } from './registration.js';
 
+export {
+  readProfileQuery,
+  type ProfileQueryProblem,
+  type ProfileQueryReading,
+  type ProfileQuerySource,
+} from './profile.js';
+
 export { gradeLift, gradeStanding, reportedLifts } from './standing.js';
 
 export {

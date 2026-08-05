@@ -101,8 +101,8 @@ The call is explicit rather than a side effect of the import, and it is safe to 
 times from any number of modules. The custom element registry is a global that throws on a second
 write, so a package that registered its tags on import would hand you a `NotSupportedError` from a
 file you did not write, before a line of your own code ran, the first time a bundler failed to
-dedupe it. Six tags are registered together; five of them live inside the sixth's shadow root, and
-registering only the root would render a blank tool with a clean console.
+dedupe it. Seven tags are registered together; six of them live inside the seventh's shadow root,
+and registering only the root would render a blank tool with a clean console.
 
 `tokens.css` is a stylesheet, not a framework — the design tokens the elements read for colour,
 spacing, type scale and tap-target size. Without it the elements render with the browser's defaults.
@@ -115,14 +115,17 @@ spacing, type scale and tap-target size. Without it the elements render with the
 
 Everything the element needs is a property; it fetches nothing and stores nothing.
 
-| Property          | Type                               | What it is                                                             |
-| ----------------- | ---------------------------------- | ---------------------------------------------------------------------- |
-| `vocabulary`      | `CatalogVocabulary \| null`        | The federation's equipment, weight-class ladders and age divisions.    |
-| `importedEntries` | `readonly AthleteEntry[]`          | Competition history. Setting it again replaces the list.               |
-| `tables`          | `readonly ClassificationTable[]`   | Classification standards to grade against.                             |
-| `standardsStatus` | `'loading' \| 'ready' \| 'failed'` | Whether `tables` is the answer yet, so an empty list can be explained. |
-| `book`            | `QualifyingMeetBook \| null`       | Transcribed meets and their criteria, or `null` where none exist.      |
-| `today`           | `CalendarDay \| null`              | The day the page is being read on, `YYYY-MM-DD`. Supplied, never read. |
+| Property          | Type                                | What it is                                                             |
+| ----------------- | ----------------------------------- | ---------------------------------------------------------------------- |
+| `vocabulary`      | `CatalogVocabulary \| null`         | The federation's equipment, weight-class ladders and age divisions.    |
+| `importedEntries` | `readonly AthleteEntry[]`           | Competition history. Setting it again replaces the list.               |
+| `tables`          | `readonly ClassificationTable[]`    | Classification standards to grade against.                             |
+| `standardsStatus` | `'loading' \| 'ready' \| 'failed'`  | Whether `tables` is the answer yet, so an empty list can be explained. |
+| `book`            | `QualifyingMeetBook \| null`        | Transcribed meets and their criteria, or `null` where none exist.      |
+| `today`           | `CalendarDay \| null`               | The day the page is being read on, `YYYY-MM-DD`. Supplied, never read. |
+| `mirror`          | `AthleteMirrorInfo \| null`         | The archive to search by name. `null` renders no search box at all.    |
+| `lookup`          | `AthleteMatches \| null`            | What the last search came back with.                                   |
+| `lookupStatus`    | `'idle' \| 'searching' \| 'failed'` | Whether `lookup` is the answer yet. `failed` is not "found nobody".    |
 
 `today` is a string and not a `Date` on purpose: `new Date('1990-05-15')` is midnight UTC, which is
 the fourteenth of May anywhere west of Greenwich, and a qualifying window that ends today is exactly
@@ -148,6 +151,49 @@ another category simply never matches.
 Abort the read you started for the previous event when a new one arrives. The reader changes their
 answers faster than a network responds, and a late reply for a category they have left is a set of
 standards for the wrong person.
+
+### Searching an archive by name, if you have one
+
+A reader can always type their results in by hand, and that path is complete on its own. If you have
+an archive of published competition results, set `mirror` and the element also offers to look a
+lifter up in it.
+
+```js
+element.mirror = await source.getAthleteMirror({ signal });
+
+element.addEventListener('ptk-athlete-search', async (event) => {
+  element.lookupStatus = 'searching';
+  element.lookup = await source.findAthletes(event.detail.term, { signal });
+  element.lookupStatus = 'idle';
+});
+```
+
+`mirror` carries the archive's name, its attribution, a link to it, and how much of the sport it
+covers. That last part is not decoration: a lifter who is not in an archive needs to be told the
+archive is incomplete, or the screen reads as a statement that they have never competed.
+
+Leave `mirror` at `null` and the panel renders nothing — no disabled field, no empty state. That is
+also what you should do when your archive is unreachable: "we could not reach the archive" is a
+sentence about your infrastructure, and the manual path is right there.
+
+`ptk-athlete-chosen` fires when the reader picks one of the lifters the archive offered, and the
+element adopts that history itself, so **you do not have to handle it** — listen only if you want to
+know. Two people under one name is ordinary rather than exceptional, so the element never chooses
+for the reader, not even when the archive returns exactly one lifter: the archive holding one person
+under a spelling is not evidence that it is the right person.
+
+Three rules bind a consumer here, and all three are section 2.3 of the repository's constraints:
+
+- **The term is a name, never a link.** A reader who pastes a profile URL gets its last path segment
+  extracted in the browser, and that is the only thing the event carries. Do not fetch the address a
+  reader typed, and do not build a lookup that needs one.
+- **Do not log the term and do not persist the answer.** The subject of a lookup is very often not
+  the person operating the tool, and they have consented to nothing beyond their results being
+  public. This repository's own adapter folds the name to a key in the browser and requests a
+  numbered shard, so the name never leaves the tab — that is the standard to hold your own
+  implementation to.
+- **Abort the previous search**, for the same reason as the standards read above, and with a worse
+  failure: a late reply names a person.
 
 ### Storage
 
@@ -176,6 +222,9 @@ import {
   own result form produces, and what any other tool producing results should produce.
 - `ClassificationTable` and `ClassificationStandard` are a federation's published standards. The
   same tables drive the classification readouts in the other tools in this collection.
+- `AthleteHistory` is one lifter as an archive holds them — a name, the fold-key it is indexed
+  under, and their entries oldest first. `AthleteMirrorInfo` is the archive itself: what to credit,
+  what it links to, and how much of the sport it covers.
 - `QualifyingMeet`, `QualifyingRoute` and `QualifyingCondition` are a transcribed meet's criteria.
 - `CategoryCatalog` is one federation's equipment, weight-class ladders and age divisions.
 
