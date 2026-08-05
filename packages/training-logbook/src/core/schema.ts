@@ -204,7 +204,7 @@ const EquipmentSnapshotSchema: v.GenericSchema<EquipmentSnapshot> = v.object({
   barWeight: WeightSchema,
   collarWeight: WeightSchema,
   plateUnit: WeightUnitSchema,
-  plates: v.array(FiniteSchema),
+  plates: v.array(PlateDenominationSchema),
 });
 
 const WarmupSnapshotSchema: v.GenericSchema<WarmupSnapshot> = v.object({

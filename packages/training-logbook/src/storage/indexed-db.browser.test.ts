@@ -17,6 +17,7 @@
  * rejects rather than papering over.
  */
 
+import { defaultInventory } from '@platform-toolkit/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { AT_LATER, AT_START, ON_DAY, contextSeries } from '../core/context.fixture.js';
@@ -87,7 +88,7 @@ function profile(id: string): EquipmentProfile {
       barWeight: { amount: 20, unit: 'kg' },
       collarWeight: { amount: 2.5, unit: 'kg' },
       plateUnit: 'kg',
-      plates: [25, 20, 15, 10, 5, 2.5],
+      plates: defaultInventory('kg'),
     },
     createdAt: AT_START,
     updatedAt: AT_START,

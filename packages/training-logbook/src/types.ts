@@ -43,7 +43,13 @@
  * session take" is a question about instants and not about calendars.
  */
 
-import type { WarmupFamily, WarmupPlan, Weight, WeightUnit } from '@platform-toolkit/domain';
+import type {
+  PlateDenomination,
+  WarmupFamily,
+  WarmupPlan,
+  Weight,
+  WeightUnit,
+} from '@platform-toolkit/domain';
 
 /**
  * A calendar day as `YYYY-MM-DD`.
@@ -203,8 +209,17 @@ export interface EquipmentSnapshot {
   readonly barWeight: Weight;
   readonly collarWeight: Weight;
   readonly plateUnit: WeightUnit;
-  /** Plate denominations, largest first, in `plateUnit`. */
-  readonly plates: readonly number[];
+  /**
+   * The rack, largest denomination first, in `plateUnit`.
+   *
+   * The domain's own denomination rather than a bare number, because two of its
+   * three fields decide what the ramp does. `fullDiameter` is how high the bar
+   * sits off the floor, which is the whole difference between a deadlift warm-up
+   * and a rack pull; `pairs` is whether the plate runs out halfway up. A list of
+   * numbers would have to be widened back into this the moment section 8.3 was
+   * read, and the widening would be a migration rather than an edit.
+   */
+  readonly plates: readonly PlateDenomination[];
 }
 
 /**
