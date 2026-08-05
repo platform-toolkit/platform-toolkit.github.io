@@ -131,6 +131,7 @@ import './ptk-meet-checklist.js';
 import './ptk-meet-library.js';
 import './ptk-meet-pack.js';
 import './ptk-meet-prep.js';
+import './ptk-meet-record.js';
 import './ptk-meet-summary.js';
 import './ptk-meet-warmup.js';
 import './ptk-plan-extras.js';
@@ -169,6 +170,9 @@ import {
   PACK_SUMMARY,
   PREP_HEADING,
   PREP_SUMMARY,
+  RECORD_FOLD_LABEL,
+  RECORD_FOLD_SUMMARY,
+  RECORD_SUBJECT_LABEL,
   RESTORE_METHODOLOGY_MOVED,
   RESTORE_PROFILE_MISSING,
   RESTORE_RULEBOOK_MOVED,
@@ -192,6 +196,7 @@ import {
   meetProblemSentence,
   meetSavedSentence,
   openMeetSentence,
+  recordSubjectChoices,
   undoLabel,
   warmupLiftChoices,
 } from './copy.js';
@@ -236,6 +241,8 @@ import {
   PRIOR_MEETS_FIELD,
   QUALIFYING_TOTAL_FIELD,
   READINESS_FIELD,
+  RECORD_SUBJECT_ATTRIBUTE,
+  RECORD_SUBJECT_FIELD,
   ROSTER_COLOUR_FIELD,
   ROSTER_HANDLER_DUTIES_FIELD,
   ROSTER_HANDLER_INDEX_FIELD,
@@ -306,6 +313,7 @@ import {
   type MeetCommandDetail,
   type MeetImportDetail,
 } from './ptk-meet-library.js';
+import { MEET_RECORD_CHANGE_EVENT, type MeetRecordChangeDetail } from './ptk-meet-record.js';
 import { MEET_WARMUP_CHANGE_EVENT, type MeetWarmupChangeDetail } from './ptk-meet-warmup.js';
 import { CONFIRM_VALUE } from './ptk-plan-method.js';
 import type { ProfilesStatus } from './ptk-planner-setup.js';
@@ -315,6 +323,22 @@ import {
 } from './ptk-submission-countdown.js';
 import { buildHandlerPack, buildMeetPack, type HandlerPack, type MeetPack } from './pack.js';
 import { EMPTY_VIEW, buildPlan, type PlanContext, type PlannerView } from './plan.js';
+import {
+  EMPTY_RECORD_STATES,
+  NO_RECORDS,
+  RECORD_SUBJECTS,
+  liftForSubject,
+  recordSubjectIn,
+  recordSubjectsIn,
+  recordsFor,
+  withRecordFor,
+  withRecordForLifter,
+  type MeetRecordState,
+  type RecordAttemptSubject,
+  type RecordStates,
+  type RecordSubject,
+  type RecordsByLifter,
+} from './records.js';
 import {
   EMPTY_LIBRARY,
   NO_WARMUP_ANSWERS,
@@ -983,6 +1007,47 @@ export class PtkMeetDayPlanner extends LitElement {
 
   /*
    * ---------------------------------------------------------------------------
+   * §19: the record attempt.
+   * ---------------------------------------------------------------------------
+   */
+
+  /**
+   * Every record the fold has been told about, one per subject.
+   *
+   * §20's shape, for §20's reason: a lifter chasing a total is chasing three
+   * separate figures off the same published list, and a shared state would hand
+   * them the squat record under a heading saying deadlift.
+   *
+   * **Deliberately not saved with the meet.** §24's file carries what the tool
+   * cannot recompute, and a record is a figure the lifter copied off a
+   * federation's own list minutes ago -- the list is the source, this is a
+   * scratch pad in front of it, and a stale figure restored from a file six
+   * weeks later is worse than an empty box, because it looks answered. Filed as
+   * task #85 to revisit if a record book is ever read for them.
+   */
+  @state() private records: RecordStates = EMPTY_RECORD_STATES;
+
+  /**
+   * Which record the fold is showing, as the picker last answered it.
+   *
+   * Held and clamped exactly as `warmupLift` is, with one difference that
+   * matters: the answer is a `RecordSubject`, so `total` is a legal value and
+   * is not a lift. Narrowing it against the session's lifts would silently drop
+   * the total -- the one subject a lifter is most likely to be chasing.
+   */
+  @state() private recordSubject: RecordSubject = 'squat';
+
+  /**
+   * The same answers on the coach path, one whole record per lifter.
+   *
+   * Separate from `records` for the reason `coachWarmups` is separate from
+   * `warmups`: the coach's own plan screen and the athletes they came with are
+   * answers about different people.
+   */
+  @state() private coachRecords: RecordsByLifter = NO_RECORDS;
+
+  /*
+   * ---------------------------------------------------------------------------
    * §24: the shelf, the open meet, and what has been written down.
    * ---------------------------------------------------------------------------
    */
@@ -1069,6 +1134,7 @@ export class PtkMeetDayPlanner extends LitElement {
     this.addEventListener(PREP_ADD_ITEM_EVENT, this.#onPrepAddItem);
     this.addEventListener(PREP_REMOVE_ITEM_EVENT, this.#onPrepRemoveItem);
     this.addEventListener(MEET_WARMUP_CHANGE_EVENT, this.#onWarmupChange);
+    this.addEventListener(MEET_RECORD_CHANGE_EVENT, this.#onRecordChange);
     this.addEventListener(LIVE_CHOICE_EVENT, this.#onLiveChoice);
     this.addEventListener(SUBMISSION_MARKED_EVENT, this.#onSubmissionMarked);
     this.addEventListener(ATTEMPT_RESULT_EVENT, this.#onAttemptResult);
@@ -1094,6 +1160,7 @@ export class PtkMeetDayPlanner extends LitElement {
     this.removeEventListener(PREP_ADD_ITEM_EVENT, this.#onPrepAddItem);
     this.removeEventListener(PREP_REMOVE_ITEM_EVENT, this.#onPrepRemoveItem);
     this.removeEventListener(MEET_WARMUP_CHANGE_EVENT, this.#onWarmupChange);
+    this.removeEventListener(MEET_RECORD_CHANGE_EVENT, this.#onRecordChange);
     this.removeEventListener(LIVE_CHOICE_EVENT, this.#onLiveChoice);
     this.removeEventListener(SUBMISSION_MARKED_EVENT, this.#onSubmissionMarked);
     this.removeEventListener(ATTEMPT_RESULT_EVENT, this.#onAttemptResult);
@@ -1346,7 +1413,7 @@ export class PtkMeetDayPlanner extends LitElement {
                 .unit=${this.session.setup.unit}
                 .refusals=${this.refusals}
               ></ptk-live-screen>
-              ${this.#renderCoachWarmup(run, lifterId)}
+              ${this.#renderCoachWarmup(run, lifterId)} ${this.#renderCoachRecord(run, lifterId)}
             `
       }
     `;
@@ -1411,7 +1478,7 @@ export class PtkMeetDayPlanner extends LitElement {
       <ptk-plan-extras .session=${this.session}></ptk-plan-extras>
 
       ${this.#renderPlan(view)} ${this.#renderStart(view)} ${this.#renderWarmup(view)}
-      ${this.#renderPrep()} ${this.#renderShelf()}
+      ${this.#renderRecord()} ${this.#renderPrep()} ${this.#renderShelf()}
     `;
     const pack = this.#meetPack(view);
     if (pack === null) return screen;
@@ -1616,6 +1683,109 @@ export class PtkMeetDayPlanner extends LitElement {
       lift,
       warmupsFor(this.coachWarmups, lifterId)[lift],
       warmupSubject(lift, openerOn(lifter, lift), run.rules),
+    );
+  }
+
+  /**
+   * §19's fold on the planning screen, where nothing has been lifted yet.
+   *
+   * Gated on the rule book alone and not on a plan, unlike §20's fold above it.
+   * Every margin here comes off the profile and none of them comes off the
+   * lifter's own numbers, so a record is answerable the moment a federation is
+   * chosen -- which is the Thursday before the meet, with the federation's list
+   * open in another tab and no maximums agreed yet. Waiting for a plan would
+   * hide the screen for exactly the session it is for.
+   *
+   * `taken` is `[]` here because nothing has been lifted on a planning screen.
+   * That is a fact about this path and not a default: the coach path below
+   * hands in the real attempts, and the difference between the two is a legal
+   * weight on the bar.
+   */
+  #renderRecord(): TemplateResult | typeof nothing {
+    const context = this.#context();
+    if (context === null) return nothing;
+    const format = this.session.setup.format;
+    const subjects = recordSubjectsIn(format);
+    const subject = recordSubjectIn(subjects, this.recordSubject);
+    if (subject === null) return nothing;
+    const lift = liftForSubject(subject, format);
+    return this.#renderRecordFold(
+      subjects,
+      subject,
+      this.records[subject],
+      lift === null ? null : { lift, rules: context.rules, taken: [] },
+    );
+  }
+
+  /**
+   * §19's fold itself, over whichever lifter's answers were handed in.
+   *
+   * One renderer for both paths, for the reason `#renderWarmupFold` is one: the
+   * fold is the same fold, and only where the answers and the attempts come
+   * from differs. The wrapper `<div>` carries the subject rather than
+   * `ptk-meet-record` itself, which is load-bearing for the same §13.14 reason
+   * -- an attribute on the element the event was dispatched from leaves the walk
+   * in `#recordSubjectOf` covered by nothing.
+   *
+   * `data-record-subject` and not `data-warmup-subject`, and no `data-lift`
+   * anywhere above it. The fold holds two `ptk-number-field`s and a
+   * `ptk-text-field` whose changes bubble to this element's own handlers, and
+   * what keeps them out of the session is that `#applyLiftNumber` opens with
+   * `if (lift === null) return;` and `#writeSetupAnswer` refuses a field that is
+   * not a setup one. A `data-lift` here would turn the record box into a typed
+   * maximum on whichever lift the attribute named.
+   */
+  #renderRecordFold(
+    subjects: readonly RecordSubject[],
+    subject: RecordSubject,
+    state: MeetRecordState,
+    attempt: RecordAttemptSubject | null,
+  ): TemplateResult {
+    return html`
+      <ptk-disclosure class="record" label=${RECORD_FOLD_LABEL} summary=${RECORD_FOLD_SUMMARY}>
+        <ptk-choice-group
+          data-field=${RECORD_SUBJECT_FIELD}
+          label=${RECORD_SUBJECT_LABEL}
+          .choices=${recordSubjectChoices(subjects)}
+          .value=${subject}
+        ></ptk-choice-group>
+        <div data-record-subject=${subject}>
+          <ptk-meet-record
+            .state=${state}
+            .subject=${subject}
+            .attempt=${attempt}
+          ></ptk-meet-record>
+        </div>
+      </ptk-disclosure>
+    `;
+  }
+
+  /**
+   * §19's fold on one athlete's own screen, off §21's board.
+   *
+   * The one difference from the planning screen, and the whole reason this
+   * method exists rather than the fold being drawn once: `takenOn` rather than
+   * `[]`. A record is taken on a competition attempt the rules still allow, and
+   * what the rules allow narrows with every weight the lifter has already put
+   * on the bar -- so a board screen planning against an empty attempt list keeps
+   * offering a weight that was legal at eight in the morning and is not legal
+   * now. `takenOn` reports only *resolved* attempts, which is the right reading:
+   * a declared opener can still be changed, and until it has a result it has not
+   * used anything up.
+   */
+  #renderCoachRecord(run: CoachRun, lifterId: string): TemplateResult | typeof nothing {
+    const lifter = run.timeline.present.lifters.find((candidate) => candidate.id === lifterId);
+    if (lifter === undefined) return nothing;
+    const format = run.timeline.present.format;
+    const subjects = recordSubjectsIn(format);
+    const subject = recordSubjectIn(subjects, this.recordSubject);
+    if (subject === null) return nothing;
+    const lift = liftForSubject(subject, format);
+    return this.#renderRecordFold(
+      subjects,
+      subject,
+      recordsFor(this.coachRecords, lifterId)[subject],
+      lift === null ? null : { lift, rules: run.rules, taken: takenOn(lifter, lift) },
     );
   }
 
@@ -2323,6 +2493,25 @@ export class PtkMeetDayPlanner extends LitElement {
   }
 
   /**
+   * Which record §19's fold was showing, validated against the meet's subjects.
+   *
+   * A third walk rather than a branch inside `#warmupLiftOf`, for the reason
+   * that one is separate from `#liftOf`: the answer here is a `RecordSubject`
+   * and `total` is one of them. Narrowing it through `sessionLifts` would drop
+   * every total record on the floor -- silently, because a dropped answer looks
+   * exactly like a fold nobody typed into.
+   */
+  #recordSubjectOf(event: Event): RecordSubject | null {
+    for (const node of event.composedPath()) {
+      if (!(node instanceof HTMLElement)) continue;
+      const value = node.dataset[RECORD_SUBJECT_ATTRIBUTE];
+      if (value === undefined) continue;
+      return recordSubjectsIn(this.session.setup.format).find((it) => it === value) ?? null;
+    }
+    return null;
+  }
+
+  /**
    * Which lifter a roster control belongs to, read and not yet checked.
    *
    * `#liftOf` validates against the lifts on screen and this deliberately does
@@ -2405,6 +2594,13 @@ export class PtkMeetDayPlanner extends LitElement {
         // unrecognised one leaves the fold where it is instead of putting the
         // picker on a lift the meet does not run.
         this.#chooseWarmupLift(value);
+        return;
+      case RECORD_SUBJECT_FIELD:
+        // Narrowed against a different list and for a different reason: the
+        // whole subject vocabulary rather than this meet's lifts, because the
+        // fold's own render already refuses a subject the format does not
+        // contest and `total` is a legal answer here that is not a lift at all.
+        this.#chooseRecordSubject(value);
         return;
       case EQUIPMENT_FIELD:
         this.#setSession(withExtras(session, { equipment: equipmentFromValue(value) }));
@@ -2619,6 +2815,40 @@ export class PtkMeetDayPlanner extends LitElement {
   }
 
   /**
+   * §19's picker, checked against the subjects that exist rather than against
+   * the ones this meet contests.
+   *
+   * It narrowed against the format first, and a mutation showed that check does
+   * nothing: swapping the format for a fixed `'full-power'` left all 130 tests
+   * green. `this.recordSubject` is read in exactly two places and both of them
+   * pass it through `recordSubjectIn`, which falls back to the first subject the
+   * format contests -- so an off-format answer never reaches a screen. Nor could
+   * a check here own that question. The format is a setup answer and can change
+   * *after* a subject is picked, at which point a subject validated on the way
+   * in is stale and the render's fallback is the only thing standing; a guard
+   * that covers a strictly smaller case than the one below it reads as the
+   * defence and is not.
+   *
+   * A value that is no subject at all is still refused, and that one is worth
+   * the line. `recordSubjectIn` answers it with the *first* subject, so a forged
+   * report (§13.14) would slide the fold silently back onto the squat -- which
+   * looks exactly like a coach having chosen the squat, on a screen whose whole
+   * job is to say which record is being planned. Dropped rather than defaulted,
+   * for the reason `#recordSubjectOf` drops.
+   *
+   * Held as one answer across both paths and every lifter, unlike the *record*
+   * itself. Which lift a coach is asking about is a property of the question
+   * being asked at the rack -- open the next athlete and it is still the squat
+   * record on screen -- while what the record *is* differs per lifter and is
+   * filed under them by `#onRecordChange`.
+   */
+  #chooseRecordSubject(value: string): void {
+    const subject = RECORD_SUBJECTS.find((candidate) => candidate === value);
+    if (subject === undefined) return;
+    this.recordSubject = subject;
+  }
+
+  /**
    * §6.1's branch, refused once either meet exists.
    *
    * The control is off the screen by then (`#renderMode`), so this cannot be
@@ -2811,6 +3041,39 @@ export class PtkMeetDayPlanner extends LitElement {
       return;
     }
     this.warmups = withWarmupFor(this.warmups, lift, event.detail.state);
+  };
+
+  /**
+   * §19's answers, filed under the record the fold was showing.
+   *
+   * `#onWarmupChange` above, one attribute over, and every sentence in its
+   * header applies here for the same reasons -- whole state rather than a
+   * patch, subject off the DOM rather than off `recordSubject`, silence when no
+   * attribute sits above the event, and the open lifter as the only subject the
+   * coach path can mean.
+   *
+   * The one thing that is genuinely different: a record filed under the wrong
+   * subject is not a cosmetic mix-up. Every margin in `recordPlan` is measured
+   * off the figure typed here, so a squat record landing on the deadlift row
+   * produces a legal-looking weight for a record that does not exist -- which
+   * is why the subject is narrowed in `#recordSubjectOf` and dropped rather
+   * than defaulted when it does not read.
+   */
+  readonly #onRecordChange = (event: CustomEvent<MeetRecordChangeDetail>): void => {
+    const subject = this.#recordSubjectOf(event);
+    if (subject === null) return;
+    if (this.mode === 'coach') {
+      const lifterId = this.coach?.openLifterId ?? null;
+      if (lifterId === null) return;
+      this.coachRecords = withRecordForLifter(
+        this.coachRecords,
+        lifterId,
+        subject,
+        event.detail.state,
+      );
+      return;
+    }
+    this.records = withRecordFor(this.records, subject, event.detail.state);
   };
 
   /**

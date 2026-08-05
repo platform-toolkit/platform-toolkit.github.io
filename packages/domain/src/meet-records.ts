@@ -67,10 +67,15 @@
  * module returns, including the refusals, because a refusal is also an answer a
  * lifter might act on.
  */
-import type { FederationRecord, PlatformLift } from '@platform-toolkit/data-contracts';
+import type { PlatformLift } from '@platform-toolkit/data-contracts';
 
 import type { FourthAttemptBlockCode, MeetRules, TakenAttempt } from './meet-rules.js';
-import { recordTargets, type RecordMarginRules, type RecordTargets } from './records.js';
+import {
+  recordTargets,
+  type RecordMarginRules,
+  type RecordTargets,
+  type RecordUnderAttempt,
+} from './records.js';
 import { ceilToHundredths, ceilToIncrement } from './rounding.js';
 
 /**
@@ -224,7 +229,7 @@ export interface RecordAdvisory {
 
 export interface RecordPlanRequest {
   /** `null` when the user has not told the tool what the record is. A real answer. */
-  readonly record: FederationRecord | null;
+  readonly record: RecordUnderAttempt | null;
 
   /** The margins from the book the record came out of. */
   readonly marginRules: RecordMarginRules;
@@ -261,7 +266,7 @@ export interface RecordPlanRequest {
 
 export interface RecordPlan {
   /** The record being planned against, or `null` if none was supplied. */
-  readonly record: FederationRecord | null;
+  readonly record: RecordUnderAttempt | null;
 
   /** Every weight that takes it, by condition. `null` if no record was supplied. */
   readonly targets: RecordTargets | null;
@@ -564,7 +569,7 @@ function qualifyingAttemptFor(request: RecordPlanRequest): QualifyingAttempt {
 
 function advisoriesFor(
   request: RecordPlanRequest,
-  record: FederationRecord,
+  record: RecordUnderAttempt,
   inCompetition: RecordRouteAnswer,
   asFourthAttempt: RecordRouteAnswer,
   provenance: RecordProvenance,

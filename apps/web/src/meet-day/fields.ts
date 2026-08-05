@@ -372,3 +372,36 @@ export const WARMUP_LIFT_FIELD = 'warmup-lift';
  * `data-warmup-subject` rather than `data-lift` for the reason above.
  */
 export const WARMUP_SUBJECT_FIELD = 'warmupSubject';
+
+/**
+ * §19's "which record are you going for", asked above the record fold.
+ *
+ * `WARMUP_LIFT_FIELD`'s twin, with one difference that matters: the answer is a
+ * `RecordSubject` and not a `PlatformLift`, because a total is a record a lifter
+ * chases and is not a lift they walk onto a platform to attempt. So the value
+ * arriving here can be `total`, which `sessionLifts` will never contain, and the
+ * root narrows it against `recordSubjectsIn` rather than against the lifts.
+ *
+ * **It carries no `data-lift` either, and neither does the fold below it**, for
+ * the whole of the reason written against `WARMUP_LIFT_FIELD`: the record fold
+ * holds two `ptk-number-field`s whose reports bubble to the root's `#onNumber`,
+ * and the only thing standing between them and the attempt weights on the plan
+ * is `#applyLiftNumber`'s opening `if (lift === null) return;`.
+ */
+export const RECORD_SUBJECT_FIELD = 'record-subject';
+
+/**
+ * Which record the fold was showing when it reported a change.
+ *
+ * The fifth attribute *name* in this file, and it exists for exactly the reason
+ * `WARMUP_SUBJECT_FIELD` does: the subject on screen is clamped to the ones this
+ * meet contests, so the picker and the stored answer disagree for as long as it
+ * takes a format change to reach the screen, and reading the state instead of
+ * the DOM would file a bench record under a squat.
+ *
+ * `data-record-subject`, which is a different attribute from
+ * `data-warmup-subject` and must stay one: the two folds sit on the same screen,
+ * one carries a lift and the other can carry a total, and a shared attribute
+ * would have the warm-up walk find `total` and the record walk find a lift.
+ */
+export const RECORD_SUBJECT_ATTRIBUTE = 'recordSubject';

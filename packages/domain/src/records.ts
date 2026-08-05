@@ -103,6 +103,39 @@ export type RecordMarginRules = Pick<
   'minimumIncrementKilograms' | 'higherSanctionIncrementKilograms' | 'matchTakesUnclaimedLevelIds'
 >;
 
+/**
+ * The four facts a record has to state before anything can be worked out from it.
+ *
+ * A published `FederationRecord` satisfies this and is the ordinary case, so tool
+ * 1's panel is unaffected. What the wider type admits is the other way a lifter
+ * meets a record, which §19 asks for in the same breath as the first: "allow the
+ * user to enter **or** retrieve". A record read off a page in the warm-up room is
+ * a weight, a lift, a level and whether anybody holds it -- and that is genuinely
+ * everything the arithmetic below touches.
+ *
+ * The alternative was for a caller holding a stated record to assemble a
+ * `FederationRecord` around it, and the reason that is refused is one field:
+ * `RecordScope.sex` is a two-value picklist with no absent case, so a stated
+ * record could not be represented without asserting a category the lifter was
+ * never asked about. A fabricated axis that nothing reads is still a fabricated
+ * axis, and the day something does read it -- a lookup, a saved file, a printed
+ * sheet -- it matches the wrong category silently. Narrowing the requirement to
+ * what is used says the same thing without writing anything down that is not
+ * true.
+ *
+ * `levelId` is here rather than dropped because `matchTakesUnclaimedLevelIds` is
+ * keyed on it. A caller with no book has no level list to match against either,
+ * so an unrecognised level costs the ordinary margin -- the direction that costs
+ * an attempt rather than the record.
+ */
+export interface RecordUnderAttempt {
+  /** The record, in kilograms, as the book prints it. */
+  readonly kilograms: number;
+  readonly unclaimed: boolean;
+  readonly sourceDisagreement: FederationRecord['sourceDisagreement'];
+  readonly scope: Pick<RecordScope, 'lift' | 'levelId'>;
+}
+
 /** Why one target figure is the figure it is. */
 export type RecordTargetBasis =
   /** The record plus the small increment a record attempt may be chipped by. */
@@ -128,7 +161,7 @@ export interface RecordTarget {
  * at a meet below it.
  */
 export interface RecordTargets {
-  readonly record: FederationRecord;
+  readonly record: RecordUnderAttempt;
 
   /**
    * When the record being claimed is at the meet's level or above it.
@@ -159,7 +192,7 @@ export interface RecordTargets {
  *
  * @throws {RangeError} if either margin is negative or not finite.
  */
-export function recordTargets(record: FederationRecord, rules: RecordMarginRules): RecordTargets {
+export function recordTargets(record: RecordUnderAttempt, rules: RecordMarginRules): RecordTargets {
   assertMargin(rules.minimumIncrementKilograms, 'minimum increment');
   if (rules.higherSanctionIncrementKilograms !== null) {
     assertMargin(rules.higherSanctionIncrementKilograms, 'higher-sanction increment');

@@ -552,6 +552,59 @@ const MEET_DAY_PREP_CLICK = ['ptk-disclosure.prep summary'];
 const MEET_DAY_WARMUP_CLICK = ['ptk-disclosure.warmup summary'];
 
 /**
+ * Open §19's fold, which sits below §20's on both the plan and the coach screen.
+ *
+ * **`ptk-disclosure.record` and never a bare `.record`.** Playwright's CSS engine
+ * pierces open shadow roots, and `ptk-meet-record` names its own outermost
+ * wrapper `.record` -- so the bare form matches a `<div>` inside the fold as well
+ * as the fold, and `summary` under it matches nothing at all. That is the fifth
+ * bare-class collision this directory has produced and the first one where the
+ * two elements are in different shadow roots, which is precisely why the tag
+ * qualification is load-bearing rather than tidy.
+ *
+ * Pressed in `clickAfter` and not `clickLast` because the record figure is typed
+ * in `fillAfter`, which runs between the two: a shut `<details>` is laid out by
+ * Chromium but a field inside one is not something Playwright will agree to type
+ * into, and the failure would arrive as an unmatched settle selector rather than
+ * as an untyped box.
+ */
+const MEET_DAY_RECORD_CLICK = ['ptk-disclosure.record summary'];
+
+/**
+ * A record to chase, in kilograms, which is the only unit §19's field offers.
+ *
+ * Invented (§5.1) and deliberately unlike the 140 the coach route declares as an
+ * opener, so a figure appearing on the wrong screen is visible rather than
+ * plausible. Nothing rounds it -- the routes below round *up* onto the profile's
+ * grid from whatever is typed -- so unlike the declared opener there is no
+ * increment a published federation could pick that would refuse it.
+ *
+ * Typing it is what brings the whole answer half of the fold into existence:
+ * with no figure the element draws one sentence saying so, which is narrower
+ * than everything this step exists to measure.
+ */
+const MEET_DAY_RECORD_FILL = [
+  {
+    selector: 'ptk-meet-record ptk-number-field[data-field="record-kilograms"] input',
+    value: '205',
+  },
+];
+
+/**
+ * The two widest things §19's fold draws, and both are listed because they
+ * arrive by different routes.
+ *
+ * A route block exists as soon as the figure above reads, whichever way the
+ * rules answer -- it is the heading and either a weight or the reason there is
+ * none. The figure line inside it exists only where a route is actually open,
+ * and it is the longest sentence in the fold: a weight in kilograms, then "for a
+ * total of" and a second weight, on one line in 320px. A fold that read the
+ * figure but refused both routes would settle on the first selector and draw
+ * none of the second.
+ */
+const MEET_DAY_RECORD_SETTLE = ['ptk-meet-record .record-route', 'ptk-meet-record .record-figure'];
+
+/**
  * Show the printable sheet (§23), which both meet-day screens carry.
  *
  * Unlike every other press in this file, this one really is what puts the rows
@@ -957,8 +1010,8 @@ const ROUTES = [
     click: MEET_DAY_CLICK,
     reveal: [],
     fill: MEET_DAY_FILL,
-    clickAfter: MEET_DAY_CLICK_AFTER,
-    fillAfter: MEET_DAY_SHELF_FILL,
+    clickAfter: [...MEET_DAY_CLICK_AFTER, ...MEET_DAY_RECORD_CLICK],
+    fillAfter: [...MEET_DAY_SHELF_FILL, ...MEET_DAY_RECORD_FILL],
     clickLast: [
       ...MEET_DAY_WARMUP_CLICK,
       ...MEET_DAY_PREP_CLICK,
@@ -1018,6 +1071,7 @@ const ROUTES = [
       'ptk-meet-pack li.attempt',
       'ptk-meet-pack li.rung',
       'ptk-meet-library li.meet',
+      ...MEET_DAY_RECORD_SETTLE,
     ],
   },
   /*
@@ -1190,8 +1244,8 @@ const ROUTES = [
     click: MEET_DAY_COACH_CLICK,
     reveal: [],
     fill: MEET_DAY_COACH_FILL,
-    clickAfter: MEET_DAY_COACH_LIFTER_CLICK_AFTER,
-    fillAfter: MEET_DAY_COACH_LIFTER_FILL_AFTER,
+    clickAfter: [...MEET_DAY_COACH_LIFTER_CLICK_AFTER, ...MEET_DAY_RECORD_CLICK],
+    fillAfter: [...MEET_DAY_COACH_LIFTER_FILL_AFTER, ...MEET_DAY_RECORD_FILL],
     clickLast: MEET_DAY_COACH_LIFTER_CLICK_LAST,
     // The declared weight on the live screen, which is the only selector here
     // that cannot match before the press above landed -- the panel renders "no
@@ -1208,6 +1262,12 @@ const ROUTES = [
       'ptk-live-screen section.panel p.weight',
       'ptk-meet-warmup ol.timeline li',
       'ptk-meet-warmup .set-row ptk-number-field',
+      // And §19's fold under a lifter who has already been on the platform,
+      // which is the one thing only this route reaches: `takenOn` narrows what
+      // the rules still allow, so the weight measured here is computed from a
+      // declared attempt rather than from an empty list the way the plan route's
+      // is. The two selectors are listed for the reason they are listed there.
+      ...MEET_DAY_RECORD_SETTLE,
     ],
   },
   {

@@ -64,6 +64,7 @@ import {
   HANDLER_PACK_NO_HANDLERS,
   KEEP_ANSWER,
   MEET_IS_RUNNING_NOTE,
+  RECORD_NEEDS_A_FIGURE,
   ROSTER_NEEDS_A_FEDERATION,
   SOLO_MODE,
   START_MEET_NEEDS_A_PLAN,
@@ -85,6 +86,8 @@ import {
   OTHER_WEIGHT_FIELD,
   OUTCOME_FIELD,
   PREP_NOTES_FIELD,
+  RECORD_SUBJECT_ATTRIBUTE,
+  RECORD_SUBJECT_FIELD,
   REMOVE_CUSTOM_ITEM_FIELD,
   ROSTER_COLOUR_FIELD,
   ROSTER_HANDLER_ADD_FIELD,
@@ -114,7 +117,9 @@ import {
   PtkMeetDayPlanner,
 } from './ptk-meet-day-planner.js';
 import './ptk-meet-day-planner.js';
+import { MEET_RECORD_CHANGE_EVENT, type MeetRecordChangeDetail } from './ptk-meet-record.js';
 import { MEET_WARMUP_CHANGE_EVENT, type MeetWarmupChangeDetail } from './ptk-meet-warmup.js';
+import { EMPTY_RECORD_STATE, withRecord } from './records.js';
 import {
   EMPTY_LIBRARY,
   EMPTY_SAVED_STATE,
@@ -3306,6 +3311,424 @@ describe('ptk-meet-day-planner', () => {
         // rather than one being written over the other: nobody has answered
         // anything on the solo ramps, so they are still the empty ones.
         expect(saved?.states.squat.weights).toEqual([]);
+      });
+    });
+  });
+
+  describe('the record fold (§19)', () => {
+    /**
+     * §19's fold, addressed by its own class for the reason §20's and §22's are.
+     *
+     * Qualified with the tag as well, because `ptk-meet-record` uses `.record`
+     * as its own wrapper class one shadow root down. That is not a collision
+     * here -- `element.shadowRoot.querySelector` does not pierce -- but the
+     * `check:narrow` selector added for this fold is run by Playwright, whose
+     * CSS engine does pierce, and a bare `.record` there matches both.
+     */
+    function recordFold(element: PtkMeetDayPlanner): PtkDisclosure | null {
+      const found = element.shadowRoot?.querySelector('ptk-disclosure.record') ?? null;
+      return found instanceof PtkDisclosure ? found : null;
+    }
+
+    /** Opens it by setting `open`, never by pressing the summary (§13.6). */
+    async function openRecord(element: PtkMeetDayPlanner): Promise<PtkMeetDayPlanner> {
+      const fold = recordFold(element);
+      if (fold === null) throw new Error('No record fold to open.');
+      fold.open = true;
+      await settled(element);
+      return element;
+    }
+
+    /**
+     * The picker's options, as the bare `RecordSubject` each tile carries.
+     *
+     * `recordSubjectChoices` uses the subject id as the option value, so this
+     * needs no copy constant, and the assertion stays about which records this
+     * meet can be attempted at rather than about how they are spelled.
+     */
+    function recordSubjectOptions(element: PtkMeetDayPlanner): string[] {
+      const radios = deepControl(element, RECORD_SUBJECT_FIELD).shadowRoot?.querySelectorAll(
+        'input',
+      );
+      return [...(radios ?? [])].map((radio) => radio.value);
+    }
+
+    /** Which record the fold is showing, read off the wrapper the root tags. */
+    function recordSubjectShown(element: PtkMeetDayPlanner): string {
+      const wrapper = element.shadowRoot?.querySelector('[data-record-subject]');
+      if (!(wrapper instanceof HTMLElement)) throw new Error('No record subject on screen.');
+      return wrapper.dataset[RECORD_SUBJECT_ATTRIBUTE] ?? '';
+    }
+
+    /** The record element itself, which is what a report has to come out of. */
+    function recordElement(element: PtkMeetDayPlanner): Element {
+      const found = element.shadowRoot?.querySelector('ptk-meet-record') ?? null;
+      if (found === null) throw new Error('No record on screen.');
+      return found;
+    }
+
+    /**
+     * The two routes, read out of the record element's own shadow tree.
+     *
+     * `deepText` is the wrong instrument for anything a sibling also says
+     * (§13.9's `.pounds` lesson): the plan above this fold prints kilogram
+     * figures on every attempt, so a whole-element read is satisfied by the
+     * screen the fold sits on rather than by the fold.
+     *
+     * **This is the observable every assertion below uses, and not the box the
+     * figure was typed into.** Reading a box back cannot distinguish "the root
+     * recorded it" from "the root dropped it and Lit never re-rendered over the
+     * native input" -- the trap written up at the head of this file.
+     */
+    function routeTexts(element: PtkMeetDayPlanner): string[] {
+      const routes = recordElement(element).shadowRoot?.querySelectorAll('.record-route');
+      return [...(routes ?? [])].map((route) => route.textContent.trim());
+    }
+
+    /** Everything the fold is saying, which is where a refusal lives. */
+    function answerText(element: PtkMeetDayPlanner): string {
+      return recordElement(element).shadowRoot?.textContent.trim() ?? '';
+    }
+
+    /**
+     * Types into the record box, named by the literal its element keeps private.
+     *
+     * `ptk-meet-record` does not export its five `data-field` names and should
+     * not: they are answered inside that element and the root never reads one.
+     * Its own browser test spells the same literal for the same reason.
+     */
+    async function typeRecord(element: PtkMeetDayPlanner, text: string): Promise<void> {
+      await typeDeep(element, 'record-kilograms', text);
+    }
+
+    /** A report of the shape `ptk-meet-record` dispatches, with one answer in it. */
+    function aRecordReport(): CustomEvent<MeetRecordChangeDetail> {
+      return new CustomEvent<MeetRecordChangeDetail>(MEET_RECORD_CHANGE_EVENT, {
+        detail: { state: withRecord(EMPTY_RECORD_STATE, { kilograms: '200' }) },
+        bubbles: true,
+        composed: true,
+      });
+    }
+
+    /**
+     * What the competition route names off a 200 kg record under the fixture.
+     *
+     * Derived rather than magic: the fixture profile has no fourth attempt, so
+     * `marginRulesFrom` falls back to the bar multiple, 0.5. Nothing has been
+     * lifted on the plan screen, so the lightest legal attempt at or above
+     * 200.5 is 200.5 itself.
+     */
+    const OFF_THE_BAT = '200.5 kg';
+
+    /**
+     * The same arithmetic off a second record, typed against a second subject.
+     *
+     * A different figure on purpose, and on a subject that is not the first tile
+     * in the picker. Both halves matter: a root that filed every answer under
+     * the same subject is invisible to a test that only ever types against the
+     * one the fold opens on, and a root that filed the right subject with the
+     * wrong figure is invisible to a test where both records read the same.
+     */
+    const OFF_A_SECOND_RECORD = '250.5 kg';
+
+    it('draws no record fold until there is a rule book behind it', async () => {
+      // Every margin here belongs to a rule book -- the fourth-attempt excess,
+      // the bar multiple, the submission clock -- so with none read there is no
+      // lighter answer to fall back on, there is none at all.
+      const element = await mount();
+
+      expect(recordFold(element)).toBeNull();
+      // The control: the screen is drawn, and §22's fold is already on it.
+      expect(prepFold(element)).not.toBeNull();
+    });
+
+    it('offers one tile per contested lift plus the total', async () => {
+      // The total is the one subject that is not a lift, and it is offered at
+      // every format -- a bench-only meet still has a total, and it is the
+      // bench.
+      const element = await mountChosen();
+
+      expect(recordSubjectOptions(element)).toEqual(['squat', 'bench', 'deadlift', 'total']);
+
+      await choose(element, FORMAT_FIELD, 'bench-only');
+
+      expect(recordSubjectOptions(element)).toEqual(['bench', 'total']);
+      // And the fold moved with it rather than showing a record at a lift this
+      // meet does not contest.
+      expect(recordSubjectShown(element)).toBe('bench');
+    });
+
+    it('takes a report only from a fold that names a subject', async () => {
+      // The wrapper `<div>` carries the subject and the element does not, which
+      // is what makes the walk up the composed path exercisable at all (§13.14).
+      // A root that answered "no subject" with the picked one would file an
+      // answer that arrived from anywhere.
+      const element = await openRecord(await mountChosen());
+
+      element.dispatchEvent(aRecordReport());
+      await settled(element);
+
+      expect(routeTexts(element)).toEqual([]);
+      expect(answerText(element)).toContain(RECORD_NEEDS_A_FIGURE);
+
+      // The control: the same report, out of the fold. Without it this passes
+      // against a root that files nothing ever.
+      recordElement(element).dispatchEvent(aRecordReport());
+      await settled(element);
+
+      expect(routeTexts(element)[0]).toContain(OFF_THE_BAT);
+    });
+
+    it('keeps a typed record on the subject it was typed against', async () => {
+      // Three records at one meet is the ordinary case for a lifter chasing a
+      // total: the squat and the deadlift records are different figures, and a
+      // fold that carried one onto the other would put a weight on the bar that
+      // belongs to somebody else's list.
+      const element = await openRecord(await mountChosen());
+      await typeRecord(element, '200');
+
+      await choose(element, RECORD_SUBJECT_FIELD, 'bench');
+
+      expect(recordSubjectShown(element)).toBe('bench');
+      expect(answerText(element)).toContain(RECORD_NEEDS_A_FIGURE);
+
+      await choose(element, RECORD_SUBJECT_FIELD, 'squat');
+
+      expect(routeTexts(element)[0]).toContain(OFF_THE_BAT);
+
+      // And a second record, typed while the fold is showing a subject that is
+      // not the one it opened on. Without this half the walk in
+      // `#recordSubjectOf` can be replaced by "the first subject this format
+      // contests" and every assertion above still passes -- squat is that
+      // subject, so a root that ignores the wrapper entirely looks correct right
+      // up until a lifter types their deadlift record and reads it back on the
+      // squat. The deadlift because it is last of the three lifts, so an
+      // off-by-one in either direction lands somewhere visible.
+      await choose(element, RECORD_SUBJECT_FIELD, 'deadlift');
+      await typeRecord(element, '250');
+
+      expect(routeTexts(element)[0]).toContain(OFF_A_SECOND_RECORD);
+
+      await choose(element, RECORD_SUBJECT_FIELD, 'squat');
+
+      expect(routeTexts(element)[0]).toContain(OFF_THE_BAT);
+    });
+
+    /**
+     * A picked subject that is no subject at all, which only a forged report can
+     * produce and which the fold cannot survive quietly.
+     *
+     * `recordSubjectIn` answers an unrecognised subject with the *first* one the
+     * format contests, so the failure this pins is not a crash or a blank: the
+     * fold slides back onto the squat and looks exactly like a coach who chose
+     * the squat. On a screen whose entire job is to say which record is being
+     * planned, an answer that quietly becomes a different question is the worst
+     * of the three things that could happen.
+     *
+     * Dispatched rather than clicked because there is nothing to click -- the
+     * picker offers this meet's subjects and nothing else, which is the point.
+     * The event goes out of the picker itself so that `fieldOf` finds the
+     * `data-field` it needs; a report from anywhere else is already covered by
+     * "takes a report only from a fold that names a subject" above.
+     */
+    it('ignores a subject report that names nothing this tool knows', async () => {
+      const element = await openRecord(await mountChosen());
+      await choose(element, RECORD_SUBJECT_FIELD, 'deadlift');
+
+      deepControl(element, RECORD_SUBJECT_FIELD).dispatchEvent(
+        new CustomEvent<ChoiceChangeDetail>(CHOICE_CHANGE_EVENT, {
+          detail: { value: 'front-squat' },
+          bubbles: true,
+          composed: true,
+        }),
+      );
+      await settled(element);
+
+      expect(recordSubjectShown(element)).toBe('deadlift');
+    });
+
+    it('has no accessibility violations with the fold open', async () => {
+      const element = await openRecord(await planned());
+      await typeRecord(element, '200');
+
+      const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
+
+      expect(results.violations.map((violation) => violation.id)).toEqual([]);
+    });
+
+    it('fits a phone-width column with the fold open', async () => {
+      const frame = document.createElement('div');
+      frame.style.width = '320px';
+      document.body.append(frame);
+      teardown.push(() => {
+        frame.remove();
+      });
+
+      const element = await openRecord(await planned({ within: frame }));
+      await typeRecord(element, '200');
+
+      // The positive control: two route blocks really are on screen, so the
+      // measurement below is of the widest state this fold has and not of a
+      // refusal sentence.
+      expect(routeTexts(element)).toHaveLength(2);
+      expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
+    });
+
+    describe('on the coach path', () => {
+      const SQUATTER = 'Okonkwo';
+      const PRESSER = 'Vasquez';
+
+      function coachBoardOf(element: PtkMeetDayPlanner): Element | null {
+        return element.shadowRoot?.querySelector('ptk-coach-board') ?? null;
+      }
+
+      async function addNamed(element: PtkMeetDayPlanner, name: string): Promise<void> {
+        await type(element, ROSTER_NAME_FIELD, name);
+        const add = element.shadowRoot
+          ?.querySelector('ptk-coach-roster')
+          ?.shadowRoot?.querySelector('.add ptk-button');
+        if (add === null || add === undefined) throw new Error('No way to add a lifter.');
+        await press(element, add);
+      }
+
+      /** A running board carrying one row per name. */
+      async function coachBoardWith(names: readonly string[]): Promise<PtkMeetDayPlanner> {
+        const element = await mount();
+        await choose(element, MODE_FIELD, COACH_MODE);
+        await choose(element, FEDERATION_FIELD, PROFILE_FIXTURES[0]?.id ?? '');
+        for (const name of names) {
+          await addNamed(element, name);
+        }
+        // The positive control `running()` carries: without it an assertion
+        // about the fold passes against a screen that refused every add.
+        if (coachBoardOf(element) === null) throw new Error('No board was drawn.');
+        return element;
+      }
+
+      /** Opens one lifter, addressed by name off `.who` and never by index. */
+      async function openNamed(element: PtkMeetDayPlanner, name: string): Promise<void> {
+        const rows = [
+          ...(coachBoardOf(element)?.shadowRoot?.querySelectorAll('article.row') ?? []),
+        ];
+        const row = rows.find((candidate) =>
+          (candidate.querySelector('.who')?.textContent ?? '').includes(name),
+        );
+        if (row === undefined) throw new Error(`No board row for "${name}".`);
+        const open = row.querySelector('ptk-button.open');
+        if (open === null) throw new Error(`No way to open "${name}".`);
+        await press(element, open);
+      }
+
+      /** Back to the board, which destroys the open lifter's whole template. */
+      async function backToBoard(element: PtkMeetDayPlanner): Promise<void> {
+        await press(element, button(element, 'ptk-button.back'));
+      }
+
+      /** A weight on the open lifter's first attempt, typed because they have no plan. */
+      async function declareOpener(element: PtkMeetDayPlanner, weight: string): Promise<void> {
+        await typeDeep(element, OTHER_WEIGHT_FIELD, weight);
+        await useTypedWeight(element);
+      }
+
+      it('files a record answer under the lifter it was typed for', async () => {
+        // Two lifters on one board are two record lists. A fan-out that stopped
+        // at the subject rather than at the lifter would hand the next athlete
+        // opened a figure off somebody else's federation list, and the weight it
+        // put on the bar would be wrong by exactly the difference between them.
+        const element = await coachBoardWith([SQUATTER, PRESSER]);
+
+        await openNamed(element, SQUATTER);
+        await openRecord(element);
+        await typeRecord(element, '200');
+        const typedFor = routeTexts(element)[0] ?? '';
+        await backToBoard(element);
+
+        await openNamed(element, PRESSER);
+        await openRecord(element);
+
+        expect(typedFor).toContain(OFF_THE_BAT);
+        expect(routeTexts(element)).toEqual([]);
+        expect(answerText(element)).toContain(RECORD_NEEDS_A_FIGURE);
+      });
+
+      it('writes nothing when a report arrives with nobody open', async () => {
+        // The board is up, so `openLifterId` is null and there is no entry to
+        // file the answer under. What this covers is the *fallback*: a handler
+        // that answered "nobody open" with the first lifter on the board would
+        // hand the next lifter opened a record nobody typed for them. It is
+        // deliberately not a test of the early return itself --
+        // `withRecordForLifter` takes a `string`, so deleting that line is a
+        // compile error, which is the answer §13.14 gives for the same shape.
+        const element = await coachBoardWith([SQUATTER]);
+        const forged = document.createElement('div');
+        forged.dataset[RECORD_SUBJECT_ATTRIBUTE] = 'squat';
+        element.append(forged);
+        teardown.push(() => {
+          forged.remove();
+        });
+
+        forged.dispatchEvent(aRecordReport());
+        await settled(element);
+
+        await openNamed(element, SQUATTER);
+        await openRecord(element);
+
+        expect(routeTexts(element)).toEqual([]);
+
+        // The control: the same report, out of the fold now that somebody is
+        // open. Without it this passes against a root that files nothing ever.
+        recordElement(element).dispatchEvent(aRecordReport());
+        await settled(element);
+
+        expect(routeTexts(element)[0]).toContain(OFF_THE_BAT);
+      });
+
+      /**
+       * The one thing only the root can be wrong about, and the reason this
+       * block exists at all.
+       *
+       * `taken` is `[]` on the plan screen and `takenOn(lifter, lift)` on the
+       * platform, and nothing inside `ptk-meet-record` or `records.ts` can tell
+       * which it was handed -- both are a valid `readonly TakenAttempt[]`. A
+       * root that passed `[]` on both paths draws a screen that is correct all
+       * morning and wrong the moment somebody lifts: it would go on offering the
+       * record at 200.5 kg to a lifter who has already put 220 on the bar, which
+       * the rules forbid, and the lifter would find that out at the table.
+       *
+       * A *declared* opener is not enough to prove it. `takenOn` skips anything
+       * unresolved, so the weight has to be handed in and given a result before
+       * it reaches the plan -- which is also why this test presses three things
+       * rather than one.
+       *
+       * **Two lifters, and the one that lifts is the second.** With one on the
+       * board, or with the first of two, `#renderCoachRecord`'s lookup by id can
+       * be replaced by "the first lifter on the roster" and this still passes --
+       * mutation-checked, and it is the same planner-wiring survivor this
+       * directory has now recorded four times. A board is a list precisely
+       * because a coach runs several athletes, and the attempts the record is
+       * planned against have to be the open athlete's rather than whoever is at
+       * the top of the roster.
+       */
+      it('plans a record against the attempts a board lifter has already taken', async () => {
+        const element = await coachBoardWith([PRESSER, SQUATTER]);
+        await openNamed(element, SQUATTER);
+        await openRecord(element);
+        await typeRecord(element, '200');
+        const beforeLifting = routeTexts(element)[0] ?? '';
+
+        await declareOpener(element, '220');
+        await markHandedIn(element);
+        await recordGoodLift(element);
+
+        const afterAGoodOpener = routeTexts(element)[0] ?? '';
+
+        expect(beforeLifting).toContain(OFF_THE_BAT);
+        // 221 and not 200.5: the profile's minimum progression is one kilogram,
+        // so the lightest attempt the rules now allow is a kilogram over the 220
+        // that was good -- and it clears the record by rather more than the
+        // margin, which is the honest answer and not a rounding of it.
+        expect(afterAGoodOpener).toContain('221 kg');
+        expect(afterAGoodOpener).not.toContain('200.5');
       });
     });
   });

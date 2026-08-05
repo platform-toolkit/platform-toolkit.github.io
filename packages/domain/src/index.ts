@@ -467,6 +467,7 @@ export {
   type RecordTarget,
   type RecordTargetBasis,
   type RecordTargets,
+  type RecordUnderAttempt,
 } from './records.js';
 export {
   USPA_POUNDS_PER_KILOGRAM,

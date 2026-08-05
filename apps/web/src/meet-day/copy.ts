@@ -71,10 +71,13 @@ import {
   type PlatformCall,
   type PlatformEstimate,
   type PublishedPoundsReason,
+  type QualifyingAttempt,
   type RackAdvisory,
   type RackLoad,
   type RackSequence,
   type Readiness,
+  type RecordRoute,
+  type RecordRouteBlockCode,
   type RecordedResult,
   type ResearchComparison,
   type RefereeLight,
@@ -101,6 +104,7 @@ import type {
   PackWarmupSet,
 } from './pack.js';
 import type { PlanProblem } from './plan.js';
+import type { RecordLevelRelation, RecordSubject } from './records.js';
 import {
   CUSTOM_ITEM_MAX,
   HANDOFF_PREFERENCES,
@@ -4399,3 +4403,270 @@ export const WARMUP_LIFT_LABEL = 'Which lift are you warming up for';
 export function warmupLiftChoices(lifts: readonly PlatformLift[]): readonly Choice[] {
   return lifts.map((lift) => ({ value: lift, label: liftLabel(lift) }));
 }
+
+/*
+ * ---------------------------------------------------------------------------
+ * §19 -- GOING FOR A RECORD
+ *
+ * Two rules govern every sentence below.
+ *
+ * The first is that this application has read no record book (§29). Every
+ * figure on this screen came out of the lifter's own typing, and the wording
+ * has to keep saying so without saying it eight times over. So the questions
+ * ask for the book's figure rather than for "the record", nothing here calls a
+ * number verified, and `VERIFY_WITH_OFFICIALS` is printed off the plan verbatim
+ * -- never paraphrased, and never shortened to fit a line.
+ *
+ * The second is that the two routes are two different weights, and a lifter
+ * reading the wrong one loses either the record or the card. So neither figure
+ * is ever shown on its own: each sits under a heading naming the attempt it
+ * belongs to, and where a route is closed the heading stays and the reason
+ * takes the place of the weight. A screen showing one number is a screen where
+ * the lifter cannot tell which of the two they are looking at.
+ * ---------------------------------------------------------------------------
+ */
+
+export const RECORD_HEADING = 'Record attempt';
+
+/**
+ * What the fold is for, and what it is not.
+ *
+ * Names the source in the first clause. A lifter opening this expects the tool
+ * to know the records -- every other figure on this screen was worked out for
+ * them -- and the honest answer is that it does not, which has to arrive before
+ * the empty field rather than as an apology under it.
+ */
+export const RECORD_INTRO =
+  "Type the record off your federation's own list and this works out the lightest attempt that takes it, by each of the two routes to it.";
+
+export const RECORD_SUBJECT_LABEL = 'Which record are you going for';
+
+/** A total is a record a lifter chases and is not a lift, so it is named apart. */
+export function recordSubjectLabel(subject: RecordSubject): string {
+  return subject === 'total' ? 'Total' : liftLabel(subject);
+}
+
+/** One tile per record this meet has, in platform order with the total last. */
+export function recordSubjectChoices(subjects: readonly RecordSubject[]): readonly Choice[] {
+  return subjects.map((subject) => ({ value: subject, label: recordSubjectLabel(subject) }));
+}
+
+/**
+ * The one field the whole fold hangs on, asked in kilograms and labelled so.
+ *
+ * The unit is in the label as well as on the field, which is the one place in
+ * this tool that repeats a unit. Everywhere else the figure follows the
+ * session's display unit and the label can stay silent; here it does not, and a
+ * lifter part-way down a pound-unit plan has no reason to expect the change. A
+ * pound figure typed here is a record 3.4% lighter than the one they meant.
+ */
+export const RECORD_KILOGRAMS_LABEL = 'The record, in kilograms';
+export const RECORD_KILOGRAMS_UNIT = 'kg';
+export const RECORD_KILOGRAMS_HINT =
+  'Kilograms even if the rest of your plan is in pounds. Record books are kept in kilograms and this figure is not converted.';
+
+/**
+ * The level as the book prints it, shown back and matched on by nothing.
+ *
+ * The hint says so outright rather than leaving it implied. A box next to a
+ * record figure looks like a box the tool will look something up in, and a
+ * lifter who believes that types a level and then trusts a margin nobody
+ * checked against a federation's own table.
+ */
+export const RECORD_LEVEL_LABEL = 'What the list calls it';
+export const RECORD_LEVEL_HINT =
+  'State, National, whatever the heading said. Shown back to you on this screen and used for nothing else.';
+
+/**
+ * Whether the figure is a seeded standard or a lift somebody made.
+ *
+ * Two segments rather than one tick box, because the unticked state of a tick
+ * box would be an answer nobody gave: an unclaimed record can, in some books, be
+ * taken by matching it, and a screen that quietly assumed somebody holds it
+ * would charge a margin the rules do not ask for. Both readings are on screen
+ * and one of them is preselected, which is the honest way to show a default that
+ * changes a weight.
+ */
+export const RECORD_HOLDER_LABEL = 'Does anybody hold it';
+export const RECORD_HOLDER_HELD = 'held';
+export const RECORD_HOLDER_UNCLAIMED = 'unclaimed';
+export const RECORD_HOLDER_CHOICES: readonly Choice[] = [
+  { value: RECORD_HOLDER_HELD, label: 'Somebody holds it' },
+  { value: RECORD_HOLDER_UNCLAIMED, label: 'Nobody yet' },
+];
+
+/**
+ * §19's question that no code in this repository can answer.
+ *
+ * Phrased as a comparison rather than as a level, because the level on its own
+ * ("Is this a state record?") is a question about the record and the rule turns
+ * on the pair. A national record at a national meet and a state record at a
+ * state meet are the same answer here and read as opposites when the question
+ * names only one of them.
+ */
+export const RECORD_RELATION_LABEL = "That record's level, next to this meet";
+export const RECORD_RELATION_HINT =
+  'A state record at a national championship is lower. Federations usually charge the full loading increment for one of those.';
+
+export const RECORD_RELATION_CHOICES: readonly Choice[] = [
+  { value: 'at-or-above-the-meet' satisfies RecordLevelRelation, label: 'Same or higher' },
+  { value: 'below-the-meet' satisfies RecordLevelRelation, label: 'Lower' },
+  { value: 'not-sure' satisfies RecordLevelRelation, label: 'Not sure' },
+];
+
+/**
+ * Said only when the answer above is missing *and* the two conditions differ.
+ *
+ * The lighter figure is what the screen shows, which is the direction most
+ * lifters are actually in, and this is the sentence that keeps that from being
+ * silent. It names the heavier figure rather than describing it, so a lifter who
+ * is at a bigger meet than their record can act on this line without answering
+ * the question above it.
+ */
+export function recordRelationUnstatedText(heavierKilograms: number): string {
+  return `Taken as the same level or higher. If that record is from a smaller meet than this one, it takes ${formatWeight({ amount: heavierKilograms, unit: 'kg' })} instead.`;
+}
+
+/**
+ * The banked total, asked only for a total record.
+ *
+ * "So far" rather than "your other lifts", because on the platform path the
+ * other lifts are half done -- the figure wanted is what is actually in the bag
+ * at this moment, and a lifter mid-bench who reads the label as "squat plus
+ * bench" types a bench they have not made yet.
+ */
+export const RECORD_TOTAL_SO_FAR_LABEL = 'Total banked so far, in kilograms';
+export const RECORD_TOTAL_SO_FAR_HINT =
+  'Your best lifts today, added up, not counting the one you are about to take.';
+
+/**
+ * Said where there is no rule book yet, which is a different screen from an
+ * empty one and deliberately names a control that is somewhere else.
+ *
+ * Every margin on this screen is the federation's, so with no federation chosen
+ * there is nothing to measure a record against -- not a lighter answer, none.
+ * `RECORD_NEEDS_A_FIGURE` below asks for something on this screen and this asks
+ * for something above it, and collapsing the two into one sentence would send a
+ * lifter to fill in a box that is already full.
+ */
+export const RECORD_NEEDS_RULES =
+  'Choose a federation in the setup above and the two routes to a record appear here.';
+
+/** Said above an empty fold, where there is nothing yet to plan against. */
+export const RECORD_NEEDS_A_FIGURE =
+  "No record typed in yet. Put the figure from your federation's list in the box below and the two routes to it appear here.";
+
+/*
+ * The two routes, each under a heading naming the attempt it belongs to. Never
+ * one figure on its own -- see this section's banner.
+ */
+export const RECORD_IN_COMPETITION_HEADING = 'On a competition attempt';
+export const RECORD_FOURTH_ATTEMPT_HEADING = 'On a fourth attempt';
+
+/**
+ * What goes on the bar, and for a total record what it adds up to.
+ *
+ * Both figures on one line for a total, because the weight on the bar is the
+ * one that gets written on the card and the total is the one that takes the
+ * record -- a lifter shown only the total loads the total, and a lifter shown
+ * only the bar weight cannot check the arithmetic they are trusting.
+ */
+export function recordRouteWeightText(route: RecordRoute): string {
+  const bar = formatWeight({ amount: route.kilograms, unit: 'kg' });
+  if (route.reachesTotalKilograms === null) return `${bar} on the bar.`;
+  return `${bar} on the bar, for a total of ${formatWeight({ amount: route.reachesTotalKilograms, unit: 'kg' })}.`;
+}
+
+/**
+ * Whether the lift is worth anything besides the record.
+ *
+ * §19 asks for this by name and it is the difference between the two routes
+ * that is not a weight. Said on both routes rather than only on the fourth
+ * attempt: "counts toward your total" under the competition heading is what
+ * makes the absence of it under the other one mean something.
+ */
+export function recordCountsTowardTotalText(countsTowardTotal: boolean): string {
+  return countsTowardTotal
+    ? 'Counts toward your total, like any other attempt.'
+    : 'Does not count toward your total.';
+}
+
+/**
+ * Everything the federation excludes the attempt from, in the federation's own words.
+ *
+ * The list is passed through untranslated because it is published vocabulary --
+ * "team-points" means whatever that federation's rulebook says it means, and a
+ * sentence rewriting it here would be this tool inventing a rule. `null` where
+ * the list is empty, so the caller renders no line rather than an empty one.
+ */
+export function recordExcludedFromText(excludedFrom: readonly string[]): string | null {
+  if (excludedFrom.length === 0) return null;
+  return `The federation lists it as excluded from: ${excludedFrom.join(', ')}.`;
+}
+
+export function recordSubmissionText(seconds: number): string {
+  return `${String(seconds)} seconds to submit it.`;
+}
+
+export const RECORD_REQUIRES_PERMISSION = 'It has to be granted before you can take it.';
+export const RECORD_POST_LIFT_EQUIPMENT_CHECK =
+  'Your gear is checked after the lift rather than before it.';
+
+/**
+ * Why a route is closed, total over the domain's codes.
+ *
+ * Total rather than defaulted, the same split as `warmupProblemSentence`: a
+ * default would ship the day a code was added, on the one screen where the
+ * lifter's next move depends entirely on which of these it is. Two of them are
+ * things they can fix in the next thirty seconds, three are facts about the day,
+ * and one is the tool having nothing to go on.
+ */
+export function recordBlockSentence(code: RecordRouteBlockCode): string {
+  switch (code) {
+    case 'no-record-supplied':
+      return 'No record figure to measure against.';
+    case 'no-competition-attempts-left':
+      return 'Every competition attempt on this lift has been taken.';
+    case 'no-third-attempt-yet':
+      return 'Nothing to be eligible after yet: the third attempt has not happened.';
+    case 'fourth-attempt-excluded-from-the-total':
+      return 'A fourth attempt does not count toward the total, so it cannot take a total record.';
+    case 'total-so-far-not-supplied':
+      return 'Fill in the total banked so far and this can work out what the bar needs.';
+    case 'no-legal-attempt-reaches-it':
+      return 'No attempt the rules allow today gets there.';
+    case 'not-offered':
+      return 'This federation does not have fourth attempts.';
+    case 'third-attempt-not-successful':
+      return 'The third attempt was not good, and this federation asks for one that was.';
+    case 'outside-the-record-window':
+      return 'The third attempt was further below the record than this federation allows.';
+  }
+}
+
+/**
+ * §19's "qualifying attempt", reported whether or not the route came back open.
+ *
+ * Two lifters are ineligible for opposite reasons -- one missed the third, one
+ * was never close enough -- and they want opposite advice, so this is its own
+ * line rather than a refusal folded into the route above it. Silent before the
+ * third attempt exists: a lifter on the plan screen has not lost anything.
+ */
+export const RECORD_QUALIFYING_HEADING = 'The attempt before it';
+
+export function recordQualifyingText(qualifying: QualifyingAttempt): string | null {
+  if (qualifying.attempt === null) return null;
+  if (qualifying.qualified) return 'Your third attempt earns the fourth.';
+  const said = [...new Set(qualifying.reasons.map((reason) => recordBlockSentence(reason)))];
+  return said.join(' ');
+}
+
+/*
+ * §19 on the planning screen. The element renders its own `RECORD_HEADING`, so
+ * the fold is labelled differently for `WARMUP_FOLD_LABEL`'s reason -- and this
+ * one has a second job the warm-up's does not: it is the only thing on screen
+ * while the fold is shut, so it has to say that nothing has been looked up.
+ */
+export const RECORD_FOLD_LABEL = 'Going for a record';
+export const RECORD_FOLD_SUMMARY =
+  'Type the record in and see what takes it. Nothing is looked up for you.';
