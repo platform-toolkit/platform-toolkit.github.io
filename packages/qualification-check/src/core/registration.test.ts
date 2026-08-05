@@ -27,8 +27,18 @@ function standingFor(patch: Partial<AthleteEntry> = {}): ObservedStanding {
   return first;
 }
 
-function proposalFor(patch: Partial<AthleteEntry> = {}): ReturnType<typeof proposeRegistration> {
-  return proposeRegistration(standingFor(patch), VOCABULARY_FIXTURE);
+/**
+ * The answer that unlocks the weight-class axis, given to every test that is not about
+ * it. A ladder is published per sex, so a proposal made with no answers cannot offer a
+ * class at all -- true, deliberate, and beside the point of a test about divisions.
+ */
+const MALE: Partial<ResolvedRegistration> = { sex: 'male' };
+
+function proposalFor(
+  patch: Partial<AthleteEntry> = {},
+  answers: Partial<ResolvedRegistration> = MALE,
+): ReturnType<typeof proposeRegistration> {
+  return proposeRegistration(standingFor(patch), VOCABULARY_FIXTURE, answers);
 }
 
 describe('what proposeRegistration will fill in', () => {
@@ -51,6 +61,56 @@ describe('what proposeRegistration will fill in', () => {
     const proposal = proposalFor();
     expect(proposal.sex.proposed).toBe('male');
     expect(proposal.equipment.proposed?.id).toBe('raw');
+  });
+});
+
+/**
+ * The axis that cannot be read until another one is answered.
+ *
+ * Weight classes are published one ladder per sex and the two overlap only partly, so
+ * there is no such thing as "the 94 kg class" until the sex is settled. Every case here
+ * is about the window before that -- and the failure being prevented is silent, because
+ * a class off the wrong ladder is a plausible number in the right control.
+ */
+describe('the weight class, before the sex is known', () => {
+  it('offers nothing, rather than a class off whichever ladder matched first', () => {
+    const proposal = proposalFor({}, {});
+    expect(proposal.weightClassOptions).toEqual([]);
+    expect(proposal.defaults.weightClassId).toBeUndefined();
+    expect(proposal.unsettled).toContain('weight-class');
+  });
+
+  it('does not measure a bodyweight against a ladder it has not chosen', () => {
+    // 93.4 kg makes a class on both fixture ladders -- `to-94` on one, `f-over-71` on
+    // the other -- so a proposal made with no sex would have to pick one, and both
+    // answers look right on screen.
+    const proposal = proposalFor({ bodyweightKg: 93.4 }, {});
+    expect(proposal.weighedWeightClass.proposed).toBeNull();
+  });
+
+  it('reads the answered sex ladder and not the other one', () => {
+    // The fixture ladders share no boundary and no identifier, so this asserts the
+    // selection rather than a coincidence: `to-94` exists only on the male ladder.
+    expect(proposalFor({}, { sex: 'male' }).weightClassOptions.map((one) => one.id)).toContain(
+      'to-94',
+    );
+    expect(proposalFor({}, { sex: 'female' }).weightClassOptions.map((one) => one.id)).toEqual([
+      'f-to-47',
+      'f-to-59',
+      'f-to-71',
+      'f-over-71',
+    ]);
+  });
+
+  it('will not put a woman in a class her federation publishes only for men', () => {
+    // The whole reason the vocabulary keeps the ladders apart. This entry weighs 93.4
+    // and entered "94", which is a real class on the male ladder and on no other; read
+    // as a woman she belongs in the unbounded class, and a merged ladder would have
+    // graded her against a men's 94 kg standard without a word on the screen.
+    const proposal = proposalFor({ weightClassKg: '94', bodyweightKg: 93.4 }, { sex: 'female' });
+    expect(proposal.enteredWeightClass.proposed).toBeNull();
+    expect(proposal.weighedWeightClass.proposed?.id).toBe('f-over-71');
+    expect(proposal.unsettled).toContain('weight-class');
   });
 });
 
@@ -78,9 +138,9 @@ describe('the weight class a proposal defaults to', () => {
       WINDOW,
     );
     if (standing === undefined) throw new Error('Expected a standing.');
-    expect(proposeRegistration(standing, VOCABULARY_FIXTURE).weighedWeightClass.proposed?.id).toBe(
-      'to-78',
-    );
+    expect(
+      proposeRegistration(standing, VOCABULARY_FIXTURE, MALE).weighedWeightClass.proposed?.id,
+    ).toBe('to-78');
   });
 
   it('is unsettled where the archive printed a class this ladder does not publish', () => {
@@ -189,11 +249,13 @@ describe('resolveRegistration', () => {
 
   it('reports every unanswered axis at once', () => {
     // So a form can mark all of them, rather than making somebody answer one question
-    // to discover there are three more.
-    const resolution = resolveRegistration(proposalFor({ tested: null, ageClass: null }), {});
+    // to discover there are four more. Proposed with the same nothing it is resolved
+    // with, which is what a freshly opened form holds -- and with no sex answered the
+    // weight-class ladder is not chosen either, so this is the full set of five.
+    const resolution = resolveRegistration(proposalFor({ tested: null, ageClass: null }, {}), {});
     expect(resolution).toEqual({
       ok: false,
-      missing: ['sex', 'equipment', 'division', 'tested'],
+      missing: ['sex', 'equipment', 'weight-class', 'division', 'tested'],
     });
   });
 

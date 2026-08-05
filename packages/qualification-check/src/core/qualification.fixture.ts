@@ -39,6 +39,7 @@ import type {
   QualifyingMeetBook,
   QualifyingRoute,
   WeightClass,
+  WeightClassLadderData,
 } from '@platform-toolkit/data-contracts';
 
 import type { CatalogVocabulary } from '../types.js';
@@ -65,6 +66,47 @@ export const WEIGHT_CLASSES_FIXTURE: readonly WeightClass[] = [
   { id: 'to-94', label: '94 kg', maximumKilograms: 94 },
   { id: 'to-112', label: '112 kg', maximumKilograms: 112 },
   { id: 'over-112', label: '112+ kg', maximumKilograms: null },
+];
+
+/**
+ * A second invented ladder that shares not one boundary with the first.
+ *
+ * Disjoint on purpose, and it is the only reason the fixture has two. A real pair of
+ * ladders overlaps heavily in the middle -- both federations' sexes compete at 60, at
+ * 75, at 90 -- so a test written against a realistic pair passes whichever ladder the
+ * code reaches for, right up to the ends. Sharing no boundary and no identifier makes
+ * "read the wrong sex's ladder" a failure rather than a coincidence: every class here
+ * is absent from the list above, so a proposal off the wrong one cannot resolve at all.
+ *
+ * Every figure invented (section 5.1).
+ */
+export const FEMALE_WEIGHT_CLASSES_FIXTURE: readonly WeightClass[] = [
+  { id: 'f-to-47', label: '47 kg', maximumKilograms: 47 },
+  { id: 'f-to-59', label: '59 kg', maximumKilograms: 59 },
+  { id: 'f-to-71', label: '71 kg', maximumKilograms: 71 },
+  { id: 'f-over-71', label: '71+ kg', maximumKilograms: null },
+];
+
+/**
+ * The two ladders, published the way a catalogue publishes them.
+ *
+ * Female first, which is not the order anything reads them in and is why it is written
+ * that way: a lookup that returned the first entry instead of the one matching the sex
+ * would pass on a male-first list, because male is what nearly every fixture here
+ * competes as.
+ */
+export const WEIGHT_CLASS_LADDERS_FIXTURE: readonly WeightClassLadderData[] = [
+  // Copied rather than shared. `WeightClassLadderData.classes` is what valibot infers
+  // from the schema, which is a mutable array, and handing it the very list every test
+  // in this package asserts against would let one `sort` or `push` anywhere rewrite the
+  // fixture for every other test in the file.
+  {
+    id: 'invented-female',
+    label: 'Female',
+    sex: 'female',
+    classes: [...FEMALE_WEIGHT_CLASSES_FIXTURE],
+  },
+  { id: 'invented-male', label: 'Male', sex: 'male', classes: [...WEIGHT_CLASSES_FIXTURE] },
 ];
 
 /**
@@ -124,7 +166,7 @@ export const DIVISIONS_FIXTURE: readonly AgeDivision[] = [
 
 export const VOCABULARY_FIXTURE: CatalogVocabulary = {
   equipment: EQUIPMENT_FIXTURE,
-  weightClasses: WEIGHT_CLASSES_FIXTURE,
+  weightClassLadders: WEIGHT_CLASS_LADDERS_FIXTURE,
   divisions: DIVISIONS_FIXTURE,
 };
 

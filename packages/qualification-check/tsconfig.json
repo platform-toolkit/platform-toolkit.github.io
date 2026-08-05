@@ -3,10 +3,16 @@
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "bundler",
+    // The DOM libraries arrive with `src/element/`, not with the core. Nothing under
+    // `src/core/` may touch either of them (section 15), and the compiler is not what
+    // enforces that -- `core/index.ts` is the published boundary and a review of its
+    // imports is. What these do buy is that a core file reaching for `window` fails at
+    // its own import rather than at whatever consumed it.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "rootDir": "./src",
     "outDir": "./dist"
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts", "src/**/*.fixture.ts"],
-  "references": [{ "path": "../data-contracts" }, { "path": "../domain" }]
+  "exclude": ["src/**/*.test.ts", "src/**/*.fixture.ts", "src/**/*.stories.ts"],
+  "references": [{ "path": "../data-contracts" }, { "path": "../domain" }, { "path": "../ui" }]
 }

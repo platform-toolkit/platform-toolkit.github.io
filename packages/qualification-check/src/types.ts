@@ -14,7 +14,7 @@ import type {
   QualifyingRoute,
   SexCategory,
   StandardDivisionBasis,
-  WeightClass,
+  WeightClassLadderData,
 } from '@platform-toolkit/data-contracts';
 import type { Classification, StandardDistance } from '@platform-toolkit/domain';
 
@@ -290,7 +290,25 @@ export interface StandingReport {
 /** The federation vocabulary a proposal is made against. */
 export interface CatalogVocabulary {
   readonly equipment: readonly EquipmentCategory[];
-  readonly weightClasses: readonly WeightClass[];
+
+  /**
+   * The weight classes, still separated by sex, the way the catalogue publishes them.
+   *
+   * One list per sex and never one merged list, and the distinction is not
+   * bookkeeping. The two ladders differ at both ends and in the middle, so a merged
+   * list contains classes this lifter's federation does not offer this lifter --
+   * and the weight-class axis is *measured*, which means `mayPreselect` lets it be
+   * filled in without being confirmed. Merged, a bodyweight would be resolved
+   * against the union before the reader has said which sex they compete in, and the
+   * form would open with a class from the other ladder already selected. That is the
+   * exact failure `category-match.ts` is written to prevent: a plausible number, on
+   * the right screen, under the right heading.
+   *
+   * Reading one of these is {@link import('./core/category-match.js').weightClassesFor},
+   * which is the only thing that should index into this list.
+   */
+  readonly weightClassLadders: readonly WeightClassLadderData[];
+
   readonly divisions: readonly AgeDivision[];
 }
 

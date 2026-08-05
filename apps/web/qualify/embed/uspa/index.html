@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en" data-theme-mode="system">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Qualification Check (embedded)</title>
+    <!--
+      Embedding this route is intentional and unrestricted: any site may frame it.
+      No frame-ancestors directive and no X-Frame-Options are set anywhere.
+
+      Framing grants the parent page no access to anything inside, and this is the
+      view where that guarantee does the most work: everything typed here is a
+      named person's competition history. Theme and defaults are accepted only
+      through documented query parameters and validated postMessage payloads, and
+      nothing a reader enters is ever sent out. The only message leaving this
+      frame is a height.
+
+      `?theme=light|dark` forces a theme for embedders whose page is not the same
+      colour as the visitor's operating system. Left off, the view follows
+      `prefers-color-scheme`; the visitor is never asked to choose twice.
+
+      The `uspa` segment is the federation whose categories, classification ladder
+      and entry rules this view reads. It is a path segment rather than a query
+      parameter so that each federation gets its own cacheable URL, and so an
+      embedding site cannot silently switch which rules a reader is looking at.
+      The view reads it from the `data-federation` attribute below rather than
+      from the path: the two agree because they are both written here, and nothing
+      has to parse a directory layout to find out.
+    -->
+    <!--
+      A tab icon and nothing else. No manifest and no apple-touch-icon here, on
+      purpose and enforced by `scripts/check-pwa.mjs`: framing a widget must not
+      offer to install anything on the embedder's visitor. A favicon offers
+      nothing -- it is what a browser shows when somebody opens this URL directly
+      to see what they are about to frame.
+    -->
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <script src="/theme-boot.js"></script>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body data-embedded="true">
+    <main id="app" data-federation="uspa">
+      <noscript>
+        <p>
+          Qualification Check needs JavaScript to read results against published standards and entry
+          criteria.
+        </p>
+      </noscript>
+    </main>
+    <script type="module" src="/src/qualify/embed.ts"></script>
+  </body>
+</html>

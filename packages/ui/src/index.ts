@@ -19,6 +19,7 @@
 import './ptk-button.js';
 import './ptk-choice-group.js';
 import './ptk-copy-button.js';
+import './ptk-date-field.js';
 import './ptk-disclosure.js';
 import './ptk-notice.js';
 import './ptk-number-field.js';
@@ -37,6 +38,11 @@ export {
   type ChoiceChangeDetail,
 } from './ptk-choice-group.js';
 export { COPY_EVENT, PtkCopyButton, type CopyDetail } from './ptk-copy-button.js';
+export {
+  DATE_FIELD_CHANGE_EVENT,
+  PtkDateField,
+  type DateFieldChangeDetail,
+} from './ptk-date-field.js';
 export {
   DISCLOSURE_TOGGLE_EVENT,
   PtkDisclosure,

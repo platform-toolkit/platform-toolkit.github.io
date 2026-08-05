@@ -152,6 +152,8 @@
     --ptk-color-positive: #6fce97;
     --ptk-color-caution: #e5b95c;
     --ptk-color-negative: #f08a8a;
+
+    --ptk-date-picker-indicator-filter: invert(1);
   }
 }
 
@@ -177,6 +179,8 @@
   --ptk-color-positive: #6fce97;
   --ptk-color-caution: #e5b95c;
   --ptk-color-negative: #f08a8a;
+
+  --ptk-date-picker-indicator-filter: invert(1);
 }
 
 /* Light values, applied when the user or host chose light explicitly, even

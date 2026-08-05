@@ -248,6 +248,8 @@ export default defineConfig({
         'one-rep-max-embed': here('one-rep-max/embed/index.html'),
         'meet-day': here('meet-day/index.html'),
         'meet-day-embed': here('meet-day/embed/index.html'),
+        qualify: here('qualify/index.html'),
+        'qualify-embed': here('qualify/embed/uspa/index.html'),
       },
     },
   },

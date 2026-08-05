@@ -110,6 +110,31 @@ const projects: TestProjectInlineConfiguration[] = [
       root: './packages/qualification-check',
       environment: 'node',
       include: ['src/**/*.test.ts'],
+      // The browser suite below matches the same glob, so it has to be excluded
+      // by name. Vitest replaces the default exclude list rather than adding to
+      // it, so the standard entries are repeated here.
+      exclude: ['**/node_modules/**', '**/dist/**', 'src/**/*.browser.test.ts'],
+    },
+  },
+  {
+    // The tool's elements, in a real browser, for the same reason `ui` is. This
+    // package is the first one that is a whole tool rather than a component set,
+    // and the thing worth proving is that the six elements compose: an event
+    // dispatched from a control four levels down has to arrive at the root and
+    // move a figure. A DOM emulation would answer that question with its own
+    // retargeting rules rather than the platform's, which is exactly the
+    // difference the composed-path bugs in these files turn on (section 5.8).
+    test: {
+      name: 'qualification-check-browser',
+      root: './packages/qualification-check',
+      include: ['src/**/*.browser.test.ts'],
+      browser: {
+        enabled: true,
+        provider: playwright(),
+        instances: [{ browser: 'chromium' }],
+        headless: true,
+        screenshotFailures: false,
+      },
     },
   },
   {

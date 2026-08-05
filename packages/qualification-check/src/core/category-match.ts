@@ -9,7 +9,13 @@ import type {
 } from '@platform-toolkit/data-contracts';
 import { WeightClassLadder, eligibleAgeDivisions } from '@platform-toolkit/domain';
 
-import type { CategoryProposal, DivisionCandidate, ObservedAge, ProposalBasis } from '../types.js';
+import type {
+  CatalogVocabulary,
+  CategoryProposal,
+  DivisionCandidate,
+  ObservedAge,
+  ProposalBasis,
+} from '../types.js';
 
 /**
  * Getting from what an archive printed to what a federation publishes.
@@ -53,6 +59,37 @@ import type { CategoryProposal, DivisionCandidate, ObservedAge, ProposalBasis } 
  */
 export function mayPreselect(basis: ProposalBasis): boolean {
   return basis === 'measured';
+}
+
+/**
+ * The weight classes one sex competes in, and an empty ladder until the sex is known.
+ *
+ * The only thing anywhere that reads {@link CatalogVocabulary.weightClassLadders}, so
+ * that the rule below is written once. Every screen, proposer and label goes through
+ * here.
+ *
+ * `null` returns `[]` rather than every class the federation publishes, and that is the
+ * whole point of the function. A weight class is proposed by *measurement* -- a
+ * bodyweight against a published boundary -- and a measured proposal is one
+ * {@link mayPreselect} lets a form fill in unasked. Fall back to the union and the
+ * screen opens with a class preselected off whichever ladder happened to contain a
+ * matching boundary: a 115 kg woman is put in a 125 kg class her federation does not
+ * offer her, and a 115 kg man is graded against a women's 110+ standard. Both look
+ * exactly like an answer.
+ *
+ * An empty ladder proposes nothing, so the axis lands in
+ * {@link import('./registration.js').RegistrationProposal.unsettled} and the reader is
+ * asked -- which is what "this cannot be known yet" is supposed to look like
+ * (section 5.5). It is also what a federation publishing no ladder for a sex looks
+ * like, and the two want the same screen: a picker with nothing in it and a note
+ * saying so.
+ */
+export function weightClassesFor(
+  vocabulary: CatalogVocabulary,
+  sex: SexCategory | null,
+): readonly WeightClass[] {
+  if (sex === null) return [];
+  return vocabulary.weightClassLadders.find((ladder) => ladder.sex === sex)?.classes ?? [];
 }
 
 /**

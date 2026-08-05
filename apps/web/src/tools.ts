@@ -61,4 +61,15 @@ export const TOOLS: readonly Tool[] = [
       'Nine attempts that are legal on your federation’s bar, with what each one asks of you and how much the plan is standing on kept apart.',
     embedPath: 'meet-day/embed/',
   },
+  {
+    id: 'qualify',
+    name: 'Qualification Check',
+    summary:
+      // "Reads" and "asks", never "eligible". The tool does not rule on entry
+      // and the hub is the first place that promise is made or broken -- a
+      // lifter who arrives expecting a verdict has been told the wrong thing
+      // before the page has loaded.
+      'What your results say about the meets you could enter, and every question the entry form will ask that an archive cannot answer.',
+    embedPath: 'qualify/embed/uspa/',
+  },
 ];

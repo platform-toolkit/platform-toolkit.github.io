@@ -14,6 +14,10 @@
       "types": "./dist/core/index.d.ts",
       "default": "./dist/core/index.js"
     },
+    "./element": {
+      "types": "./dist/element/index.d.ts",
+      "default": "./dist/element/index.js"
+    },
     "./types": {
       "types": "./dist/types.d.ts",
       "default": "./dist/types.js"
@@ -24,7 +28,9 @@
   },
   "dependencies": {
     "@platform-toolkit/data-contracts": "workspace:*",
-    "@platform-toolkit/domain": "workspace:*"
+    "@platform-toolkit/domain": "workspace:*",
+    "@platform-toolkit/ui": "workspace:*",
+    "lit": "3.3.3"
   },
   "devDependencies": {
     "valibot": "1.4.2"

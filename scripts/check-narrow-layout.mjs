@@ -889,6 +889,121 @@ const PLATFORM_TARGETS_SETTLE = [
 const HUB_CLICK = ['ptk-disclosure[label="Install the toolkit"] summary'];
 
 /**
+ * One competition result, typed the way a lifter reads it off an archive page.
+ *
+ * Every figure is invented (§5.1), and so is every *word*: `sex`, `equipment`,
+ * `division` and `ageClass` are archive spellings here, not federation
+ * identifiers. That is the whole reason this route can type them while the
+ * pickers below are still answered by position -- an archive spelling is a
+ * string somebody transcribed, and the tool's job is to say it could not read
+ * it. A spelling that matches nothing is therefore a perfectly good input for
+ * this check: it leaves the axis unproposed, and an unproposed axis is answered
+ * by `QUALIFY_CLICK_AFTER` a step later, which is the state worth measuring.
+ *
+ * All twelve, and not the six `readTypedResult` insists on. The missing-field
+ * problems it reports are one narrow line each, whereas a complete result is
+ * what draws the log row, the standings tile and everything below them -- and
+ * the log row is the densest line on the upper half of this screen, a meet
+ * name over a date, a category and a total in 320px.
+ */
+const QUALIFY_FILL = [
+  { selector: 'ptk-result-form [data-field="date"] input', value: '2026-03-14' },
+  { selector: 'ptk-result-form [data-field="meetName"] input', value: 'Invented Spring Open' },
+  { selector: 'ptk-result-form [data-field="federation"] input', value: 'Invented Federation' },
+  { selector: 'ptk-result-form [data-field="parentFederation"] input', value: 'Invented Parent' },
+  { selector: 'ptk-result-form [data-field="sex"] input', value: 'M' },
+  { selector: 'ptk-result-form [data-field="equipment"] input', value: 'Raw' },
+  { selector: 'ptk-result-form [data-field="division"] input', value: 'Masters 1' },
+  { selector: 'ptk-result-form [data-field="ageClass"] input', value: '45-49' },
+  { selector: 'ptk-result-form [data-field="ageYears"] input', value: '47' },
+  { selector: 'ptk-result-form [data-field="bodyweightKg"] input', value: '108.4' },
+  { selector: 'ptk-result-form [data-field="weightClassKg"] input', value: '110' },
+  { selector: 'ptk-result-form [data-field="squatKg"] input', value: '250' },
+  { selector: 'ptk-result-form [data-field="benchKg"] input', value: '165' },
+  { selector: 'ptk-result-form [data-field="deadliftKg"] input', value: '260' },
+];
+
+/**
+ * Submit the result, then answer the three questions drawn as tiles.
+ *
+ * The submit is on the native control inside the host, the way Start is on the
+ * meet-day route: a press that lands on the host's own padding is swallowed, and
+ * the failure would then arrive as a missing registration screen rather than as
+ * an unclickable button.
+ *
+ * Nothing below it exists before that press. There is no standing until a result
+ * has been entered, and the standings tile is not pressed either -- one typed
+ * result makes exactly one standing, and the element selects a lone standing
+ * itself rather than making the reader confirm a list of one.
+ *
+ * The three tiles are pressed by *position* -- `.first()`, which is what `tap`
+ * takes -- rather than by an option value, for the reason `choose` picks by
+ * index: these come from the published catalogue, so naming one would deliver a
+ * federation's renamed equipment category as a layout regression in this file.
+ * Sex first and not in any order: the weight-class ladder is published per sex,
+ * so the picker in `chooseLast` holds nothing at all until this tile is answered
+ * (`weightClassesFor` returns an empty list for an unknown sex, which is the
+ * guard that stops a 115 kg woman being placed in a men's class).
+ *
+ * All three are pressed rather than only the ones a proposal left open, because
+ * which ones it leaves open is published data. `mayPreselect` admits a measured
+ * proposal and refuses a spelled one, so a bodyweight can fill in a weight class
+ * and a transcribed word never fills in anything -- and answering an axis that
+ * was already answered changes nothing on screen, whereas leaving one open stops
+ * the registration resolving and takes the entire lower half of the page away.
+ */
+const QUALIFY_CLICK_AFTER = [
+  'ptk-result-form .actions ptk-button button',
+  'ptk-registration-answers [data-axis="sex"] input',
+  'ptk-registration-answers [data-axis="equipment"] input',
+  'ptk-registration-answers [data-axis="tested"] input',
+];
+
+/**
+ * The two registration answers drawn as pickers, and then the meet.
+ *
+ * In `chooseLast` and not `choose` because none of the three is on the page when
+ * `choose` runs: the registration questions are drawn from a result the reader
+ * typed and submitted, which is `fill` and then `clickAfter`. That ordering is
+ * the whole reason the slot exists.
+ *
+ * Weight class and division are selects rather than tiles because seventeen age
+ * divisions as a tile grid is the ragged column §5.7 forbids -- so this list is
+ * not an implementation detail of the check, it is the shape of the screen.
+ *
+ * The meet is third and depends on the two above it: `resolveRegistration` needs
+ * all five axes before the meet panel is drawn at all. Picking it is what turns
+ * one line of prose into the densest section of the tool -- the criteria the
+ * federation published, each route set apart, with what this lifter's results
+ * read against it -- so a route that stopped at the fifth answer would report a
+ * clean pass on a screen missing the part it exists to show.
+ */
+const QUALIFY_CHOOSE_LAST = [
+  { selector: 'ptk-registration-answers [data-axis="weight-class"] select', index: 1 },
+  { selector: 'ptk-registration-answers [data-axis="division"] select', index: 1 },
+  { selector: '[data-picker="meet"] select', index: 1 },
+];
+
+/**
+ * The two panels that arrive last, and neither one implies the other.
+ *
+ * A lift row from the report: it exists only once the classification standards
+ * for the chosen sex and equipment have been fetched -- a second read, fired by
+ * the registration answers above and not by the first paint -- and it is the
+ * densest line the report draws, a lift name over a best, what it achieved, and
+ * how far it sits from the next rung.
+ *
+ * Then the meet's own name, which is the one selector here that cannot match
+ * unless the pick above resolved: an identifier the published book does not
+ * carry renders an error notice instead, which is narrower than everything this
+ * route is for. Not a criteria row, tempting as it is -- how many routes a meet
+ * publishes is published data, and settling on one would turn a federation
+ * transcribing a meet with a single unconditional entry rule into a layout
+ * failure.
+ */
+const QUALIFY_SETTLE = ['ptk-standing-report li.lift', 'ptk-meet-reading p.meet-name'];
+
+/**
  * The routes, and what has to happen before each is worth measuring.
  *
  * A path may appear more than once. Platform Targets shows one of two whole
@@ -1278,6 +1393,24 @@ const ROUTES = [
     clickAfter: MEET_DAY_CLICK_AFTER,
     settle: ['ptk-plan-screen li.attempt'],
   },
+  {
+    path: '/qualify/',
+    click: [],
+    reveal: [],
+    fill: QUALIFY_FILL,
+    clickAfter: QUALIFY_CLICK_AFTER,
+    chooseLast: QUALIFY_CHOOSE_LAST,
+    settle: QUALIFY_SETTLE,
+  },
+  {
+    path: '/qualify/embed/uspa/',
+    click: [],
+    reveal: [],
+    fill: QUALIFY_FILL,
+    clickAfter: QUALIFY_CLICK_AFTER,
+    chooseLast: QUALIFY_CHOOSE_LAST,
+    settle: QUALIFY_SETTLE,
+  },
 ];
 
 /** Kept in step with `--ptk-tap-target-min` in `packages/ui/src/tokens.css`. */
@@ -1548,7 +1681,17 @@ async function tap(page, selectors, where, failures) {
 async function pick(page, pickers, where, failures) {
   for (const { selector, index } of pickers) {
     const control = page.locator(selector).first();
-    if ((await control.count()) === 0) {
+    // Waits rather than counting, for the reason `tap` does and for one more of
+    // its own. A picker in `chooseLast` can be *conjured by the picker before
+    // it*: answering `/qualify/`'s division question is what resolves the
+    // registration, and resolving it is what draws the meet panel underneath.
+    // Lit renders on a microtask, so `count()` on the tick after `selectOption`
+    // asks whether a component has caught up rather than whether the page has
+    // the control -- and the answer would decide a layout check. A selector that
+    // never appears still fails, with the same message, a few seconds later.
+    try {
+      await control.waitFor({ state: 'attached', timeout: ARRIVAL_TIMEOUT_MS });
+    } catch {
       failures.push(`${where}: nothing matched ${selector}`);
       return false;
     }
@@ -1710,6 +1853,21 @@ async function reveal(page, route, pass, failures) {
   // no earlier slot can express. Same function as the other two, so all three
   // agree that an unmatched selector is a failure and never a skip.
   if (!(await tap(page, route.clickLast ?? [], where, failures))) return false;
+
+  // Pickers that do not exist until something above was pressed. `/qualify/` is
+  // the case and the reason this is a second picker slot rather than more
+  // entries in `choose`: the registration questions are drawn from a result the
+  // reader typed and submitted, so the weight-class and division selects come
+  // into being after `fill` and after the press in `clickAfter` -- and `choose`
+  // runs before both, where they are not on the page to answer. Two of the five
+  // answers unanswered means the registration does not resolve, so the meet
+  // panel and the standing report never render and the widest half of that
+  // screen would go unmeasured behind a clean pass.
+  //
+  // Same function as `choose`, deliberately, so the two cannot drift into
+  // disagreeing about what a missing picker means. It means the same in both: a
+  // failure, never a skip.
+  if (!(await pick(page, route.chooseLast ?? [], where, failures))) return false;
 
   // A list, because a screen can have more than one panel that finishes at its
   // own moment and neither one implies the other. Waiting on the earlier of two

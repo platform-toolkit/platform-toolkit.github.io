@@ -49,6 +49,17 @@ export {
 export { gradeLift, gradeStanding, reportedLifts } from './standing.js';
 
 export {
+  emptyTypedResult,
+  readTypedResult,
+  type TypedResultField,
+  type TypedResultForm,
+  type TypedResultProblem,
+  type TypedResultProblemCode,
+  type TypedResultReading,
+  type TypedTestedAnswer,
+} from './typed-result.js';
+
+export {
   performanceWindow,
   windowContains,
   windowOverlap,

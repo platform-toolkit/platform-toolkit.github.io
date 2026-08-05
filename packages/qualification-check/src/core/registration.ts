@@ -25,6 +25,7 @@ import {
   proposeSex,
   proposeWeightClassFromBodyweight,
   proposeWeightClassFromEntry,
+  weightClassesFor,
 } from './category-match.js';
 
 /**
@@ -105,6 +106,20 @@ export interface RegistrationProposal {
   /** The distinct divisions across every age, in the federation's own order. */
   readonly divisionOptions: readonly AgeDivision[];
 
+  /**
+   * The weight classes in force, which is one sex's ladder or none at all.
+   *
+   * Published on the proposal rather than left for the caller to select, because the
+   * selection needs the *effective* sex -- the reader's answer over the proposal's
+   * default -- and that merge is performed here. A caller doing it again would be a
+   * second copy of the rule, and the day it drifts the picker offers one ladder while
+   * the proposals underneath it were measured against the other. Nothing about that
+   * looks wrong on screen.
+   *
+   * Empty until the sex is settled. See {@link weightClassesFor}.
+   */
+  readonly weightClassOptions: readonly WeightClass[];
+
   readonly tested: TestedProposal;
 
   /**
@@ -121,25 +136,48 @@ export interface RegistrationProposal {
   readonly unsettled: readonly RegistrationAxis[];
 }
 
-/** Reads a standing against one federation's vocabulary. */
+/**
+ * Reads a standing against one federation's vocabulary.
+ *
+ * Takes the answers so far, and takes them for one axis only: a weight-class ladder is
+ * published per sex, so nothing on that axis can be proposed until the sex is settled.
+ * Passing them is not the same as resolving with them -- `resolveRegistration` still
+ * layers `answers` over `defaults`, and this function still reports what the *history*
+ * supports. What the answers buy here is which ladder the history is measured against.
+ *
+ * Defaulted to none, so a caller that has collected nothing gets the proposal a blank
+ * form opens on, with the weight-class axis unsettled rather than guessed.
+ */
 export function proposeRegistration(
   standing: ObservedStanding,
   vocabulary: CatalogVocabulary,
+  answers: Partial<ResolvedRegistration> = {},
 ): RegistrationProposal {
   const { registration } = standing;
 
   const sex = proposeSex(registration.sex);
   const equipment = proposeEquipment(registration.equipment, vocabulary.equipment);
+
+  // The reader's answer first, then the proposal -- but only a proposal this form
+  // would have filled in unasked, which is `mayPreselect`'s whole job. Reading
+  // `sex.proposed` unconditionally would select a ladder off a *spelled* match, and
+  // then measure a bodyweight against it: a measured proposal resting on an
+  // unconfirmed one, which is laundering. Today `proposeSex` is always spelled, so
+  // this reduces to the answer; it is written in full because the day a source
+  // publishes a sex the tool can measure, the merge is already correct.
+  const settledSex = answers.sex ?? (mayPreselect(sex.basis) ? sex.proposed : null);
+  const weightClassOptions = weightClassesFor(vocabulary, settledSex);
+
   const enteredWeightClass = proposeWeightClassFromEntry(
     registration.weightClassKg,
-    vocabulary.weightClasses,
+    weightClassOptions,
   );
   const weighedWeightClass = proposeWeightClassFromBodyweight(
     // The lightest weigh-in in the window. A lifter who dropped a class mid-window
     // is two standings, so within one standing the spread is a weigh-in wobble --
     // and the lightest is the only one that certainly made the class they entered.
     standing.bodyweights[0] ?? null,
-    vocabulary.weightClasses,
+    weightClassOptions,
   );
   const divisionFromBand = proposeDivisionFromAgeClass(registration.ageClass, vocabulary.divisions);
 
@@ -176,6 +214,7 @@ export function proposeRegistration(
     divisionFromBand,
     divisionsByAge,
     divisionOptions: distinctDivisions(vocabulary.divisions, divisionsByAge, divisionFromBand),
+    weightClassOptions,
     tested,
     defaults,
     unsettled,

@@ -38,6 +38,10 @@
       "@platform-toolkit/domain": ["./packages/domain/src/index.ts"],
       "@platform-toolkit/ingestion": ["./packages/ingestion/src/index.ts"],
       "@platform-toolkit/preferences": ["./packages/preferences/src/index.ts"],
+      "@platform-toolkit/qualification-check": ["./packages/qualification-check/src/index.ts"],
+      "@platform-toolkit/qualification-check/element": [
+        "./packages/qualification-check/src/element/index.ts"
+      ],
       "@platform-toolkit/ui": ["./packages/ui/src/index.ts"]
     }
   },
