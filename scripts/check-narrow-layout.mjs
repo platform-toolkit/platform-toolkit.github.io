@@ -659,6 +659,64 @@ const MEET_DAY_COACH_CLICK_LAST = [
 ];
 
 /**
+ * Add a lifter, then open their own screen off the board (§21, §20).
+ *
+ * Named by `.open` rather than by the first `ptk-button` in a row, for the
+ * reason §13.11 put `class="back"` on the way out of live mode: a row carries a
+ * fold, a swatch and whatever §21.3 has added to it, and a bare tag selector is
+ * correct until one of those renders a control above this one -- at which point
+ * the run goes on passing, because what it pressed is also a real button.
+ *
+ * The native control inside the host, the way Start is pressed: a press that
+ * lands on the host's own padding is swallowed, and the settle below would then
+ * report the absence of a screen nobody tried to open.
+ */
+const MEET_DAY_COACH_LIFTER_CLICK_AFTER = [
+  ...MEET_DAY_COACH_CLICK_AFTER,
+  'ptk-coach-board ptk-button.open button',
+];
+
+/**
+ * An opener for the lifter now on screen, typed rather than chosen.
+ *
+ * §13.17 records why there is nothing to press instead: a lifter opened off the
+ * board has no plan behind them, so `liveChoicesFor` offers no cards and §13.7's
+ * "fourth thing on the list" is the only way through an attempt on this path.
+ *
+ * It is also what gives §20's fold a ramp. The coach path reads the opener off
+ * the document's first competition attempt, so until this is typed the fold
+ * draws §20.1's estimate and no sets at all -- and the two settle selectors
+ * below, which are the widest lines the fold has, would measure nothing.
+ *
+ * A round figure, unlike every other invented weight in this file (§5.1), and
+ * the exception is deliberate: this weight is declared rather than planned, so
+ * nothing rounds it onto the profile's grid and an increment the corpus happens
+ * to publish would refuse it outright. There is no rounding note to expose here
+ * and a refusal would take the ramp off the screen, so the robust figure is the
+ * one that is legal under any bar multiple a federation could publish.
+ */
+const MEET_DAY_COACH_LIFTER_FILL_AFTER = [
+  { selector: 'ptk-live-choices ptk-number-field[data-field="other-weight"] input', value: '140' },
+];
+
+/**
+ * Declare the typed weight, then open §20's fold over it.
+ *
+ * The press is on the native control for the reason Start is: it is disabled
+ * until the field above holds a number, so a press swallowed by the host would
+ * leave the attempt unchosen and the failure would arrive as a missing ramp
+ * rather than as an unclickable button.
+ *
+ * The fold press buys the same thing it buys on the plan route and no more --
+ * Chromium lays out the contents of a shut `<details>`, so prove it by renaming
+ * the selector and never by measurement.
+ */
+const MEET_DAY_COACH_LIFTER_CLICK_LAST = [
+  'ptk-live-choices div.other ptk-button button',
+  ...MEET_DAY_WARMUP_CLICK,
+];
+
+/**
  * The report shows one lift and one target type at a time, so the widest thing
  * on it has to be navigated to before it can be measured.
  *
@@ -1096,6 +1154,52 @@ const ROUTES = [
       'ptk-coach-roster ptk-toggle-group[data-field="roster-handler-duties"]',
       'ptk-handler-pack .lifter',
       'ptk-meet-library li.meet',
+    ],
+  },
+  /*
+   * The same path a sixth time, one press further down the coach branch: the
+   * screen a coach reaches by opening one lifter off the board (§21, §20).
+   *
+   * A separate entry for the reason the live one is separate from the plan --
+   * this screen *replaces* the board, so the entry above could settle on a row
+   * or on a ramp but not on both, and giving up the row would give up the one
+   * assertion that proves the roster ever produced a board.
+   *
+   * What only this entry can measure is §20's fold under a lifter with no plan
+   * behind them. The plan route measures the same element, but under a plan: the
+   * opener there is rounded onto the profile's grid and arrives with the whole
+   * planning screen above it, while here it is typed at the rack and the fold
+   * sits under a live screen and a back control. The chrome above a component is
+   * the half a component test cannot see, which is the whole reason this file
+   * exists.
+   *
+   * Standalone only, on the same reasoning as the live and coach entries: the
+   * embed gives the element more room, so this is the conservative width.
+   */
+  {
+    path: '/meet-day/',
+    label: '/meet-day/ (coach lifter)',
+    click: MEET_DAY_COACH_CLICK,
+    reveal: [],
+    fill: MEET_DAY_COACH_FILL,
+    clickAfter: MEET_DAY_COACH_LIFTER_CLICK_AFTER,
+    fillAfter: MEET_DAY_COACH_LIFTER_FILL_AFTER,
+    clickLast: MEET_DAY_COACH_LIFTER_CLICK_LAST,
+    // The declared weight on the live screen, which is the only selector here
+    // that cannot match before the press above landed -- the panel renders "no
+    // attempt is owed" until a weight is chosen, and that sentence is narrower
+    // than everything this route exists to measure.
+    //
+    // Then the two widest lines §20's fold draws, listed for the reason the
+    // plan route lists both: a timeline row is the ramp itself -- a set number,
+    // a weight, the plates on the bar and a minute range on one line -- and a
+    // set row is two number fields side by side, which exists only for the
+    // rungs `isAdjustable` allows a weight on. A ramp that came out bar-only
+    // would settle on the first and draw none of the second.
+    settle: [
+      'ptk-live-screen section.panel p.weight',
+      'ptk-meet-warmup ol.timeline li',
+      'ptk-meet-warmup .set-row ptk-number-field',
     ],
   },
   {

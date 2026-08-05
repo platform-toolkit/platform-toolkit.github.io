@@ -2945,6 +2945,214 @@ describe('ptk-meet-day-planner', () => {
       expect(timelineRows(element).length).toBeGreaterThan(0);
       expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
     });
+
+    /**
+     * §20 on the coach path, where the fold hangs under one board lifter.
+     *
+     * The three helpers below are re-declared rather than shared with the
+     * `coach mode` describe: they are private to that block, and hoisting them
+     * to module scope would put the board's vocabulary in front of every test
+     * in the file for the sake of four. What is genuinely different here is
+     * `openNamed`, which the coach block has no equivalent of because it never
+     * runs two lifters at once.
+     */
+    describe('on the coach path', () => {
+      const SQUATTER = 'Okonkwo';
+      const PRESSER = 'Vasquez';
+
+      function coachBoardOf(element: PtkMeetDayPlanner): Element | null {
+        return element.shadowRoot?.querySelector('ptk-coach-board') ?? null;
+      }
+
+      async function addNamed(element: PtkMeetDayPlanner, name: string): Promise<void> {
+        await type(element, ROSTER_NAME_FIELD, name);
+        const add = element.shadowRoot
+          ?.querySelector('ptk-coach-roster')
+          ?.shadowRoot?.querySelector('.add ptk-button');
+        if (add === null || add === undefined) throw new Error('No way to add a lifter.');
+        await press(element, add);
+      }
+
+      /** A running board carrying one row per name. */
+      async function coachBoardWith(
+        names: readonly string[],
+        options: Options = {},
+      ): Promise<PtkMeetDayPlanner> {
+        const element = await mount(options);
+        await choose(element, MODE_FIELD, COACH_MODE);
+        await choose(
+          element,
+          FEDERATION_FIELD,
+          (options.profiles ?? PROFILE_FIXTURES)[0]?.id ?? '',
+        );
+        for (const name of names) {
+          await addNamed(element, name);
+        }
+        // The positive control `running()` carries, for the same reason: without
+        // it an assertion about the fold passes against a screen that refused
+        // every add and drew no board at all.
+        if (coachBoardOf(element) === null) throw new Error('No board was drawn.');
+        return element;
+      }
+
+      /**
+       * Opens one lifter, addressed by name and never by index.
+       *
+       * The board is ranked on §21's urgency ladder and re-sorts as the clock
+       * moves, so `rows[0]` is whoever is most urgent at the instant it is read
+       * -- which is exactly the thing these tests change. An index would keep
+       * passing while opening the wrong athlete.
+       *
+       * The name is read off the row's own `.who`, never off the row's whole
+       * `textContent`. §21.2's clash advisory names *the other lifter* inside
+       * the row it warns -- so once two board lifters have warm-up timelines
+       * that collide, every row contains every clashing name and a
+       * `textContent` match opens whichever row sorted first. That version of
+       * this helper produced a convincing false positive: it looked exactly
+       * like a per-lifter warm-up leak, because opening "the second lifter"
+       * kept landing on the first.
+       */
+      async function openNamed(element: PtkMeetDayPlanner, name: string): Promise<void> {
+        const rows = [
+          ...(coachBoardOf(element)?.shadowRoot?.querySelectorAll('article.row') ?? []),
+        ];
+        const row = rows.find((candidate) =>
+          (candidate.querySelector('.who')?.textContent ?? '').includes(name),
+        );
+        if (row === undefined) throw new Error(`No board row for "${name}".`);
+        const open = row.querySelector('ptk-button.open');
+        if (open === null) throw new Error(`No way to open "${name}".`);
+        await press(element, open);
+      }
+
+      /** Back to the board, which destroys the open lifter's whole template. */
+      async function backToBoard(element: PtkMeetDayPlanner): Promise<void> {
+        await press(element, button(element, 'ptk-button.back'));
+      }
+
+      /**
+       * A weight on the open lifter's first attempt, which is their opener.
+       *
+       * Typed rather than chosen off a card: a board lifter has no plan behind
+       * them, so §13's choices offer nothing and the free-entry field is the
+       * whole of the weight entry on this screen (§13.17).
+       */
+      async function declareOpener(element: PtkMeetDayPlanner, weight: string): Promise<void> {
+        await typeDeep(element, OTHER_WEIGHT_FIELD, weight);
+        await useTypedWeight(element);
+      }
+
+      /** The one board row's countdown, which is what the memo is visible through. */
+      function boardCountdown(element: PtkMeetDayPlanner): string {
+        const clock = coachBoardOf(element)?.shadowRoot?.querySelector('article.row p.clock');
+        return clock?.textContent.trim() ?? '';
+      }
+
+      it('asks a board lifter for an opener before it draws a ramp', async () => {
+        const element = await coachBoardWith([SQUATTER]);
+        await openNamed(element, SQUATTER);
+        await openWarmup(element);
+
+        expect(deepText(element)).toContain(WARMUP_NEEDS_AN_OPENER);
+        expect(timelineRows(element)).toEqual([]);
+
+        await declareOpener(element, '100');
+
+        expect(timelineRows(element).length).toBeGreaterThan(0);
+      });
+
+      it('files a warm-up answer under the lifter it was typed for', async () => {
+        // The fan-out `withWarmupFor` performs across the three lifts stops at
+        // the lifter: a room, a set of preferences and a progress report are
+        // facts about one athlete's morning, and carrying them onto the next
+        // row would trim somebody else's ramp while they were looking at it.
+        const element = await coachBoardWith([SQUATTER, PRESSER]);
+        for (const name of [SQUATTER, PRESSER]) {
+          await openNamed(element, name);
+          await declareOpener(element, '100');
+          await backToBoard(element);
+        }
+
+        // Read the second lifter's ramp *before* anything is typed about the
+        // first, rather than assuming the two coincide because the openers do.
+        // They do not: the two are in different places in the flight, so the
+        // platform estimate hands them schedules of different lengths, and a
+        // test asserting one against the other measures that difference instead
+        // of the leak it was written for.
+        await openNamed(element, PRESSER);
+        await openWarmup(element);
+        const untouched = timelineRows(element).length;
+        await backToBoard(element);
+
+        await openNamed(element, SQUATTER);
+        await openWarmup(element);
+        const full = timelineRows(element).length;
+        await typeDeep(element, 'maximumSets', '2');
+        const trimmed = timelineRows(element).length;
+        await backToBoard(element);
+
+        await openNamed(element, PRESSER);
+        await openWarmup(element);
+
+        expect(untouched).toBeGreaterThan(0);
+        expect(trimmed).toBeLessThan(full);
+        expect(timelineRows(element)).toHaveLength(untouched);
+      });
+
+      it('writes nothing when a report arrives with nobody open', async () => {
+        // The board is up, so `openLifterId` is null and there is no entry to
+        // file the answer under. What this covers is the *fallback* -- a
+        // handler that answers "nobody open" with the first lifter on the board
+        // hands the next lifter opened a flight size nobody typed for them, and
+        // that mutation fails here. It is deliberately not a test of the early
+        // return itself: `withWarmupForLifter` takes a `string`, so deleting
+        // that line is `error TS2345` and the compiler is what holds it -- the
+        // same answer §13.14 gives for `#writeSetupAnswer`'s key guard.
+        const element = await coachBoardWith([SQUATTER]);
+        const forged = document.createElement('div');
+        forged.dataset[WARMUP_SUBJECT_FIELD] = 'squat';
+        element.append(forged);
+        teardown.push(() => {
+          forged.remove();
+        });
+
+        forged.dispatchEvent(aReport());
+        await settled(element);
+
+        await openNamed(element, SQUATTER);
+        await openWarmup(element);
+
+        expect(boxValue(element, 'flightSize')).toBe('');
+
+        // The control: the same report, out of the fold now that somebody is
+        // open. Without it this passes against a root that files nothing ever.
+        warmupElement(element).dispatchEvent(aReport());
+        await settled(element);
+
+        expect(boxValue(element, 'flightSize')).toBe('7');
+      });
+
+      it('ages the board countdown rather than restamping the schedule', async () => {
+        // The memo behind `entry.warmup` is a correctness requirement and not a
+        // saving. `buildMeetWarmup` stamps `now` as the schedule's `builtAt` and
+        // `timelineWindows` reports `startsInSeconds - elapsedSeconds`, so a
+        // rebuild on every paint moves the origin forward exactly as fast as the
+        // clock: every row on §21's board would report the same seconds for the
+        // whole morning, and the board is ranked on that figure.
+        const clock = manualClock(FIXED_INSTANT);
+        const element = await coachBoardWith([SQUATTER], { clock });
+        await openNamed(element, SQUATTER);
+        await declareOpener(element, '100');
+        await backToBoard(element);
+
+        const before = boardCountdown(element);
+        clock.advance(60_000);
+        await settled(element);
+
+        expect(before).not.toBe('');
+        expect(boardCountdown(element)).not.toBe(before);
+      });
+    });
   });
 
   describe('the printable sheets (§23)', () => {

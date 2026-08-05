@@ -384,6 +384,68 @@ export const EMPTY_WARMUP_STATES: WarmupStates = {
   deadlift: EMPTY_WARMUP_STATE,
 };
 
+/**
+ * §21's board, holding one whole {@link WarmupStates} per lifter.
+ *
+ * Splitting the answers into a shared half and a per-lifter half was the
+ * rejected alternative, and the doc comment on {@link MeetWarmupState} is why:
+ * it is everything *one lifter* has typed about one meet's warm-up. Some of it
+ * genuinely is shared -- the flight on the platform is the same flight for
+ * everybody the coach came with -- but the room a lifter warms up in, how long
+ * they want between sets, and how many people are on their bar are not, and a
+ * model that shared them would be a second description of the same thing whose
+ * two halves have to be kept in step by hand.
+ *
+ * **A `Map`, deliberately, and not a `Record<string, WarmupStates>`.** A lifter
+ * id can arrive from an imported meet file, and a plain object inherits
+ * `Object.prototype` -- so a lifter whose id is `constructor` reads back a
+ * function typed as a `WarmupStates`, and the first thing to touch it throws
+ * somewhere with no lifter in the stack. §5.3 records the identical trap in the
+ * published artifact index, where the fix is `Object.hasOwn`; here there is no
+ * reason to hand-roll one, because a `Map` simply does not have the hole.
+ *
+ * Replaced wholesale on every write, never mutated, so `@state`'s identity check
+ * still decides whether the board repaints.
+ */
+export type WarmupsByLifter = ReadonlyMap<string, WarmupStates>;
+
+export const NO_WARMUPS: WarmupsByLifter = new Map<string, WarmupStates>();
+
+/**
+ * One lifter's three ramps, or three empty ones for a lifter nobody has typed
+ * anything about. Total, for the reason {@link WarmupStates} is.
+ */
+export function warmupsFor(all: WarmupsByLifter, lifterId: string): WarmupStates {
+  return all.get(lifterId) ?? EMPTY_WARMUP_STATES;
+}
+
+/**
+ * Records one lifter's answers on one lift, fanning the shared half out across
+ * that lifter's other two ramps and across nobody else's.
+ *
+ * The fan-out is {@link withWarmupFor}'s, called rather than restated: the rule
+ * about which fields cross a lift boundary is subtle enough to have its own
+ * eleven lines of argument up there, and a second spelling of it here would drift
+ * the first time one of them gained a field.
+ *
+ * The fan-out stops at the lifter, which is the part worth saying out loud. The
+ * flight on the platform really is one fact for the whole board, so carrying the
+ * progress answers across to every lifter looks like the same convenience one
+ * step up -- and it would overwrite a lifter in an earlier flight with the
+ * position of the flight the coach was last looking at, on a screen whose whole
+ * output is when to start warming up.
+ */
+export function withWarmupForLifter(
+  all: WarmupsByLifter,
+  lifterId: string,
+  lift: PlatformLift,
+  state: MeetWarmupState,
+): WarmupsByLifter {
+  const next = new Map(all);
+  next.set(lifterId, withWarmupFor(warmupsFor(all, lifterId), lift, state));
+  return next;
+}
+
 /*
  * ---------------------------------------------------------------------------
  * Bounds.

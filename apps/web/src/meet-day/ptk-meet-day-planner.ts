@@ -73,7 +73,7 @@
  * copy is precisely how one of the two would end up applying an action against
  * a stale timeline.
  */
-import type { MeetRuleProfile, PlatformLift } from '@platform-toolkit/data-contracts';
+import type { MeetFormat, MeetRuleProfile, PlatformLift } from '@platform-toolkit/data-contracts';
 import type {
   AttemptRefusalCode,
   CalibrationReport,
@@ -81,11 +81,13 @@ import type {
   ConversionChart,
   HandlerAssignment,
   HandlerResponsibility,
+  LiveLifter,
   LiveTarget,
   MeetAction,
   MeetActionProblem,
   MeetActionProblemCode,
   MeetTimeline,
+  WarmupTimeline,
   WeightUnit,
 } from '@platform-toolkit/domain';
 import {
@@ -94,6 +96,7 @@ import {
   applyMeetAction,
   createMeetDocument,
   findAttempt,
+  liftsInFormat,
   startTimeline,
   takenOn,
   undo,
@@ -368,9 +371,15 @@ import {
 import { summariseMeet, type MeetSummary } from './summary.js';
 import {
   EMPTY_WARMUP_STATES,
+  NO_WARMUPS,
+  buildMeetWarmup,
+  warmupsFor,
   withWarmupFor,
+  withWarmupForLifter,
+  type MeetWarmupState,
   type WarmupStates,
   type WarmupSubject,
+  type WarmupsByLifter,
 } from './warmup.js';
 
 /** Fired when the lifter picks a federation, so the transport can follow it. */
@@ -438,9 +447,12 @@ interface LiveRun extends RunningMeet {
  * The entries are saved with the meet as of §24, less `warmup` -- which is a
  * schedule counted from an instant, so storing it stores a stopwatch and a meet
  * reopened tomorrow would announce a warm-up that was due nineteen hours ago.
- * `saved-meet.ts` carries the argument in full. Nothing in this file ever sets
- * that field, so a restored board has none for the same reason a fresh one has
- * none, and there is no rebuild to perform.
+ * `saved-meet.ts` carries the argument in full. **Nothing ever sets that field
+ * on this list**, which is what makes the omission structural rather than a rule
+ * `savedEntry` has to keep remembering: §20's schedule is attached in
+ * `#boardEntries`, at paint time, to a copy handed straight to the board and
+ * thrown away afterwards. So a restored board has none for the same reason a
+ * fresh one has none, and there is no rebuild to perform.
  *
  * That this list is saved at all is a change of position and worth saying so:
  * §2.3 keeps a lifter's own figures off the disk by default, and the entries are
@@ -904,6 +916,59 @@ export class PtkMeetDayPlanner extends LitElement {
    */
   @state() private warmupLift: PlatformLift = 'squat';
 
+  /**
+   * The same answers on the coach path, one whole record per lifter.
+   *
+   * Separate from `warmups` above rather than a superset of it, because the two
+   * are answers about different people: `warmups` is the coach's own ramp on
+   * their own plan screen, and this is what they have typed about each athlete
+   * they came with. Folding the solo state in under a synthetic id would make
+   * every read of it a lookup that can miss.
+   *
+   * Not saved with the meet. §24's `SavedCoachEntry` omits the schedule for a
+   * reason `saved-meet.ts` argues at length, and the *answers* are a larger
+   * question -- `MeetWarmupState.room` is a whole `Equipment` -- with a schema
+   * surface of its own at `meet-file.ts`'s trust boundary. Backlog #82, as an
+   * additive optional field with no `SAVED_MEET_VERSION` bump, the way
+   * `SavedMeetStateSchema.history` was added. So a coach who reopens tomorrow's
+   * meet retypes the warm-up, which is the honest narrowing rather than a
+   * half-saved one.
+   */
+  @state() private coachWarmups: WarmupsByLifter = NO_WARMUPS;
+
+  /**
+   * Last paint's warm-up schedule per lifter, and what it was built from.
+   *
+   * **This is a correctness requirement and not an optimisation**, which is the
+   * opposite of how a cache in a render usually reads. `buildMeetWarmup` stamps
+   * the instant it was called at onto `WarmupTimeline.builtAt` and computes
+   * nothing else from it; `timelineWindows` and `nextWindow` then age the
+   * schedule by `now - builtAt`. The board repaints four times a second, so a
+   * rebuild per paint re-stamps `builtAt` to the instant it is being read at,
+   * every countdown on §21's board sits forever at the figure it opened with,
+   * and no lifter ever climbs the urgency ladder. The screen looks alive and is
+   * frozen, which is the worst version of this failure.
+   *
+   * Keyed on everything `buildMeetWarmup` reads *apart from* `now`: the answers
+   * by object identity -- `warmup.ts`'s writers replace the state wholesale, so
+   * identity is exact here rather than approximate -- plus the lift, the opener,
+   * the format and the rule book the attempt count comes off.
+   *
+   * A plain field and not `@state`, deliberately. Writing it must not schedule a
+   * repaint: it is written *during* one.
+   */
+  readonly #warmupTimelines = new Map<
+    string,
+    {
+      readonly state: MeetWarmupState;
+      readonly lift: PlatformLift;
+      readonly opener: number | undefined;
+      readonly format: MeetFormat;
+      readonly rules: MeetRules;
+      readonly timeline: WarmupTimeline | null;
+    }
+  >();
+
   /*
    * ---------------------------------------------------------------------------
    * §24: the shelf, the open meet, and what has been written down.
@@ -1142,14 +1207,15 @@ export class PtkMeetDayPlanner extends LitElement {
     }
     // Read once, here, and shared with §23.2's sheet below. Twice in one paint
     // is two instants on one screen, and this screen is nothing but countdowns.
+    const now = this.clock.now();
     const board =
       run === null
         ? null
         : buildBoardView(run.timeline.present, {
             rules: run.rules,
             chart: this.chart,
-            entries: run.entries,
-            now: this.clock.now(),
+            entries: this.#boardEntries(run, now),
+            now,
           });
     const screen = html`
       ${this.#renderMode()}
@@ -1217,6 +1283,12 @@ export class PtkMeetDayPlanner extends LitElement {
    * the board. The cost is visible and correct -- the planned-versus-selected line
    * says there was no plan, and §9.4 will not file the meet into any scoped
    * history -- rather than a comparison against somebody else's numbers.
+   *
+   * §20's fold sits below the live screen and not above it, and not on the
+   * finished branch at all. The attempt and its minute are what a coach opened
+   * this screen for; the warm-up is what they set up once, in the morning, and
+   * then read off §21's board for the rest of the day. A lifter whose meet is
+   * over has nothing left to warm up for.
    */
   #renderCoachLifter(run: CoachRun, lifterId: string): TemplateResult {
     const view = buildLiveView(run.timeline, lifterId, {
@@ -1255,6 +1327,7 @@ export class PtkMeetDayPlanner extends LitElement {
                 .unit=${this.session.setup.unit}
                 .refusals=${this.refusals}
               ></ptk-live-screen>
+              ${this.#renderCoachWarmup(run, lifterId)}
             `
       }
     `;
@@ -1426,23 +1499,57 @@ export class PtkMeetDayPlanner extends LitElement {
     const context = this.#context();
     if (context === null || view === null) return nothing;
     const lifts = view.lifts.map((entry) => entry.lift);
-    const first = lifts[0];
-    if (first === undefined) return nothing;
-    const lift = lifts.includes(this.warmupLift) ? this.warmupLift : first;
+    const lift = this.#warmupLiftIn(lifts);
+    if (lift === null) return nothing;
     // The opener rather than any other attempt, and off the view rather than
     // off the session, for the reason `live-session.ts` reads it there: the
     // figure on the view has been rounded onto the federation's grid and
     // clamped, so counting back from the typed one would ramp to a weight that
     // is not the one on the plan above it.
     const opener = view.lifts.find((entry) => entry.lift === lift)?.attempts[0]?.weight.kilograms;
-    const subject: WarmupSubject | null =
-      opener === undefined
-        ? null
-        : {
-            lift,
-            opener: { amount: opener, unit: 'kg' },
-            attemptsPerLift: context.rules.profile.attemptsPerLift,
-          };
+    return this.#renderWarmupFold(
+      lifts,
+      lift,
+      this.warmups[lift],
+      warmupSubject(lift, opener, context.rules),
+    );
+  }
+
+  /**
+   * Which lift the fold is showing, clamped to the lifts on offer.
+   *
+   * Shared by both paths so the clamp cannot be spelled two ways. `null` means
+   * there is no lift to show at all, which is a format contesting nothing --
+   * unreachable through `MeetFormat` today and cheaper to answer than to argue
+   * about at each call site.
+   */
+  #warmupLiftIn(lifts: readonly PlatformLift[]): PlatformLift | null {
+    const first = lifts[0];
+    if (first === undefined) return null;
+    return lifts.includes(this.warmupLift) ? this.warmupLift : first;
+  }
+
+  /**
+   * §20's fold itself, over whichever lifter's answers were handed in.
+   *
+   * One renderer for the plan screen and for a lifter opened off §21's board,
+   * because the fold is the same fold: the same picker, the same element, the
+   * same `data-warmup-subject` wrapper that `#warmupLiftOf` walks up to. What
+   * differs between the two paths is only where the opener and the answers come
+   * from, and both of those are arguments.
+   *
+   * The wrapper `<div>` carries the lift rather than `ptk-meet-warmup` itself,
+   * and that is load-bearing: §13.14 records that an `attributeOf`-style walk up
+   * the composed path is only exercised when the attribute sits *above* the
+   * element the event was dispatched from, so putting it on the element would
+   * leave the walk in `#warmupLiftOf` covered by nothing.
+   */
+  #renderWarmupFold(
+    lifts: readonly PlatformLift[],
+    lift: PlatformLift,
+    state: MeetWarmupState,
+    subject: WarmupSubject | null,
+  ): TemplateResult {
     return html`
       <ptk-disclosure class="warmup" label=${WARMUP_FOLD_LABEL} summary=${WARMUP_FOLD_SUMMARY}>
         <ptk-choice-group
@@ -1453,7 +1560,7 @@ export class PtkMeetDayPlanner extends LitElement {
         ></ptk-choice-group>
         <div data-warmup-subject=${lift}>
           <ptk-meet-warmup
-            .state=${this.warmups[lift]}
+            .state=${state}
             .subject=${subject}
             .format=${this.session.setup.format}
             .now=${this.clock.now()}
@@ -1461,6 +1568,111 @@ export class PtkMeetDayPlanner extends LitElement {
         </div>
       </ptk-disclosure>
     `;
+  }
+
+  /**
+   * §20's fold on one athlete's own screen, off §21's board.
+   *
+   * The opener comes off the document and not off a `PlannerView`, because a
+   * lifter on the board has no plan behind them -- `#renderCoachLifter` builds
+   * their live view with `NO_PLANNING_AT_ALL` for exactly that reason. Their
+   * first competition attempt is the weight the ramp counts back from, and it is
+   * `null` until somebody declares one, which is most of the morning. That is
+   * `subject: null`, which the element already handles by drawing §20.1's
+   * estimate and no ramp.
+   */
+  #renderCoachWarmup(run: CoachRun, lifterId: string): TemplateResult | typeof nothing {
+    const lifter = run.timeline.present.lifters.find((candidate) => candidate.id === lifterId);
+    if (lifter === undefined) return nothing;
+    const lifts = liftsInFormat(run.timeline.present.format);
+    const lift = this.#warmupLiftIn(lifts);
+    if (lift === null) return nothing;
+    return this.#renderWarmupFold(
+      lifts,
+      lift,
+      warmupsFor(this.coachWarmups, lifterId)[lift],
+      warmupSubject(lift, openerOn(lifter, lift), run.rules),
+    );
+  }
+
+  /**
+   * §21's entries with §20's schedule attached, one per lifter in the meet.
+   *
+   * **Derived from the document rather than from `run.entries`**, because
+   * `coachBoard` looks an entry up by lifter id and falls back to an empty one:
+   * a lifter whose warm-up has been answered and whose identifier has not would
+   * otherwise never reach the urgency ladder, and the answers would sit in
+   * `coachWarmups` changing nothing anybody can see. Meet order is also what
+   * `rack-sequence.ts` breaks its ties in, and `document.lifters` is the only
+   * list in that order.
+   *
+   * **The result is deliberately not written back into `run.entries`.** §24
+   * saves that list and `SavedCoachEntry` is `Omit<CoachBoardEntry, 'warmup'>`;
+   * building the schedule here at paint time is what makes that omission
+   * structural rather than a rule `savedEntry` has to keep remembering. A
+   * `WarmupTimeline` is a schedule counted from an instant, so storing one
+   * stores a stopwatch, and a meet reopened tomorrow would announce a warm-up
+   * that was due nineteen hours ago.
+   *
+   * One lift for the whole board, taken from the picker. Deriving each lifter's
+   * own current lift would mean forking `coach-board.ts`'s private
+   * `currentAttemptOf`, which is the §5.8 mistake, and a meet runs one lift at a
+   * time across the platform anyway. The case it does not cover is written down
+   * in this directory's notes: two flights on different lifts at once, where the
+   * lifters in the other flight get the ramp for this one.
+   */
+  #boardEntries(run: CoachRun, now: number): readonly CoachBoardEntry[] {
+    const lift = this.#warmupLiftIn(liftsInFormat(run.timeline.present.format));
+    const byLifter = new Map(run.entries.map((entry) => [entry.lifterId, entry]));
+    return run.timeline.present.lifters.map((lifter) => {
+      const entry = byLifter.get(lifter.id) ?? { lifterId: lifter.id };
+      const timeline = lift === null ? null : this.#warmupTimelineFor(run, lifter, lift, now);
+      return timeline === null ? entry : { ...entry, warmup: timeline };
+    });
+  }
+
+  /**
+   * One lifter's schedule, rebuilt only when something it was built from moved.
+   *
+   * The memo's justification is on `#warmupTimelines`: rebuilding per paint
+   * re-stamps `builtAt` and freezes every countdown on the board. Everything
+   * here is the key.
+   */
+  #warmupTimelineFor(
+    run: CoachRun,
+    lifter: LiveLifter,
+    lift: PlatformLift,
+    now: number,
+  ): WarmupTimeline | null {
+    const state = warmupsFor(this.coachWarmups, lifter.id)[lift];
+    const opener = openerOn(lifter, lift);
+    const format = run.timeline.present.format;
+    const cached = this.#warmupTimelines.get(lifter.id);
+    if (cached !== undefined) {
+      // Every input by identity, including `rules`, which is taken once when the
+      // meet starts (§13.11) and so is a stable object rather than a rebuilt one.
+      if (
+        cached.state === state &&
+        cached.lift === lift &&
+        cached.opener === opener &&
+        cached.format === format &&
+        cached.rules === run.rules
+      ) {
+        return cached.timeline;
+      }
+    }
+    const subject = warmupSubject(lift, opener, run.rules);
+    const built = subject === null ? null : buildMeetWarmup(state, subject, format, now);
+    const timeline = built?.ok === true ? built.timeline : null;
+    this.#warmupTimelines.set(lifter.id, {
+      state,
+      lift,
+      opener,
+      format,
+      rules: run.rules,
+      timeline,
+    });
+    return timeline;
   }
 
   /**
@@ -2551,10 +2763,28 @@ export class PtkMeetDayPlanner extends LitElement {
    * `WARMUP_SUBJECT_FIELD` in `fields.ts` argues at length. Silence when there
    * is no attribute above the event, rather than a fallback to the state: a
    * report from something that is not the fold is not an answer about any lift.
+   *
+   * Which lifter it is about needs no attribute of its own, because exactly one
+   * is open at a time: the coach path renders the fold only inside
+   * `#renderCoachLifter`, which is reached only when `openLifterId` is set. So
+   * the open lifter *is* the subject, and the guard below is the honest reading
+   * of a report arriving with nobody open -- which a control cannot produce and
+   * a forged event can.
    */
   readonly #onWarmupChange = (event: CustomEvent<MeetWarmupChangeDetail>): void => {
     const lift = this.#warmupLiftOf(event);
     if (lift === null) return;
+    if (this.mode === 'coach') {
+      const lifterId = this.coach?.openLifterId ?? null;
+      if (lifterId === null) return;
+      this.coachWarmups = withWarmupForLifter(
+        this.coachWarmups,
+        lifterId,
+        lift,
+        event.detail.state,
+      );
+      return;
+    }
     this.warmups = withWarmupFor(this.warmups, lift, event.detail.state);
   };
 
@@ -3616,6 +3846,45 @@ function fieldOf(event: Event): string | null {
 function asResponsibilities(values: readonly string[]): readonly HandlerResponsibility[] {
   const known: readonly string[] = HANDLER_RESPONSIBILITIES;
   return values.filter((value): value is HandlerResponsibility => known.includes(value));
+}
+
+/**
+ * §20's subject, or `null` for a lift with no weight to count back from.
+ *
+ * `attemptsPerLift` comes off the rule book and there is no honest source for it
+ * otherwise: guessing three would put a made-up figure into the estimate of how
+ * long the flight ahead takes, which is the one number on the fold a lifter acts
+ * on. Both paths hand in the rules the meet is being run under, which on the
+ * coach path is the meet's own rather than whatever is on screen.
+ */
+function warmupSubject(
+  lift: PlatformLift,
+  openerKilograms: number | undefined,
+  rules: MeetRules,
+): WarmupSubject | null {
+  if (openerKilograms === undefined) return null;
+  return {
+    lift,
+    opener: { amount: openerKilograms, unit: 'kg' },
+    attemptsPerLift: rules.profile.attemptsPerLift,
+  };
+}
+
+/**
+ * The weight a coach-path ramp counts back from: the lifter's first competition
+ * attempt on that lift, or `undefined` while nobody has declared one.
+ *
+ * The first *competition* attempt, not the first attempt of any kind. A granted
+ * extra shares the number it replaces (`meet-document.ts`), so a lifter who was
+ * given a fourth on their opener has two attempts numbered one, and the record
+ * attempt is not the weight the morning's ramp was built for.
+ */
+function openerOn(lifter: LiveLifter, lift: PlatformLift): number | undefined {
+  const opener = lifter.attempts.find(
+    (attempt) =>
+      attempt.lift === lift && attempt.kind === 'competition' && attempt.attemptNumber === 1,
+  );
+  return opener?.kilograms ?? undefined;
 }
 
 /**
