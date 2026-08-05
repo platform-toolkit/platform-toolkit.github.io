@@ -5,6 +5,9 @@
   "description": "Theme configuration and the protocol an embedding page speaks to a framed tool.",
   "license": "Apache-2.0",
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

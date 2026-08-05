@@ -5,6 +5,10 @@
   "description": "Read a lifter's competition history against a meet's published entry criteria, without ruling on eligibility.",
   "license": "Apache-2.0",
   "type": "module",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
