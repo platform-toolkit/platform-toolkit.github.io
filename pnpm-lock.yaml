@@ -162,6 +162,10 @@ importers:
       '@platform-toolkit/domain':
         specifier: workspace:*
         version: link:../domain
+    devDependencies:
+      valibot:
+        specifier: 1.4.2
+        version: 1.4.2(typescript@6.0.3)
 
   packages/ui:
     dependencies:

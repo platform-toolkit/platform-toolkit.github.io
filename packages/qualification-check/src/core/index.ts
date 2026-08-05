@@ -10,7 +10,21 @@
  * so a consumer that never renders a thing can still ask the question.
  */
 
-export { STRUCK_PLACE_CODES, collectStandings, registrationOf, standingKey } from './history.js';
+export {
+  STRUCK_PLACE_CODES,
+  collectStandings,
+  performanceSourceOf,
+  registrationOf,
+  standingKey,
+} from './history.js';
+
+export {
+  findQualifyingMeet,
+  meetTiming,
+  readMeetCriteria,
+  readRoute,
+  type CriteriaContext,
+} from './criteria.js';
 
 export {
   divisionsForAge,

@@ -129,7 +129,7 @@ function buildStanding(key: string, entries: readonly AthleteEntry[]): ObservedS
     if (struck === null) {
       counted.push(entry);
     } else {
-      setAside.push({ source: sourceOf(entry), reason: 'disqualified', place: struck });
+      setAside.push({ source: performanceSourceOf(entry), reason: 'disqualified', place: struck });
     }
   }
 
@@ -187,13 +187,21 @@ function bestOf(
     // put a lifter who bombed one lift at the bottom of a ladder they were never on.
     if (kilograms === null) continue;
     if (best === null || kilograms > best.kilograms) {
-      best = { kilograms, source: sourceOf(entry) };
+      best = { kilograms, source: performanceSourceOf(entry) };
     }
   }
   return best;
 }
 
-function sourceOf(entry: AthleteEntry): PerformanceSource {
+/**
+ * Where and when one entry was made, for a report to cite.
+ *
+ * Exported because `criteria.ts` cites the results a route's window excluded, and a
+ * second projection of the same five fields is a fork waiting for the day
+ * {@link PerformanceSource} gains a sixth -- at which point one of the two copies
+ * would keep rendering a citation missing whatever the field was for.
+ */
+export function performanceSourceOf(entry: AthleteEntry): PerformanceSource {
   return {
     on: entry.date,
     meetName: entry.meetName,

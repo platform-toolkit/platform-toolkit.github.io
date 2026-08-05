@@ -106,6 +106,7 @@ export {
   type ClassificationLadderResult,
   type ClassificationQuery,
   type ClassificationTableSelection,
+  type StandardDistance,
 } from './classification.js';
 export {
   DEFAULT_ATTENTION_LEAD_SECONDS,

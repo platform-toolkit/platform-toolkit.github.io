@@ -151,6 +151,7 @@ export const ClassificationRequirementSchema = v.object({
   /** Which table it is read out of, or `null` where the criteria do not say. */
   divisionBasis: v.nullable(StandardDivisionBasisSchema),
 });
+export type ClassificationRequirement = v.InferOutput<typeof ClassificationRequirementSchema>;
 
 /** A DOTS threshold for one sex. */
 export const PointsThresholdSchema = v.object({
@@ -202,6 +203,7 @@ export const PointsRequirementSchema = v.object({
     ),
   ),
 });
+export type PointsRequirement = v.InferOutput<typeof PointsRequirementSchema>;
 
 /** What a lifter must have achieved to take a route in. */
 export const QualifyingStandardSchema = v.variant('kind', [

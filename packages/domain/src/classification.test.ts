@@ -143,6 +143,71 @@ describe('ClassificationLadder.classify', () => {
   });
 });
 
+describe('ClassificationLadder.distanceTo', () => {
+  const ladder = build();
+
+  it('reads a rung the lifter is nowhere near, which classify cannot', () => {
+    // The reason this method exists. `classify` answers "how far to the next rung",
+    // and a published entry criterion names a rung of its own -- here two above the
+    // lifter. Derived from a `Classification` that figure is not available at all,
+    // so a caller would subtract for itself and choose a rounding direction while
+    // doing it.
+    const distance = ladder.distanceTo('elite', 450);
+    expect(distance).toMatchObject({ reached: false, kilogramsShort: 250, kilogramsClear: 0 });
+    expect(distance?.standard.id).toBe('elite');
+  });
+
+  it('reads a rung the lifter is well past', () => {
+    expect(ladder.distanceTo('third', 650)).toMatchObject({
+      reached: true,
+      kilogramsShort: 0,
+      kilogramsClear: 250,
+    });
+  });
+
+  it('treats a standard as reached exactly on it', () => {
+    // Standards are floors, the same rule `classify` keeps. Nothing published is
+    // "above 500 kg"; it is 500 kg.
+    expect(ladder.distanceTo('second', 500)).toMatchObject({
+      reached: true,
+      kilogramsShort: 0,
+      kilogramsClear: 0,
+    });
+  });
+
+  it('rounds work left up and room clear down, and never the other way', () => {
+    // 600 - 597.505 is 2.4949999999999903 in binary floating point. A lifter told
+    // 2.49 who adds exactly that is still short; a lifter told they are clear by
+    // 2.50 when they have 2.4949 has been credited with weight nobody lifted. The
+    // two directions are `rounding.ts`'s, and holding both figures here is what
+    // stops a caller deriving one from the other with the convenient sign.
+    expect(ladder.distanceTo('first', 597.505)?.kilogramsShort).toBe(2.5);
+    expect(ladder.distanceTo('third', 402.495)?.kilogramsClear).toBe(2.49);
+  });
+
+  it('never reports a negative figure on the side the lifter is not on', () => {
+    // Both are carried on every reading, so both have to be zero rather than signed
+    // -- a screen printing "clear by -250 kg" is the alternative.
+    const short = ladder.distanceTo('elite', 450);
+    const clear = ladder.distanceTo('third', 650);
+    expect(short?.kilogramsClear).toBe(0);
+    expect(clear?.kilogramsShort).toBe(0);
+  });
+
+  it('reports nothing for a standard the table does not publish', () => {
+    // Not a fault to report from here. It is what a criterion naming a rung the
+    // federation withheld looks like from the browser, and the caller has to say so
+    // rather than render the absence as a total nobody reached.
+    expect(ladder.distanceTo('international-elite', 650)).toBeNull();
+  });
+
+  it('refuses a weight that is not a positive finite number', () => {
+    expect(() => ladder.distanceTo('first', 0)).toThrow(RangeError);
+    expect(() => ladder.distanceTo('first', -100)).toThrow(RangeError);
+    expect(() => ladder.distanceTo('first', Number.NaN)).toThrow(RangeError);
+  });
+});
+
 describe('selectClassificationTable', () => {
   function table(id: string, scope: Partial<ClassificationScope>): ClassificationTable {
     return {

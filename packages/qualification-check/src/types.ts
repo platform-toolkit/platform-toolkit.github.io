@@ -4,12 +4,19 @@
 import type {
   AgeDivision,
   AthleteEntry,
+  ClassificationStandard,
   ClassificationTable,
   EquipmentCategory,
+  PointsRequirement,
+  QualifyingCondition,
+  QualifyingFederationRules,
+  QualifyingMeet,
+  QualifyingRoute,
   SexCategory,
+  StandardDivisionBasis,
   WeightClass,
 } from '@platform-toolkit/data-contracts';
-import type { Classification } from '@platform-toolkit/domain';
+import type { Classification, StandardDistance } from '@platform-toolkit/domain';
 
 /**
  * The vocabulary this tool answers in.
@@ -286,3 +293,230 @@ export interface CatalogVocabulary {
   readonly weightClasses: readonly WeightClass[];
   readonly divisions: readonly AgeDivision[];
 }
+
+/**
+ * Way one: a meet's published criteria, read against what a lifter has done.
+ *
+ * The same rule governs everything below that governs everything above -- nothing
+ * here rules on eligibility. A route reading says what the published sentence asks
+ * for and what the archive records, and stops. The words are chosen to keep it
+ * stopping: a route is `reaches` or `short`, never `qualified` or `not qualified`,
+ * because the second pair is a ruling and the first is arithmetic.
+ */
+
+/** Why one entry was left out of the figures a route is read on. */
+export type DisregardReason =
+  /** Set before the route's own qualifying window opened, or after it closed. */
+  | 'outside-the-route-window'
+  /** The route names the federations whose meets count, and this is not one. */
+  | 'federation-not-named'
+  /** The route requires a tested meet and the archive records this one as not. */
+  | 'meet-not-drug-tested'
+  /**
+   * The route requires a tested meet and the archive records nothing either way.
+   *
+   * Its own reason rather than folded into the one above, because the two are
+   * opposite facts about this project: one is a result that does not count, and one
+   * is a result nobody here can say either way. A lifter can act on the second by
+   * showing the meet their own paperwork, and cannot act on the first at all.
+   */
+  | 'drug-testing-unrecorded';
+
+/** A result a route could not be read on, and the reason in full. */
+export interface DisregardedResult {
+  readonly source: PerformanceSource;
+  readonly reason: DisregardReason;
+}
+
+/** Why one reading of a route's standard produced no answer. */
+export type UnreadableStandardReason =
+  /** No table this federation publishes covers this registration and lift. */
+  | 'no-standards'
+  /** Two equally specific tables cover it, and they are not the same ladder. */
+  | 'ambiguous-standards'
+  /**
+   * The covering table publishes no standard under the id the route names.
+   *
+   * The failure `packages/ingestion` orders its publishing steps to prevent, seen
+   * from the browser: a withheld row is a standard nobody can be shown as having
+   * met, so a route naming one resolves to nothing. Rendered as "you have not
+   * qualified" that is a real answer nobody investigates, and every lifter who
+   * could have entered is turned away by a transcription fault.
+   */
+  | 'standard-not-published'
+  /**
+   * The route reads out of the Open table and no Open division could be identified.
+   *
+   * `openAgeDivision` reports a tie rather than breaking one, and a catalogue with
+   * two equally wide divisions is a catalogue this tool must not choose between.
+   */
+  | 'open-division-unknown';
+
+/** What one reading of a route's named standard comes to. */
+export type StandardReading =
+  | {
+      readonly kind: 'reaches';
+      readonly distance: StandardDistance;
+      readonly table: ClassificationTable;
+    }
+  | {
+      readonly kind: 'short';
+      readonly distance: StandardDistance;
+      readonly table: ClassificationTable;
+    }
+  | {
+      /**
+       * The figure is above a standard the route admits only exactly.
+       *
+       * `orAbove: false` is rare and is carried rather than assumed for a reason
+       * that only bites in this direction: a criterion admitting one standard and
+       * not the ones above it is a bracket, and a tool that quietly accepted a
+       * higher total would tell a lifter they may enter a meet that will turn them
+       * away for being too strong for it.
+       */
+      readonly kind: 'above-the-bracket';
+      readonly distance: StandardDistance;
+      readonly table: ClassificationTable;
+      /** The standard the figure does reach, so the screen can name the gap. */
+      readonly achieved: ClassificationStandard | null;
+    }
+  | {
+      readonly kind: 'unreadable';
+      readonly reason: UnreadableStandardReason;
+    };
+
+/**
+ * Which table a reading was taken out of.
+ *
+ * `either-table` is not a fourth basis. It is the answer when the criteria did not
+ * say and both readings came to the same thing, which is the common case and the
+ * one worth collapsing -- an Open lifter's two readings are the same table. Where
+ * they differ, the outcome is {@link RouteOutcome}'s `two-readings` and no basis is
+ * claimed at all.
+ */
+export type ReadingBasis = StandardDivisionBasis | 'either-table';
+
+/** What a route comes to for one registration. */
+export type RouteOutcome =
+  | {
+      readonly kind: 'read';
+      readonly basis: ReadingBasis;
+      readonly reading: StandardReading;
+    }
+  | {
+      /**
+       * The criteria name a standard and never say which table it is read out of,
+       * and the two tables disagree.
+       *
+       * The gap between them is a Masters lifter's whole entry: the same total is
+       * an Elite total in one and short of it in the other. Assuming `open` fails a
+       * lifter who qualified and assuming `lifters-age-division` admits one who did
+       * not, so both are shown and the meet is asked.
+       */
+      readonly kind: 'two-readings';
+      readonly open: StandardReading;
+      readonly liftersAgeDivision: StandardReading;
+    }
+  | {
+      /**
+       * The route opens the other competition.
+       *
+       * Reported rather than hidden. A lifter deciding between the tested and
+       * untested platform needs to see the route they are not taking, especially
+       * where -- as at one meet in the corpus -- it asks a different standard.
+       */
+      readonly kind: 'not-open-to-this-entry';
+      readonly opensTested: boolean;
+    }
+  | {
+      /** No three-lift total inside this route's own window survived its filters. */
+      readonly kind: 'no-result-in-window';
+    }
+  | {
+      /**
+       * The route asks for a coefficient score, and nothing here computes one.
+       *
+       * A score is a claim about the scoring system as much as about the lifter,
+       * and this project does not get to decide which coefficient a federation
+       * quotes. The threshold is carried so the screen can print what was asked for
+       * beside the bodyweight and total the archive holds, and let a person do the
+       * arithmetic the meet will do.
+       */
+      readonly kind: 'points-not-computed';
+      readonly requirement: PointsRequirement;
+    };
+
+/** One published way into a meet, read against one lifter's registration. */
+export interface RouteReading {
+  readonly route: QualifyingRoute;
+
+  /** The best three-lift total the route could be read on, or `null`. */
+  readonly best: BestPerformance | null;
+
+  /** Results the route's own window and filters excluded, each with its reason. */
+  readonly disregarded: readonly DisregardedResult[];
+
+  readonly outcome: RouteOutcome;
+}
+
+/** An entry condition no arithmetic can settle, and which document states it. */
+export interface UncheckableCondition {
+  readonly condition: QualifyingCondition;
+  readonly from: 'meet' | 'federation';
+}
+
+/**
+ * What a meet asks of this registration, as a positive statement in every case.
+ *
+ * Mirrors `QualifyingEntrySchema`'s three states rather than flattening them,
+ * because the flattening is the failure: "this meet requires no qualifying total"
+ * and "nobody has transcribed this meet's criteria" are opposite facts, and the
+ * wrong one of them rendered tells a lifter they may enter a national championship
+ * on the strength of a gap in a repository.
+ */
+export type EntryReading =
+  | { readonly kind: 'open'; readonly quotation: string }
+  | { readonly kind: 'unstated'; readonly detail: string }
+  | { readonly kind: 'routes'; readonly routes: readonly RouteReading[] };
+
+/** Everything way one shows for one meet and one registration. */
+export interface MeetReading {
+  readonly meet: QualifyingMeet;
+  readonly registration: ResolvedRegistration;
+
+  /**
+   * Whether the meet sanctions the competition this registration is for.
+   *
+   * A statement about the meet's sanction and not about the lifter, and it
+   * deliberately does not suppress the routes below it. Somebody reading this
+   * screen may still be deciding which platform to enter, and a page that hid half
+   * a `both` meet would be answering that for them.
+   */
+  readonly offersThisEntry: boolean;
+
+  readonly entry: EntryReading;
+
+  /** Every condition that decides entry and that no arithmetic can check. */
+  readonly conditions: readonly UncheckableCondition[];
+
+  /**
+   * The federation entry rules the criteria are read beside, or `null`.
+   *
+   * `null` where the book carries no rules for the meet's federation, which is a
+   * real state: whether a lifter may enter turns on the weight-class and gear rules
+   * as much as on the total, and a screen showing the criteria alone while looking
+   * complete is the half-answer this field exists to make visible.
+   */
+  readonly rules: QualifyingFederationRules | null;
+}
+
+/** Where a meet sits relative to a day the caller supplies. */
+export type MeetTiming =
+  /** Entry is open, or the announcement names no closing day. */
+  | 'entry-open'
+  /** Past the published closing day, and the meet has not been held. */
+  | 'entry-closed'
+  /** The meet is being held on the given day. */
+  | 'in-progress'
+  /** The meet has been held. */
+  | 'held';

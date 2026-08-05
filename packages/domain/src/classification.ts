@@ -7,7 +7,7 @@ import type {
   ClassificationTable,
 } from '@platform-toolkit/data-contracts';
 
-import { ceilToHundredths } from './rounding.js';
+import { ceilToHundredths, floorToHundredths } from './rounding.js';
 
 /**
  * Reading a lifted weight against a table of classification standards.
@@ -46,6 +46,29 @@ export interface Classification {
 
   /** Kilograms still to find for `next`. `null` when there is no next. */
   readonly kilogramsToNext: number | null;
+}
+
+/**
+ * How a lifted weight stands against one named standard in a table.
+ *
+ * Both distances are carried, and both are zero on the side the weight is not on,
+ * because a caller that had one figure and a sign would compute the other -- and
+ * would round it in whichever direction was convenient at the call site. Room the
+ * lifter has and work the lifter has left round opposite ways (`rounding.ts`), and
+ * the only way to keep that from being written backwards is to not make anybody
+ * write it twice.
+ */
+export interface StandardDistance {
+  readonly standard: ClassificationStandard;
+
+  /** Whether the weight reaches the standard. */
+  readonly reached: boolean;
+
+  /** Kilograms still to find. Rounds up. Zero once reached. */
+  readonly kilogramsShort: number;
+
+  /** Kilograms clear of it. Rounds down. Zero until reached. */
+  readonly kilogramsClear: number;
 }
 
 /**
@@ -105,6 +128,58 @@ export class ClassificationLadder {
       // exactly that has not reached the standard. See `rounding.ts`.
       kilogramsToNext:
         next === null ? null : ceilToHundredths(next.requiredKilograms - achievedKilograms),
+    };
+  }
+
+  /**
+   * Reads a weight against one standard the caller names, rather than the next one.
+   *
+   * {@link classify} answers "how far to the next rung", which is the question a
+   * progress screen asks. A published entry criterion asks a different one: it
+   * names a rung -- "a Class 1 total or above" -- and that rung may be two below
+   * the lifter or three above. Deriving the distance from {@link Classification}
+   * is only possible for the one rung that happens to be next, so a caller doing
+   * it for any other would be re-implementing the subtraction, and with it the
+   * choice of rounding direction.
+   *
+   * `null` where the table publishes no standard under that id, which is not a
+   * fault to report here: it is what a criterion naming a standard the federation
+   * withheld looks like from the browser, and the caller has to say so rather than
+   * render the absence as a total nobody reached.
+   *
+   * @throws {RangeError} if the weight is not a positive finite number.
+   */
+  distanceTo(standardId: string, achievedKilograms: number): StandardDistance | null {
+    if (!Number.isFinite(achievedKilograms) || achievedKilograms <= 0) {
+      throw new RangeError(
+        `Expected a positive finite weight in kilograms, received ${String(achievedKilograms)}`,
+      );
+    }
+
+    const standard = this.standards.find((candidate) => candidate.id === standardId);
+    if (standard === undefined) {
+      return null;
+    }
+
+    // Rounded before the comparison rather than after it, so that the figure shown
+    // and the verdict given can never disagree: a lifter told they are 0.00 kg
+    // short is a lifter who has made it, and one told they are clear by 0.00 kg has
+    // not. Both directions come from `rounding.ts` for the reason recorded there.
+    const short = ceilToHundredths(standard.requiredKilograms - achievedKilograms);
+    const clear = floorToHundredths(achievedKilograms - standard.requiredKilograms);
+    const reached = short <= 0;
+
+    // No clamp on either figure, deliberately. The two subtractions are exact
+    // negations of each other in IEEE 754, and both roundings carry the same slack,
+    // so `reached` being true already means `clear` is at or above zero. A
+    // `Math.max` here would read as a real case somebody had seen and would be
+    // unreachable -- and unreachable code with a test that cannot fail is worse than
+    // none, because the next reader trusts it.
+    return {
+      standard,
+      reached,
+      kilogramsShort: reached ? 0 : short,
+      kilogramsClear: reached ? clear : 0,
     };
   }
 }

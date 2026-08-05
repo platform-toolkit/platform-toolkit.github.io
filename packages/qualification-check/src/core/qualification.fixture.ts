@@ -34,6 +34,10 @@ import type {
   ClassificationScope,
   ClassificationTable,
   EquipmentCategory,
+  QualifyingFederationRules,
+  QualifyingMeet,
+  QualifyingMeetBook,
+  QualifyingRoute,
   WeightClass,
 } from '@platform-toolkit/data-contracts';
 
@@ -171,7 +175,9 @@ const STANDARDS_FIXTURE = [
  * Shaped to cover all four outcomes `gradeLift` can produce without any test having
  * to build its own book:
  *
- * - **total** has exactly one table, so it grades.
+ * - **total** has one table per division, so it grades -- and the two disagree by a
+ *   rung, which is what lets way one test a criterion that names a standard without
+ *   saying which table to read it out of.
  * - **bench** has one table that distinguishes on nothing, so it grades too, and
  *   proves a `null` axis widens rather than excludes.
  * - **squat** has two tables of equal specificity, so it is ambiguous. That is the
@@ -214,7 +220,171 @@ export const TABLES_FIXTURE: readonly ClassificationTable[] = [
     scope: scope({ lift: 'squat', weightClassId: 'to-94' }),
     standards: [{ id: 'first', label: 'First Class', rank: 0, requiredKilograms: 203 }],
   },
+  {
+    /**
+     * The same four rungs, easier, for the Masters division.
+     *
+     * Here so that "which table is this standard read out of" is a question with
+     * two different answers rather than one answer twice. A published criterion
+     * that names a standard and not a table is the common case, and a fixture whose
+     * Open and Masters ladders were the same figures could not tell a tool that
+     * reads both from one that reads whichever it happened to find first.
+     *
+     * The figures are chosen so that a 595 kg total is First Class in the Open
+     * table and Elite in this one -- one rung apart, which is the gap a criterion's
+     * silence is worth.
+     */
+    id: 'total-raw-94-master-tested',
+    label: 'Total, Raw, 94 kg, Masters 1, tested',
+    scope: scope({
+      lift: 'total',
+      equipmentId: 'raw',
+      weightClassId: 'to-94',
+      divisionId: 'master-1',
+      tested: true,
+    }),
+    standards: [
+      { id: 'third', label: 'Third Class', rank: 0, requiredKilograms: 361 },
+      { id: 'second', label: 'Second Class', rank: 1, requiredKilograms: 424 },
+      { id: 'first', label: 'First Class', rank: 2, requiredKilograms: 491 },
+      { id: 'elite', label: 'Elite', rank: 3, requiredKilograms: 556 },
+    ],
+  },
 ];
+
+/** A route that asks for a First Class total, patched where a test cares. */
+export function classificationRoute(patch: Partial<QualifyingRoute> = {}): QualifyingRoute {
+  return {
+    id: 'first-class-total',
+    label: 'First Class total',
+    standard: {
+      kind: 'classification',
+      standardId: 'first',
+      orAbove: true,
+      divisionBasis: null,
+    },
+    performance: {
+      federationNames: ['Invented Federation'],
+      tested: true,
+      territory: 'Invented Republic',
+      description: 'A First Class total from an Invented Federation drug tested meet.',
+    },
+    window: { from: '2026-01-01', to: '2026-12-31' },
+    appliesToTested: null,
+    quotation: 'Entrants must have a First Class total or above from a tested meet.',
+    dispute: null,
+    ...patch,
+  };
+}
+
+/**
+ * A route that asks for a coefficient score, which nothing here computes.
+ *
+ * Present in the fixture rather than only in the test that needs it, because a
+ * points route is not an exotic case: it is how every invite tier in the corpus is
+ * written, and a fixture without one would let a screen that understands only
+ * totals look complete.
+ */
+export function pointsRoute(patch: Partial<QualifyingRoute> = {}): QualifyingRoute {
+  return {
+    id: 'invited-by-score',
+    label: 'By coefficient score',
+    standard: {
+      kind: 'points',
+      systemId: 'invented-coefficient',
+      thresholds: [
+        { sex: 'male', minimumPoints: 471.3 },
+        { sex: 'female', minimumPoints: 452.8 },
+      ],
+    },
+    performance: {
+      federationNames: null,
+      tested: null,
+      territory: null,
+      description: 'A qualifying score from any meet.',
+    },
+    window: { from: '2026-01-01', to: '2026-12-31' },
+    appliesToTested: null,
+    quotation: 'Lifters scoring 471.3 or better may request an invitation.',
+    dispute: null,
+    ...patch,
+  };
+}
+
+/** One transcribed meet, asking for a First Class total by default. */
+export function meet(patch: Partial<QualifyingMeet> = {}): QualifyingMeet {
+  return {
+    id: 'invented-national-2026',
+    label: 'Invented National Championships 2026',
+    federationId: 'invented',
+    sanctionedBy: 'Invented Federation',
+    held: { from: '2027-04-10', to: '2027-04-11' },
+    location: 'Invented City',
+    sanctionNumber: 'INV-2027-001',
+    offerings: [{ discipline: 'Full Power', equipment: ['Raw', 'Single-ply'] }],
+    testedOffering: 'both',
+    entryClosesOn: '2027-03-10',
+    entry: { kind: 'standard', routes: [classificationRoute()] },
+    conditions: [
+      {
+        id: 'membership',
+        label: 'Current membership',
+        detail: 'Entrants must hold a current membership on the day the entry form is submitted.',
+        quotation: 'A current card is required at registration.',
+      },
+    ],
+    source: {
+      label: 'Invented National Championships announcement',
+      url: 'https://example.invalid/invented-national-2026',
+      verifiedOn: '2026-08-05',
+    },
+    ...patch,
+  };
+}
+
+/** The entry rules the meet's criteria are read beside. */
+export function federationRules(
+  patch: Partial<QualifyingFederationRules> = {},
+): QualifyingFederationRules {
+  return {
+    federationId: 'invented',
+    label: 'Invented Federation',
+    weightClass: {
+      mayMoveUp: true,
+      moveUpRequiresHigherStandard: true,
+      mayMoveDown: false,
+      moveUpRequiresVacancy: true,
+      quotation: 'A lifter may move up one class with the heavier class standard and a vacancy.',
+    },
+    gearLadder: [{ competedIn: 'Raw', standardReachedIn: 'Raw', opens: ['Raw', 'Single-ply'] }],
+    testedCrossoverAllowed: null,
+    conditions: [
+      {
+        id: 'weigh-in-window',
+        label: 'Weigh-in window',
+        detail: 'Entry is fixed at weigh-in and cannot be changed afterwards.',
+        quotation: null,
+      },
+    ],
+    source: {
+      label: 'Invented Federation Technical Rules',
+      url: 'https://example.invalid/invented-rules',
+      revision: '2026v1',
+      sections: ['Part 1', 'Part 8'],
+      verifiedOn: '2026-08-05',
+    },
+    ...patch,
+  };
+}
+
+/** A book of one meet and the rules it is read against. */
+export function meetBook(patch: Partial<QualifyingMeetBook> = {}): QualifyingMeetBook {
+  return {
+    federations: [federationRules()],
+    meets: [meet()],
+    ...patch,
+  };
+}
 
 /**
  * One archive entry, in the archive's words, patched where a test cares.
