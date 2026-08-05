@@ -64,11 +64,15 @@
  * Warm-ups, records and qualifying standards, and each is a missing *source*
  * rather than missing work here:
  *
- * - A warm-up ramp needs the warm-up room's bar and plates, and no screen in
- *   this tool asks for them. Printing a ramp against an invented plate set puts
- *   weights on paper that the room may not be able to load, which is the failure
- *   `findLoading` returns `null` to prevent. §20's warm-up screen is the fix and
- *   does not exist; the coach board records the same gap.
+ * - A warm-up ramp needs the warm-up room's bar and plates. §20's warm-up screen
+ *   now asks for them, but it asks *this device's* owner: the answers live in the
+ *   session and on the coach board, so the one-lifter sheet below is printed by
+ *   somebody who has them and §23.2's roster is printed by a handler who has one
+ *   set of them for twelve people. Printing a ramp against an invented plate set
+ *   puts weights on paper the room may not be able to load, which is the failure
+ *   `findLoading` returns `null` to prevent. So the *ramp* is still omitted here;
+ *   what §23.2 does print is the durable lead off each schedule
+ *   ({@link HandlerPackLifter.warmupLead}), which needs no plates.
  * - Records and qualifying standards are ingested for other tools but nothing in
  *   the planner reads them. What the planner does hold is §8.3's targets, which
  *   are the lifter's own figures for the same questions, and those *are* printed.
@@ -101,7 +105,7 @@ import {
 } from '@platform-toolkit/domain';
 import type { MeetFormat, PlatformLift } from '@platform-toolkit/data-contracts';
 
-import { type BoardRowConflict, type BoardView } from './board.js';
+import { type BoardRowConflict, type BoardView, type WarmupLead } from './board.js';
 import { liveTargetsFrom, seedLiveMeet } from './live-session.js';
 import { type AttemptView, type LiftPlanView, type PlannerView } from './plan.js';
 import {
@@ -637,6 +641,21 @@ export interface HandlerPackLifter {
    * time and has to carry them.
    */
   readonly conflicts: readonly BoardRowConflict['code'][];
+  /**
+   * §23.2's "warm-up start ranges", as the one figure that keeps.
+   *
+   * A lead rather than a time, and deliberately not the minutes-from-now range
+   * the board shows: the sheet is read hours after it leaves the printer, and it
+   * is read on exactly the day the flight is running late, so a
+   * minutes-from-now figure is wrong precisely when paper is reached for.
+   * `warmupLeadRange` cancels the platform estimate out of both ends, which
+   * leaves the part of the schedule that does not move when the flight does.
+   *
+   * `null` for a lifter whose warm-up nobody has answered, which is most of a
+   * roster on most days -- and an absence rather than a zero, since a zero lead
+   * reads as a ramp that begins when the bar is called.
+   */
+  readonly warmupLead: WarmupLead | null;
 }
 
 export interface HandlerPackLift {
@@ -717,6 +736,7 @@ export function buildHandlerPack(
                 ),
         })),
         conflicts: view.conflicts.map((conflict) => conflict.code),
+        warmupLead: view.warmupLead,
       };
     }),
     writeIn: ['flight', 'platform', 'rack-settings', 'results'],

@@ -50,7 +50,7 @@ import {
 } from './board-fixture.js';
 import { liveTargetsFrom } from './live-session.js';
 import { rulesFor } from './meet-rules.fixture.js';
-import { PACK_AT as AT, packOf, planned } from './pack-fixture.js';
+import { PACK_AT as AT, handlerPackOf, packOf, planned } from './pack-fixture.js';
 import {
   EMPTY_HANDLER_PACK,
   EMPTY_PACK,
@@ -436,6 +436,35 @@ describe('buildHandlerPack', () => {
     const codes = pack.lifters.flatMap((lifter) => lifter.conflicts);
 
     expect(codes).toContain('submission-deadlines-overlap');
+  });
+
+  /**
+   * §23.2's warm-up start ranges. The pack carries the board's figures and does
+   * not recompute them, so what is worth asserting is that each row kept its own
+   * -- which needs the roster fixture, since `threeLifters` alone hands every
+   * lifter the one shared schedule and three identical leads (§13.17).
+   */
+  it('carries each lifter’s own warm-up lead through from the board', () => {
+    const pack = handlerPackOf();
+
+    const leads = pack.lifters.map((lifter) => lifter.warmupLead);
+
+    expect(leads.every((lead) => lead?.lift === 'squat')).toBe(true);
+    expect(new Set(leads.map((lead) => lead?.minimumSeconds)).size).toBe(pack.lifters.length);
+  });
+
+  /**
+   * The contrast, and the state three of the four roster fixtures are in: no
+   * warm-up screen has been filled in for anybody, so there is no lead to print
+   * and the sheet says nothing rather than a zero.
+   */
+  it('leaves the lead off a roster where no ramp was planned', () => {
+    const { timeline, context } = threeLifters();
+    const board = buildBoardView(timeline.present, context);
+
+    const pack = buildHandlerPack(timeline.present, board, null, rulesFor());
+
+    expect(pack.lifters.every((lifter) => lifter.warmupLead === null)).toBe(true);
   });
 
   it('declares what a handler has to write in, because nothing holds it per lifter', () => {

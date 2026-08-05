@@ -8,6 +8,7 @@ import {
   DEFAULT_REST_SECONDS,
   DEFAULT_SET_SECONDS,
   meetWarmup,
+  warmupLeadRange,
   type EquipmentPrep,
   type MeetWarmupRequest,
   type MeetWarmupSchedule,
@@ -226,6 +227,56 @@ describe('meetWarmup', () => {
       // says nothing.
       expect(scheduled().startsInSeconds.earliestSeconds).toBeGreaterThan(0);
       expect(codes(scheduled())).not.toContain('behind-the-warm-up-timeline');
+    });
+
+    describe('the lead before the bar, which is the part that can be printed', () => {
+      it('does not move when the estimate does', () => {
+        // The property §23.2's sheet rests on. A shifted estimate is a flight
+        // running late and a widened one is a pace nobody has measured; neither
+        // changes how long the ramp takes, and paper is read on the day of both.
+        const lead = warmupLeadRange(scheduled());
+        const late = warmupLeadRange(
+          scheduled({
+            estimate: { ...ESTIMATE, earliestSeconds: 6120, latestSeconds: 7080 },
+          }),
+        );
+        const vague = warmupLeadRange(
+          scheduled({ estimate: { ...ESTIMATE, latestSeconds: ESTIMATE.latestSeconds + 600 } }),
+        );
+        expect(late).toEqual(lead);
+        expect(vague).toEqual(lead);
+        // The control: those two estimates really are different schedules.
+        expect(scheduled().startsInSeconds).not.toEqual(
+          scheduled({ estimate: { ...ESTIMATE, earliestSeconds: 6120, latestSeconds: 7080 } })
+            .startsInSeconds,
+        );
+      });
+
+      it('is two figures, separated by the width of the lead window', () => {
+        const lead = warmupLeadRange(scheduled());
+        expect(lead.minimumSeconds).toBeGreaterThan(0);
+        expect(lead.maximumSeconds).toBeGreaterThan(lead.minimumSeconds);
+        // Exactly the window, because the two ends of the schedule are built
+        // from the two ends of the lead and are identical in every other term.
+        expect(lead.maximumSeconds - lead.minimumSeconds).toBe(
+          DEFAULT_FINAL_WARMUP_LEAD.maximumSeconds - DEFAULT_FINAL_WARMUP_LEAD.minimumSeconds,
+        );
+        // And the ramp is inside it: a lead is not the final-warm-up wait.
+        expect(lead.minimumSeconds).toBeGreaterThan(DEFAULT_FINAL_WARMUP_LEAD.maximumSeconds);
+      });
+
+      it('widens with the lead window and with the ramp', () => {
+        const wider = warmupLeadRange(
+          scheduled({ lead: { minimumSeconds: 600, maximumSeconds: 1500 } }),
+        );
+        expect(wider.maximumSeconds - wider.minimumSeconds).toBe(900);
+        // A shorter ramp is a shorter lead at both ends, which is what a lifter
+        // trimming their warm-up in a fast flight is asking the sheet to say.
+        const trimmed = warmupLeadRange(scheduled({ customisation: { maximumSets: 2 } }));
+        const full = warmupLeadRange(scheduled());
+        expect(trimmed.minimumSeconds).toBeLessThan(full.minimumSeconds);
+        expect(trimmed.maximumSeconds).toBeLessThan(full.maximumSeconds);
+      });
     });
   });
 

@@ -233,6 +233,46 @@ export function rampFrom(firstAt: number): WarmupTimeline {
   );
 }
 
+/**
+ * How much wider the start range is than the platform range, in the fixtures that
+ * name a lead. Three minutes, so a printed range is never two equal numbers.
+ */
+export const LEAD_WINDOW_MINUTES = 3;
+
+/**
+ * A ramp whose *lead* -- the gap between the last warm-up and the bar -- is a
+ * figure the caller chose.
+ *
+ * `timelineOf` spreads the one shared `RAMP`, so `schedule.platform` and
+ * `schedule.startsInSeconds` are the same on every fixture it builds and every
+ * lifter on a roster prints an identical lead. §13.17's rule is that a fixture
+ * whose figures include two equal numbers cannot tell you which row an assertion
+ * read, and a per-lifter line is exactly the assertion that needs to.
+ *
+ * The schedule-level `startsInSeconds` is written by hand, which the header above
+ * already licenses for the item times. Verified safe rather than assumed: nothing
+ * but `warmupLeadRange` reads that field. `warmup-timeline.ts`, §21.2's conflicts
+ * and §21.4's rack sequence all read the *item*-level `startsInSeconds`, which
+ * `rampFrom` still lays out for real.
+ *
+ * The two ends are derived from the ramp's own platform range rather than from
+ * `ESTIMATE`, so the arithmetic cannot drift if `meetWarmup` ever moves one.
+ */
+export function rampLeading(minutesAhead: number, firstAt: number): WarmupTimeline {
+  const timeline = rampFrom(firstAt);
+  const { platform } = timeline.schedule;
+  return {
+    ...timeline,
+    schedule: {
+      ...timeline.schedule,
+      startsInSeconds: {
+        earliestSeconds: platform.earliestSeconds - minutes(minutesAhead + LEAD_WINDOW_MINUTES),
+        latestSeconds: platform.latestSeconds - minutes(minutesAhead),
+      },
+    },
+  };
+}
+
 /*
  * ---------------------------------------------------------------------------
  * The board.

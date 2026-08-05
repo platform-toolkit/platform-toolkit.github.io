@@ -3048,6 +3048,29 @@ describe('ptk-meet-day-planner', () => {
         return clock?.textContent.trim() ?? '';
       }
 
+      /**
+       * §23.2's roster, which the coach path hangs under the board.
+       *
+       * Not the `packSheet` helper in the printable-sheets block below: that one
+       * reads `ptk-meet-pack`, §23.1's one-lifter sheet, which belongs to the
+       * solo plan path and is never on screen here. It throws rather than
+       * answering null so that the empty-lead assertion below has a positive
+       * control built into it -- "no lead lines" is also what a roster that
+       * failed to render says (§13.17).
+       */
+      function rosterSheet(element: PtkMeetDayPlanner): Element {
+        const found = element.shadowRoot?.querySelector('ptk-handler-pack');
+        if (found === null || found === undefined) throw new Error('No roster on screen.');
+        return found;
+      }
+
+      /** One line per lifter with a ramp; the sheet prints none for the rest. */
+      function rosterLeads(element: PtkMeetDayPlanner): readonly string[] {
+        return [...(rosterSheet(element).shadowRoot?.querySelectorAll('.warmup-lead') ?? [])].map(
+          (line) => line.textContent.trim(),
+        );
+      }
+
       it('asks a board lifter for an opener before it draws a ramp', async () => {
         const element = await coachBoardWith([SQUATTER]);
         await openNamed(element, SQUATTER);
@@ -3151,6 +3174,41 @@ describe('ptk-meet-day-planner', () => {
 
         expect(before).not.toBe('');
         expect(boardCountdown(element)).not.toBe(before);
+      });
+
+      /**
+       * §23.2's warm-up line, from the one place that decides which lift the
+       * ramps are for.
+       *
+       * `board.ts` and `pack.ts` both cover the lead as a value, and neither can
+       * reach this: they build a `BoardContext` by hand, and `warmupLift` on it
+       * is chosen by nothing but `#renderCoach`. Pinning that argument to
+       * `undefined` survived the whole browser suite -- the wiring had no
+       * observable anywhere. What goes missing is the *lift*, not the figures: a
+       * `MeetWarmupSchedule` cannot say which lift it was built for (squat and
+       * bench share one warm-up family), so a board handed no lift refuses to
+       * name a lead at all and the line disappears from every row of the sheet.
+       *
+       * The state before the opener is the control §13.17 asks for rather than a
+       * second test, and it is a real state rather than a contrivance: the ramp
+       * needs only a declared opener, never §20's fold, because `#boardEntries`
+       * builds a schedule for every lifter on every paint off a default warm-up
+       * state and `warmupSubject` is null exactly until a weight is on the first
+       * attempt.
+       */
+      it('prints the board lifter’s warm-up lead on §23.2’s roster', async () => {
+        const element = await coachBoardWith([SQUATTER]);
+
+        expect(rosterLeads(element)).toEqual([]);
+
+        await openNamed(element, SQUATTER);
+        await declareOpener(element, '100');
+        await backToBoard(element);
+
+        // Pinned to the lift and not to the sentence: the minutes are the ramp's
+        // and move with any change to it, and the lift is the fact this wiring
+        // is the only carrier of.
+        expect(rosterLeads(element)).toEqual([expect.stringContaining('Squat')]);
       });
     });
   });

@@ -18,17 +18,26 @@ import { createMeetDocument, startTimeline } from '@platform-toolkit/domain';
 import { EMPTY_BOARD_VIEW, buildBoardView, type BoardRowView } from './board.js';
 import {
   BOARD_LIFTERS,
+  LEAD_WINDOW_MINUTES,
   RACK,
   boardAt,
   chooseFor,
   contextAt,
   lifterIdAt,
   minutes,
+  rampLeading,
   sharedRack,
   takeFor,
   threeLifters,
 } from './board-fixture.js';
 import { OPENER, RULES, SECOND, START } from './live-fixture.js';
+
+/**
+ * Three leads in minutes, all different, so a row assertion can say which row it
+ * read (§13.17). Invented, and spread wider than `LEAD_WINDOW_MINUTES` so that no
+ * end of one lifter's range equals an end of another's.
+ */
+const LEADS = [11, 19, 27] as const;
 
 function rowFor(rows: readonly BoardRowView[], lifterId: string): BoardRowView {
   const found = rows.find((candidate) => candidate.row.lifterId === lifterId);
@@ -215,6 +224,115 @@ describe('buildBoardView', () => {
 
     expect(whole).toBeGreaterThan(soon);
     expect(soon).toBeGreaterThan(0);
+  });
+
+  /*
+   * ---------------------------------------------------------------------------
+   * §23.2's lead, which is the one warm-up figure that can be printed.
+   * ---------------------------------------------------------------------------
+   */
+
+  it('gives each lifter the lead their own ramp asks for', () => {
+    const { timeline, context } = threeLifters();
+    const first = lifterIdAt(timeline.present, 0);
+    const second = lifterIdAt(timeline.present, 1);
+
+    const view = boardAt(timeline, {
+      ...context,
+      warmupLift: 'squat',
+      entries: context.entries.map((entry, index) => ({
+        ...entry,
+        warmup: rampLeading(LEADS[index] ?? 0, 2 + index * 4),
+      })),
+    });
+
+    // Both ends, because `warmupLeadRange` reads a different end of the platform
+    // range for each and a version that read one end twice would still produce
+    // three distinct rows.
+    expect(rowFor(view.rows, first).warmupLead?.minimumSeconds).toBe(minutes(LEADS[0]));
+    expect(rowFor(view.rows, first).warmupLead?.maximumSeconds).toBe(
+      minutes(LEADS[0] + LEAD_WINDOW_MINUTES),
+    );
+    expect(rowFor(view.rows, second).warmupLead?.minimumSeconds).toBe(minutes(LEADS[1]));
+  });
+
+  /**
+   * The lift cannot be recovered from a schedule -- `meet-warmup.ts` sends squat
+   * and bench to one warm-up family -- so a board built without one has to refuse
+   * rather than guess. A guessed lift is a squat ramp printed under "Deadlift" on
+   * a sheet a handler works from without checking.
+   */
+  it('refuses to name a lead when nobody said which lift the ramps are for', () => {
+    const { timeline, context } = threeLifters();
+    const withRamps = context.entries.map((entry, index) => ({
+      ...entry,
+      warmup: rampLeading(LEADS[index] ?? 0, 2 + index * 4),
+    }));
+
+    const named = boardAt(timeline, { ...context, warmupLift: 'squat', entries: withRamps });
+    const unnamed = boardAt(timeline, { ...context, entries: withRamps });
+
+    expect(named.rows.every((row) => row.warmupLead?.lift === 'squat')).toBe(true);
+    expect(unnamed.rows.every((row) => row.warmupLead === null)).toBe(true);
+  });
+
+  /**
+   * A lifter with no ramp is the ordinary case -- §20's screen is per lifter and
+   * a coach fills it in for the one they are running -- so it has to be the row's
+   * own answer rather than the board's. Asserted beside a lifter who does have
+   * one, because "every lead is null" is also what a dropped lift produces.
+   */
+  it('leaves a lifter with no ramp without a lead, on a board where others have one', () => {
+    const { timeline, context } = threeLifters();
+    const rampless = lifterIdAt(timeline.present, 1);
+
+    const view = boardAt(timeline, {
+      ...context,
+      warmupLift: 'squat',
+      entries: context.entries.map((entry, index) =>
+        entry.lifterId === rampless
+          ? { ...entry, warmup: undefined }
+          : { ...entry, warmup: rampLeading(LEADS[index] ?? 0, 2 + index * 4) },
+      ),
+    });
+
+    expect(rowFor(view.rows, rampless).warmupLead).toBeNull();
+    expect(view.rows.filter((row) => row.warmupLead !== null)).toHaveLength(2);
+  });
+
+  /**
+   * The property the whole approach rests on. A lead is a difference between two
+   * figures that both count from the instant the schedule was built, so the
+   * estimate cancels and the figure keeps meaning the same thing on paper hours
+   * later. The clash count either side is the control: the board really did move.
+   */
+  it('does not move when the clock does, unlike everything else on the board', () => {
+    const { timeline, context } = threeLifters(START + 20_000);
+    const sooner = lifterIdAt(timeline.present, 0);
+    const later = lifterIdAt(timeline.present, 1);
+    const run = takeFor(
+      takeFor(timeline, sooner, 'squat', OPENER, START),
+      later,
+      'squat',
+      OPENER,
+      START + 10_000,
+    );
+    const withRamps = {
+      ...context,
+      warmupLift: 'squat' as const,
+      entries: context.entries.map((entry, index) => ({
+        ...entry,
+        warmup: rampLeading(LEADS[index] ?? 0, 2 + index * 4),
+      })),
+    };
+
+    const during = boardAt(run, withRamps);
+    const afterwards = boardAt(run, { ...withRamps, now: START + minutes(30) * 1000 });
+
+    expect(during.conflictCount).not.toBe(afterwards.conflictCount);
+    expect(rowFor(afterwards.rows, sooner).warmupLead).toEqual(
+      rowFor(during.rows, sooner).warmupLead,
+    );
   });
 
   /*

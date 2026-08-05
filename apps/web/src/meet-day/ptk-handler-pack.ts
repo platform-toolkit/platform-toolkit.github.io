@@ -36,6 +36,7 @@ import {
   attemptKilogramsText,
   attemptPoundsText,
   handlerPackTitle,
+  handlerPackWarmupLeadText,
   handlerWriteInLabel,
   liftLabel,
   listText,
@@ -154,6 +155,19 @@ export class PtkHandlerPack extends LitElement {
       font-variant-numeric: tabular-nums;
     }
 
+    /*
+     * Not a bare warmup class, which is taken three ways in this directory
+     * already (ptk-meet-warmup's own panel twice, and the planner's fold).
+     * Different shadow roots, so nothing would actually collide -- but §13.17's
+     * rule, after weight, gap and facts each turned out to be shared, is to treat
+     * a bare class here as taken, and a selector this file's print test names by
+     * hand is the wrong place to find that out.
+     */
+    .warmup-lead {
+      font-size: var(--ptk-font-size-sm);
+      color: var(--ptk-color-text-muted);
+    }
+
     /* An attempt with no weight declared yet, which is a blank to write in. */
     .unset {
       display: inline-block;
@@ -186,6 +200,18 @@ export class PtkHandlerPack extends LitElement {
 
       .muted,
       .lift .label {
+        color: #000;
+      }
+
+      /*
+       * Its own rule rather than a third selector in the group above, because
+       * §13.15's printRule matches selectorText exactly: folding it in would make
+       * the assertion name all three selectors and a newline between each, and
+       * break again every time somebody adds a fourth. The line is the one figure
+       * on this sheet a handler acts on before the flight starts, so grey it is
+       * on screen and black it is on paper.
+       */
+      .warmup-lead {
         color: #000;
       }
 
@@ -257,6 +283,11 @@ export class PtkHandlerPack extends LitElement {
           >
         </div>
         <div class="lifts">${lifter.lifts.map((lift) => renderLift(lift))}</div>
+        ${
+          lifter.warmupLead === null
+            ? nothing
+            : html`<p class="warmup-lead">${handlerPackWarmupLeadText(lifter.warmupLead)}</p>`
+        }
         ${lifter.conflicts.length === 0 ? nothing : renderConflicts(lifter)}
       </div>
     `;

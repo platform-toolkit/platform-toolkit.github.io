@@ -89,7 +89,7 @@ import {
 import type { MeetFormat, PlatformLift } from '@platform-toolkit/data-contracts';
 import { type Choice } from '@platform-toolkit/ui';
 
-import type { BoardLifterRef, BoardRowConflict } from './board.js';
+import type { BoardLifterRef, BoardRowConflict, WarmupLead } from './board.js';
 import type { LivePosition, NextActionCode, SubmissionUrgency, UrgentNote } from './live.js';
 import type { MeetFileRefusal } from './meet-file.js';
 import type { SaveOutcome } from './meet-store.js';
@@ -3024,6 +3024,44 @@ export function handlerPackTitle(format: MeetFormat): string {
 export const HANDLER_PACK_LIFTERS_HEADING = 'Lifters';
 export const HANDLER_PACK_CONFLICTS_HEADING = 'Clashes';
 export const HANDLER_PACK_NO_HANDLERS = 'Nobody assigned';
+
+/**
+ * §23.2's "warm-up start ranges", as the only form of them paper can carry.
+ *
+ * A *lead* -- how long before the bar the ramp starts -- rather than a time or a
+ * countdown. Everything else on a `MeetWarmupSchedule` is seconds from the instant
+ * the schedule was built, and a sheet is read hours after it is printed, on the day
+ * the meet is running late: "in 40 minutes", printed at nine and read at eleven,
+ * sends a handler to the rack cold and an hour early. `warmupLeadRange` cancels the
+ * platform estimate out of both ends, so what is left does not move when the flight
+ * does, and the handler subtracts it from whatever the board says now.
+ *
+ * **Both ends are ceiled, unlike `platformEstimateText` three thousand lines up,
+ * which floors its early end and ceils its late one.** That looks like an
+ * inconsistency and is the opposite: an estimate rounded outwards is a wider window,
+ * which is the cautious direction for an *estimate*; a lead rounded up starts the
+ * ramp *earlier*, which is the cautious direction for a lead. Flooring the shorter
+ * end would print a lead up to a minute shorter than the schedule computed, and
+ * §5.5's rule is that the direction which costs standing around beats the one that
+ * costs the attempt. Do not "fix" this to match its neighbour.
+ *
+ * Total, and deliberately not clamped: `warmupLeadRange` leaves an inverted or
+ * non-positive lead visible rather than absorbing it, so this has to answer for one.
+ * It says the ramp does not fit rather than printing "0 minutes", which on paper
+ * reads as a ramp that starts when the lifter is called.
+ */
+export function handlerPackWarmupLeadText(lead: WarmupLead): string {
+  const shortest = Math.ceil(lead.minimumSeconds / 60);
+  const longest = Math.ceil(lead.maximumSeconds / 60);
+  const lift = liftLabel(lead.lift);
+  if (shortest <= 0 || longest < shortest) {
+    return `${lift} warm-up: does not fit before the bar. Start it as soon as the flight is called.`;
+  }
+  if (shortest === longest) {
+    return `${lift} warm-up: start about ${String(longest)} minutes before the bar.`;
+  }
+  return `${lift} warm-up: start ${String(shortest)}-${String(longest)} minutes before the bar.`;
+}
 
 /**
  * A column with no data behind it, which is a column to write in.

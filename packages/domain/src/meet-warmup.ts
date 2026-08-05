@@ -515,3 +515,43 @@ export function meetWarmup(request: MeetWarmupRequest): MeetWarmupResult {
     },
   };
 }
+
+/**
+ * How long before the bar the ramp begins.
+ *
+ * Two durations rather than one, and that is the part worth reading twice.
+ * `meetWarmup` builds the early end of {@link MeetWarmupSchedule.startsInSeconds}
+ * with the *maximum* lead and the late end with the *minimum* one, so the two ends
+ * are not a single lead read against two platform times -- subtract each of them
+ * from its own end of the estimate and two different figures come back. Reporting
+ * either one alone claims a precision the lead window does not have, in the
+ * direction that has a lifter still under the bar when they are called.
+ */
+export interface WarmupLeadRange {
+  /** The shorter lead, behind the late end of the platform estimate. */
+  readonly minimumSeconds: number;
+  /** The longer lead, behind the early end. */
+  readonly maximumSeconds: number;
+}
+
+/**
+ * The one figure on a schedule that survives being printed.
+ *
+ * Everything else here is seconds from the instant the schedule was built, which
+ * is right on a screen that rebuilds four times a second and worthless on paper:
+ * §23.2's sheet is read hours after it leaves the printer, and it is read on
+ * exactly the day the meet is running late, so a minutes-from-now figure would
+ * send a handler to the rack an hour early and cold. Subtracting the start from
+ * the platform cancels the estimate out of both ends and leaves the ramp, which
+ * is the part of the schedule that does not move when the flight does.
+ *
+ * Never negative and never inverted, and nothing clamps it: both figures are sums
+ * over the same pieces and the longer one carries the wider lead, so a change that
+ * broke the ordering should be visible rather than absorbed into a `Math.max`.
+ */
+export function warmupLeadRange(schedule: MeetWarmupSchedule): WarmupLeadRange {
+  return {
+    minimumSeconds: schedule.platform.latestSeconds - schedule.startsInSeconds.latestSeconds,
+    maximumSeconds: schedule.platform.earliestSeconds - schedule.startsInSeconds.earliestSeconds,
+  };
+}

@@ -39,6 +39,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { deepText } from '../testing/deep-text.js';
 import { printRule } from '../testing/print-rules.js';
 import { BOARD_LIFTERS } from './board-fixture.js';
+import type { WarmupLead } from './board.js';
+import { handlerPackWarmupLeadText } from './copy.js';
 import {
   benchOnlyHandlerPack,
   clashingHandlerPack,
@@ -278,6 +280,100 @@ describe('ptk-handler-pack', () => {
 
   /*
    * ---------------------------------------------------------------------------
+   * §23.2's warm-up lead, which is the one warm-up figure that survives printing.
+   * ---------------------------------------------------------------------------
+   */
+
+  it('prints each lifter’s own warm-up lead rather than one line repeated down the sheet', async () => {
+    const element = await mount();
+
+    const lines = new Set(query(element, '.warmup-lead').map((line) => line.textContent.trim()));
+
+    // A set, not an ordered list: `handlerPackOf` records an attempt, which moves
+    // the board ranking and so the order of `pack.lifters`. Three distinct
+    // sentences off three rows is still the property the fixture exists for --
+    // every lifter kept the lead their own ramp asked for (§13.17). The figures
+    // are `ROSTER_LEADS` and `ROSTER_LEADS + LEAD_WINDOW_MINUTES`, spelled out
+    // rather than recomputed, because a sentence built here the way `copy.ts`
+    // builds it would pass against any arithmetic at all (§13.8).
+    expect(lines).toEqual(
+      new Set([
+        'Squat warm-up: start 12-15 minutes before the bar.',
+        'Squat warm-up: start 18-21 minutes before the bar.',
+        'Squat warm-up: start 25-28 minutes before the bar.',
+      ]),
+    );
+  });
+
+  it('says nothing at all on a roster where nobody planned a ramp', async () => {
+    const element = await mount(undeclaredHandlerPack());
+
+    // The ordinary state: §20's screen is filled in per lifter, by the one person
+    // running them, so most rosters have no ramp on them and the sheet must not
+    // print a zero or an empty line where a time would be. The card count is the
+    // control -- a template that rendered nothing at all also has no lead lines.
+    expect(query(element, '.lifter')).toHaveLength(1);
+    expect(query(element, '.warmup-lead')).toHaveLength(0);
+    expect(deepText(element)).not.toContain('before the bar');
+  });
+
+  /**
+   * The two sentences no fixture can produce.
+   *
+   * `handlerPackWarmupLeadText` is a total function over a `WarmupLead`, and two
+   * of its three branches are unreachable through `meetWarmup`: `rampLeading`'s
+   * window is a fixed three minutes, so the ends never meet, and every schedule
+   * the domain builds subtracts a positive lead, so the range never lands at or
+   * behind the bar. Covered from hand-built values rather than by widening a
+   * shared fixture to fake a case the domain cannot reach -- and there is no
+   * `copy.test.ts` in this directory, so an element's copy is the element's.
+   */
+  describe('handlerPackWarmupLeadText', () => {
+    it('says one figure when both ends of the range agree', () => {
+      const lead: WarmupLead = { lift: 'deadlift', minimumSeconds: 600, maximumSeconds: 600 };
+
+      const text = handlerPackWarmupLeadText(lead);
+
+      // "start 10-10 minutes" is the sentence this branch exists to avoid, and
+      // the lift is asserted alongside it because the label is the other thing
+      // the function is trusted to get right on a three-lift sheet.
+      expect(text).toContain('Deadlift');
+      expect(text).toContain('about 10 minutes');
+      expect(text).not.toContain('10-10');
+    });
+
+    it('rounds both ends of the range up, so a part minute starts the ramp earlier', () => {
+      const ragged: WarmupLead = { lift: 'squat', minimumSeconds: 610, maximumSeconds: 800 };
+
+      // 10:10 and 13:20, which round to 11 and 14 rather than to 10 and 13.
+      // Deliberately unlike `platformEstimateText`, which floors its early end to
+      // widen the range it reports: a lead is the amount of time the ramp needs,
+      // and rounding it up sends a lifter to the rack a minute early, which costs
+      // a minute of standing about. Rounding it down costs the attempt. No
+      // fixture can catch this -- `rampLeading` deals in whole minutes, so ceil
+      // and floor agree on every figure the roster prints (§13.8).
+      expect(handlerPackWarmupLeadText(ragged)).toContain('11-14 minutes');
+    });
+
+    it('refuses rather than printing a negative or inverted lead', () => {
+      const late: WarmupLead = { lift: 'bench', minimumSeconds: -120, maximumSeconds: 300 };
+      const inverted: WarmupLead = { lift: 'squat', minimumSeconds: 900, maximumSeconds: 60 };
+
+      // Not clamped to zero: "start 0 minutes before the bar" reads as an answer,
+      // and this is the case where the tool does not have one. The instruction is
+      // the useful half -- a handler holding this sheet needs to be told to start
+      // now, not told a number that is wrong.
+      for (const text of [handlerPackWarmupLeadText(late), handlerPackWarmupLeadText(inverted)]) {
+        expect(text).toContain('does not fit');
+        expect(text).toContain('as soon as the flight is called');
+        expect(text).not.toContain('minutes before the bar');
+      }
+      expect(handlerPackWarmupLeadText(late)).toContain('Bench press');
+    });
+  });
+
+  /*
+   * ---------------------------------------------------------------------------
    * The paper half.
    * ---------------------------------------------------------------------------
    */
@@ -319,6 +415,21 @@ describe('ptk-handler-pack', () => {
     expect(
       printRule(PtkHandlerPack.styles, '.unset, .write-in .rule').getPropertyValue('border-bottom'),
     ).toContain('rgb(0, 0, 0)');
+  });
+
+  it('prints the warm-up lead in black, not in the grey it is drawn in on screen', async () => {
+    const element = await mount();
+
+    // Muted on screen because it sits under three rows of weights and is not what
+    // the eye is looking for there. On paper it is the one figure a handler acts
+    // on *before* the flight is called, and grey text is the first thing a tired
+    // office printer loses. Its own rule rather than a third selector in the
+    // grouped one, because printRule matches selectorText exactly -- so the DOM
+    // half of the pair names the same class the rule does.
+    expect(query(element, '.warmup-lead').length).toBeGreaterThan(0);
+    expect(printRule(PtkHandlerPack.styles, '.warmup-lead').getPropertyValue('color')).toBe(
+      'rgb(0, 0, 0)',
+    );
   });
 
   /*

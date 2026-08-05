@@ -24,12 +24,13 @@
  */
 import type { PlatformLift } from '@platform-toolkit/data-contracts';
 
-import { buildBoardView } from './board.js';
+import { buildBoardView, type BoardContext } from './board.js';
 import {
   boardMeet,
   contextAt,
   entryFor,
   lifterIdAt,
+  rampLeading,
   takeFor,
   threeLifters,
 } from './board-fixture.js';
@@ -178,22 +179,38 @@ export function blankPack(): MeetPack {
  */
 
 /** The default flight of three, with a handler on the first of them. */
+/**
+ * Three leads, all different, in minutes ahead of the bar.
+ *
+ * `threeLifters` hands every lifter a ramp built from the one shared fixture
+ * schedule, so all three would print the same §23.2 line and no assertion could
+ * say which row it read (§13.17). Invented figures, spread far enough apart that
+ * neither end of one range collides with an end of another.
+ */
+const ROSTER_LEADS = [12, 18, 25] as const;
+
 export function handlerPackOf(): HandlerPack {
   const { timeline, context } = threeLifters();
   const first = lifterIdAt(timeline.present, 0);
-  const withHandlers = {
+  const withHandlers: BoardContext = {
     ...context,
-    entries: context.entries.map((entry) =>
-      entry.lifterId === first
+    // Squat, matching the ramps `threeLifters` builds and the lift `takeFor`
+    // below takes. Without it every row's lead is `null` -- `board.ts` refuses to
+    // guess, because a `MeetWarmupSchedule` knows it is a squat-or-bench ramp and
+    // not which.
+    warmupLift: 'squat',
+    entries: context.entries.map((entry, index) => ({
+      ...entry,
+      warmup: rampLeading(ROSTER_LEADS[index] ?? ROSTER_LEADS[0], 2 + index * 4),
+      ...(entry.lifterId === first
         ? {
-            ...entry,
             // Invented (§5.1), and deliberately not one of `BOARD_LIFTERS`: a
             // handler sharing a lifter's name makes the roster unreadable in
             // exactly the column that says who to shout at.
             handlers: [{ name: 'Kit Marlowe', responsibilities: ['attempt-submission'] as const }],
           }
-        : entry,
-    ),
+        : {}),
+    })),
   };
   const run = takeFor(timeline, first, 'squat', 180, PACK_AT);
   return buildHandlerPack(

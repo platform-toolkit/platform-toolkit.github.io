@@ -330,6 +330,7 @@ export {
   DEFAULT_REST_SECONDS,
   DEFAULT_SET_SECONDS,
   meetWarmup,
+  warmupLeadRange,
   type DelayAdvice,
   type DelayPreference,
   type EquipmentPrep,
@@ -345,6 +346,7 @@ export {
   type ScheduledItemKind,
   type SharedRack,
   type TimeRange,
+  type WarmupLeadRange,
 } from './meet-warmup.js';
 export {
   LOADING_TOLERANCE,

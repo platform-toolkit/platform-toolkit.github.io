@@ -11,7 +11,13 @@
  * arrangements worth reviewing are the ones that look wrong.
  *
  * The fixture is `pack-fixture.ts`, shared with the browser tests and the unit
- * suite (§13.7).
+ * suite (§13.7). **A change there changes every story on this page**, because
+ * `meta.args` calls `handlerPackOf()` once at module load and four of the five
+ * stories inherit it. §23.2's warm-up lead arrived exactly that way -- the line
+ * appeared under two stories whose prose did not mention it, which is
+ * `NobodySetUp`'s rot (§13.17) in a file where nothing can catch it: the smoke
+ * check renders a story and a doc comment is prose. Read the comments below
+ * against the fixture after touching it.
  *
  * NOTHING HERE ADVANCES A CLOCK, AND NOTHING HERE READS ONE
  *
@@ -46,13 +52,23 @@ export default meta;
 type Story = StoryObj<PtkHandlerPack>;
 
 /**
- * A flight of three, one of them with a handler named.
+ * A flight of three, one of them with a handler named, each with their own
+ * warm-up lead.
  *
  * The other two say so rather than leaving the line empty: a roster that
  * printed nothing where nobody is assigned reads as a column the tool forgot,
  * on the sheet whose whole job is saying who to shout at. The handler here is
  * invented (§5.1) and deliberately shares no name with a lifter, because a
  * roster where the two collide is unreadable in exactly that column.
+ *
+ * §23.2's warm-up line reads three different figures down the page, which is
+ * the point of it: a lead is a property of one lifter's ramp, and three rows
+ * printing the same minutes is what a sheet reading the meet's schedule instead
+ * of each lifter's would look like. It is also the only figure on the sheet a
+ * handler acts on *before* the flight is called, and the only warm-up figure
+ * that can be printed at all -- everything else in the ramp counts from the
+ * instant the schedule was built, so it is wrong by the time the paper is in a
+ * warm-up room. The other three stories carry no ramp and print no line.
  */
 export const AFlight: Story = {};
 
@@ -105,6 +121,10 @@ export const NothingDeclaredYet: Story = {
  * columns of weights cannot be made to fit 320px without sideways scrolling,
  * which §27 forbids outright in an urgent workflow. So each lifter stacks, and
  * the print rules give paper the density a table would have had.
+ *
+ * It is also the width §23.2's warm-up line is longest at: a whole sentence
+ * under three rows of weights, wrapping to two lines per lifter, which is the
+ * one thing on this sheet that grows a card taller rather than wider.
  */
 export const Narrow: Story = {
   render: (args) => html`

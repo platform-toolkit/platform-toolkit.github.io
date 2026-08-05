@@ -1208,14 +1208,21 @@ export class PtkMeetDayPlanner extends LitElement {
     // Read once, here, and shared with §23.2's sheet below. Twice in one paint
     // is two instants on one screen, and this screen is nothing but countdowns.
     const now = this.clock.now();
+    // Read once as well, and for a stronger reason than `now`: the schedules on
+    // the entries and the lift §23.2's sheet labels them with have to be the
+    // same answer. Two calls are two sources of truth, and the failure is a
+    // squat ramp printed under "Deadlift" on a sheet nobody can re-check.
+    const warmupLift =
+      run === null ? null : this.#warmupLiftIn(liftsInFormat(run.timeline.present.format));
     const board =
       run === null
         ? null
         : buildBoardView(run.timeline.present, {
             rules: run.rules,
             chart: this.chart,
-            entries: this.#boardEntries(run, now),
+            entries: this.#boardEntries(run, now, warmupLift),
             now,
+            warmupLift: warmupLift ?? undefined,
           });
     const screen = html`
       ${this.#renderMode()}
@@ -1614,15 +1621,16 @@ export class PtkMeetDayPlanner extends LitElement {
    * stores a stopwatch, and a meet reopened tomorrow would announce a warm-up
    * that was due nineteen hours ago.
    *
-   * One lift for the whole board, taken from the picker. Deriving each lifter's
+   * One lift for the whole board, taken from the picker and **passed in** rather
+   * than read here, so that this list and the lead §23.2 prints beside it cannot
+   * name two different lifts. Deriving each lifter's
    * own current lift would mean forking `coach-board.ts`'s private
    * `currentAttemptOf`, which is the §5.8 mistake, and a meet runs one lift at a
    * time across the platform anyway. The case it does not cover is written down
    * in this directory's notes: two flights on different lifts at once, where the
    * lifters in the other flight get the ramp for this one.
    */
-  #boardEntries(run: CoachRun, now: number): readonly CoachBoardEntry[] {
-    const lift = this.#warmupLiftIn(liftsInFormat(run.timeline.present.format));
+  #boardEntries(run: CoachRun, now: number, lift: PlatformLift | null): readonly CoachBoardEntry[] {
     const byLifter = new Map(run.entries.map((entry) => [entry.lifterId, entry]));
     return run.timeline.present.lifters.map((lifter) => {
       const entry = byLifter.get(lifter.id) ?? { lifterId: lifter.id };

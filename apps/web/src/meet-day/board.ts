@@ -48,6 +48,7 @@ import {
   coachBoard,
   coachBoardConflicts,
   rackSequences,
+  warmupLeadRange,
   type AttemptWeight,
   type CoachBoardConflictCode,
   type CoachBoardEntry,
@@ -58,6 +59,7 @@ import {
   type MeetRules,
   type RackSequence,
 } from '@platform-toolkit/domain';
+import type { PlatformLift } from '@platform-toolkit/data-contracts';
 
 /*
  * ---------------------------------------------------------------------------
@@ -87,6 +89,20 @@ export interface BoardContext {
   readonly now: number;
   /** How far ahead the rack panel plans, in seconds. The whole ramp when absent. */
   readonly rackHorizonSeconds?: number | undefined;
+  /**
+   * Which lift the schedules on {@link entries} are ramps for.
+   *
+   * Supplied rather than derived, because it cannot be derived: `meet-warmup.ts`
+   * maps squat and bench onto one warm-up *family*, so a `MeetWarmupSchedule`
+   * knows it is a squat-or-bench ramp and not which. The caller picked the lift
+   * to build the schedules with and is the only thing that still knows it.
+   *
+   * Absent means the board was built without one, and {@link BoardRowView.warmupLead}
+   * is then `null` on every row -- the honest answer, since an unlabelled lead on
+   * a sheet listing three lifts per lifter is an invitation to apply a squat ramp
+   * to a deadlift.
+   */
+  readonly warmupLift?: PlatformLift | undefined;
 }
 
 /*
@@ -134,6 +150,33 @@ export interface BoardRowView {
    */
   readonly proposed: AttemptWeight | null;
   readonly conflicts: readonly BoardRowConflict[];
+  /**
+   * How long before the bar this lifter's ramp starts. `null` where no schedule
+   * was handed in for them, or where the board was built with no lift.
+   */
+  readonly warmupLead: WarmupLead | null;
+}
+
+/**
+ * The one figure off a warm-up schedule that survives being printed.
+ *
+ * `warmupLeadRange` cancels the platform estimate out of both ends, so what is
+ * left does not move when the flight does -- which is exactly what §23.2's sheet
+ * needs, since paper is read hours after it is printed and on the day the meet
+ * is running late. Everything else on a schedule is seconds from the instant it
+ * was built, and a minutes-from-now figure on paper sends a handler to the rack
+ * an hour early and cold.
+ *
+ * The lift travels *with* the two figures rather than beside them on the board,
+ * so the printed line labels itself and no board-level field has to be kept in
+ * step with the schedules the rows were built from.
+ */
+export interface WarmupLead {
+  readonly lift: PlatformLift;
+  /** The shorter lead, behind the late end of the platform estimate. */
+  readonly minimumSeconds: number;
+  /** The longer lead, behind the early end. */
+  readonly maximumSeconds: number;
 }
 
 export interface BoardView {
@@ -190,6 +233,8 @@ export function buildBoardView(document: MeetDocument, context: BoardContext): B
     horizonSeconds: context.rackHorizonSeconds,
   });
 
+  const leads = warmupLeadsIn(context.entries, context.warmupLift ?? null);
+
   const refs = new Map<string, BoardLifterRef>(
     board.rows.map((row) => [
       row.lifterId,
@@ -212,6 +257,7 @@ export function buildBoardView(document: MeetDocument, context: BoardContext): B
         separationSeconds: conflict.separationSeconds,
         handlerName: conflict.handlerName,
       })),
+      warmupLead: leads.get(row.lifterId) ?? null,
     })),
     focusLifterId: board.focusLifterId,
     // Off the flat list, not off the sum of the per-row lists. A pair appears on
@@ -221,6 +267,33 @@ export function buildBoardView(document: MeetDocument, context: BoardContext): B
     conflictCount: conflicts.conflicts.length,
     racks,
   };
+}
+
+/**
+ * Every lifter's durable lead, keyed by lifter id.
+ *
+ * Built off the entries rather than off the rows because that is where the
+ * schedules are, and a lifter with no schedule is simply absent from the map --
+ * which the row lookup turns back into `null`. A `0` would read on paper as a
+ * ramp that starts when the bar is called.
+ */
+function warmupLeadsIn(
+  entries: readonly CoachBoardEntry[],
+  lift: PlatformLift | null,
+): Map<string, WarmupLead> {
+  const leads = new Map<string, WarmupLead>();
+  if (lift === null) return leads;
+  for (const entry of entries) {
+    const timeline = entry.warmup ?? null;
+    if (timeline === null) continue;
+    const range = warmupLeadRange(timeline.schedule);
+    leads.set(entry.lifterId, {
+      lift,
+      minimumSeconds: range.minimumSeconds,
+      maximumSeconds: range.maximumSeconds,
+    });
+  }
+  return leads;
 }
 
 /**
