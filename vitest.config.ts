@@ -34,6 +34,7 @@ const workspaceSource = [
   'domain',
   'ingestion',
   'preferences',
+  'qualification-check',
   'ui',
 ].map((name) => ({
   find: new RegExp(`^@platform-toolkit/${name}$`),
@@ -95,6 +96,18 @@ const projects: TestProjectInlineConfiguration[] = [
     test: {
       name: 'ingestion',
       root: './packages/ingestion',
+      environment: 'node',
+      include: ['src/**/*.test.ts'],
+    },
+  },
+  {
+    test: {
+      // Node. This package is a tool, not a library of pure arithmetic, and it
+      // still belongs here: section 15 requires a tool's core to hold no Lit, no
+      // DOM, no storage and no clock, and running it in bare Node is what proves
+      // that rather than asserting it in a comment.
+      name: 'qualification-check',
+      root: './packages/qualification-check',
       environment: 'node',
       include: ['src/**/*.test.ts'],
     },

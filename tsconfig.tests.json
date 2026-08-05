@@ -31,6 +31,13 @@
       "@platform-toolkit/domain": ["./packages/domain/src/index.ts"],
       "@platform-toolkit/ingestion": ["./packages/ingestion/src/index.ts"],
       "@platform-toolkit/preferences": ["./packages/preferences/src/index.ts"],
+      "@platform-toolkit/qualification-check": ["./packages/qualification-check/src/index.ts"],
+      "@platform-toolkit/qualification-check/core": [
+        "./packages/qualification-check/src/core/index.ts"
+      ],
+      "@platform-toolkit/qualification-check/types": [
+        "./packages/qualification-check/src/types.ts"
+      ],
       "@platform-toolkit/ui": ["./packages/ui/src/index.ts"]
     }
   },

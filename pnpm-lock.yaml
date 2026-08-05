@@ -154,6 +154,15 @@ importers:
         specifier: 1.4.2
         version: 1.4.2(typescript@6.0.3)
 
+  packages/qualification-check:
+    dependencies:
+      '@platform-toolkit/data-contracts':
+        specifier: workspace:*
+        version: link:../data-contracts
+      '@platform-toolkit/domain':
+        specifier: workspace:*
+        version: link:../domain
+
   packages/ui:
     dependencies:
       '@platform-toolkit/configuration':

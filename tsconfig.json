@@ -8,6 +8,7 @@
     { "path": "./packages/configuration" },
     { "path": "./packages/ingestion" },
     { "path": "./packages/preferences" },
+    { "path": "./packages/qualification-check" },
     { "path": "./packages/ui" },
     { "path": "./apps/web" }
   ]
