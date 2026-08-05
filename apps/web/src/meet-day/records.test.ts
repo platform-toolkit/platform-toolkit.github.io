@@ -30,6 +30,7 @@ import {
   EMPTY_RECORD_STATES,
   RECORD_SUBJECTS,
   buildMeetRecord,
+  isBlankRecord,
   liftForSubject,
   marginRulesFrom,
   recordLevelRelationFromValue,
@@ -434,5 +435,50 @@ describe('reading a control value', () => {
    */
   it('lands an unrecognised relation on not sure', () => {
     expect(recordLevelRelationFromValue('above')).toBe('not-sure');
+  });
+});
+
+/**
+ * Whether a fold has anything in it, which decides whether §24's restore flags
+ * it.
+ *
+ * The one caller is the planner's `#markRestored`, and what it does with the
+ * answer is put `RECORD_RESTORED` over the figure. So a field left out of the
+ * check reads a meet whose only answer was that field as never answered, and the
+ * caveat goes missing on the one fold that has something to be stale about; a
+ * check that answered `false` for an untouched state would put the caveat over
+ * four empty boxes on the first meet anybody reopens. Both directions cost the
+ * sentence its meaning, so both are pinned.
+ */
+describe('whether a record has been answered', () => {
+  it('reads an untouched state as blank', () => {
+    expect(isBlankRecord(EMPTY_RECORD_STATE)).toBe(true);
+  });
+
+  it('reads each field on its own as an answer', () => {
+    // Invented figures (§5.1): no list this repository ships contains either.
+    expect(isBlankRecord({ ...EMPTY_RECORD_STATE, kilograms: '182.5' })).toBe(false);
+    expect(isBlankRecord({ ...EMPTY_RECORD_STATE, levelLabel: 'Masters 2' })).toBe(false);
+    expect(isBlankRecord({ ...EMPTY_RECORD_STATE, unclaimed: true })).toBe(false);
+    expect(isBlankRecord({ ...EMPTY_RECORD_STATE, totalFromOtherLifts: '410' })).toBe(false);
+  });
+
+  it('reads either stated relation as an answer', () => {
+    // The one field with a non-empty default, so it is the one a check could
+    // plausibly have skipped. A lifter who answered only where the record sits
+    // relative to the meet has told the fold something worth flagging.
+    expect(isBlankRecord({ ...EMPTY_RECORD_STATE, levelRelation: 'below-the-meet' })).toBe(false);
+    expect(isBlankRecord({ ...EMPTY_RECORD_STATE, levelRelation: 'at-or-above-the-meet' })).toBe(
+      false,
+    );
+  });
+
+  it('reads a state rebuilt through JSON as blank', () => {
+    // Why this is structural rather than `state === EMPTY_RECORD_STATE`. Every
+    // state the caller sees came off a file through `JSON.parse`, so an identity
+    // check would answer `false` for all four subjects of every restored meet.
+    const parsed: unknown = JSON.parse(JSON.stringify(EMPTY_RECORD_STATE));
+    expect(parsed).not.toBe(EMPTY_RECORD_STATE);
+    expect(isBlankRecord(parsed as MeetRecordState)).toBe(true);
   });
 });

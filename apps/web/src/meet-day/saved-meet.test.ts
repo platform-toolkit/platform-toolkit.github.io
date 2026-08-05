@@ -33,10 +33,17 @@ import { describe, expect, it } from 'vitest';
 
 import { EMPTY_PREP, type MeetPrep } from './prep.js';
 import {
+  EMPTY_RECORD_STATE,
+  EMPTY_RECORD_STATES,
+  type MeetRecordState,
+  type RecordStates,
+} from './records.js';
+import {
   EMPTY_LIBRARY,
   EMPTY_SAVED_STATE,
   MEET_LIBRARY_MAX,
   MEET_NAME_MAX,
+  NO_RECORD_ANSWERS,
   NO_WARMUP_ANSWERS,
   SAVED_MEET_METHODOLOGY_VERSION,
   SAVED_MEET_VERSION,
@@ -49,6 +56,7 @@ import {
   duplicateMeet,
   findMeet,
   fromSavedPrep,
+  fromSavedRecords,
   fromSavedWarmup,
   importMeets,
   type MeetLibrary,
@@ -61,6 +69,7 @@ import {
   type SavedMeet,
   saveMeetState,
   toSavedPrep,
+  toSavedRecords,
   toSavedWarmup,
 } from './saved-meet.js';
 import {
@@ -189,6 +198,65 @@ describe("§20's warm-up answers", () => {
     expect(NO_WARMUP_ANSWERS.states).toBe(EMPTY_WARMUP_STATES);
     expect(NO_WARMUP_ANSWERS.byLifter.size).toBe(0);
     expect(EMPTY_SAVED_STATE.warmup).toBeNull();
+  });
+});
+
+describe("§19's record answers", () => {
+  // Invented figures throughout (§5.1). 217.5 is not a record anybody holds; it
+  // is a number that survives a round trip visibly and is not on any list this
+  // repository ships.
+  const answered: MeetRecordState = {
+    ...EMPTY_RECORD_STATE,
+    kilograms: '217.5',
+    levelLabel: 'State',
+    unclaimed: true,
+    levelRelation: 'below-the-meet',
+  };
+  const states: RecordStates = { ...EMPTY_RECORD_STATES, deadlift: answered };
+
+  it('carries all three fields there and back', () => {
+    const back = fromSavedRecords(
+      toSavedRecords({ states, subject: 'total', byLifter: new Map([['lifter-2', states]]) }),
+    );
+    expect(back.subject).toBe('total');
+    expect(back.states.deadlift.kilograms).toBe('217.5');
+    expect(back.states.deadlift.unclaimed).toBe(true);
+    expect(back.states.deadlift.levelRelation).toBe('below-the-meet');
+    expect(back.byLifter.get('lifter-2')?.deadlift.levelLabel).toBe('State');
+  });
+
+  it('writes the board as a list rather than an object', () => {
+    // `JSON.stringify` writes a `Map` as `{}`, the same silence `MeetPrep.done`
+    // and §20's board are saved as lists to avoid. Read back through `unknown`
+    // rather than off `JSON.parse`'s `any`, for the reason the prep test gives.
+    const written: unknown = JSON.parse(
+      JSON.stringify(
+        toSavedRecords({ states, subject: 'squat', byLifter: new Map([['a', states]]) }),
+      ),
+    );
+    if (typeof written !== 'object' || written === null || !('byLifter' in written)) {
+      throw new Error('The written records have no board at all.');
+    }
+    expect(Array.isArray(written.byLifter)).toBe(true);
+    expect(written.byLifter).toHaveLength(1);
+  });
+
+  it('keeps a lifter filed under `constructor` out of the prototype', () => {
+    const back = fromSavedRecords({
+      states: EMPTY_RECORD_STATES,
+      subject: 'squat',
+      byLifter: [{ lifterId: 'constructor', states }],
+    });
+    expect(back.byLifter.get('constructor')?.deadlift.kilograms).toBe('217.5');
+    expect(back.byLifter.get('__proto__')).toBeUndefined();
+    expect(back.byLifter.size).toBe(1);
+  });
+
+  it('answers the empties for a meet saved before records were kept', () => {
+    expect(fromSavedRecords(null)).toBe(NO_RECORD_ANSWERS);
+    expect(NO_RECORD_ANSWERS.states).toBe(EMPTY_RECORD_STATES);
+    expect(NO_RECORD_ANSWERS.byLifter.size).toBe(0);
+    expect(EMPTY_SAVED_STATE.records).toBeNull();
   });
 });
 

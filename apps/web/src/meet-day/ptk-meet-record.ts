@@ -38,6 +38,15 @@
  * state including both refusals, in the domain's own words, and it is the last
  * thing in the answer block rather than the first: a sentence above the figures
  * is read once and a sentence under them is read every time the figures are.
+ *
+ * {@link PtkMeetRecord.restored} is the second half of that and is a different
+ * claim, which is why it is a second sentence in a different place rather than
+ * more words in the same one. `verifyWithOfficials` asks whether the *attempt*
+ * qualifies under the rules; `restored` says the *number* is one this meet was
+ * saved with rather than one somebody has just read off a list. It sits with the
+ * intro, above the figures, because it is about where they came from -- and a
+ * caveat about provenance is read once, which is exactly the placement the
+ * paragraph above rejects for the other sentence.
  */
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
@@ -81,6 +90,7 @@ import {
   RECORD_RELATION_HINT,
   RECORD_RELATION_LABEL,
   RECORD_REQUIRES_PERMISSION,
+  RECORD_RESTORED,
   RECORD_TOTAL_SO_FAR_HINT,
   RECORD_TOTAL_SO_FAR_LABEL,
   recordBlockSentence,
@@ -234,6 +244,18 @@ export class PtkMeetRecord extends LitElement {
    */
   @property({ attribute: false }) attempt: RecordAttemptSubject | null = null;
 
+  /**
+   * Whether these answers came off a saved meet and have not been retyped since.
+   *
+   * Decided by the caller and not by this element, which could not decide it: the
+   * fact is about where the object came from, and by the time it arrives here it
+   * is a `MeetRecordState` like any other. The planner holds the provenance
+   * (`#restoredRecords`) and answers this per subject and per lifter, so opening
+   * the next athlete on §21's board asks the question again rather than carrying
+   * the last one's answer across.
+   */
+  @property({ type: Boolean }) restored = false;
+
   override render(): TemplateResult {
     const view =
       this.attempt === null ? null : buildMeetRecord(this.state, this.subject, this.attempt);
@@ -242,6 +264,7 @@ export class PtkMeetRecord extends LitElement {
         <section>
           <h3>${RECORD_HEADING}</h3>
           <p>${RECORD_INTRO}</p>
+          ${this.restored ? html`<ptk-notice>${RECORD_RESTORED}</ptk-notice>` : nothing}
         </section>
         ${this.#renderAnswer(view)} ${this.#renderQuestions(view)}
       </div>

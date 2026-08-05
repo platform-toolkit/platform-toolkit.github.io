@@ -4439,6 +4439,31 @@ export const RECORD_HEADING = 'Record attempt';
 export const RECORD_INTRO =
   "Type the record off your federation's own list and this works out the lightest attempt that takes it, by each of the two routes to it.";
 
+/**
+ * What a restored answer is, said where the restored answer is.
+ *
+ * The one caveat this fold owes a lifter in exchange for §24 saving the figure
+ * at all -- `SavedRecords` argues the trade. Three things about the wording are
+ * decisions:
+ *
+ * It carries **no date and no interval**. There is no date formatter in this
+ * tool, `updatedAt` moves whenever any part of the meet is edited and would
+ * therefore report a record as fresher than it is, and under §5.5's rule the
+ * vague version is the safe one: "earlier" cannot overstate how recent the
+ * figure is, and "yesterday" can.
+ *
+ * It says **check**, not "this may be out of date". A caveat that only doubts
+ * the figure leaves the lifter holding it with nothing to do; the sentence has to
+ * name the action, and the action is the same one the fold asked for in the first
+ * place -- open the list.
+ *
+ * It does not repeat `verifyWithOfficials`, which is under the figures already
+ * and is a different claim: that one is about whether the attempt qualifies under
+ * the rules, and this one is about whether the number was ever right.
+ */
+export const RECORD_RESTORED =
+  "These answers were saved with this meet earlier. Check the record against your federation's current list before you plan an attempt on it.";
+
 export const RECORD_SUBJECT_LABEL = 'Which record are you going for';
 
 /** A total is a record a lifter chases and is not a lift, so it is named apart. */

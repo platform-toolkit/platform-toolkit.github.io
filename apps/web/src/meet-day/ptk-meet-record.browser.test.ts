@@ -503,6 +503,49 @@ describe('ptk-meet-record', () => {
   });
 
   /*
+   * The caveat §24 owes a lifter for saving these answers at all.
+   */
+
+  it('says nothing about where the answers came from by default', async () => {
+    // The default matters more than it looks. Every fold a lifter types into
+    // fresh renders through this path, so a flag defaulting the other way would
+    // caveat a figure read off a list thirty seconds ago.
+    expect(deepTextOf(await mount(aRecordAtThisLevel()))).not.toContain(
+      'saved with this meet earlier',
+    );
+  });
+
+  it('names a restored answer as one that was saved earlier', async () => {
+    const element = await mount(aRecordAtThisLevel());
+    element.restored = true;
+    await element.updateComplete;
+    expect(deepTextOf(element)).toContain('saved with this meet earlier');
+  });
+
+  it('keeps the mandatory sentence alongside it rather than in place of it', async () => {
+    // The two are different claims -- one about whether the attempt qualifies
+    // under the rules, one about whether the number was ever right -- and the
+    // tempting simplification is to treat the restored caveat as covering both.
+    // §29's sentence has to be on every state, including this one.
+    const element = await mount(aRecordAtThisLevel());
+    element.restored = true;
+    await element.updateComplete;
+    expect(textOf(element, '.record-verify')).not.toBe('');
+    expect(deepTextOf(element)).toContain('saved with this meet earlier');
+  });
+
+  it('caveats a restored answer the rules cannot yet be read against', async () => {
+    // No federation chosen, so there are no routes and the whole answer block is
+    // one refusal. A caveat rendered inside that block would vanish here, which
+    // is exactly the screen a lifter reopens a meet onto before the rule book has
+    // loaded -- with the figure they typed on Thursday sitting in the box.
+    const element = await mount(aRecordAtThisLevel(), 'squat', null);
+    element.restored = true;
+    await element.updateComplete;
+    expect(deepTextOf(element)).toContain('saved with this meet earlier');
+  });
+
+  /*
    * §5.7 and §5.9.
    */
 

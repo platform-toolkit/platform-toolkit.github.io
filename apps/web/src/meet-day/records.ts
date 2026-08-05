@@ -241,6 +241,30 @@ export const EMPTY_RECORD_STATES: RecordStates = {
   total: EMPTY_RECORD_STATE,
 };
 
+/**
+ * Whether nobody has answered anything about this record.
+ *
+ * Structural rather than an identity check against {@link EMPTY_RECORD_STATE},
+ * because the one caller is the restore path and a state that arrived through
+ * `JSON.parse` is a fresh object however empty it is. That is the opposite of the
+ * call `#savedRecords` makes on the way out, where identity is the point and a
+ * deep walk on every keystroke is the thing being avoided -- here it runs once
+ * per restore, over five scalars.
+ *
+ * `levelRelation` is compared against `'not-sure'` rather than being skipped: it
+ * is the one field with a non-empty default, and a lifter who answered only that
+ * one has told the fold something worth flagging as saved.
+ */
+export function isBlankRecord(state: MeetRecordState): boolean {
+  return (
+    state.kilograms === '' &&
+    state.levelLabel === '' &&
+    !state.unclaimed &&
+    state.levelRelation === 'not-sure' &&
+    state.totalFromOtherLifts === ''
+  );
+}
+
 /** Writes one subject's answers, leaving the other three exactly as they were. */
 export function withRecordFor(
   states: RecordStates,

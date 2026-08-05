@@ -567,6 +567,51 @@ const SavedWarmupSchema = v.object({
 
 /*
  * ---------------------------------------------------------------------------
+ * §19's record answers.
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * The four things a federation keeps a record in, spelled here as well.
+ *
+ * `PlatformLift` above is the three lifts an attempt is taken *on* and this is
+ * the four a record is kept in, so neither can be derived from the other -- which
+ * is the same distinction `RecordSubject` exists to hold on the live side.
+ */
+const RecordLift = v.picklist(['squat', 'bench', 'deadlift', 'total'] as const);
+
+const MeetRecordStateSchema = v.object({
+  kilograms: Figure,
+  /**
+   * Capped well above a level name and well below a paragraph.
+   *
+   * Longer than `Figure` because this one is words rather than a number -- "Open
+   * American, drug tested" is a real thing to have copied off a list -- and
+   * capped at all for `text`'s reason: it is shown back inside a control that was
+   * laid out for two words on a 320-pixel column.
+   */
+  levelLabel: text(80),
+  unclaimed: v.boolean(),
+  levelRelation: v.picklist(['at-or-above-the-meet', 'below-the-meet', 'not-sure'] as const),
+  totalFromOtherLifts: Figure,
+});
+
+/** Four states, written out for `RecordStates`' own totality reason. */
+const RecordStatesSchema = v.object({
+  squat: MeetRecordStateSchema,
+  bench: MeetRecordStateSchema,
+  deadlift: MeetRecordStateSchema,
+  total: MeetRecordStateSchema,
+});
+
+const SavedRecordsSchema = v.object({
+  states: RecordStatesSchema,
+  subject: RecordLift,
+  byLifter: v.array(v.object({ lifterId: Identifier, states: RecordStatesSchema })),
+});
+
+/*
+ * ---------------------------------------------------------------------------
  * A saved meet, and a file of them.
  * ---------------------------------------------------------------------------
  */
@@ -602,6 +647,16 @@ const SavedMeetStateSchema = v.object({
    * lifter who had planned a meet without one.
    */
   warmup: v.optional(v.nullable(SavedWarmupSchema), null),
+  /**
+   * Optional with a default for `history`'s reason, one release later again.
+   *
+   * Same claim, same shelves, and one extra shelf this time: §19 shipped saving
+   * nothing at all, so the meets written between that release and this one carry
+   * a warm-up and no records. A required field would fail those at the parser
+   * too, and they are the newest meets on the device -- the ones somebody is
+   * mid-way through planning.
+   */
+  records: v.optional(v.nullable(SavedRecordsSchema), null),
 });
 
 export const SavedMeetSchema = v.object({

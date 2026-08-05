@@ -28,11 +28,13 @@ import {
   readSavedMeet,
   writeMeetFile,
 } from './meet-file.js';
+import { EMPTY_RECORD_STATE, EMPTY_RECORD_STATES, type MeetRecordState } from './records.js';
 import {
   EMPTY_SAVED_STATE,
   SAVED_MEET_VERSION,
   type SavedMeet,
   type SavedMeetState,
+  toSavedRecords,
   toSavedWarmup,
 } from './saved-meet.js';
 import {
@@ -504,6 +506,123 @@ describe("§20's warm-up answers", () => {
       text: '60',
     }));
     expect(refusal(readMeetFile(withState({ weights: tooMany })))).toBe('damaged');
+  });
+});
+
+describe("§19's record answers", () => {
+  /** Invented figures (§5.1): no list this repository ships holds either. */
+  const ANSWERED: MeetRecordState = {
+    kilograms: '217.5',
+    levelLabel: 'Open American, drug tested',
+    unclaimed: true,
+    levelRelation: 'below-the-meet',
+    totalFromOtherLifts: '410',
+  };
+
+  const CLAIMED: SavedMeet = {
+    ...MEET,
+    state: {
+      ...EMPTY_SAVED_STATE,
+      records: toSavedRecords({
+        states: { ...EMPTY_RECORD_STATES, squat: ANSWERED },
+        subject: 'deadlift',
+        byLifter: new Map([['lifter-2', { ...EMPTY_RECORD_STATES, total: ANSWERED }]]),
+      }),
+    },
+  };
+
+  it('comes back field for field, both paths and all', () => {
+    // The warm-up block's reason one fold down, and the board half is again the
+    // part most likely to go missing in silence: a `Map` stringifies to `{}`
+    // without complaint, and the failure a coach sees is four athletes' record
+    // lists simply not being there.
+    const reading = readMeetFile(writeMeetFile([CLAIMED], NOW));
+
+    expect(reading.ok).toBe(true);
+    if (!reading.ok) return;
+    expect(reading.file.meets[0]).toEqual(CLAIMED);
+  });
+
+  /** A meet as a build that had a warm-up fold and no record one wrote it. */
+  function withoutRecords(state: SavedMeetState): Record<string, unknown> {
+    const { records: _records, ...rest } = state;
+    return rest;
+  }
+
+  it('reads a meet saved before there was a record to save', () => {
+    // The same claim as the warm-up's, one release later again, and it now has
+    // to hold for two generations of shelf rather than one: §19 shipped saving
+    // nothing at all, so the meets written between that release and this one
+    // carry a warm-up and no records, and they are the *newest* files on the
+    // device. A required field would fail exactly the meets somebody is
+    // mid-way through planning.
+    const older = readMeetFile(
+      envelope({
+        ...MEET,
+        state: withoutRecords({
+          ...EMPTY_SAVED_STATE,
+          warmup: toSavedWarmup({
+            states: EMPTY_WARMUP_STATES,
+            lift: 'squat',
+            byLifter: new Map(),
+          }),
+        }),
+      }),
+    );
+
+    expect(refusal(older)).toBe('accepted');
+    expect(older.ok ? older.file.meets[0]?.state.records : undefined).toBeNull();
+  });
+
+  it('refuses answers outside the shapes the fold can produce', () => {
+    function withSquat(state: Partial<Record<string, unknown>>): string {
+      return envelope({
+        ...MEET,
+        state: {
+          ...EMPTY_SAVED_STATE,
+          records: {
+            states: { ...EMPTY_RECORD_STATES, squat: { ...EMPTY_RECORD_STATE, ...state } },
+            subject: 'squat',
+            byLifter: [],
+          },
+        },
+      });
+    }
+
+    // A control first: the same shape with nothing wrong in it.
+    expect(refusal(readMeetFile(withSquat({})))).toBe('accepted');
+    // A relation the control cannot answer. It is the one field here that
+    // changes a weight -- `below-the-meet` charges the full loading increment --
+    // so a value the reader does not understand must not arrive as one it does.
+    expect(refusal(readMeetFile(withSquat({ levelRelation: 'above-the-meet' })))).toBe('damaged');
+    // A level label longer than the control it is shown back inside was laid
+    // out for. Free text, but not unbounded free text.
+    expect(refusal(readMeetFile(withSquat({ levelLabel: 'x'.repeat(200) })))).toBe('damaged');
+    // A figure that is a number rather than the typed text the box holds. It
+    // would read back fine and then fail on the first `.trim()`.
+    expect(refusal(readMeetFile(withSquat({ kilograms: 217.5 })))).toBe('damaged');
+  });
+
+  it('refuses a record kept in something this tool does not contest', () => {
+    // `RecordLift` is the four subjects a record is kept *in*, which is not the
+    // three lifts an attempt is taken *on* -- so this picklist cannot be derived
+    // from `PlatformLift` and has to be refused on its own terms. A subject the
+    // picker has no tile for would land the fold on a record nobody can choose.
+    function on(subject: unknown): string {
+      return envelope({
+        ...MEET,
+        state: {
+          ...EMPTY_SAVED_STATE,
+          records: { states: EMPTY_RECORD_STATES, subject, byLifter: [] },
+        },
+      });
+    }
+
+    // The total is the control, because it is the one subject that is not a
+    // lift: a schema narrowed to the three contested lifts would refuse it, and
+    // a schema widened to every lift would accept the press below.
+    expect(refusal(readMeetFile(on('total')))).toBe('accepted');
+    expect(refusal(readMeetFile(on('push-press')))).toBe('damaged');
   });
 });
 

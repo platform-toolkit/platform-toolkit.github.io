@@ -65,6 +65,7 @@ import {
   KEEP_ANSWER,
   MEET_IS_RUNNING_NOTE,
   RECORD_NEEDS_A_FIGURE,
+  RECORD_RESTORED,
   ROSTER_NEEDS_A_FEDERATION,
   SOLO_MODE,
   START_MEET_NEEDS_A_PLAN,
@@ -3602,6 +3603,114 @@ describe('ptk-meet-day-planner', () => {
       expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
     });
 
+    it("saves §19's answers with the meet and brings them back", async () => {
+      // §13.20's shape one fold down, with one thing in it that fold did not
+      // have: the picker's position is saved only where there is an answer to
+      // save it with, so the two reads of the store either side of the typing
+      // are asserting different things. The first is that a coach who moved the
+      // picker and typed nothing wrote no record at all -- had it written an
+      // empty `SavedRecords`, `#markRestored` would flag four untouched boxes on
+      // the next open -- and the second is that the position came along once
+      // there was.
+      //
+      // The name goes first for §13.18's reason: `#save` returns while there is
+      // no open meet id, so an answer typed before the meet is named is written
+      // only by the save naming itself performs, and a test that names last
+      // passes against a root that performs no per-change save at all.
+      //
+      // The deadlift because it is neither the subject the fold opens on nor the
+      // first the format contests -- the same axis §13.22 paid for twice, here
+      // on the way to the disk.
+      const store = sessionMeets();
+      const element = await planned({ store });
+      await nameMeet(element, 'Winter Open');
+      await openRecord(element);
+      await choose(element, RECORD_SUBJECT_FIELD, 'deadlift');
+
+      const before = await stored(store);
+      expect(before.meets[0]?.state.records).toBeNull();
+
+      await typeRecord(element, '250');
+      await afterStorage(element);
+
+      const after = await stored(store);
+      expect(after.meets[0]?.state.records?.states.deadlift.kilograms).toBe('250');
+      expect(after.meets[0]?.state.records?.subject).toBe('deadlift');
+
+      // A build that has only ever seen the store, which is what a lifter
+      // opening the tool on the Saturday morning is. Read through the route
+      // rather than off the box for the reason `routeTexts` gives.
+      const reopened = await mountShelved({ store });
+      await openRecord(reopened);
+
+      expect(recordSubjectShown(reopened)).toBe('deadlift');
+      expect(routeTexts(reopened)[0]).toContain(OFF_A_SECOND_RECORD);
+
+      // And the picker follows on its own from here, with nothing else typed.
+      // The first read above says the position is not worth a `SavedRecords` of
+      // its own; this one says that once there is one, moving the picker rewrites
+      // it -- which is `#snapshot` carrying `recordSubject`. Without that field a
+      // coach who typed the deadlift record and then moved the fold onto the
+      // bench to read it would reopen tomorrow on the deadlift, which is a
+      // question they have already answered.
+      await choose(element, RECORD_SUBJECT_FIELD, 'bench');
+      await afterStorage(element);
+
+      expect((await stored(store)).meets[0]?.state.records?.subject).toBe('bench');
+    });
+
+    it('says a restored record was saved earlier, and stops saying it once it is retyped', async () => {
+      // What §24 saving these answers is paid for with. The caveat is the whole
+      // of the reversal argued in `SavedRecords`, so all three of its edges are
+      // here: it is absent on a fold nobody typed into, present on the one
+      // somebody did, and gone the moment the figure it is about is replaced.
+      //
+      // **The deadlift control is the half that costs the sentence its meaning
+      // if it goes wrong.** `RecordStates` is total over the four subjects, so
+      // this restored meet carries four states and three of them are empty
+      // boxes. A `#markRestored` that skipped `isBlankRecord` would put the
+      // caveat over every one of them, on every meet anybody ever reopens.
+      //
+      // **The retype is the half a boolean would fail.** A single flag cleared
+      // on the first keystroke passes the first two assertions and the last one
+      // too; what it cannot do is keep the caveat on the other three folds while
+      // one is being retyped, which is why the identity check exists and why the
+      // squat is checked again after the deadlift has been looked at.
+      const store = sessionMeets();
+      const element = await planned({ store });
+      await nameMeet(element, 'Winter Open');
+      await openRecord(element);
+      await typeRecord(element, '200');
+      await afterStorage(element);
+
+      // Nothing is said about a figure somebody has just typed. Without this the
+      // assertions below pass against a fold that carries the caveat always.
+      expect(answerText(element)).not.toContain(RECORD_RESTORED);
+
+      const reopened = await mountShelved({ store });
+      await openRecord(reopened);
+
+      expect(answerText(reopened)).toContain(RECORD_RESTORED);
+      expect(routeTexts(reopened)[0]).toContain(OFF_THE_BAT);
+
+      await choose(reopened, RECORD_SUBJECT_FIELD, 'deadlift');
+
+      expect(recordSubjectShown(reopened)).toBe('deadlift');
+      expect(answerText(reopened)).not.toContain(RECORD_RESTORED);
+
+      await choose(reopened, RECORD_SUBJECT_FIELD, 'squat');
+
+      expect(answerText(reopened)).toContain(RECORD_RESTORED);
+
+      await typeRecord(reopened, '205');
+
+      expect(answerText(reopened)).not.toContain(RECORD_RESTORED);
+      // The control on the retype: the fold is still answering, so the sentence
+      // went away because the figure was replaced rather than because the whole
+      // fold stopped rendering.
+      expect(routeTexts(reopened)[0]).toContain('205.5 kg');
+    });
+
     describe('on the coach path', () => {
       const SQUATTER = 'Okonkwo';
       const PRESSER = 'Vasquez';
@@ -3620,8 +3729,11 @@ describe('ptk-meet-day-planner', () => {
       }
 
       /** A running board carrying one row per name. */
-      async function coachBoardWith(names: readonly string[]): Promise<PtkMeetDayPlanner> {
-        const element = await mount();
+      async function coachBoardWith(
+        names: readonly string[],
+        options: Options = {},
+      ): Promise<PtkMeetDayPlanner> {
+        const element = await mount(options);
         await choose(element, MODE_FIELD, COACH_MODE);
         await choose(element, FEDERATION_FIELD, PROFILE_FIXTURES[0]?.id ?? '');
         for (const name of names) {
@@ -3757,6 +3869,117 @@ describe('ptk-meet-day-planner', () => {
         // margin, which is the honest answer and not a rounding of it.
         expect(afterAGoodOpener).toContain('221 kg');
         expect(afterAGoodOpener).not.toContain('200.5');
+      });
+
+      it("saves a board lifter's record answers under their own id", async () => {
+        // §13.19's M9 shape, on the fold's second field with no on-screen
+        // observable. `#savedRecords` writes the solo states, the picker's
+        // subject and the board's answers as one object, so a `byLifter` dropped
+        // at that seam is invisible to every DOM assertion in this block -- the
+        // fold on screen goes on showing what was typed either way (§13.14) --
+        // and shows up as a coach reopening the meet on the Saturday morning
+        // with four athletes' record lists gone.
+        //
+        // Two lifters and the one that answers is the second, because a board
+        // with one on it cannot tell "the lifter that is open" from "the first
+        // lifter on the roster".
+        const store = sessionMeets();
+        const element = await coachBoardWith([PRESSER, SQUATTER], { store });
+        await nameMeet(element, 'Regional Open');
+        await openNamed(element, SQUATTER);
+        await openRecord(element);
+        await typeRecord(element, '200');
+        await afterStorage(element);
+
+        const saved = (await stored(store)).meets[0]?.state.records;
+        expect(saved?.byLifter).toHaveLength(1);
+        // The control, and the half that says the two paths are filed apart
+        // rather than one being written over the other: nobody has answered
+        // anything on the solo fold, so its squat is still the empty one.
+        expect(saved?.states.squat.kilograms).toBe('');
+      });
+
+      it("brings each board lifter's records back onto their own row", async () => {
+        // The other half of the M9 above and the case `SavedRecords` is
+        // actually written for: four athletes, four subjects each, typed on the
+        // Thursday with the federation's list open and read at the rack on the
+        // Saturday. `#restore` reads `byLifter` back into `coachRecords`, and a
+        // restore that dropped it saves the coach's evening and hands it back
+        // empty -- which every solo assertion in this block passes right
+        // through, because the solo states restore from a different field.
+        //
+        // The second lifter answers, again, so "the lifter that is open" cannot
+        // be satisfied by "the first on the roster" on the way back either.
+        const store = sessionMeets();
+        const element = await coachBoardWith([PRESSER, SQUATTER], { store });
+        await nameMeet(element, 'Regional Open');
+        await openNamed(element, SQUATTER);
+        await openRecord(element);
+        await typeRecord(element, '200');
+        // Back to the board before the meet is put down, because `#restore`
+        // brings the open lifter back too: left on the athlete's screen, the
+        // reopen would land on a template with no board on it and the lookup
+        // below would have nothing to be wrong about.
+        await backToBoard(element);
+        await afterStorage(element);
+
+        const reopened = await mountShelved({ store });
+        await openNamed(reopened, SQUATTER);
+        await openRecord(reopened);
+
+        expect(routeTexts(reopened)[0]).toContain(OFF_THE_BAT);
+        expect(answerText(reopened)).toContain(RECORD_RESTORED);
+
+        // The control, and the reason the caveat is asked per state object
+        // rather than once per restore: the athlete nobody answered for has
+        // nothing to be stale, so their fold says nothing about where it came
+        // from and offers no route.
+        await backToBoard(reopened);
+        await openNamed(reopened, PRESSER);
+        await openRecord(reopened);
+
+        expect(routeTexts(reopened)).toEqual([]);
+        expect(answerText(reopened)).not.toContain(RECORD_RESTORED);
+      });
+
+      it('files nothing in the saved meet for a report that arrives with nobody open', async () => {
+        // The other side of "writes nothing when a report arrives with nobody
+        // open" above, and the reason that one had to wait for this task. Until
+        // §19's answers were saved, a record filed under a fabricated lifter id
+        // rendered nowhere and `#onRecordChange`'s `openLifterId ?? null` was an
+        // unkillable mutation survivor -- the documented one §13.22 left behind.
+        // Now the same fabricated id is a `byLifter` entry written into the
+        // lifter's own document and carried to every device it is exported to,
+        // for an athlete who is not on the roster.
+        //
+        // The assertion is on the *whole* field rather than on the length of the
+        // list: `#savedRecords` answers `null` where nothing has been typed on
+        // either path, so a handler that invented an id writes a record where
+        // there should be no record at all.
+        const store = sessionMeets();
+        const element = await coachBoardWith([SQUATTER], { store });
+        await nameMeet(element, 'Regional Open');
+
+        const forged = document.createElement('div');
+        forged.dataset[RECORD_SUBJECT_ATTRIBUTE] = 'squat';
+        element.append(forged);
+        teardown.push(() => {
+          forged.remove();
+        });
+
+        forged.dispatchEvent(aRecordReport());
+        await afterStorage(element);
+
+        expect((await stored(store)).meets[0]?.state.records).toBeNull();
+
+        // The control: the same report from the same node once somebody is open.
+        // Without it this passes against a root that saves no record ever.
+        await openNamed(element, SQUATTER);
+        await openRecord(element);
+        recordElement(element).dispatchEvent(aRecordReport());
+        await afterStorage(element);
+
+        expect((await stored(store)).meets[0]?.state.records?.byLifter).toHaveLength(1);
       });
     });
   });

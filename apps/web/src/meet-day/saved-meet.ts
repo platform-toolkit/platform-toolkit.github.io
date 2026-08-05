@@ -49,6 +49,13 @@ import {
 } from '@platform-toolkit/domain';
 
 import { EMPTY_PREP, type CustomChecklistItem, type LifterSetup, type MeetPrep } from './prep.js';
+import {
+  EMPTY_RECORD_STATES,
+  NO_RECORDS,
+  type RecordStates,
+  type RecordSubject,
+  type RecordsByLifter,
+} from './records.js';
 import { EMPTY_SESSION, type PlannerSession } from './session.js';
 import {
   EMPTY_WARMUP_STATES,
@@ -238,6 +245,115 @@ export function fromSavedWarmup(saved: SavedWarmup | null): WarmupAnswers {
   };
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * §19's record answers.
+ * ---------------------------------------------------------------------------
+ */
+
+/** One lifter's four records on the coach path. */
+export interface SavedLifterRecords {
+  readonly lifterId: string;
+  readonly states: RecordStates;
+}
+
+/**
+ * §19's answers, and the reversal of the decision that shipped beside them.
+ *
+ * WHY THIS IS SAVED, HAVING BEEN DOCUMENTED AS DELIBERATELY NOT SAVED
+ *
+ * The field's own comment in the planner said the opposite for one release, and
+ * the argument it made is still true as far as it goes: this fold is a scratch
+ * pad in front of a federation's published list, the list is the source, and a
+ * figure restored six weeks later is worse than an empty box **because it looks
+ * answered**. What that argument got wrong was treating "looks answered" as a
+ * property of saving rather than as a property of saying nothing about it. A
+ * saved figure the screen flags as saved does not look answered; it looks like
+ * what it is.
+ *
+ * Against it stands the case {@link SavedWarmup} already settled one fold up.
+ * These answers are filled in on the Thursday evening with the record list open
+ * in another tab, and they are read at the rack on the Saturday -- across a
+ * reload, a phone restart, and in a gym with one bar of signal, which is
+ * precisely when the list cannot be opened again. A coach is worse off still:
+ * four athletes, four subjects each, retyped on the morning of the meet from a
+ * list they must now find twice.
+ *
+ * WHAT THE FLAG IS AND WHY IT IS NOT A DATE
+ *
+ * The staleness caveat is carried by the fold, next to the figure, for as long
+ * as the restored answer is still the restored answer -- see the planner's
+ * `#restoredRecords`. It carries no date. There is no date formatter anywhere in
+ * this tool and adding one for a caveat would bring a locale and a time zone into
+ * a screen that has neither; `SavedMeet.updatedAt` was the other candidate and is
+ * worse than none, because it moves when any part of the meet is edited and so
+ * reports a record as fresher than it is. Under §5.5's rounding instinct, an
+ * unqualified "saved earlier" is the safe direction and a reassuring timestamp is
+ * not.
+ *
+ * It is also **not** carried through `#restoreReport`. That method returns
+ * exactly one of three sentences by design, so a record caveat added to it would
+ * be suppressed by any rule-book drift -- and a rule book that moved is the case
+ * where a record is most likely to have moved too.
+ *
+ * WHY THE FIELD IS NULLABLE
+ *
+ * Not for {@link SavedWarmup}'s size reason, which does not apply: a
+ * `MeetRecordState` is five short strings and a boolean, so four of them are
+ * bytes rather than kilobytes. `null` is here because it is the difference
+ * between "nobody has typed a record" and "somebody typed one and it is
+ * however old this file is", and the caveat above is the thing that reads it. An
+ * always-present empty answer would collapse those two into one.
+ *
+ * `byLifter` is sparse for {@link SavedWarmup}'s reason and comes back through
+ * `new Map(...)` in {@link fromSavedRecords} for its `Object.prototype` reason.
+ */
+export interface SavedRecords {
+  /** The solo path's four records, total over `RecordSubject`. */
+  readonly states: RecordStates;
+  /** Which record the fold was showing. A choice, so it is restored rather than reset. */
+  readonly subject: RecordSubject;
+  /** §21's board, only for the lifters somebody has answered for. */
+  readonly byLifter: readonly SavedLifterRecords[];
+}
+
+/** The same three as the planner holds them, for {@link WarmupAnswers}' reason. */
+export interface RecordAnswers {
+  readonly states: RecordStates;
+  readonly subject: RecordSubject;
+  readonly byLifter: RecordsByLifter;
+}
+
+/**
+ * Nothing typed, which is what a restored meet with no records in it becomes.
+ *
+ * `'squat'` repeats the planner's own picker default for {@link
+ * NO_WARMUP_ANSWERS}' reason, and drifting from it would show up the same way:
+ * every restored meet opening the fold on the wrong record.
+ */
+export const NO_RECORD_ANSWERS: RecordAnswers = {
+  states: EMPTY_RECORD_STATES,
+  subject: 'squat',
+  byLifter: NO_RECORDS,
+};
+
+export function toSavedRecords(answers: RecordAnswers): SavedRecords {
+  return {
+    states: answers.states,
+    subject: answers.subject,
+    byLifter: [...answers.byLifter].map(([lifterId, states]) => ({ lifterId, states })),
+  };
+}
+
+export function fromSavedRecords(saved: SavedRecords | null): RecordAnswers {
+  if (saved === null) return NO_RECORD_ANSWERS;
+  return {
+    states: saved.states,
+    subject: saved.subject,
+    byLifter: new Map(saved.byLifter.map((entry) => [entry.lifterId, entry.states])),
+  };
+}
+
 /** Which of §6.1's two screens the meet was being run from. */
 export type SavedMode = 'solo' | 'coach';
 
@@ -365,6 +481,12 @@ export interface SavedMeetState {
    * {@link SavedWarmup} for why the answers are here and the schedule is not.
    */
   readonly warmup: SavedWarmup | null;
+  /**
+   * §19's answers, or `null` where nobody has typed a record. See
+   * {@link SavedRecords}, which reverses a decision shipped one release earlier
+   * and says what the screen now owes a lifter in exchange.
+   */
+  readonly records: SavedRecords | null;
 }
 
 export const EMPTY_SAVED_STATE: SavedMeetState = {
@@ -377,6 +499,7 @@ export const EMPTY_SAVED_STATE: SavedMeetState = {
   openLifterId: null,
   history: null,
   warmup: null,
+  records: null,
 };
 
 export interface SavedMeet {

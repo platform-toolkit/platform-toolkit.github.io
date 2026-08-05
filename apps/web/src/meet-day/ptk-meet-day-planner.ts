@@ -327,6 +327,7 @@ import {
   EMPTY_RECORD_STATES,
   NO_RECORDS,
   RECORD_SUBJECTS,
+  isBlankRecord,
   liftForSubject,
   recordSubjectIn,
   recordSubjectsIn,
@@ -349,6 +350,7 @@ import {
   deleteMeet,
   duplicateMeet,
   fromSavedPrep,
+  fromSavedRecords,
   fromSavedWarmup,
   importMeets,
   openMeet,
@@ -357,14 +359,17 @@ import {
   renameMeet,
   saveMeetState,
   toSavedPrep,
+  toSavedRecords,
   toSavedWarmup,
   type ImportPreview,
   type LibraryChange,
   type MeetLibrary,
+  type RecordAnswers,
   type SavedCoachEntry,
   type SavedHistory,
   type SavedMeet,
   type SavedMeetState,
+  type SavedRecords,
   type SavedWarmup,
 } from './saved-meet.js';
 import {
@@ -519,7 +524,9 @@ interface CoachRun extends RunningMeet {
  * and `coach`, because they are answered from the *planning* screen as well --
  * §20's fold is open the night before, with no run of either kind. Reading them
  * off a run would mean an evening's worth of answers that auto-save records as
- * no change at all.
+ * no change at all. §19's three are here for exactly that reason and are the
+ * case that proves it: the record fold is answerable from the moment a
+ * federation is chosen, which is earlier than either run exists.
  */
 interface StateSnapshot {
   readonly mode: PlannerMode;
@@ -530,6 +537,9 @@ interface StateSnapshot {
   readonly warmups: WarmupStates;
   readonly warmupLift: PlatformLift;
   readonly coachWarmups: WarmupsByLifter;
+  readonly records: RecordStates;
+  readonly recordSubject: RecordSubject;
+  readonly coachRecords: RecordsByLifter;
 }
 
 @customElement('ptk-meet-day-planner')
@@ -1018,12 +1028,14 @@ export class PtkMeetDayPlanner extends LitElement {
    * separate figures off the same published list, and a shared state would hand
    * them the squat record under a heading saying deadlift.
    *
-   * **Deliberately not saved with the meet.** §24's file carries what the tool
-   * cannot recompute, and a record is a figure the lifter copied off a
-   * federation's own list minutes ago -- the list is the source, this is a
-   * scratch pad in front of it, and a stale figure restored from a file six
-   * weeks later is worse than an empty box, because it looks answered. Filed as
-   * task #85 to revisit if a record book is ever read for them.
+   * **Saved with the meet, and flagged on the way back.** This field carried the
+   * opposite comment for one release -- that a record is a scratch pad in front
+   * of a federation's list and a stale figure restored six weeks later is worse
+   * than an empty box because it looks answered. `SavedRecords` reverses it and
+   * says why at length: the objection is to *silence* about a restored figure
+   * rather than to keeping one, and the answers are filled in on the Thursday
+   * with the list open and read at the rack on the Saturday with no signal. What
+   * pays for the reversal is `#restoredRecords` below.
    */
   @state() private records: RecordStates = EMPTY_RECORD_STATES;
 
@@ -1045,6 +1057,38 @@ export class PtkMeetDayPlanner extends LitElement {
    * answers about different people.
    */
   @state() private coachRecords: RecordsByLifter = NO_RECORDS;
+
+  /**
+   * Exactly the record answers that came off a saved meet, by object identity.
+   *
+   * The provenance behind `ptk-meet-record`'s `restored` flag, which is what §24
+   * saving these answers at all is paid for with. It holds the state objects
+   * `#restore` handed over and nothing else, so the fold's question -- "is the
+   * thing I am about to draw still the thing that came off the disk?" -- is one
+   * `has`.
+   *
+   * WHY IDENTITY AND NOT A BOOLEAN
+   *
+   * A single flag cleared on the first keystroke is the obvious version and is
+   * wrong in the direction this whole feature exists to avoid. A coach holds four
+   * lifters times four subjects; retyping one of them would drop the caveat off
+   * the other fifteen, which then look freshly checked and are not. Identity
+   * scopes it exactly, and for free: every writer in `records.ts` replaces the
+   * state wholesale (`withRecordFor` builds a new object, `withRecord` spreads),
+   * so an answer somebody has retyped is a different object and falls out of the
+   * set by having never been in it. That is the same property `#snapshot` and
+   * `#savedWarmup` already rely on, asked from the other end.
+   *
+   * WHY A `WeakSet`
+   *
+   * It is only ever asked `has`, never iterated or counted, and holding strong
+   * references to four states per lifter for every meet ever opened in one
+   * sitting is a retention nobody would notice going wrong. Blank states are
+   * deliberately kept out of it -- see `#markRestored` -- because a fold nobody
+   * typed into has no figure to be stale, and a caveat over an empty box is a
+   * warning about nothing.
+   */
+  readonly #restoredRecords = new WeakSet<MeetRecordState>();
 
   /*
    * ---------------------------------------------------------------------------
@@ -1734,6 +1778,13 @@ export class PtkMeetDayPlanner extends LitElement {
    * `if (lift === null) return;` and `#writeSetupAnswer` refuses a field that is
    * not a setup one. A `data-lift` here would turn the record box into a typed
    * maximum on whichever lift the attribute named.
+   *
+   * `restored` is asked here rather than passed in, and that is what keeps the
+   * caveat honest on the coach path for free: the question is asked of the state
+   * object the caller handed over, so opening the next athlete asks it again
+   * about their answers. A boolean computed by either caller would have to
+   * remember to be per lifter, and `#renderRecord` -- which has no lifter --
+   * would have nothing to remember it with.
    */
   #renderRecordFold(
     subjects: readonly RecordSubject[],
@@ -1754,6 +1805,7 @@ export class PtkMeetDayPlanner extends LitElement {
             .state=${state}
             .subject=${subject}
             .attempt=${attempt}
+            ?restored=${this.#restoredRecords.has(state)}
           ></ptk-meet-record>
         </div>
       </ptk-disclosure>
@@ -3506,7 +3558,7 @@ export class PtkMeetDayPlanner extends LitElement {
    */
 
   /**
-   * The five fields as one object, for `updated`'s identity check.
+   * Every saved field as one object, for `updated`'s identity check.
    *
    * Deliberately the live objects rather than a copy of anything inside them.
    * Every one of §24.1's ten actions replaces the field it writes -- `this.prep
@@ -3527,6 +3579,9 @@ export class PtkMeetDayPlanner extends LitElement {
       warmups: this.warmups,
       warmupLift: this.warmupLift,
       coachWarmups: this.coachWarmups,
+      records: this.records,
+      recordSubject: this.recordSubject,
+      coachRecords: this.coachRecords,
     };
   }
 
@@ -3559,6 +3614,7 @@ export class PtkMeetDayPlanner extends LitElement {
       openLifterId: run?.openLifterId ?? null,
       history: this.#historyEntry(),
       warmup: this.#savedWarmup(),
+      records: this.#savedRecords(),
     };
   }
 
@@ -3591,6 +3647,40 @@ export class PtkMeetDayPlanner extends LitElement {
       states: this.warmups,
       lift: this.warmupLift,
       byLifter: this.coachWarmups,
+    });
+  }
+
+  /**
+   * §19's answers, or `null` where nobody has typed a record.
+   *
+   * `#savedWarmup`'s guard, one fold down, and the identity argument transfers
+   * whole: every writer in `records.ts` replaces the state it touches, so a
+   * `records` still identical to `EMPTY_RECORD_STATES` is one nothing has reached.
+   *
+   * What does **not** transfer is the reason for having a guard at all. The
+   * warm-up's is size -- five kilobytes of plate inventory on every saved meet
+   * whose fold was never opened -- and four record states are a few hundred bytes,
+   * so on size alone this could save unconditionally. It is here because `null` is
+   * the difference the restore reads: `fromSavedRecords(null)` is the empty answer
+   * and nothing is marked, while a `SavedRecords` is answers somebody typed and
+   * every non-blank one of them earns `RECORD_RESTORED`. Saving an empty object
+   * instead would put that caveat over four untouched boxes on the first meet a
+   * lifter ever reopens.
+   *
+   * `recordSubject` is deliberately **not** part of the guard, unlike
+   * `warmupLift` in the method above. It is one answer shared across both paths
+   * and every lifter (`#chooseRecordSubject` says why), so a coach who moved the
+   * picker to the deadlift and typed nothing has expressed a preference about the
+   * question rather than an answer to it -- and writing a `SavedRecords` for it
+   * would flag four blank folds as restored to say so. The picker position is
+   * kept only where there is something to keep it with.
+   */
+  #savedRecords(): SavedRecords | null {
+    if (this.records === EMPTY_RECORD_STATES && this.coachRecords === NO_RECORDS) return null;
+    return toSavedRecords({
+      states: this.records,
+      subject: this.recordSubject,
+      byLifter: this.coachRecords,
     });
   }
 
@@ -3827,6 +3917,16 @@ export class PtkMeetDayPlanner extends LitElement {
     this.warmupLift = warmup.lift;
     this.coachWarmups = warmup.byLifter;
 
+    // §19's three, on the same terms and for the same reason. The marking is the
+    // half that is not a mirror of the warm-up: what came off the disk has to be
+    // distinguishable from what somebody types next, and this is the only moment
+    // the difference is knowable.
+    const records = fromSavedRecords(state.records);
+    this.records = records.states;
+    this.recordSubject = records.subject;
+    this.coachRecords = records.byLifter;
+    this.#markRestored(records);
+
     const context = this.#context();
     const document = state.document;
     if (context !== null && document !== null) {
@@ -3860,6 +3960,36 @@ export class PtkMeetDayPlanner extends LitElement {
 
     this.#say(this.#restoreReport(meet) ?? '', 'info');
     this.#lastSaved = this.#snapshot();
+  }
+
+  /**
+   * Files every restored record answer somebody actually typed.
+   *
+   * Both paths in one walk, because the caveat is per state object and the fold
+   * asks the same question whichever screen drew it.
+   *
+   * **The blank ones are skipped, and that is the whole of the correctness here.**
+   * `RecordStates` is total over the four subjects, so a meet where the lifter
+   * answered only the squat still restores four states -- three of them empty
+   * boxes with nothing in them to have gone stale. Marking those would put
+   * `RECORD_RESTORED` over the deadlift fold of every meet ever reopened, which
+   * is a warning about nothing, and a warning about nothing is how a lifter learns
+   * to read past the one that matters.
+   *
+   * Nothing is ever removed. There is no need: a retyped answer is a new object
+   * (`records.ts` replaces rather than mutates) and was therefore never in the
+   * set, and restoring a second meet marks its own states without the first
+   * meet's being reachable from any field.
+   */
+  #markRestored(answers: RecordAnswers): void {
+    const mark = (states: RecordStates): void => {
+      for (const subject of RECORD_SUBJECTS) {
+        const state = states[subject];
+        if (!isBlankRecord(state)) this.#restoredRecords.add(state);
+      }
+    };
+    mark(answers.states);
+    for (const states of answers.byLifter.values()) mark(states);
   }
 
   /**
@@ -4246,7 +4376,7 @@ function attributeOf(event: Event, name: string): string | null {
 }
 
 /**
- * Whether two snapshots are the same five objects.
+ * Whether two snapshots are the same objects.
  *
  * Reference equality per field, which is exact here because every action in
  * this file replaces the field it writes rather than mutating it. The argument
@@ -4264,7 +4394,10 @@ function sameState(left: StateSnapshot, right: StateSnapshot): boolean {
     left.coach === right.coach &&
     left.warmups === right.warmups &&
     left.warmupLift === right.warmupLift &&
-    left.coachWarmups === right.coachWarmups
+    left.coachWarmups === right.coachWarmups &&
+    left.records === right.records &&
+    left.recordSubject === right.recordSubject &&
+    left.coachRecords === right.coachRecords
   );
 }
 
