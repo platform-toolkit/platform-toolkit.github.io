@@ -790,6 +790,16 @@ function importing(element: PtkMeetDayPlanner): Element | null {
 }
 
 /**
+ * How many macrotasks `chooseFile` will give a file read before it gives up.
+ *
+ * Generous on purpose: the cost of a high number is nothing at all on a machine
+ * that reads the file promptly, since the loop returns on the first poll that
+ * sees an answer, while the cost of a low one is a test that fails on a busy
+ * runner and names the wrong thing when it does.
+ */
+const FILE_READ_POLLS = 100;
+
+/**
  * Hands a file to the shelf's own picker, rather than forging what it reports.
  *
  * The input is visually clipped and reached through a button beside it, which
@@ -804,7 +814,25 @@ async function chooseFile(element: PtkMeetDayPlanner, file: File): Promise<void>
   transfer.items.add(file);
   input.files = transfer.files;
   input.dispatchEvent(new Event('change', { bubbles: true }));
-  await afterStorage(element);
+
+  // Polled rather than waited out, because `#readImport` awaits `file.text()`
+  // and a file read does not settle on the macrotask queue -- it is its own task
+  // source, and how long it takes is the machine's business rather than this
+  // element's. `afterStorage`'s single macrotask happened to be enough on this
+  // laptop and on the runner for months, and then was not: CI failed on
+  // `expect(importing(element)).not.toBeNull()` with the panel simply not open
+  // yet, in a test that had nothing to do with the change under it. Cost a red
+  // deploy of a green commit.
+  //
+  // The condition takes either outcome, because every path through
+  // `#readImport` ends in exactly one of them: a panel, or a refusal on the
+  // shelf. Waiting only for the panel would turn a genuine refusal into a
+  // timeout and report a slow read as a missing sentence.
+  for (let poll = 0; poll < FILE_READ_POLLS; poll += 1) {
+    await afterStorage(element);
+    if (importing(element) !== null || shelfMessage(element) !== '') return;
+  }
+  throw new Error('The chosen file was never read.');
 }
 
 /** Presses the first of the preview's two answers. */
