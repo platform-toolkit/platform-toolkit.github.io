@@ -217,9 +217,19 @@ export class PtkToggleGroup extends LitElement {
     `;
   }
 
+  /**
+   * One option.
+   *
+   * The value is written to the label as an *attribute* as well as to the input
+   * as a property, because a property is invisible to a selector. Without it the
+   * only way to reach one option from outside is its position, and a caller's
+   * list is exactly the kind that grows: `check:narrow` names a plate here, and a
+   * thirteen-denomination list would quietly start measuring a different plate
+   * the day the domain offers a fourteenth.
+   */
   #renderChoice(choice: Choice): TemplateResult {
     return html`
-      <label class="option">
+      <label class="option" data-value=${choice.value}>
         <input
           type="checkbox"
           .value=${choice.value}

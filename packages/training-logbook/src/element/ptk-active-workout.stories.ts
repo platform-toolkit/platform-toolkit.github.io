@@ -18,7 +18,13 @@ import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 
 import type { PtkActiveWorkout } from './ptk-active-workout.js';
-import { AT_LATER, aBodyweightSession, aStartedSession } from './story.fixture.js';
+import {
+  AT_LATER,
+  aBodyweightSession,
+  aKilogramRack,
+  aSparseRack,
+  aStartedSession,
+} from './story.fixture.js';
 
 // Through the package entry and behind an explicit call. See the note in the history
 // stories: a relative import would define every tag a second time and the only symptom
@@ -32,6 +38,12 @@ const meta: Meta<PtkActiveWorkout> = {
   args: {
     session: aStartedSession(),
     unit: 'kg',
+    // Null by default, and that is the tool's own default rather than a story's
+    // convenience: `settings.equipment` stays null until a lifter answers the equipment
+    // section, so every story below except the two that say otherwise is the screen as
+    // most people first meet it -- no diagram at all, which is the correct answer to a
+    // rack nobody has described.
+    equipment: null,
     // Pinned. A story that read the clock would stamp a different instant on every set
     // completed in it, and two reviewers would be looking at different pages.
     now: () => AT_LATER,
@@ -40,6 +52,7 @@ const meta: Meta<PtkActiveWorkout> = {
     <ptk-active-workout
       .session=${args.session}
       .unit=${args.unit}
+      .equipment=${args.equipment}
       .now=${args.now}
     ></ptk-active-workout>
   `,
@@ -105,21 +118,65 @@ export const ShownInPounds: Story = {
 };
 
 /**
+ * The same session once a rack has been described, which is what section 8.2 is for.
+ *
+ * The diagram is the answer to the question the row above it just asked, so it is drawn
+ * under the head and above the editor -- a diagram below the editor would be off the bottom
+ * of a phone on the one row a lifter has open. Under each is what has to *move* since the
+ * set before it, and only where something moves: five sets across draws one instruction and
+ * not five, because a line under each of the last four confirming that nothing has changed
+ * is how a lifter learns to stop reading the one that matters.
+ *
+ * The plates are in the rack's unit and never in the reading unit. Compare `ShownInPounds`:
+ * that story's weights read in pounds and its diagram, were it given a rack, would still
+ * say kilograms -- a lifter who trains at a kilogram gym and thinks in pounds is ordinary,
+ * and the two settings exist to keep those apart.
+ */
+export const WithPlates: Story = {
+  args: {
+    session: aStartedSession({ completed: 1, prefix: 'plates' }),
+    equipment: aKilogramRack(),
+  },
+};
+
+/**
+ * A rack that can build one of the two weights and not the other.
+ *
+ * Both halves on one page, which is the only way to judge either. The squat draws its
+ * plates; the bench says the rack cannot make 70 kg and names what it can make either side,
+ * because a bare "these plates cannot build that" leaves a lifter working out what to type
+ * while standing at the bar. Nothing is blocked and nothing is rounded -- section 8.3 warns,
+ * and the weight stays exactly as it was entered.
+ *
+ * Not coloured as an error for the same reason. A lifter five kilograms off a number their
+ * plates make easily has a working session, and red would say otherwise.
+ */
+export const NotLoadable: Story = {
+  args: { session: aStartedSession({ prefix: 'sparse' }), equipment: aSparseRack() },
+};
+
+/**
  * The narrowest phone still in use (section 5.7), constrained by a wrapper rather than by
  * a viewport parameter -- the wrapper is what the element responds to, and a viewport
  * setting would document a screen the component never sees.
  *
- * The hardest row in the tool: a set kind, a weight and rep count, and two buttons that
- * each have to keep a 44-pixel tap target (48 in this flow, which is the one a lifter uses
- * with cold hands).
+ * The hardest row in the tool: a set kind, a weight and rep count, two buttons that each
+ * have to keep a 44-pixel tap target (48 in this flow, which is the one a lifter uses with
+ * cold hands), and a rack, because a row of plate faces is a run of fixed widths in a
+ * column that has none to spare. It wraps rather than pushing the page sideways, and this
+ * is where that is visible without running the layout check.
  */
 export const Narrow: Story = {
-  args: { session: aStartedSession({ completed: 1, prefix: 'narrow' }) },
+  args: {
+    session: aStartedSession({ completed: 1, prefix: 'narrow' }),
+    equipment: aKilogramRack(),
+  },
   render: (args) => html`
     <div style="width: 320px; outline: 1px dashed currentColor;">
       <ptk-active-workout
         .session=${args.session}
         .unit=${args.unit}
+        .equipment=${args.equipment}
         .now=${args.now}
       ></ptk-active-workout>
     </div>

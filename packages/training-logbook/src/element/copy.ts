@@ -288,6 +288,33 @@ export const ACTIVE_NOTES = {
   finishFinal: 'A finished workout cannot be reopened in this version.',
 } as const;
 
+/**
+ * What the plate diagram under a set says in words.
+ *
+ * Three fragments and no whole sentence, because two of the three are completed by a
+ * weight and this file formats nothing. `element/loading-view.ts` joins them.
+ *
+ * `notLoadable` is a fact about the rack and never about the lifter, and it is not an
+ * error: section 8.3 warns about an unbuildable weight and does not block it. A lifter
+ * five kilograms off a number their plates make easily has a working session, and
+ * colouring this red would say otherwise.
+ */
+export const LOADING_NOTES = {
+  /** Shown in place of a diagram. The bar on its own is a real answer, not a blank. */
+  barOnly: 'Bar only',
+
+  notLoadable: 'These plates cannot build that weight.',
+
+  /**
+   * Two leads rather than one with a plural in brackets. Only one neighbour exists at
+   * the top of what the plates reach and under an empty bar, and "the nearest are 100
+   * kg" is the kind of small wrongness that makes a lifter stop trusting the number
+   * beside it.
+   */
+  nearestOne: 'The nearest is',
+  nearestTwo: 'The nearest are',
+} as const;
+
 /** The sentences on the screen a lifter lands on after finishing. */
 export const DONE_NOTES = {
   heading: 'Workout finished',

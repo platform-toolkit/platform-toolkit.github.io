@@ -40,7 +40,14 @@ import { summarize, type WorkoutSummary } from '../core/summary.js';
 import { memoryLogbookStore } from '../storage/memory.js';
 import type { LogbookStore } from '../storage/port.js';
 import { createRepository, type TrainingLogbookRepository } from '../storage/repository.js';
-import type { CalendarDay, ExerciseOption, Instant, LogbookId, WorkoutSession } from '../types.js';
+import type {
+  CalendarDay,
+  EquipmentSnapshot,
+  ExerciseOption,
+  Instant,
+  LogbookId,
+  WorkoutSession,
+} from '../types.js';
 
 export { AT_LATER, AT_START };
 
@@ -172,6 +179,56 @@ export function aBodyweightSession(): WorkoutSession {
     plan: plan(CHIN_UP, 3, 8, null),
   });
   return startWorkout(session, at(AT_START));
+}
+
+/**
+ * A well-stocked kilogram rack, for the stories that draw plates.
+ *
+ * An `EquipmentSnapshot` and not an `Equipment`, because a snapshot is what the logging
+ * screen takes -- the editor's shape resolves a bar preset and a collar preset into
+ * weights, and the reconstruction back the other way is lossy on purpose (see this
+ * package's notes on `equipmentFrom`). A story that went through the editor's shape would
+ * be documenting a conversion nothing on this screen performs.
+ *
+ * Every denomination is invented (section 5.1) in the sense that matters: these are plate
+ * sizes, not a governing body's numbers, and they are picked so both story weights load
+ * cleanly -- 100 kg is 40 a side as a 25 and a 15, and 70 kg is a single 25.
+ */
+export function aKilogramRack(): EquipmentSnapshot {
+  return {
+    barWeight: { amount: 20, unit: 'kg' },
+    collarWeight: { amount: 0, unit: 'kg' },
+    plateUnit: 'kg',
+    plates: [
+      { weight: 25, pairs: null, fullDiameter: true },
+      { weight: 20, pairs: null, fullDiameter: true },
+      { weight: 15, pairs: null, fullDiameter: true },
+      { weight: 10, pairs: null, fullDiameter: false },
+      { weight: 5, pairs: null, fullDiameter: false },
+      { weight: 2.5, pairs: null, fullDiameter: false },
+    ],
+  };
+}
+
+/**
+ * The same bar with only two plate sizes on it, which is the interesting rack.
+ *
+ * 100 kg still loads -- 40 a side is two 20s -- and 70 kg does not: 25 a side is not a sum
+ * of 20s and 15s. So one story shows both halves of section 8.3 at once, a diagram above a
+ * sentence, which is the arrangement a reviewer has to see to judge. Warning and not
+ * refusing is the rule the sentence is there to make visible: the weight the lifter entered
+ * stays exactly as they entered it.
+ */
+export function aSparseRack(): EquipmentSnapshot {
+  return {
+    barWeight: { amount: 20, unit: 'kg' },
+    collarWeight: { amount: 0, unit: 'kg' },
+    plateUnit: 'kg',
+    plates: [
+      { weight: 20, pairs: null, fullDiameter: true },
+      { weight: 15, pairs: null, fullDiameter: true },
+    ],
+  };
 }
 
 /**

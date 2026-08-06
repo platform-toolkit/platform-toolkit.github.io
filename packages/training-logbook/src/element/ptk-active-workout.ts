@@ -50,6 +50,7 @@ import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { property, state } from 'lit/decorators.js';
 
 import { loadFor, takesWeight } from '../core/catalog.js';
+import { sessionLoadings, type SetLoading } from '../core/loading.js';
 import {
   completeSet,
   finishWorkout,
@@ -61,6 +62,7 @@ import {
 } from '../core/session.js';
 import { setWasEdited, workoutProgress } from '../core/summary.js';
 import type {
+  EquipmentSnapshot,
   Instant,
   LogbookId,
   SetLoad,
@@ -72,6 +74,10 @@ import type {
 import { ACTIVE_NOTES, FINISH_DISPOSITIONS, FINISH_DISPOSITION_NOTES, SET_KINDS } from './copy.js';
 import { DONE_REPS_FIELD, DONE_WEIGHT_FIELD, actionOf, fieldOf, setOf } from './dataset.js';
 import { formatPerformance } from './format.js';
+import { renderLoading } from './loading-view.js';
+
+/** The plates for every set of the session on screen, or none because there is no rack. */
+type Loadings = ReadonlyMap<LogbookId, SetLoading> | null;
 
 /**
  * A session after an edit, on its way to storage.
@@ -216,6 +222,21 @@ export class PtkActiveWorkout extends LitElement {
       color: var(--ptk-color-text-muted);
     }
 
+    .loading {
+      margin-top: var(--ptk-space-xs);
+    }
+
+    /*
+     * Not muted, unlike .status beside it. This is an instruction a lifter carries
+     * out with their hands while looking at a bar, and it is the one line on the row
+     * that is read at arm's length -- greying it out to match the rest of the small
+     * print would be styling it by size rather than by what it is for.
+     */
+    .loading-note {
+      margin: var(--ptk-space-xs) 0 0;
+      font-size: var(--ptk-font-size-sm);
+    }
+
     .editor {
       margin-top: var(--ptk-space-sm);
       padding-top: var(--ptk-space-sm);
@@ -257,6 +278,16 @@ export class PtkActiveWorkout extends LitElement {
   @property({ attribute: false }) unit: WeightUnit = 'lb';
 
   /**
+   * The rack this session is being lifted on, or `null` where none has been chosen.
+   *
+   * `null` draws no plates anywhere, and that is the whole reason `settings.equipment`
+   * starts out null rather than as the catalogue default: a lifter who has never opened
+   * the equipment screen would otherwise be shown a diagram of somebody else's gym under
+   * every set, in a tool whose one job is to record what actually happened.
+   */
+  @property({ attribute: false }) equipment: EquipmentSnapshot | null = null;
+
+  /**
    * The clock, supplied.
    *
    * Every core function this screen calls takes the instant the operation happened,
@@ -276,6 +307,18 @@ export class PtkActiveWorkout extends LitElement {
 
   /** The answer to "what about the sets you did not do", unset until given. */
   @state() private disposition: FinishDisposition | null = null;
+
+  /**
+   * The last answer `sessionLoadings` gave, and what it was asked about.
+   *
+   * A cache rather than a computation in `render()`, because the search behind it is a
+   * subset-sum over the rack and this screen re-renders on every keystroke in the weight
+   * box -- typing "1", "14", "142" would run it three times to produce the same plates.
+   * Both keys are compared by identity, which is sound because a session is replaced
+   * whole on every edit and a snapshot is only ever handed down from the root.
+   */
+  #loadings: { session: WorkoutSession; equipment: EquipmentSnapshot; answers: Loadings } | null =
+    null;
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -305,13 +348,14 @@ export class PtkActiveWorkout extends LitElement {
     const session = this.session;
     if (session === null) return nothing;
     const progress = workoutProgress(session);
+    const loadings = this.#loadingsFor(session);
 
     return html`
       <h2>${session.title ?? session.localDate}</h2>
       <p class="progress">
         ${String(progress.completed)} of ${String(progress.total)} ${ACTIVE_NOTES.setsDone}
       </p>
-      ${session.exercises.map((exercise) => this.#exercise(exercise))}
+      ${session.exercises.map((exercise) => this.#exercise(exercise, loadings))}
       ${
         this.finishing
           ? this.#finishPanel(session)
@@ -324,18 +368,38 @@ export class PtkActiveWorkout extends LitElement {
     `;
   }
 
-  #exercise(exercise: WorkoutExercise): TemplateResult {
+  /**
+   * The plates for this session, computed at most once per session.
+   *
+   * Returns `null` where there is no rack, which is a different answer from a map of
+   * `none` entries: the first draws nothing because the tool does not know the gym, and
+   * the second because the exercise takes no plates.
+   */
+  #loadingsFor(session: WorkoutSession): Loadings {
+    const equipment = this.equipment;
+    if (equipment === null) return null;
+    const cached = this.#loadings;
+    if (cached !== null && cached.session === session && cached.equipment === equipment) {
+      return cached.answers;
+    }
+    const answers = sessionLoadings(session, equipment);
+    this.#loadings = { session, equipment, answers };
+    return answers;
+  }
+
+  #exercise(exercise: WorkoutExercise, loadings: Loadings): TemplateResult {
     return html`<section class="exercise">
       <h3>${exercise.displayName}</h3>
       <ul>
-        ${exercise.sets.map((set) => this.#set(exercise, set))}
+        ${exercise.sets.map((set) => this.#set(exercise, set, loadings))}
       </ul>
     </section>`;
   }
 
-  #set(exercise: WorkoutExercise, set: WorkoutSet): TemplateResult {
+  #set(exercise: WorkoutExercise, set: WorkoutSet, loadings: Loadings): TemplateResult {
     const done = set.status !== 'planned';
     const shown = set.performed ?? set.planned;
+    const loading = loadings?.get(set.id) ?? null;
     return html`<li data-set=${set.id} class=${done ? 'done' : ''}>
       <div class="set-head">
         <div class="set-what">
@@ -367,6 +431,14 @@ export class PtkActiveWorkout extends LitElement {
           >
         </div>
       </div>
+      ${
+        // Under the head and above everything else, because it answers the question the
+        // head just asked. A diagram below the editor would be off the bottom of a phone
+        // on the one row a lifter has open.
+        loading === null || this.equipment === null
+          ? nothing
+          : renderLoading(loading, this.equipment.plateUnit)
+      }
       ${setWasEdited(set) ? html`<p class="status">${ACTIVE_NOTES.edited}</p>` : nothing}
       ${this.editing === set.id ? this.#editor(exercise) : nothing}
     </li>`;

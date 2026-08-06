@@ -395,6 +395,7 @@ export class PtkTrainingLogbook extends LitElement {
       <ptk-active-workout
         .session=${this.active}
         .unit=${this.settings.displayUnit}
+        .equipment=${this.settings.equipment}
         .now=${this.now}
       ></ptk-active-workout>
     `;

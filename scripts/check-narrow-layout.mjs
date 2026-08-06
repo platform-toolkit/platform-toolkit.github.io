@@ -1132,6 +1132,46 @@ const LOGBOOK_LOG_SETTLE = [
 ];
 
 /**
+ * Pick a rack on the way past, so the logging screen draws plates.
+ *
+ * The tool leaves `settings.equipment` null until a lifter answers the equipment
+ * section, and drawing the catalogue's default gym under somebody's session would
+ * be worse than drawing nothing -- so every other logbook route measures a
+ * logging screen with no plate diagram on it at all. Without these two presses the
+ * widest thing this tool draws would be measured at no width.
+ *
+ * Unticking the 45 is what makes it the widest. A rack whose biggest plate is a 25
+ * builds the route's 142.5 out of six plates a side instead of four, and six plate
+ * faces in a flex row inside a set row inside a card is the deepest nesting and the
+ * longest line the diagram can reach. It stays *loadable*, which matters: an
+ * unbuildable weight replaces the diagram with a sentence, and a sentence wraps.
+ *
+ * A garage gym with no 45s is an ordinary rack rather than a contrived one, and
+ * every figure here is invented (§5.1) -- these are plate denominations out of
+ * `packages/domain`, this repository's own source, not a federation's published
+ * numbers. Named by `data-value` and not by position for the reason on
+ * `ptk-toggle-group`: the list is thirteen long and the domain may lengthen it.
+ */
+const LOGBOOK_LOADING_CLICK = [
+  ...LOGBOOK_RACK_CLICK,
+  'ptk-equipment-setup ptk-toggle-group[data-field="plates"] [data-value="45"] input',
+  ...LOGBOOK_PLAN_CLICK,
+];
+
+/**
+ * A diagram with plates in it, on the row that has been ticked off.
+ *
+ * The `[role="img"]` inside the stack rather than the stack itself: the element
+ * renders either a labelled row of plates or the "Bar only" line, both from the
+ * same tag, so settling on the tag would pass against a rack change that never
+ * landed. The `aria-label` exists only where there is something on the bar.
+ */
+const LOGBOOK_LOADING_SETTLE = [
+  ...LOGBOOK_LOG_SETTLE,
+  'ptk-active-workout ptk-plate-stack [role="img"]',
+];
+
+/**
  * Ask to finish, then answer the question that asking raises.
  *
  * Nothing has been ticked off on this route, so every set is outstanding and the
@@ -1606,6 +1646,22 @@ const ROUTES = [
     clickAfter: LOGBOOK_START,
     clickLast: LOGBOOK_LOG_CLICK,
     settle: LOGBOOK_LOG_SETTLE,
+  },
+  {
+    // A second logging entry rather than plates added to the one above, because
+    // the two are different screens and the one without a rack is the one most
+    // lifters see -- it is what the tool draws until somebody opens the equipment
+    // section, and swapping it for this would trade a measured surface for a
+    // measured surface. The framed entry below stays plateless for the same
+    // reason: between them the no-rack logging screen is still measured twice.
+    path: '/logbook/',
+    label: '/logbook/ (loading)',
+    click: LOGBOOK_LOADING_CLICK,
+    reveal: [],
+    fill: LOGBOOK_PLAN_FILL,
+    clickAfter: LOGBOOK_START,
+    clickLast: LOGBOOK_LOG_CLICK,
+    settle: LOGBOOK_LOADING_SETTLE,
   },
   {
     path: '/logbook/',
