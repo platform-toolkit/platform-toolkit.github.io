@@ -215,7 +215,19 @@ function heaviestFirst(plates: readonly PlateDenomination[]): readonly PlateDeno
   return [...plates].sort((left, right) => right.weight - left.weight);
 }
 
+/**
+ * Whether two weights are the same weight.
+ *
+ * Zero is compared before the unit, because no collars is no collars. The catalogue's
+ * "none" preset is `{ amount: 0, unit: 'kg' }`, so a pound rack that has been through
+ * the custom-collar box and back carries `{ 0, 'lb' }` for the identical bar -- and a
+ * strict field-by-field comparison calls those two racks different. That answer reaches
+ * a lifter twice: the saved gym they are standing in stops being marked as in use, and
+ * section 8.4's "the rack changed" rule sets a whole warm-up plan aside for a rack that
+ * did not change.
+ */
 function sameWeight(left: Weight, right: Weight): boolean {
+  if (left.amount === 0 && right.amount === 0) return true;
   return left.amount === right.amount && left.unit === right.unit;
 }
 

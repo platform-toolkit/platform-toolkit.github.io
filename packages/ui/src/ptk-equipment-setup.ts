@@ -167,6 +167,19 @@ export class PtkEquipmentSetup extends LitElement {
 
   @property({ attribute: false }) equipment!: Equipment;
 
+  /**
+   * What the fold calls itself.
+   *
+   * A property because the second consumer puts this element *under* a heading of
+   * its own: the training logbook's equipment screen is a section called Equipment
+   * with a library of saved gyms beside the editor, and a fold inside it also
+   * labelled "Equipment" would give one screen two of the same name and leave a
+   * screen reader's landmark list saying it twice. There the label says which of
+   * the two racks this one is. The default is the name tool 2 has always used, so
+   * nothing that does not set it changes.
+   */
+  @property({ type: String }) label = 'Equipment';
+
   /** Whether the section starts unfolded. The tool decides; this only reports. */
   @property({ type: Boolean, reflect: true }) open = false;
 
@@ -231,7 +244,7 @@ export class PtkEquipmentSetup extends LitElement {
     const unit = this.equipment.plateUnit;
     return html`
       <ptk-disclosure
-        label="Equipment"
+        label=${this.label}
         summary=${describeEquipment(this.equipment)}
         ?open=${this.open}
       >

@@ -216,6 +216,19 @@ describe('sameEquipment', () => {
   it('reads a different plate unit as a different rack', () => {
     expect(sameEquipment(aGym(), { ...aGym(), plateUnit: 'lb' })).toBe(false);
   });
+
+  it('reads no collars and no collars as the same bar, whichever unit the zero is in', () => {
+    // The exception to the rule above, and it is the common case rather than a
+    // curiosity: the catalogue's "none" preset is zero *kilograms*, so a pound rack
+    // that has been through the custom-collar box and back carries zero pounds for
+    // the identical bar. Comparing the unit of a zero would unmark the saved gym the
+    // lifter is standing in and, through section 8.4, discard a warm-up plan for a
+    // rack nothing has been added to or taken off.
+    const bare: EquipmentSnapshot = { ...aGym(), collarWeight: { amount: 0, unit: 'kg' } };
+    const alsoBare: EquipmentSnapshot = { ...aGym(), collarWeight: { amount: 0, unit: 'lb' } };
+    expect(sameEquipment(bare, alsoBare)).toBe(true);
+    expect(sameEquipment(bare, aGym())).toBe(false);
+  });
 });
 
 describe('the profile library', () => {

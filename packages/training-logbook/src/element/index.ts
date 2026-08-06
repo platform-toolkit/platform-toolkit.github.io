@@ -13,20 +13,25 @@
  * arrives through a transitive dependency. So no file here carries a `@customElement`
  * decorator, and this is the only module that touches `customElements`.
  *
- * All four tags are defined together. Three of them are inside the fourth's shadow
- * root, and defining only the root would leave a page of unupgraded elements that
- * render nothing and report nothing -- a blank tool with a clean console.
+ * Every tag is defined together. All but the root are inside the root's shadow root,
+ * and defining only the root would leave a page of unupgraded elements that render
+ * nothing and report nothing -- a blank tool with a clean console. `ELEMENTS` below is
+ * the list; do not write the count into a sentence, which is how the last one went
+ * stale in three files at once.
  */
 import type { LitElement } from 'lit';
 
 import { ACTIVE_WORKOUT_TAG, PtkActiveWorkout } from './ptk-active-workout.js';
+import { EQUIPMENT_LIBRARY_TAG, PtkEquipmentLibrary } from './ptk-equipment-library.js';
 import { PtkTrainingLogbook, TRAINING_LOGBOOK_TAG } from './ptk-training-logbook.js';
 import { PtkWorkoutBuilder, WORKOUT_BUILDER_TAG } from './ptk-workout-builder.js';
 import { PtkWorkoutHistory, WORKOUT_HISTORY_TAG } from './ptk-workout-history.js';
 
 export {
   ACTIVE_WORKOUT_TAG,
+  EQUIPMENT_LIBRARY_TAG,
   PtkActiveWorkout,
+  PtkEquipmentLibrary,
   PtkTrainingLogbook,
   PtkWorkoutBuilder,
   PtkWorkoutHistory,
@@ -42,6 +47,15 @@ export {
   type WorkoutFinishedDetail,
 } from './ptk-active-workout.js';
 export { WORKOUT_PLANNED_EVENT, type WorkoutPlannedDetail } from './ptk-workout-builder.js';
+export {
+  PROFILE_APPLIED_EVENT,
+  PROFILE_REMOVED_EVENT,
+  PROFILE_SAVED_EVENT,
+  RACK_CHANGED_EVENT,
+  type ProfileIdDetail,
+  type ProfileSavedDetail,
+  type RackChangedDetail,
+} from './ptk-equipment-library.js';
 
 export {
   BACKUP_EXPORTED_EVENT,
@@ -58,6 +72,7 @@ export {
   ACTIVE_NOTES,
   BUILDER_NOTES,
   DONE_NOTES,
+  EQUIPMENT_NOTES,
   FINISH_DISPOSITIONS,
   FINISH_DISPOSITION_NOTES,
   HISTORY_NOTES,
@@ -93,6 +108,7 @@ export {
 /** Every tag this package owns, paired with what to register under it. */
 const ELEMENTS: readonly (readonly [string, typeof LitElement])[] = [
   [ACTIVE_WORKOUT_TAG, PtkActiveWorkout],
+  [EQUIPMENT_LIBRARY_TAG, PtkEquipmentLibrary],
   [WORKOUT_BUILDER_TAG, PtkWorkoutBuilder],
   [WORKOUT_HISTORY_TAG, PtkWorkoutHistory],
   [TRAINING_LOGBOOK_TAG, PtkTrainingLogbook],

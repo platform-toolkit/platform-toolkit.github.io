@@ -19,7 +19,7 @@ import { RECENT_WORKOUTS } from './story.fixture.js';
 
 // Through the package entry and behind an explicit call, not a side-effecting relative
 // import. A relative import here would load the source copy of every element and define
-// four tags a second time: the registry throws on the second write, the story still looks
+// every one of its tags a second time: the registry throws on the second write, the story still looks
 // right because the first definition already won, and the only symptom is a console error
 // -- which `smoke-stories.mjs` fails on, for exactly this reason.
 defineTrainingLogbook();

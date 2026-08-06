@@ -1004,6 +1004,31 @@ const QUALIFY_CHOOSE_LAST = [
 const QUALIFY_SETTLE = ['ptk-standing-report li.lift', 'ptk-meet-reading p.meet-name'];
 
 /**
+ * Unfold the rack editor on the home screen.
+ *
+ * A `click` and not a `reveal` because Playwright's `check()` refuses anything
+ * that is not a checkbox or a radio, and this is a `<summary>`.
+ *
+ * The summary is reached through `ptk-equipment-library` rather than by naming
+ * `ptk-disclosure` alone: the home screen has a second fold under Backup, the
+ * two are the same element, and `.first()` would silently measure whichever one
+ * the template happens to draw first the next time that screen is rearranged.
+ */
+const LOGBOOK_RACK_CLICK = ['ptk-training-logbook ptk-equipment-library ptk-disclosure summary'];
+
+/**
+ * The fold reporting itself open, alongside the storage line.
+ *
+ * `open` is reflected by `ptk-disclosure`, so this distinguishes "the press
+ * landed" from "the element exists" -- and the body of a `<details>` is in the
+ * DOM either way, which is what makes every selector inside it useless here.
+ */
+const LOGBOOK_HOME_SETTLE = [
+  'ptk-training-logbook p.save',
+  'ptk-training-logbook ptk-equipment-library ptk-disclosure[open]',
+];
+
+/**
  * Open the planner and put two lifts in it.
  *
  * Two, and specifically these two. One row measures a row; two measure the gap
@@ -1544,19 +1569,25 @@ const ROUTES = [
   {
     path: '/logbook/',
     label: '/logbook/ (home)',
-    // No steps at all, which is unusual here and is the point: this is the whole
-    // screen a returning lifter lands on, and everything on it -- the storage
-    // sentence, the history, the unit control, the backup fold -- is drawn before
-    // anything is pressed. The other three entries all walk away from it, so
-    // without this row the landing screen would be the one surface in the tool
-    // measured at no width at all.
-    click: [],
+    // One step, and only one: this is the whole screen a returning lifter lands
+    // on, and everything else on it -- the storage sentence, the history, the
+    // unit control, the backup fold -- is drawn before anything is pressed. The
+    // other three entries all walk away from it, so without this row the landing
+    // screen would be the one surface in the tool measured at no width at all.
+    //
+    // The rack editor is the exception because it ships folded, and a folded
+    // section is measured as the one line it shows. Behind that line are the
+    // widest controls in the tool: a row of plate switches and four radio groups,
+    // at 320px, inside a section that is itself inside a card. Measuring the
+    // summary and calling the section covered is how a two-plate row would reach
+    // a phone sideways.
+    click: LOGBOOK_RACK_CLICK,
     reveal: [],
     fill: [],
-    // The storage line, which is the last thing to arrive and the only thing here
-    // that waits on anything: it is drawn from the repository, and the repository
-    // is an IndexedDB open away.
-    settle: ['ptk-training-logbook p.save'],
+    // The storage line is the last thing to arrive and the only thing here that
+    // waits on anything: it is drawn from the repository, and the repository is
+    // an IndexedDB open away.
+    settle: LOGBOOK_HOME_SETTLE,
   },
   {
     path: '/logbook/',

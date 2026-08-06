@@ -5,7 +5,7 @@
  * The whole tool, in the states a lifter opens it in.
  *
  * The composite root is the one element here worth *pressing* rather than looking at.
- * Three of the four tags live inside its shadow root and the only thing connecting them is
+ * Every other tag lives inside its shadow root and the only thing connecting them is
  * composed events, so a screenshot proves the markup exists; planning a squat session and
  * watching it appear on a logging screen two shadow roots down proves the tool works, and
  * that distinction is what section 21 is about.
@@ -39,7 +39,7 @@ import { AT_START, A_TRAINING_DAY, aFreshTool, anUnstoredRepository } from './st
 
 // Through the package entry and behind an explicit call, not a side-effecting relative
 // import. A relative import here would load the source copy of every element and define
-// four tags a second time: the registry throws on the second write, the story still looks
+// every one of its tags a second time: the registry throws on the second write, the story still looks
 // right because the first definition already won, and the only symptom is a console error
 // -- which `smoke-stories.mjs` fails on, for exactly this reason.
 defineTrainingLogbook();

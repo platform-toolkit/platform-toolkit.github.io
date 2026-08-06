@@ -304,6 +304,98 @@ export const DONE_NOTES = {
   durationLabel: 'Took',
 } as const;
 
+/**
+ * The sentences the equipment library says.
+ *
+ * Two things are being said at once on that screen and the copy has to keep them
+ * apart, because they are stored in two different places and behave differently. The
+ * editor is **the rack you are on now** -- one snapshot, in `settings.equipment`,
+ * overwritten as the lifter changes it. A profile is **a gym you saved** -- one row of
+ * a library, changed only when the lifter says so. A single word like "save" spanning
+ * both would make the first look like it needed pressing and the second look like it
+ * had happened already.
+ *
+ * Nothing here says a rack is right, complete or well equipped. A lifter with one bar
+ * and two plates is not being graded, and section 15.3 applies to equipment exactly as
+ * it applies to a session.
+ */
+export const EQUIPMENT_NOTES = {
+  heading: 'Equipment',
+
+  /**
+   * Says what the rack is *for* before a lifter spends taps on it.
+   *
+   * Without it the section reads as bookkeeping. The plates only matter because
+   * something downstream is going to work out what to put on the bar, and a lifter who
+   * does not know that has no reason to correct the default.
+   */
+  intro: 'The bar and plates you train with. Warm-ups and plate loading are worked out from this.',
+
+  /** The fold's own label, which is all a lifter sees until they open it. */
+  editorSummary: 'The rack you are on now',
+
+  /**
+   * Said where the editor and the library meet, because the boundary is the one thing
+   * about this screen that is not self-evident: editing here does not touch a saved
+   * gym, and choosing a saved gym does replace what is here.
+   */
+  editorNote: 'Changes here apply straight away. Saving is only for keeping a gym to come back to.',
+
+  libraryHeading: 'Saved gyms',
+
+  /** An empty library reads as a failed read rather than as a thing not done yet. */
+  libraryEmpty: 'No saved gyms yet. Save the rack above to come back to it.',
+
+  /**
+   * The other reason the list is empty, said rather than drawn as the first one.
+   *
+   * A read that failed and a library nobody has written to look identical, and the
+   * difference is whether saving under the same name again is safe. It is not: the
+   * gym is still in the database, so the save will replace something the lifter
+   * cannot see. Nothing else on this screen is disabled by it -- the rack above still
+   * works, and a lifter with a failed read still has a bar to load.
+   */
+  libraryUnreadable:
+    'The saved gyms could not be read on this device. The rack above still works. Anything you save now may replace a gym you cannot see.',
+
+  nameLabel: 'Name this gym',
+  namePlaceholder: 'The garage',
+
+  /** Two gyms is the case this exists for, and it is worth naming. */
+  nameHint: 'Somewhere you train. Save one for each, and switch between them here.',
+
+  save: 'Save this gym',
+
+  /** Pressing save with an empty box has to say why nothing happened. */
+  nameRequired: 'Give the gym a name first.',
+
+  /**
+   * The one bound on a name, stated as the rule rather than as the number.
+   *
+   * A row in a list has to stay a row. Two hundred characters is past anything a person
+   * types on purpose and well short of anything that would trouble storage, so the
+   * message names the fault and not the limit -- a lifter who has pasted a paragraph
+   * knows which end to cut.
+   */
+  nameTooLong: 'That is too long for a name. A word or two is enough.',
+
+  /** Saving over a gym that already has that name is the ordinary case, not an error. */
+  saveOverwrites: 'Saving under a name you have used replaces that gym.',
+
+  /** A row for a gym the lifter is standing in reads as selectable unless marked. */
+  inUse: 'In use',
+
+  use: 'Use this gym',
+  remove: 'Remove',
+
+  /**
+   * Deleting a gym is the only destructive control on this screen, and it needs to say
+   * what survives. Nothing about a finished workout moves: section 8.4 froze the rack
+   * into each session at the time, which is exactly so that this button cannot reach it.
+   */
+  removeNote: 'Removing a gym leaves every workout you did there exactly as it is.',
+} as const;
+
 /** What a history row says about a workout with nothing recorded in it. */
 export const HISTORY_NOTES = {
   unnamed: 'Workout',

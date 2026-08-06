@@ -48,6 +48,7 @@ import { property, state } from 'lit/decorators.js';
 
 import { backupFilename, serializeBackup } from '../core/backup.js';
 import { exerciseOptions, loadFor } from '../core/catalog.js';
+import { createProfile, findProfile, updateProfileEquipment } from '../core/equipment.js';
 import {
   addExercise,
   createWorkout,
@@ -60,6 +61,7 @@ import { workoutDurationMillis, type WorkoutSummary } from '../core/summary.js';
 import { defaultSettings, type TrainingLogbookRepository } from '../storage/repository.js';
 import type {
   CalendarDay,
+  EquipmentProfile,
   ExerciseOption,
   Instant,
   LogbookId,
@@ -93,6 +95,15 @@ import {
   type WorkoutChangedDetail,
   type WorkoutFinishedDetail,
 } from './ptk-active-workout.js';
+import {
+  PROFILE_APPLIED_EVENT,
+  PROFILE_REMOVED_EVENT,
+  PROFILE_SAVED_EVENT,
+  RACK_CHANGED_EVENT,
+  type ProfileIdDetail,
+  type ProfileSavedDetail,
+  type RackChangedDetail,
+} from './ptk-equipment-library.js';
 import { WORKOUT_PLANNED_EVENT, type WorkoutPlannedDetail } from './ptk-workout-builder.js';
 
 /** The tag `defineTrainingLogbook()` registers this under. */
@@ -234,6 +245,10 @@ export class PtkTrainingLogbook extends LitElement {
   @state() private finished: WorkoutSession | null = null;
   @state() private history: readonly WorkoutSummary[] = [];
   @state() private exercises: readonly ExerciseOption[] = exerciseOptions([]);
+  @state() private profiles: readonly EquipmentProfile[] = [];
+
+  /** Whether the library could be read at all. See {@link #reloadProfiles}. */
+  @state() private profilesUnreadable = false;
 
   /** `null` until the first read has told us whether this browser stores anything. */
   @state() private saveState: SaveState | null = null;
@@ -247,6 +262,10 @@ export class PtkTrainingLogbook extends LitElement {
     this.addEventListener(WORKOUT_CHANGED_EVENT, this.#onChanged);
     this.addEventListener(WORKOUT_FINISHED_EVENT, this.#onFinished);
     this.addEventListener(SEGMENTED_CHANGE_EVENT, this.#onUnit);
+    this.addEventListener(RACK_CHANGED_EVENT, this.#onRack);
+    this.addEventListener(PROFILE_SAVED_EVENT, this.#onProfileSaved);
+    this.addEventListener(PROFILE_APPLIED_EVENT, this.#onProfileApplied);
+    this.addEventListener(PROFILE_REMOVED_EVENT, this.#onProfileRemoved);
     this.addEventListener('click', this.#onClick);
   }
 
@@ -255,6 +274,10 @@ export class PtkTrainingLogbook extends LitElement {
     this.removeEventListener(WORKOUT_CHANGED_EVENT, this.#onChanged);
     this.removeEventListener(WORKOUT_FINISHED_EVENT, this.#onFinished);
     this.removeEventListener(SEGMENTED_CHANGE_EVENT, this.#onUnit);
+    this.removeEventListener(RACK_CHANGED_EVENT, this.#onRack);
+    this.removeEventListener(PROFILE_SAVED_EVENT, this.#onProfileSaved);
+    this.removeEventListener(PROFILE_APPLIED_EVENT, this.#onProfileApplied);
+    this.removeEventListener(PROFILE_REMOVED_EVENT, this.#onProfileRemoved);
     this.removeEventListener('click', this.#onClick);
     super.disconnectedCallback();
   }
@@ -315,6 +338,15 @@ export class PtkTrainingLogbook extends LitElement {
 
       <section class="section">
         <ptk-workout-history .workouts=${this.history}></ptk-workout-history>
+      </section>
+
+      <section class="section">
+        <ptk-equipment-library
+          .equipment=${this.settings.equipment}
+          .profiles=${this.profiles}
+          ?unreadable=${this.profilesUnreadable}
+          ?remembers=${this.repository?.durable ?? true}
+        ></ptk-equipment-library>
       </section>
 
       <section class="section units">
@@ -423,6 +455,52 @@ export class PtkTrainingLogbook extends LitElement {
     // was reopened was to carry on -- somebody checking last week's squats would
     // otherwise be dropped into today's.
     if (active === null && this.screen === 'active') this.screen = 'home';
+    await this.#reloadProfiles();
+  }
+
+  /**
+   * Reads the saved gyms, on its own and behind a catch.
+   *
+   * Deliberately not a fifth entry in the `Promise.all` above, which has no catch and
+   * rejects as a unit. A single corrupt profile row would then take the settings, the
+   * workout in progress, the history and the exercise list with it -- a blank tool at
+   * boot, with the JSON backup a lifter would reach for blocked by the same record.
+   * The library is the one thing here the tool works without, so it fails alone and
+   * says so on screen rather than reading as a library nobody has written to.
+   */
+  async #reloadProfiles(): Promise<void> {
+    const repository = this.repository;
+    if (repository === null) return;
+    try {
+      this.profiles = await repository.listEquipmentProfiles();
+      this.profilesUnreadable = false;
+    } catch {
+      this.profiles = [];
+      this.profilesUnreadable = true;
+    }
+  }
+
+  /**
+   * Writes the settings and says on screen how it went.
+   *
+   * The same shape as `#persist` and for the same reason: section 18.9's promise is
+   * about a write completing, and a settings write that fails silently leaves a rack
+   * on screen that the next visit will not have. Both settings writers go through
+   * here, because two of them with two different answers to a failure is how one of
+   * them ends up with none.
+   */
+  async #saveSettings(settings: LogbookSettings): Promise<void> {
+    this.settings = settings;
+    const repository = this.repository;
+    if (repository?.durable !== true) return;
+    this.saveState = 'unsaved';
+    try {
+      await repository.saveSettings(settings);
+    } catch {
+      this.saveState = 'failed';
+      return;
+    }
+    this.saveState = 'saved';
   }
 
   #context(): SessionContext {
@@ -491,10 +569,107 @@ export class PtkTrainingLogbook extends LitElement {
   readonly #onUnit = (event: CustomEvent<SegmentedChangeDetail>): void => {
     const { value } = event.detail;
     if (!isUnit(value) || value === this.settings.displayUnit) return;
-    const settings = { ...this.settings, displayUnit: value };
-    this.settings = settings;
-    void this.repository?.saveSettings(settings);
+    void this.#saveSettings({ ...this.settings, displayUnit: value });
   };
+
+  /**
+   * The rack in front of the lifter changed.
+   *
+   * Written straight through with no press, which is the whole difference between the
+   * editor and the library: this is what the tool is using now, and a rack behind a
+   * Save button would leave the plate math running on the last gym the lifter
+   * remembered to confirm. `displayUnit` is deliberately untouched -- the plate unit of
+   * a rack and the unit weights are shown in are two facts, and coupling them would
+   * rewrite what a lifter types in because they moved to a kilogram gym.
+   */
+  readonly #onRack = (event: CustomEvent<RackChangedDetail>): void => {
+    stopHere(event);
+    void this.#saveSettings({ ...this.settings, equipment: event.detail.equipment });
+  };
+
+  /**
+   * The lifter asked to keep the rack under a name.
+   *
+   * A name already in the library replaces that gym rather than adding a second row
+   * under the same word, which is what `EQUIPMENT_NOTES.saveOverwrites` promises.
+   * Matched case-insensitively on the trimmed name: "The garage" and "the garage" are
+   * one gym to the person who typed both, and a library that disagreed would grow a
+   * duplicate whose only distinguishing mark is invisible.
+   */
+  readonly #onProfileSaved = (event: CustomEvent<ProfileSavedDetail>): void => {
+    stopHere(event);
+    const { name, equipment } = event.detail;
+    const key = name.toLocaleLowerCase();
+    const existing = this.profiles.find((profile) => profile.name.toLocaleLowerCase() === key);
+    const context = this.#context();
+    const profile =
+      existing === undefined
+        ? createProfile(name, equipment, context)
+        : updateProfileEquipment(existing, equipment, context);
+    void this.#writeLibrary((repository) => repository.saveEquipmentProfile(profile));
+  };
+
+  /**
+   * The lifter asked to stand in a gym they saved.
+   *
+   * The snapshot is stored by value, exactly as it sits in the profile. It is not
+   * aliased to the profile by identifier and it is not deep-copied here: both stores
+   * structured-clone on the way in and out, so a copy at this layer would buy nothing
+   * and the settings type has nowhere to put an identifier anyway. The consequence,
+   * which is deliberate and not an oversight: editing a saved gym's rack while it is
+   * in use detaches it from the settings, and the "In use" mark on that row goes out.
+   */
+  readonly #onProfileApplied = (event: CustomEvent<ProfileIdDetail>): void => {
+    stopHere(event);
+    const profile = findProfile(this.profiles, event.detail.id);
+    if (profile === null) return;
+    void this.#saveSettings({ ...this.settings, equipment: profile.equipment });
+  };
+
+  /**
+   * The lifter asked to forget a saved gym.
+   *
+   * `settings.equipment` is left exactly as it is, even when it is the rack that was
+   * just removed. Section 8.4 froze the rack into every finished session, and the one
+   * in force is a rack the lifter is standing in front of -- forgetting where they
+   * wrote its name down is not the same as walking out of the gym.
+   */
+  readonly #onProfileRemoved = (event: CustomEvent<ProfileIdDetail>): void => {
+    stopHere(event);
+    const { id } = event.detail;
+    void this.#writeLibrary((repository) => repository.deleteEquipmentProfile(id));
+  };
+
+  /**
+   * Writes a library change and reads the library back.
+   *
+   * Read back rather than patched into `profiles` locally, because the list on screen
+   * has to be the list in the database: a save that was rejected, or that landed under
+   * a name a second tab had already taken, must not leave a row on screen that nothing
+   * holds. It costs one read per press on a list that is a handful of rows long.
+   *
+   * Unlike `#persist` and `#saveSettings` this writes even where the repository is not
+   * durable. Those two have somewhere else to keep their answer -- the session and the
+   * settings are already in this element's state -- and the library's only copy is the
+   * store. Skipping the write would make Save a control that does nothing, which
+   * section 0.4 forbids more strongly than it forbids a gym that does not outlive the
+   * tab. The save line still says which of the two happened.
+   */
+  async #writeLibrary(
+    change: (repository: TrainingLogbookRepository) => Promise<void>,
+  ): Promise<void> {
+    const repository = this.repository;
+    if (repository === null) return;
+    if (repository.durable) this.saveState = 'unsaved';
+    try {
+      await change(repository);
+    } catch {
+      if (repository.durable) this.saveState = 'failed';
+      return;
+    }
+    await this.#reloadProfiles();
+    if (repository.durable) this.saveState = 'saved';
+  }
 
   readonly #onClick = (event: Event): void => {
     switch (actionOf(event)) {

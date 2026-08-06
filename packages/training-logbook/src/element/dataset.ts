@@ -30,6 +30,9 @@ export const SET_DATASET_KEY = 'set';
 /** Which exercise a control names, by catalogue or custom identifier. */
 export const EXERCISE_DATASET_KEY = 'exercise';
 
+/** Which saved gym a control acts on, by identifier. */
+export const PROFILE_DATASET_KEY = 'profile';
+
 /** What a button does, where a button does something other than write a field. */
 export const ACTION_DATASET_KEY = 'action';
 
@@ -98,6 +101,11 @@ export function setOf(event: Event): string | null {
 /** The exercise a control names, or `null`. Opaque, so unchecked like {@link setOf}. */
 export function exerciseOf(event: Event): string | null {
   return attributeOn(event, EXERCISE_DATASET_KEY);
+}
+
+/** The saved gym a control acts on, or `null`. Opaque, so unchecked like {@link setOf}. */
+export function profileOf(event: Event): string | null {
+  return attributeOn(event, PROFILE_DATASET_KEY);
 }
 
 /**
