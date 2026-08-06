@@ -6,7 +6,8 @@
  *
  * Mounted on its own, like the history list next door and for the same reason: nothing
  * on this screen is a conversation between elements. It is handed a session and draws
- * it, and there is not a control on it to press.
+ * it, and the one control on it asks the root for a different screen rather than
+ * changing anything here.
  *
  * WHAT THIS FILE IS GUARDING
  *
@@ -42,8 +43,16 @@ import type {
   WorkoutStatus,
 } from '../types.js';
 
-import { DETAIL_NOTES, HISTORY_NOTES, SET_KINDS, SET_STATUSES, WORKOUT_STATUSES } from './copy.js';
+import {
+  DETAIL_NOTES,
+  HISTORY_NOTES,
+  RECORDS_NOTES,
+  SET_KINDS,
+  SET_STATUSES,
+  WORKOUT_STATUSES,
+} from './copy.js';
 import { defineTrainingLogbook } from './index.js';
+import { EXERCISE_HISTORY_EVENT, type ExerciseHistoryOpenDetail } from './ptk-exercise-history.js';
 import type { PtkWorkoutDetail } from './ptk-workout-detail.js';
 
 /** An invented day, and not today's. */
@@ -192,6 +201,13 @@ async function mount(session: WorkoutSession | null): Promise<PtkWorkoutDetail> 
   });
   await element.updateComplete;
   return element;
+}
+
+/** Presses the History button on one lift's row. */
+function pressHistoryOn(element: PtkWorkoutDetail, liftId: string): void {
+  const row = shadow(element).querySelector(`[data-exercise="${liftId}"] ptk-button`);
+  if (row === null) throw new Error(`No history control on ${liftId}.`);
+  (row as HTMLElement).click();
 }
 
 function shadow(element: Element): ShadowRoot {
@@ -408,12 +424,87 @@ describe('what it refuses to say', () => {
     }
   });
 
-  it('offers nothing to press', async () => {
-    // Section 0.4: no dead controls. Editing a finished session is its own sub-task,
-    // and until it lands there is nothing on this screen a thumb can do.
+  it('offers one control per lift and nothing else', async () => {
+    // Section 0.4: no dead controls, and section 5.5's way into an exercise's history
+    // is the only live one this screen has. Editing a finished session is its own
+    // sub-task; until it lands there is nothing else here a thumb can do.
     const element = await mount(aFullSession());
 
-    expect(shadow(element).querySelectorAll('button, ptk-button, a')).toHaveLength(0);
+    const controls = [...shadow(element).querySelectorAll('button, ptk-button, a')];
+
+    expect(controls.map((control) => control.textContent.trim())).toEqual([
+      RECORDS_NOTES.open,
+      RECORDS_NOTES.open,
+    ]);
+  });
+
+  it('names each history control for its lift', async () => {
+    // Two buttons reading "History" on one screen, so the name has to say which. It
+    // extends the visible word rather than replacing it, which is WCAG 2.5.3.
+    const element = await mount(aFullSession());
+
+    const names = [...shadow(element).querySelectorAll('ptk-button')].map((control) =>
+      control.getAttribute('accessible-name'),
+    );
+
+    expect(names).toEqual([`${RECORDS_NOTES.open}: Squat`, `${RECORDS_NOTES.open}: Bench press`]);
+  });
+});
+
+describe('opening an exercise', () => {
+  it('asks for the catalogue entry and not the row it was pressed on', async () => {
+    // `data-exercise` on the row is `WorkoutExercise.id`, and a history is about the
+    // movement across every session -- so the two differ, and the wrong one would
+    // answer about a single appearance of the lift.
+    const element = await mount(aFullSession());
+    const asked: string[] = [];
+    element.addEventListener(EXERCISE_HISTORY_EVENT, (event) => {
+      asked.push(event.detail.exerciseId);
+    });
+
+    pressHistoryOn(element, 'lift-b');
+
+    expect(asked).toEqual(['catalogue-lift-b']);
+  });
+
+  it('lets the press reach the root', async () => {
+    // Composed and bubbling: the root is outside this element's shadow root and is the
+    // only thing that can read storage or change screen.
+    const element = await mount(aFullSession());
+    const seen: string[] = [];
+    // Typed as `Event` and narrowed, which is the house pattern: the augmentation this
+    // element declares is on `HTMLElementEventMap`, and `document` is not an element.
+    const listener = (event: Event): void => {
+      if (event instanceof CustomEvent)
+        seen.push((event.detail as ExerciseHistoryOpenDetail).exerciseId);
+    };
+    document.addEventListener(EXERCISE_HISTORY_EVENT, listener);
+    teardown.push(() => {
+      document.removeEventListener(EXERCISE_HISTORY_EVENT, listener);
+    });
+
+    pressHistoryOn(element, 'lift-a');
+
+    expect(seen).toEqual(['catalogue-lift-a']);
+  });
+
+  it('asks for nothing when the row is no longer in the session', async () => {
+    // A press off a stale frame, or a consumer's own markup. The row is looked up
+    // before the event goes, so this asks for nothing rather than for a lift that is
+    // not there.
+    const element = await mount(aFullSession());
+    const asked: string[] = [];
+    element.addEventListener(EXERCISE_HISTORY_EVENT, (event) => {
+      asked.push(event.detail.exerciseId);
+    });
+
+    const stray = document.createElement('ptk-button');
+    stray.dataset['action'] = 'open-exercise-history';
+    stray.dataset['exercise'] = 'lift-gone';
+    shadow(element).append(stray);
+    stray.click();
+
+    expect(asked).toEqual([]);
   });
 });
 

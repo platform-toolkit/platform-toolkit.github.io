@@ -4,12 +4,17 @@
 /**
  * One workout that has already been done, opened from the history. Section 5.4.
  *
- * Read-only, and read-only in the strong sense: there is not a control on it. Editing
- * a finished session is its own sub-task with its own decisions about what an edit does
- * to a record, and section 0.4 forbids shipping the journey with a dead button in it.
- * The way back is drawn by the root, exactly as the finish screen's two buttons are,
- * because changing screen is the root's own business and needs nothing this element
- * knows.
+ * Read-only, and read-only about the record: nothing reachable from here writes to the
+ * session on the screen. Editing a finished session is its own sub-task with its own
+ * decisions about what an edit does to a record, and section 0.4 forbids shipping the
+ * journey with a dead button in it. The way back is drawn by the root, exactly as the
+ * finish screen's two buttons are, because changing screen is the root's own business
+ * and needs nothing this element knows.
+ *
+ * There is one control on it, and it is worth saying why it does not break that. Section
+ * 5.5 reaches an exercise's history from a workout read back, so each lift heading
+ * carries a way in; pressing it asks the root for a different screen and touches nothing
+ * on this one. It has the same standing as the Back button the root draws underneath.
  *
  * WHY IT TAKES A SESSION WHERE THE LIST TAKES SUMMARIES
  *
@@ -34,21 +39,27 @@ import '@platform-toolkit/ui';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { property } from 'lit/decorators.js';
 
+import { findWorkoutExercise } from '../core/session.js';
 import { setWasEdited, summarize } from '../core/summary.js';
 import type { WorkoutExercise, WorkoutSession, WorkoutSet } from '../types.js';
 
 import {
   DETAIL_NOTES,
   HISTORY_NOTES,
+  RECORDS_NOTES,
   SET_KINDS,
   SET_STATUSES,
   WORKOUT_STATUSES,
   formatDuration,
 } from './copy.js';
+import { actionOf, exerciseOf } from './dataset.js';
 import { formatEffort, formatPerformance } from './format.js';
+import { EXERCISE_HISTORY_EVENT, type ExerciseHistoryOpenDetail } from './ptk-exercise-history.js';
 
 /** The tag `defineTrainingLogbook()` registers this under. */
 export const WORKOUT_DETAIL_TAG = 'ptk-workout-detail';
+
+const HISTORY_ACTION = 'open-exercise-history';
 
 /**
  * "1 working set", "9 working sets". The list's rule, applied to one workout.
@@ -125,6 +136,14 @@ export class PtkWorkoutDetail extends LitElement {
       margin-top: var(--ptk-space-sm);
     }
 
+    .lift-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--ptk-space-xs);
+    }
+
     .sets > li {
       padding: var(--ptk-space-xs) 0;
       border-top: 1px solid var(--ptk-color-border);
@@ -151,6 +170,16 @@ export class PtkWorkoutDetail extends LitElement {
 
   /** The workout, or `null` where it could not be read. */
   @property({ attribute: false }) session: WorkoutSession | null = null;
+
+  override connectedCallback(): void {
+    super.connectedCallback();
+    this.addEventListener('click', this.#onClick);
+  }
+
+  override disconnectedCallback(): void {
+    this.removeEventListener('click', this.#onClick);
+    super.disconnectedCallback();
+  }
 
   override render(): TemplateResult {
     const session = this.session;
@@ -182,9 +211,25 @@ export class PtkWorkoutDetail extends LitElement {
     `;
   }
 
+  /**
+   * One lift, and the way into what it has done across every other session.
+   *
+   * The button is named for the lift as well as labelled with one word, because a
+   * workout with six exercises on it is six controls reading "History". It extends the
+   * visible word rather than replacing it, which is WCAG 2.5.3 -- the same rule the
+   * history list's two buttons follow.
+   */
   #lift(exercise: WorkoutExercise): TemplateResult {
     return html`<li data-exercise=${exercise.id}>
-      <h3>${exercise.displayName}</h3>
+      <div class="lift-head">
+        <h3>${exercise.displayName}</h3>
+        <ptk-button
+          variant="quiet"
+          data-action=${HISTORY_ACTION}
+          accessible-name=${`${RECORDS_NOTES.open}: ${exercise.displayName}`}
+          >${RECORDS_NOTES.open}</ptk-button
+        >
+      </div>
       ${this.#written(exercise.note)}
       <ul class="sets">
         ${exercise.sets.map((set) => this.#set(set))}
@@ -227,6 +272,32 @@ export class PtkWorkoutDetail extends LitElement {
     if (note === null) return nothing;
     return html`<p class="written">${note}</p>`;
   }
+
+  /**
+   * The one press this screen answers.
+   *
+   * `data-exercise` carries the row's own identifier, which is the right thing for it to
+   * carry and the wrong thing to send: the history is about the catalogue entry, and the
+   * two differ whenever a lift appears twice in one session. So the row is looked back up
+   * here rather than the catalogue identifier being written into the markup a second
+   * time under a name a reader would have to learn.
+   */
+  readonly #onClick = (event: Event): void => {
+    if (actionOf(event) !== HISTORY_ACTION) return;
+    const id = exerciseOf(event);
+    if (id === null) return;
+    const session = this.session;
+    if (session === null) return;
+    const lift = findWorkoutExercise(session, id);
+    if (lift === null) return;
+    this.dispatchEvent(
+      new CustomEvent<ExerciseHistoryOpenDetail>(EXERCISE_HISTORY_EVENT, {
+        detail: { exerciseId: lift.exerciseId },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  };
 }
 
 declare global {

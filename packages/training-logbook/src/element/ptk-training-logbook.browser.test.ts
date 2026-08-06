@@ -83,6 +83,7 @@ import {
   HANDOFF_NOTES,
   HISTORY_NOTES,
   HOME_NOTES,
+  RECORDS_NOTES,
   SAVE_STATES,
   SAVE_STATE_NOTES,
   UNIT_LABELS,
@@ -784,6 +785,29 @@ async function open(element: PtkTrainingLogbook, row: HTMLElement): Promise<HTML
 }
 
 /**
+ * Presses the History control on a lift and waits for what it reads to be on screen.
+ *
+ * Takes the root it should press within, because both screens that offer the way in
+ * draw one control per lift and the interesting cases are about *which* lift was
+ * pressed. Waits on the element for `open`'s reason: the read behind the press is a walk
+ * of the whole history, and the storage line says Saved throughout, so `settle` alone
+ * would return against the screen the press left.
+ */
+async function openHistory(
+  element: PtkTrainingLogbook,
+  within: DocumentFragment | HTMLElement,
+): Promise<HTMLElement> {
+  nativeButton(control(within, 'open-exercise-history')).click();
+  await vi.waitFor(async () => {
+    await element.updateComplete;
+    expect(deepAll(shadow(element), 'ptk-exercise-history')).toHaveLength(1);
+  });
+  const screen = deepAll(shadow(element), 'ptk-exercise-history')[0];
+  if (screen === undefined) throw new Error('The history did not open.');
+  return screen;
+}
+
+/**
  * The session the tool is now in, read back out of storage rather than off the element.
  *
  * The session is private state, which is the honest constraint to assert under: what a
@@ -837,6 +861,22 @@ function unreadable(store: LogbookStore): LogbookStore {
   return {
     ...store,
     readWorkout: () => Promise.reject(new Error('this record cannot be read')),
+  };
+}
+
+/**
+ * A store whose bounded read fails, which is the one above's sibling and not the same
+ * thing.
+ *
+ * An exercise's history is `scanWorkouts` and never `readWorkout`, so {@link unreadable}
+ * leaves it working perfectly -- a case that used it would open a full history and prove
+ * nothing about the failure it named. Boot survives this for the reason boot survives
+ * that one: nothing is scanned until a lifter presses something.
+ */
+function unscannable(store: LogbookStore): LogbookStore {
+  return {
+    ...store,
+    scanWorkouts: () => Promise.reject(new Error('the history cannot be walked')),
   };
 }
 
@@ -1880,6 +1920,111 @@ describe('the training logbook', () => {
       await settle(element);
       expect(readAll(element)).toContain(HOME_NOTES.resumeNote);
       expect(await reopened.readActiveId()).toBe(openSession);
+    });
+  });
+
+  /**
+   * Section 5.5, from a lift on a screen to that lift across every session.
+   *
+   * Two screens open this one and the leaf suites prove each of them dispatches a
+   * catalogue identifier. What neither can see is the half in between: the identifier
+   * has to reach a scan of the whole history, the scan has to answer about the lift that
+   * was pressed, and -- the part with nothing else guarding it -- the way back has to
+   * return to whichever of the two screens asked. A lifter who looked something up
+   * mid-session and was put on the home screen for it has lost their place at the rack,
+   * which is the one thing this screen must not cost.
+   *
+   * On the durable store, because a history is only interesting where sessions were
+   * written down first.
+   */
+  describe('reading a lift back', () => {
+    it('reads the lift that was pressed, across the sessions it appears in', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+      const workout = await open(element, await historyRow(element, source.id));
+
+      const screen = await openHistory(element, shadow(workout));
+
+      expect(shadow(screen).querySelector('h2')?.textContent.trim()).toBe(SQUAT.name);
+      const said = readAll(screen);
+      expect(said).toContain(REPEATED_DAY);
+      expect(said).toContain(formatWeight({ amount: REPEATED_WEIGHT, unit: 'kg' }));
+      // Read and nothing else. The screen it was opened from is a record, and a press
+      // that touched it would be the tool editing a history it was asked to explain.
+      expect(await store.readWorkout(source.id)).toEqual(source);
+    });
+
+    it('reads the second lift on the screen when that is the one pressed', async () => {
+      // The identifier has to survive the whole trip. A root that reached for the first
+      // lift of the session, or for the one the detail screen happened to draw first,
+      // passes the case above and fails here.
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+      const workout = await open(element, await historyRow(element, source.id));
+      const bench = deepAll(shadow(workout), 'li[data-exercise]')[1];
+      if (bench === undefined) throw new Error('The workout is drawing fewer than two lifts.');
+
+      const screen = await openHistory(element, bench);
+
+      expect(shadow(screen).querySelector('h2')?.textContent.trim()).toBe(BENCH.name);
+    });
+
+    it('goes back to the workout it was opened from, and not to the home screen', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+      const workout = await open(element, await historyRow(element, source.id));
+      await openHistory(element, shadow(workout));
+
+      nativeButton(control(shadow(element), 'records-back')).click();
+      await settle(element);
+
+      expect(deepAll(shadow(element), 'ptk-exercise-history')).toHaveLength(0);
+      expect(deepAll(shadow(element), 'ptk-workout-detail')).toHaveLength(1);
+      expect(readAll(element)).toContain(REPEATED_TITLE);
+    });
+
+    it('gives a lifter their session back after they look something up', async () => {
+      // The reason the origin is remembered at all. Section 5.5 puts the way in on the
+      // logging screen, so this is the ordinary use -- what did I do this for last time,
+      // asked between two sets -- and Back landing anywhere but here ends the workout as
+      // far as the lifter standing at the rack is concerned.
+      const { store } = await durableStore();
+      await seedRepeatable(store);
+      const element = await mount(store);
+      await planASquatSession(element);
+      const openSession = await store.readActiveId();
+
+      const screen = await openHistory(element, shadow(element));
+
+      // The session on screen is planned and not performed, so it contributes nothing
+      // to its own history: the number here can only have come out of storage.
+      expect(readAll(screen)).toContain(formatWeight({ amount: REPEATED_WEIGHT, unit: 'kg' }));
+
+      nativeButton(control(shadow(element), 'records-back')).click();
+      await settle(element);
+
+      expect(deepAll(shadow(element), 'ptk-active-workout')).toHaveLength(1);
+      expect(deepAll(shadow(element), '[data-action="start-workout"]')).toHaveLength(0);
+      expect(await store.readActiveId()).toBe(openSession);
+    });
+
+    it('says the history could not be read, instead of drawing a lift with nothing in it', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(unscannable(store));
+      const workout = await open(element, await historyRow(element, source.id));
+
+      const screen = await openHistory(element, shadow(workout));
+
+      // The screen changes even though the read failed, `#open`'s rule and `#open`'s
+      // reason: a press that appears to do nothing gets pressed again.
+      expect(readAll(screen)).toContain(RECORDS_NOTES.unreadable);
+      // And it must not read as "you have never done this", which is the other sentence
+      // this screen has and a lie about a lift that is on the page behind it.
+      expect(readAll(screen)).not.toContain(RECORDS_NOTES.empty);
     });
   });
 

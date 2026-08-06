@@ -1677,6 +1677,56 @@ const LOGBOOK_OPEN_CLICK_LAST = [
 const LOGBOOK_OPEN_SETTLE = ['ptk-workout-detail li[data-set]'];
 
 /**
+ * The repeat route's journey with one set actually ticked off in the middle of it.
+ *
+ * `LOGBOOK_REPEAT_CLICK` finishes a session in which nothing was done, which is the
+ * right shape for the disposition panel it exists to measure and the wrong one for a
+ * history: an exercise history lists performed sets and nothing else, so that journey
+ * leaves behind a workout the records screen correctly reports as never having been
+ * trained. One `complete` press before the finish is the whole difference, and it is
+ * what puts a marked row on the screen below.
+ */
+const LOGBOOK_RECORDS_CLICK = [
+  ...LOGBOOK_START,
+  'ptk-active-workout ptk-button[data-action="complete"] button',
+  ...LOGBOOK_FINISH_CLICK,
+  'ptk-active-workout .finish ptk-button[data-action="finish-confirm"] button',
+  'ptk-training-logbook ptk-button[data-action="home"] button',
+];
+
+/**
+ * Open the workout, then open the first lift on it.
+ *
+ * Two presses in `clickLast` rather than one because there is no earlier slot left --
+ * getting to a finished workout has already spent `click`, `fill` and `clickAfter`.
+ * The history control is drawn once per lift and `.first()` lands on the squat, which
+ * is the lift whose set was ticked off above and therefore the only one with anything
+ * to show.
+ */
+const LOGBOOK_RECORDS_CLICK_LAST = [
+  ...LOGBOOK_OPEN_CLICK_LAST,
+  'ptk-workout-detail ptk-button[data-action="open-exercise-history"] button',
+];
+
+/**
+ * A marked set row, and the heaviest line above the list.
+ *
+ * The marker and not the row: `li[data-set]` here is much the arrangement the workout
+ * screen already measures, and what is new is the line under it -- a phrase of four or
+ * five words, in a wrapping flex row, inside a set row, inside a session card, which is
+ * one level deeper than anything else in the tool puts a sentence.
+ *
+ * The heaviest line is named as well because it comes from the other half of the read.
+ * A history whose sessions were listed and whose best was never computed draws a marked
+ * row perfectly and is missing the widest single line on the screen -- a label, a load
+ * and an ISO day on one row that has to wrap at 320px.
+ */
+const LOGBOOK_RECORDS_SETTLE = [
+  'ptk-exercise-history .best > li',
+  'ptk-exercise-history li[data-set] p.marks span[data-marker]',
+];
+
+/**
  * The planner's two tiles, then the picker over them.
  *
  * The picker is here for one thing only: the longest exercise name the catalogue
@@ -2537,6 +2587,30 @@ const ROUTES = [
     clickAfter: LOGBOOK_REPEAT_CLICK,
     clickLast: LOGBOOK_OPEN_CLICK_LAST,
     settle: LOGBOOK_OPEN_SETTLE,
+  },
+  {
+    // Section 5.5's third read-only screen, and the only one whose rows carry a
+    // second line. A set row on the two screens before this one is a kind, a load, a
+    // status and sometimes an effort; here it can grow a `p.marks` under all of that,
+    // and the phrases in it are the longest strings the tool draws -- long enough that
+    // two of them wrap on their own at 320px, inside a row, inside a session card.
+    //
+    // The heading pair above the list is the other new arrangement: an ISO day and a
+    // title a lifter typed, side by side in a flex row, which the history row draws on
+    // two lines and this one does not.
+    //
+    // The journey is the repeat route's with one set ticked off part-way through, for
+    // the reason `LOGBOOK_RECORDS_CLICK` gives -- a history of a workout in which
+    // nothing was performed is a one-sentence screen, and measuring that instead would
+    // be a pass about a surface this route was not written for.
+    path: '/logbook/',
+    label: '/logbook/ (an exercise read back)',
+    click: LOGBOOK_PLAN_CLICK,
+    reveal: [],
+    fill: LOGBOOK_PLAN_FILL,
+    clickAfter: LOGBOOK_RECORDS_CLICK,
+    clickLast: LOGBOOK_RECORDS_CLICK_LAST,
+    settle: LOGBOOK_RECORDS_SETTLE,
   },
   {
     // Section 7.9's note surface, which arrived with two hazards nothing here

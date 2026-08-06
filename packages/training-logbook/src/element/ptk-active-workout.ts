@@ -125,6 +125,7 @@ import {
   EFFORT_FIELD_LABELS,
   FINISH_DISPOSITIONS,
   FINISH_DISPOSITION_NOTES,
+  RECORDS_NOTES,
   SET_KINDS,
 } from './copy.js';
 import {
@@ -142,6 +143,7 @@ import {
 } from './dataset.js';
 import { formatEffort, formatPerformance, formatSetRun } from './format.js';
 import { renderLoading } from './loading-view.js';
+import { EXERCISE_HISTORY_EVENT, type ExerciseHistoryOpenDetail } from './ptk-exercise-history.js';
 
 /** The plates for every set of the session on screen, or none because there is no rack. */
 type Loadings = ReadonlyMap<LogbookId, SetLoading> | null;
@@ -207,6 +209,7 @@ const ADD_SET_ACTION = 'add-set';
 const DUPLICATE_SET_ACTION = 'duplicate-set';
 const SKIP_SET_ACTION = 'skip-set';
 const REMOVE_SET_ACTION = 'remove-set';
+const HISTORY_ACTION = 'open-exercise-history';
 
 /**
  * Section 10.2's short debounce, in milliseconds.
@@ -644,6 +647,13 @@ export class PtkActiveWorkout extends LitElement {
     return html`<section class="exercise">
       <div class="head">
         <h3>${exercise.displayName}</h3>
+        <ptk-button
+          variant="quiet"
+          data-action=${HISTORY_ACTION}
+          data-exercise=${exercise.id}
+          accessible-name=${this.#exerciseName(RECORDS_NOTES.open, exercise)}
+          >${RECORDS_NOTES.open}</ptk-button
+        >
         ${this.#noteButton(note, this.#exerciseName(ACTIVE_NOTES.note, exercise))}
       </div>
       ${this.#previousLine(exercise)} ${this.#noteSurface(session, note)}
@@ -1071,6 +1081,9 @@ export class PtkActiveWorkout extends LitElement {
       case REMOVE_SET_ACTION:
         this.#changeSet(event, 'remove');
         return;
+      case HISTORY_ACTION:
+        this.#openHistory(event);
+        return;
       case FINISH_ACTION:
         this.finishing = true;
         return;
@@ -1090,6 +1103,31 @@ export class PtkActiveWorkout extends LitElement {
     const exerciseId = exerciseOf(event);
     if (exerciseId === null) return;
     this.#planChange({ kind: 'add', exerciseId });
+  }
+
+  /**
+   * The lifter wants to see what this movement has done before. Section 5.5.
+   *
+   * `data-exercise` is the row, as it is everywhere on this screen, and the history is
+   * about the catalogue entry -- so the row is looked back up here. `ptk-workout-detail`
+   * does the same thing for the same reason.
+   *
+   * A half-typed note is safe without anything being done about it: focus leaves the
+   * text area to reach this button, and `#onFocusOut` has already written it.
+   */
+  #openHistory(event: Event): void {
+    const session = this.session;
+    const id = exerciseOf(event);
+    if (session === null || id === null) return;
+    const lift = findWorkoutExercise(session, id);
+    if (lift === null) return;
+    this.dispatchEvent(
+      new CustomEvent<ExerciseHistoryOpenDetail>(EXERCISE_HISTORY_EVENT, {
+        detail: { exerciseId: lift.exerciseId },
+        bubbles: true,
+        composed: true,
+      }),
+    );
   }
 
   /**

@@ -870,6 +870,70 @@ export const HISTORY_NOTES = {
   repeatBusy: 'You have a workout in progress, so none of these can be started again yet.',
 } as const;
 
+/**
+ * One exercise read back across its whole history. Sections 5.5 and 9.2.
+ *
+ * WHY THE THREE MARKERS ARE WORDED THE WAY THEY ARE
+ *
+ * Each one says what it is and stops. Section 15.3 rules out the tool having an
+ * opinion, and a marker is the place that rule is hardest to keep: "Personal best"
+ * is a congratulation, "PR" is the same congratulation abbreviated, and both invite
+ * the next sentence, which is advice. What is written below is a measurement -- the
+ * heaviest, the most, at a stated weight or for a stated number -- and a lifter who
+ * wants to feel something about it is welcome to, in their own words.
+ *
+ * "Most weight for these reps" and not "rep record" for the reason `records.ts`
+ * gives where the marker is defined: the shorter phrase invites an extrapolation to
+ * a one-rep max, and this tool does not make one.
+ */
+export const RECORDS_NOTES = {
+  /** Read from the newest session that recorded the lift, so this is the fallback. */
+  heading: 'Exercise',
+
+  /** What a lift that has never been done says. Reachable the moment one is added. */
+  empty: 'Nothing has been logged for this exercise yet.',
+
+  /** The history could not be read at all, which is not a history with nothing in it. */
+  unreadable: 'That history could not be read.',
+
+  /**
+   * Said under the list rather than above it.
+   *
+   * The sessions are the answer and this is a footnote about the answer's edge. Put
+   * at the top it reads as a warning about the whole screen, which it is not: the
+   * markers were worked out over every session the lifter has, including the ones
+   * below the line.
+   */
+  truncated: 'Older sessions are not listed. The marks above cover all of them.',
+
+  /** The heading over the marker summary, which is a fact and not a trophy shelf. */
+  heaviestLabel: 'Heaviest',
+
+  /** The three marks section 9.2 allows, on the set that holds each. */
+  markers: {
+    heaviest: 'Heaviest',
+    'most-reps-at-load': 'Most reps at this weight',
+    'most-load-for-reps': 'Most weight for these reps',
+  },
+
+  /**
+   * The control on a lift heading that opens this screen. Section 5.5.
+   *
+   * On the logging screen as well as on a finished workout, because looking up what a
+   * lift was done for last month is a thing done at the rack, mid-session.
+   */
+  open: 'History',
+
+  /**
+   * The way back.
+   *
+   * One sentence for both places this screen is reached from, because both of them
+   * are a workout -- the one in progress, or the one being read. A pair of strings
+   * chosen by origin would say the same thing twice.
+   */
+  back: 'Back to the workout',
+} as const;
+
 /** A duration in the words a session is talked about in. */
 export function formatDuration(millis: number): string {
   const minutes = Math.round(millis / 60_000);

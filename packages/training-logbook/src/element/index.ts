@@ -23,6 +23,7 @@ import type { LitElement } from 'lit';
 
 import { ACTIVE_WORKOUT_TAG, PtkActiveWorkout } from './ptk-active-workout.js';
 import { EQUIPMENT_LIBRARY_TAG, PtkEquipmentLibrary } from './ptk-equipment-library.js';
+import { EXERCISE_HISTORY_TAG, PtkExerciseHistory } from './ptk-exercise-history.js';
 import { EXERCISE_LIBRARY_TAG, PtkExerciseLibrary } from './ptk-exercise-library.js';
 import { PtkTrainingLogbook, TRAINING_LOGBOOK_TAG } from './ptk-training-logbook.js';
 import { PtkWorkoutBuilder, WORKOUT_BUILDER_TAG } from './ptk-workout-builder.js';
@@ -32,9 +33,11 @@ import { PtkWorkoutHistory, WORKOUT_HISTORY_TAG } from './ptk-workout-history.js
 export {
   ACTIVE_WORKOUT_TAG,
   EQUIPMENT_LIBRARY_TAG,
+  EXERCISE_HISTORY_TAG,
   EXERCISE_LIBRARY_TAG,
   PtkActiveWorkout,
   PtkEquipmentLibrary,
+  PtkExerciseHistory,
   PtkExerciseLibrary,
   PtkTrainingLogbook,
   PtkWorkoutBuilder,
@@ -65,6 +68,7 @@ export {
   type ProfileSavedDetail,
   type RackChangedDetail,
 } from './ptk-equipment-library.js';
+export { EXERCISE_HISTORY_EVENT, type ExerciseHistoryOpenDetail } from './ptk-exercise-history.js';
 export {
   EXERCISE_REMOVED_EVENT,
   EXERCISE_SAVED_EVENT,
@@ -103,6 +107,7 @@ export {
   HOME_NOTES,
   LOADING_LABELS,
   LOADING_NOTES,
+  RECORDS_NOTES,
   SAVE_STATES,
   SAVE_STATE_NOTES,
   SET_KINDS,
@@ -142,6 +147,7 @@ export {
 const ELEMENTS: readonly (readonly [string, typeof LitElement])[] = [
   [ACTIVE_WORKOUT_TAG, PtkActiveWorkout],
   [EQUIPMENT_LIBRARY_TAG, PtkEquipmentLibrary],
+  [EXERCISE_HISTORY_TAG, PtkExerciseHistory],
   [EXERCISE_LIBRARY_TAG, PtkExerciseLibrary],
   [WORKOUT_BUILDER_TAG, PtkWorkoutBuilder],
   [WORKOUT_DETAIL_TAG, PtkWorkoutDetail],

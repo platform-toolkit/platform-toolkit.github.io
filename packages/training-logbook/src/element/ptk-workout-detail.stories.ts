@@ -4,10 +4,10 @@
 /**
  * One session, opened out of the history and read back.
  *
- * The page a lifter lands on when they want to know what last Tuesday actually was, and
- * the only screen in the tool with nothing to press on it. What is worth reviewing here
- * is the density: five or six sets under two headings, on a phone, with the numbers
- * findable at arm's length.
+ * The page a lifter lands on when they want to know what last Tuesday actually was.
+ * Nothing on it changes the session: the one control per lift opens that lift's history,
+ * which is a different screen. What is worth reviewing here is the density -- five or six
+ * sets under two headings, on a phone, with the numbers findable at arm's length.
  *
  * Every weight, rep count, note and day here is invented (section 5.1).
  */

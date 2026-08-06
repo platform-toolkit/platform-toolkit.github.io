@@ -56,6 +56,7 @@ import {
 import { createProfile, findProfile, updateProfileEquipment } from '../core/equipment.js';
 import { handoffLifts, workoutFromHandoff } from '../core/handoff.js';
 import type { PreviousPerformance } from '../core/previous.js';
+import type { ExerciseHistory } from '../core/records.js';
 import {
   rampExercise,
   rampLastExercise,
@@ -105,6 +106,7 @@ import {
   EFFORT_SETTING_NOTES,
   HANDOFF_NOTES,
   HOME_NOTES,
+  RECORDS_NOTES,
   SAVE_STATES,
   SAVE_STATE_NOTES,
   UNIT_LABELS,
@@ -141,6 +143,7 @@ import {
   type ProfileSavedDetail,
   type RackChangedDetail,
 } from './ptk-equipment-library.js';
+import { EXERCISE_HISTORY_EVENT, type ExerciseHistoryOpenDetail } from './ptk-exercise-history.js';
 import {
   EXERCISE_REMOVED_EVENT,
   EXERCISE_SAVED_EVENT,
@@ -162,16 +165,21 @@ export const TRAINING_LOGBOOK_TAG = 'ptk-training-logbook';
 /**
  * Which screen is showing.
  *
- * A union rather than a router. This tool is five screens with one path between them,
+ * A union rather than a router. This tool is six screens with one path between them,
  * and a URL per screen would put a lifter's session in their history -- a back button
  * that unwinds a workout is worse than one that leaves the page.
  *
- * `detail` is the one that is reached and left rather than passed through, and it is
- * still not a route. It is also the only screen reachable while a session is open:
- * looking up what a lift was done for last month is a thing done mid-workout, and the
- * live session is untouched behind it.
+ * `detail` and `records` are the two that are reached and left rather than passed
+ * through, and neither is a route. They are also the two reachable while a session is
+ * open: looking up what a lift was done for last month is a thing done mid-workout, and
+ * the live session is untouched behind them.
+ *
+ * `records` is the only one with more than one way in -- section 5.5 opens it from the
+ * logging screen and from a workout read back -- which is why {@link #recordsFrom}
+ * exists. A Back button that guessed would drop a lifter out of a live session for
+ * having looked something up.
  */
-type Screen = 'home' | 'build' | 'active' | 'done' | 'detail';
+type Screen = 'home' | 'build' | 'active' | 'done' | 'detail' | 'records';
 
 const START_ACTION = 'start-workout';
 const RESUME_ACTION = 'resume-workout';
@@ -180,6 +188,7 @@ const BACKUP_ACTION = 'backup';
 const HOME_ACTION = 'home';
 const HANDOFF_START_ACTION = 'start-handoff';
 const HANDOFF_DISCARD_ACTION = 'discard-handoff';
+const RECORDS_BACK_ACTION = 'records-back';
 
 /** How many history rows the home screen reads. Section 17.2's budget, applied. */
 const HISTORY_LIMIT = 20;
@@ -394,6 +403,26 @@ export class PtkTrainingLogbook extends LitElement {
    */
   @state() private opened: WorkoutSession | null = null;
 
+  /**
+   * The exercise being read back, or `null` where it could not be read.
+   *
+   * The same three outcomes `opened` has, collapsed the same way and for the same
+   * reason: a press that reached storage and failed must not look like a press that
+   * missed the button.
+   */
+  @state() private records: ExerciseHistory | null = null;
+
+  /**
+   * Which screen the history was opened from, so Back goes there.
+   *
+   * Section 5.5 gives it two ways in and one of them is a live session. Sending Back
+   * to the home screen would end a lifter's set-by-set place in a workout as the price
+   * of checking what they lifted last month, which is the one thing this screen must
+   * not cost them. Held rather than derived, because by the time Back is pressed the
+   * screen it came from is no longer the screen that is up.
+   */
+  @state() private recordsFrom: Screen = 'home';
+
   /** `null` until the first read has told us whether this browser stores anything. */
   @state() private saveState: SaveState | null = null;
 
@@ -447,6 +476,7 @@ export class PtkTrainingLogbook extends LitElement {
     this.addEventListener(EXERCISE_REMOVED_EVENT, this.#onExerciseRemoved);
     this.addEventListener(WORKOUT_REPEAT_EVENT, this.#onRepeat);
     this.addEventListener(WORKOUT_OPEN_EVENT, this.#onOpen);
+    this.addEventListener(EXERCISE_HISTORY_EVENT, this.#onExerciseHistory);
     this.addEventListener('click', this.#onClick);
   }
 
@@ -464,6 +494,7 @@ export class PtkTrainingLogbook extends LitElement {
     this.removeEventListener(EXERCISE_REMOVED_EVENT, this.#onExerciseRemoved);
     this.removeEventListener(WORKOUT_OPEN_EVENT, this.#onOpen);
     this.removeEventListener(WORKOUT_REPEAT_EVENT, this.#onRepeat);
+    this.removeEventListener(EXERCISE_HISTORY_EVENT, this.#onExerciseHistory);
     this.removeEventListener('click', this.#onClick);
     super.disconnectedCallback();
   }
@@ -560,6 +591,8 @@ export class PtkTrainingLogbook extends LitElement {
         return this.#doneScreen();
       case 'detail':
         return this.#detailScreen();
+      case 'records':
+        return this.#recordsScreen();
       case 'home':
         return this.#homeScreen();
     }
@@ -791,6 +824,31 @@ export class PtkTrainingLogbook extends LitElement {
     `;
   }
 
+  /**
+   * One lift across every session it appears in. Section 5.5.
+   *
+   * Back and nothing else, exactly as the detail screen has, and it returns to
+   * {@link #recordsFrom} rather than home -- see that field. One word for both origins,
+   * because both of them are a workout: the one being done and the one being read.
+   *
+   * It does not reload the history on the way, unlike the detail screen's Back. This
+   * screen wrote nothing, and a reload would redraw the live session underneath a
+   * lifter standing at the rack between sets.
+   */
+  #recordsScreen(): TemplateResult {
+    return html`
+      ${this.#saveLine()}
+      <section class="section">
+        <ptk-exercise-history .history=${this.records}></ptk-exercise-history>
+        <div class="actions">
+          <ptk-button variant="primary" data-action=${RECORDS_BACK_ACTION}
+            >${RECORDS_NOTES.back}</ptk-button
+          >
+        </div>
+      </section>
+    `;
+  }
+
   /** Section 18.9's phrase, on every screen rather than only on the home one. */
   #saveLine(): TemplateResult | typeof nothing {
     const state = this.saveState;
@@ -980,6 +1038,11 @@ export class PtkTrainingLogbook extends LitElement {
     void this.#open(event.detail.id);
   };
 
+  readonly #onExerciseHistory = (event: CustomEvent<ExerciseHistoryOpenDetail>): void => {
+    stopHere(event);
+    void this.#records(event.detail.exerciseId);
+  };
+
   /**
    * Reads a finished workout back and shows it. Section 5.4.
    *
@@ -1000,6 +1063,30 @@ export class PtkTrainingLogbook extends LitElement {
       this.opened = null;
     }
     this.screen = 'detail';
+  }
+
+  /**
+   * Reads one exercise back across the whole history. Sections 5.5 and 9.2.
+   *
+   * The screen changes whatever the read returns, `#open`'s rule and `#open`'s reason.
+   *
+   * The origin is recorded before the await and not after it. `screen` is what the
+   * lifter is looking at, and a slow read on a phone is long enough for something else
+   * -- a resumed session, a finished one -- to have moved it; Back would then return
+   * them to a screen they were never on.
+   *
+   * No `active` guard, and no reload afterwards. Nothing here writes.
+   */
+  async #records(exerciseId: string): Promise<void> {
+    const repository = this.repository;
+    if (repository === null) return;
+    this.recordsFrom = this.screen;
+    try {
+      this.records = await repository.exerciseHistory(exerciseId);
+    } catch {
+      this.records = null;
+    }
+    this.screen = 'records';
   }
 
   /**
@@ -1438,7 +1525,12 @@ export class PtkTrainingLogbook extends LitElement {
         // stale copy would redraw the workout as it was before an edit somewhere else
         // changed it.
         this.opened = null;
+        this.records = null;
         void this.#reload();
+        return;
+      case RECORDS_BACK_ACTION:
+        this.screen = this.recordsFrom;
+        this.records = null;
         return;
       case BACKUP_ACTION:
         void this.#backup();
