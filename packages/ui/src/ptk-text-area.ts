@@ -134,8 +134,26 @@ export class PtkTextArea extends LitElement {
     }
   `;
 
-  /** The question. Becomes the box's accessible name, so it is not optional. */
+  /** The question. Becomes the box's accessible name unless one is given below. */
   @property({ type: String }) label = '';
+
+  /**
+   * A fuller name for assistive technology, where the visible label repeats.
+   *
+   * The twin of `ptk-button`'s, and it exists for the same reason: a screen with
+   * eight of these on it labels every one of them "Note", so a visitor tabbing
+   * into the fifth is told nothing about which of the eight it belongs to --
+   * while a visible "Note, Back squat" printed under a heading already reading
+   * "Back squat" is the heading twice. One name for the eye, a longer one for
+   * the ear.
+   *
+   * **It must contain the visible label word for word.** WCAG 2.5.3: somebody
+   * speaking the words they can see has to reach the control they are looking
+   * at, so this extends `label` and never replaces it. Nothing here checks that,
+   * because there is no honest check -- "Note" is a substring of half the
+   * sentences in English -- so it is the caller's to keep.
+   */
+  @property({ type: String, attribute: 'accessible-name' }) accessibleName = '';
 
   /** What is in the box. A string, and it stays one. */
   @property({ type: String }) value = '';
@@ -174,6 +192,7 @@ export class PtkTextArea extends LitElement {
         class=${invalid ? 'invalid' : nothing}
         rows=${this.rows}
         placeholder=${this.placeholder}
+        aria-label=${this.accessibleName === '' ? nothing : this.accessibleName}
         aria-describedby=${describedBy === '' ? nothing : describedBy}
         aria-invalid=${invalid ? 'true' : 'false'}
         ?disabled=${this.disabled}

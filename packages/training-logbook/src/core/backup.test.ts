@@ -35,6 +35,9 @@ import {
   createWorkout,
   finishWorkout,
   performance,
+  setExerciseNote,
+  setSetNote,
+  setWorkoutNote,
   startWorkout,
 } from './session.js';
 
@@ -127,6 +130,27 @@ describe('serializeBackup', () => {
     if (!result.ok) throw new Error('expected a valid backup');
     expect(result.backup).toEqual(written);
     expect(result.migrated).toBe(false);
+  });
+
+  it('carries the text of every note through the round trip', () => {
+    // Every note in the fixture above is null, so the round trip proves only that
+    // the field exists. A backup that dropped the words a lifter wrote would pass
+    // it -- and a note is the one thing in a logbook that cannot be re-derived.
+    let workout = session();
+    const exerciseId = workout.exercises[0]?.id ?? '';
+    const setId = workout.exercises[0]?.sets[0]?.id ?? '';
+    workout = setWorkoutNote(workout, 'Rough day', testContext());
+    workout = setExerciseNote(workout, exerciseId, 'Belt from set two', testContext());
+    workout = setSetNote(workout, setId, 'Knee wrap slipped', testContext());
+
+    const result = read(serializeBackup(backup({ workouts: [workout] })));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected a valid backup');
+    const restored = result.backup.data.workouts[0];
+    expect(restored?.note).toBe('Rough day');
+    expect(restored?.exercises[0]?.note).toBe('Belt from set two');
+    expect(restored?.exercises[0]?.sets[0]?.note).toBe('Knee wrap slipped');
   });
 
   it('ends with a newline so the file is a well-formed text document', () => {

@@ -36,6 +36,9 @@ export const PROFILE_DATASET_KEY = 'profile';
 /** Which stored workout a control acts on, by identifier. */
 export const WORKOUT_DATASET_KEY = 'workout';
 
+/** Which note a control acts on, as a key naming both the kind and the target. */
+export const NOTE_DATASET_KEY = 'note';
+
 /** What a button does, where a button does something other than write a field. */
 export const ACTION_DATASET_KEY = 'action';
 
@@ -123,6 +126,44 @@ export function profileOf(event: Event): string | null {
 /** The stored workout a control acts on, or `null`. Opaque, so unchecked like {@link setOf}. */
 export function workoutOf(event: Event): string | null {
   return attributeOn(event, WORKOUT_DATASET_KEY);
+}
+
+/**
+ * The note the workout as a whole carries. Section 7.9.
+ *
+ * A note key names its kind as well as its target, and one attribute carries
+ * both. Three attributes would not do: an exercise's note box sits inside the
+ * exercise block, so `data-exercise` is already on the path above it, and a
+ * handler reading that could not tell a note about the lift from a note the
+ * whole session carries -- which is the pair section 7.9 makes distinct.
+ */
+export const WORKOUT_NOTE_KEY = 'workout';
+
+const EXERCISE_NOTE_PREFIX = 'exercise:';
+
+/**
+ * The key naming one exercise's note.
+ *
+ * The identifier is `WorkoutExercise.id`, the row in this session, and not the
+ * `exerciseId` naming the catalogue entry it came from. The core's
+ * `setExerciseNote` matches on the row and it has to: a session with squats in
+ * it twice is two rows sharing one catalogue identifier, and a note keyed by
+ * the catalogue would land on both.
+ */
+export function exerciseNoteKey(id: string): string {
+  return `${EXERCISE_NOTE_PREFIX}${id}`;
+}
+
+/** The exercise row a note key names, or `null` where it names something else. */
+export function exerciseNoteId(key: string): string | null {
+  if (!key.startsWith(EXERCISE_NOTE_PREFIX)) return null;
+  const id = key.slice(EXERCISE_NOTE_PREFIX.length);
+  return id === '' ? null : id;
+}
+
+/** Which note a control acts on, or `null`. Opaque, so unchecked like {@link setOf}. */
+export function noteOf(event: Event): string | null {
+  return attributeOn(event, NOTE_DATASET_KEY);
 }
 
 /**

@@ -31,6 +31,20 @@
  * to draw nothing, so a line that always renders looks exactly like a correct screen
  * to anybody whose logbook is empty. The block below therefore asserts on the absence
  * as a count of elements rather than as a run of empty text.
+ *
+ * SECTION 7.9'S NOTES ARE THE THIRD
+ *
+ * A note surface has three states and two of them are silence: nothing where none
+ * has been written, one muted line where one has, a box while it is being typed.
+ * Those first two are indistinguishable in text, so that block counts elements for
+ * the same reason the one above it does.
+ *
+ * What counting cannot reach is the ordering. Nothing is pressed to keep a note --
+ * it is written half a second after the last keystroke and at once on leaving the
+ * box -- so the tap that ends the typing can arrive before the write. Every case
+ * there that presses something while a box still holds unwritten words is about
+ * that race, and each one asserts on the single session handed up rather than on
+ * two events arriving in a hopeful order.
  */
 
 // Without the stylesheet every declaration reading a custom property is dropped, so the
@@ -54,13 +68,22 @@ import type {
   Instant,
   LogbookId,
   SetPerformance,
+  WorkoutExercise,
   WorkoutSession,
+  WorkoutSet,
 } from '../types.js';
 
 import { ACTIVE_NOTES, LOADING_NOTES, SAVE_STATES } from './copy.js';
+import { WORKOUT_NOTE_KEY, exerciseNoteKey } from './dataset.js';
 import { formatSetRun } from './format.js';
 import { defineTrainingLogbook } from './index.js';
-import { WORKOUT_CHANGED_EVENT, type PtkActiveWorkout } from './ptk-active-workout.js';
+import {
+  WORKOUT_CHANGED_EVENT,
+  WORKOUT_FINISHED_EVENT,
+  type PtkActiveWorkout,
+  type WorkoutChangedDetail,
+  type WorkoutFinishedDetail,
+} from './ptk-active-workout.js';
 import type { PtkTrainingLogbook } from './ptk-training-logbook.js';
 
 const TODAY: CalendarDay = ON_DAY;
@@ -554,6 +577,566 @@ describe('what the lift was last done for', () => {
     expect(deepAll(setRow(element, 0), '[data-action="undo"]')).toHaveLength(1);
     expect(previousLines(shadow(element))).toHaveLength(1);
     expect(oneLine(previousLine(shadow(element)))).toBe(before);
+  });
+});
+
+/**
+ * One lift twice in one session -- two rows sharing a catalogue identifier.
+ *
+ * The whole reason a note key names `WorkoutExercise.id` and not `exerciseId`. Every
+ * other fixture in this file holds each lift once, and on those two the identifiers
+ * are indistinguishable: a key built from the catalogue round-trips, writes to the
+ * right place, and only shows itself on a session with squats in it twice, where it
+ * puts the note about the second one on both.
+ */
+function aTwiceSession(exercise: ExerciseOption): WorkoutSession {
+  const at = contextSeries();
+  let session = createWorkout(at(AT_START), { localDate: ON_DAY, title: 'Squat day' });
+  for (const amount of [135, 185]) {
+    session = addExercise(session, at(AT_START), {
+      exerciseId: exercise.id,
+      displayName: exercise.name,
+      loading: exercise.loading,
+      plan: [
+        {
+          kind: 'working' as const,
+          performance: performance({ kind: 'implement', weight: { amount, unit: 'lb' } }, 5),
+        },
+      ],
+    });
+  }
+  return startWorkout(session, at(AT_START));
+}
+
+/** Every quiet control that reveals a note, in the order they are drawn. */
+function noteControls(element: Element): HTMLElement[] {
+  return deepAll(shadow(element), 'ptk-button[data-action="note"]');
+}
+
+/** Which note each of them acts on. */
+function noteKeys(element: Element): (string | undefined)[] {
+  return noteControls(element).map((host) => host.dataset['note']);
+}
+
+/** What each of them says about whether its box is open. */
+function expandedStates(element: Element): (string | null)[] {
+  return noteControls(element).map(
+    (host) => shadow(host).querySelector('button')?.getAttribute('aria-expanded') ?? null,
+  );
+}
+
+/** What a screen reader is told each of them is for. */
+function accessibleNames(element: Element): (string | null)[] {
+  return noteControls(element).map(
+    (host) => shadow(host).querySelector('button')?.getAttribute('aria-label') ?? null,
+  );
+}
+
+/** Every open note box, or only the ones for one key. */
+function noteBoxes(element: Element, key?: string): HTMLElement[] {
+  const selector =
+    key === undefined ? 'ptk-text-area[data-note]' : `ptk-text-area[data-note="${key}"]`;
+  return deepAll(shadow(element), selector);
+}
+
+/** The box for a key, or a failure rather than an assertion made against nothing. */
+function noteBox(element: Element, key: string): HTMLElement {
+  const box = noteBoxes(element, key)[0];
+  if (box === undefined) throw new Error(`The note box for "${key}" is not open.`);
+  return box;
+}
+
+/**
+ * The fuller name a box is announced by, or `null` where it has none.
+ *
+ * Read off the inner `textarea` rather than the host, because that is the node a
+ * screen reader lands on. `null` where the attribute is absent, which is a
+ * different thing from an empty one: an empty `aria-label` on a labelled field is
+ * a violation, so the absence is the assertion worth making.
+ */
+function spokenName(element: Element, key: string): string | null {
+  return noteField(element, key).getAttribute('aria-label');
+}
+
+/** The field inside it, which is what a keyboard actually reaches. */
+function noteField(element: Element, key: string): HTMLTextAreaElement {
+  const field = shadow(noteBox(element, key)).querySelector('textarea');
+  if (field === null) throw new Error(`The note box for "${key}" has no field in it.`);
+  return field;
+}
+
+/**
+ * The lifter's own words read back, wherever they have been drawn.
+ *
+ * Untrimmed. A note typed as a list was meant as one and the template keeps the
+ * newlines, so trimming here would write an assertion that passes against a screen
+ * throwing them away.
+ */
+function writtenNotes(root: DocumentFragment | HTMLElement): string[] {
+  return deepAll(root, 'p.written').map((line) => line.textContent);
+}
+
+/**
+ * Presses a control belonging to the screen rather than to one set row.
+ *
+ * `tap` above reaches into a row, which is where every control this file pressed
+ * before notes arrived lives. Finish and the session's own note button sit at the
+ * foot of the screen and belong to no row.
+ */
+async function tapScreen(element: PtkActiveWorkout, selector: string): Promise<void> {
+  const host = deepAll(shadow(element), selector)[0];
+  if (host === undefined) throw new Error(`This screen has no ${selector}.`);
+  const button = shadow(host).querySelector('button');
+  if (button === null) throw new Error(`${selector} has no button in it.`);
+  button.click();
+  await element.updateComplete;
+}
+
+/** Presses the quiet control that reveals one note. */
+async function tapNote(element: PtkActiveWorkout, key: string): Promise<void> {
+  await tapScreen(element, `ptk-button[data-action="note"][data-note="${key}"]`);
+}
+
+/**
+ * Types into a note box the way a keyboard does.
+ *
+ * `input` on the inner textarea, because that is what `ptk-text-area` listens for.
+ * A test dispatching the element's own change event would prove the screen reads an
+ * event nothing fires.
+ */
+async function typeNote(element: PtkActiveWorkout, key: string, text: string): Promise<void> {
+  const field = noteField(element, key);
+  field.value = text;
+  field.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+  await element.updateComplete;
+}
+
+/** Leaves the box, which writes it at once rather than half a second later. */
+async function leaveNote(element: PtkActiveWorkout, key: string): Promise<void> {
+  noteField(element, key).dispatchEvent(
+    new FocusEvent('focusout', { bubbles: true, composed: true }),
+  );
+  await element.updateComplete;
+}
+
+/**
+ * Section 10.2's debounce, waited out for real.
+ *
+ * No fake timers: nothing in this suite installs any, and `NOTE_DELAY_MILLIS` is
+ * deliberately not a property -- a knob a test turns down to zero is a knob no test
+ * exercises at the value that ships. 700 ms is the 500 ms delay with room for a
+ * loaded runner, and it is paid twice in this file rather than once per case.
+ */
+async function waitOutTheDebounce(): Promise<void> {
+  await new Promise((resolve) => {
+    setTimeout(resolve, 700);
+  });
+}
+
+/** Every session the screen hands up, in order. */
+function changes(element: PtkActiveWorkout): WorkoutChangedDetail[] {
+  const seen: WorkoutChangedDetail[] = [];
+  element.addEventListener(WORKOUT_CHANGED_EVENT, (event) => {
+    seen.push(event.detail);
+  });
+  return seen;
+}
+
+/** The one event the finish flow ends in. */
+function finishes(element: PtkActiveWorkout): WorkoutFinishedDetail[] {
+  const seen: WorkoutFinishedDetail[] = [];
+  element.addEventListener(WORKOUT_FINISHED_EVENT, (event) => {
+    seen.push(event.detail);
+  });
+  return seen;
+}
+
+/**
+ * The root's half of the loop, for the cases that then assert on the screen.
+ *
+ * This element is controlled: it renders from the session the parent sets back, so
+ * without this the property never moves and a DOM assertion after an edit is an
+ * assertion about the screen the test started with. The cases about the *event* do
+ * not call it, on purpose -- a stale property is exactly what makes a second,
+ * duplicate write visible.
+ */
+function playRoot(element: PtkActiveWorkout): void {
+  element.addEventListener(WORKOUT_CHANGED_EVENT, (event) => {
+    element.session = event.detail.session;
+  });
+}
+
+/** The session on screen now, after the root above has played one back. */
+function currentSession(element: PtkActiveWorkout): WorkoutSession {
+  const session = element.session;
+  if (session === null) throw new Error('This screen has no session on it.');
+  return session;
+}
+
+function exerciseAt(session: WorkoutSession, index: number): WorkoutExercise {
+  const exercise = session.exercises[index];
+  if (exercise === undefined) throw new Error(`There is no exercise ${String(index + 1)}.`);
+  return exercise;
+}
+
+/** The key naming one row's note -- built from the row's id, like the template's. */
+function noteKeyFor(session: WorkoutSession, index: number): string {
+  return exerciseNoteKey(exerciseAt(session, index).id);
+}
+
+/** What one row of a handed-up session carries as its note. */
+function rowNote(session: WorkoutSession, index: number): string | null {
+  return exerciseAt(session, index).note;
+}
+
+/** One set of one row, by position in the fixture. */
+function setAt(session: WorkoutSession, exercise: number, index: number): WorkoutSet {
+  const set = exerciseAt(session, exercise).sets[index];
+  if (set === undefined) throw new Error(`There is no set ${String(index + 1)} in that exercise.`);
+  return set;
+}
+
+/** The single session handed up, named so a miscount fails where it happened. */
+function only(seen: readonly WorkoutChangedDetail[]): WorkoutChangedDetail {
+  const [first] = seen;
+  if (first === undefined || seen.length !== 1) {
+    throw new Error(`Expected exactly one change, got ${String(seen.length)}.`);
+  }
+  return first;
+}
+
+/** Invented, and long enough that a trimmed copy is visibly a different string. */
+const NOTE_TEXT = 'felt heavy off the floor';
+const SESSION_NOTE = 'short on sleep, belt on from the second set';
+
+describe('the notes on a session', () => {
+  it('says nothing at all until something is written', async () => {
+    const session = aPairedSession(SQUAT, BENCH);
+    const element = await mount({ session });
+
+    // Counted rather than read, for section 7.8's reason two blocks up: a surface
+    // that always rendered would be empty, and empty text reads as absence.
+    expect(writtenNotes(shadow(element))).toEqual([]);
+    expect(noteBoxes(element)).toHaveLength(0);
+    // One control per lift and one for the session, keyed as exact strings. A key
+    // built from the catalogue identifier passes every other assertion in this
+    // block except the one about a session holding a lift twice.
+    expect(noteKeys(element)).toEqual([
+      noteKeyFor(session, 0),
+      noteKeyFor(session, 1),
+      WORKOUT_NOTE_KEY,
+    ]);
+  });
+
+  it('names each control for the lift it belongs to', async () => {
+    const element = await mount({ session: aPairedSession(SQUAT, BENCH) });
+
+    // "Note" three times over is not a name, and the session's own control has to
+    // be told apart from the lift it sits under rather than reading as a note
+    // about it.
+    expect(accessibleNames(element)).toEqual([
+      `${ACTIVE_NOTES.note}, ${SQUAT.name}`,
+      `${ACTIVE_NOTES.note}, ${BENCH.name}`,
+      ACTIVE_NOTES.workoutNote,
+    ]);
+    expect(new Set(accessibleNames(element)).size).toBe(3);
+  });
+
+  it('names an open box for its lift, and lets the workout box speak its label', async () => {
+    const session = aPairedSession(SQUAT, BENCH);
+    const element = await mount({ session });
+
+    await tapNote(element, noteKeyFor(session, 1));
+
+    // The eye gets the short word under a heading that already says which lift it
+    // is; the ear gets the lift named, because a session with eight lifts draws
+    // eight boxes and "Note" tells a visitor tabbing into the fifth nothing.
+    expect(noteBox(element, noteKeyFor(session, 1)).getAttribute('label')).toBe(ACTIVE_NOTES.note);
+    expect(spokenName(element, noteKeyFor(session, 1))).toBe(`${ACTIVE_NOTES.note}, ${BENCH.name}`);
+
+    await tapNote(element, WORKOUT_NOTE_KEY);
+
+    // Already named for what it is. A second name repeating the visible one is
+    // the label read twice, so there is deliberately no attribute at all.
+    expect(noteBox(element, WORKOUT_NOTE_KEY).getAttribute('label')).toBe(ACTIVE_NOTES.workoutNote);
+    expect(spokenName(element, WORKOUT_NOTE_KEY)).toBeNull();
+  });
+
+  it('opens one box on the lift whose control was pressed', async () => {
+    const session = aPairedSession(SQUAT, BENCH);
+    const element = await mount({ session });
+
+    await tapNote(element, noteKeyFor(session, 1));
+
+    expect(noteBoxes(element)).toHaveLength(1);
+    expect(noteBoxes(element, noteKeyFor(session, 1))).toHaveLength(1);
+    expect(noteBox(element, noteKeyFor(session, 1)).getAttribute('label')).toBe(ACTIVE_NOTES.note);
+    // A control that reveals something has to say whether it already has.
+    expect(expandedStates(element)).toEqual(['false', 'true', 'false']);
+  });
+
+  it('closes it again when the same control is pressed twice', async () => {
+    const session = aSession(SQUAT, [135]);
+    const element = await mount({ session });
+
+    await tapNote(element, noteKeyFor(session, 0));
+    await tapNote(element, noteKeyFor(session, 0));
+
+    expect(noteBoxes(element)).toHaveLength(0);
+    expect(expandedStates(element)).toEqual(['false', 'false']);
+  });
+
+  it('closes the first box when a second is opened, and keeps what was in it', async () => {
+    const session = aSession(SQUAT, [135]);
+    const element = await mount({ session });
+    const seen = changes(element);
+
+    await tapNote(element, noteKeyFor(session, 0));
+    await typeNote(element, noteKeyFor(session, 0), NOTE_TEXT);
+    // The other control, pressed with the first box still holding unwritten words
+    // and with nothing having taken the focus off it. One box at a time is the
+    // rule; closing one being how its contents are lost is the bug.
+    await tapNote(element, WORKOUT_NOTE_KEY);
+
+    expect(noteBoxes(element)).toHaveLength(1);
+    expect(noteBoxes(element, WORKOUT_NOTE_KEY)).toHaveLength(1);
+    expect(seen).toHaveLength(1);
+    expect(rowNote(only(seen).session, 0)).toBe(NOTE_TEXT);
+  });
+
+  it('writes what was typed when the box is left, once and trimmed', async () => {
+    const session = aSession(SQUAT, [135]);
+    const element = await mount({ session });
+    const seen = changes(element);
+
+    await tapNote(element, noteKeyFor(session, 0));
+    await typeNote(element, noteKeyFor(session, 0), `  ${NOTE_TEXT}  `);
+    await leaveNote(element, noteKeyFor(session, 0));
+    // The debounce is cancelled by that write and not merely beaten to it. The
+    // root is deliberately not playing anything back here, so a timer still
+    // queued writes a second time and the count below is what sees it.
+    await waitOutTheDebounce();
+
+    expect(seen).toHaveLength(1);
+    expect(only(seen).completedSetId).toBeNull();
+    expect(rowNote(only(seen).session, 0)).toBe(NOTE_TEXT);
+  });
+
+  it('says nothing when the words have not moved', async () => {
+    const session = aSession(SQUAT, [135]);
+    const element = await mount({ session });
+    const seen = changes(element);
+    playRoot(element);
+
+    const key = noteKeyFor(session, 0);
+    await tapNote(element, key);
+    await typeNote(element, key, NOTE_TEXT);
+    await leaveNote(element, key);
+    expect(seen).toHaveLength(1);
+
+    // The same note with a space on the end. The core normalises before it
+    // compares and hands back the session it was given; the identity check on
+    // this screen is what stops that becoming a write, a storage round trip and
+    // a re-render for a keystroke that was undone.
+    await typeNote(element, key, `${NOTE_TEXT} `);
+    await leaveNote(element, key);
+
+    expect(seen).toHaveLength(1);
+  });
+
+  it('shows a written note as one line, and re-opens the box on it', async () => {
+    const session = aSession(SQUAT, [135]);
+    const element = await mount({ session });
+    playRoot(element);
+    const key = noteKeyFor(session, 0);
+
+    await tapNote(element, key);
+    await typeNote(element, key, NOTE_TEXT);
+    await leaveNote(element, key);
+    await tapNote(element, key);
+
+    expect(noteBoxes(element)).toHaveLength(0);
+    expect(writtenNotes(shadow(element))).toEqual([NOTE_TEXT]);
+
+    // Re-opened on what is stored rather than on an empty box, or the next blur
+    // deletes a note by writing nothing over it.
+    await tapNote(element, key);
+    expect(noteField(element, key).value).toBe(NOTE_TEXT);
+  });
+
+  it('stores nothing for a note emptied out, and the line goes with it', async () => {
+    const session = aSession(SQUAT, [135]);
+    const element = await mount({ session });
+    playRoot(element);
+    const key = noteKeyFor(session, 0);
+
+    await tapNote(element, key);
+    await typeNote(element, key, NOTE_TEXT);
+    await leaveNote(element, key);
+    // Whitespace and not the empty string: the core stores both as null, and a
+    // box a lifter has spacebarred out is the one that actually happens.
+    await typeNote(element, key, '   ');
+    await leaveNote(element, key);
+    await tapNote(element, key);
+
+    expect(rowNote(currentSession(element), 0)).toBeNull();
+    expect(writtenNotes(shadow(element))).toEqual([]);
+  });
+
+  it('lands on the row that was pressed when the session holds the lift twice', async () => {
+    const session = aTwiceSession(SQUAT);
+    const element = await mount({ session });
+    const seen = changes(element);
+    playRoot(element);
+    const key = noteKeyFor(session, 1);
+
+    await tapNote(element, key);
+    await typeNote(element, key, NOTE_TEXT);
+    await leaveNote(element, key);
+    await tapNote(element, key);
+
+    expect(seen).toHaveLength(1);
+    expect(rowNote(only(seen).session, 0)).toBeNull();
+    expect(rowNote(only(seen).session, 1)).toBe(NOTE_TEXT);
+    // And on screen under the second card and under no other. Both rows carry the
+    // same heading, so where the line is drawn is the only thing distinguishing a
+    // note that landed on one row from a note that landed on both.
+    expect(writtenNotes(exerciseCard(element, 0))).toEqual([]);
+    expect(writtenNotes(exerciseCard(element, 1))).toEqual([NOTE_TEXT]);
+  });
+
+  it('writes the session note from the control at the foot', async () => {
+    const session = aSession(SQUAT, [135]);
+    const element = await mount({ session });
+    const seen = changes(element);
+
+    await tapNote(element, WORKOUT_NOTE_KEY);
+    await typeNote(element, WORKOUT_NOTE_KEY, SESSION_NOTE);
+    await leaveNote(element, WORKOUT_NOTE_KEY);
+
+    expect(seen).toHaveLength(1);
+    expect(only(seen).session.note).toBe(SESSION_NOTE);
+    // On the session and not on the lift it happens to be drawn below.
+    expect(rowNote(only(seen).session, 0)).toBeNull();
+  });
+
+  it('writes half a second after the last keystroke with nothing pressed', async () => {
+    const session = aSession(SQUAT, [135]);
+    const element = await mount({ session });
+    const seen = changes(element);
+
+    await tapNote(element, WORKOUT_NOTE_KEY);
+    await typeNote(element, WORKOUT_NOTE_KEY, SESSION_NOTE);
+    // A phone put down mid-note is the case: nothing is pressed, nothing is
+    // blurred, and section 10.2 says it is kept anyway.
+    expect(seen).toHaveLength(0);
+
+    await waitOutTheDebounce();
+
+    expect(seen).toHaveLength(1);
+    expect(only(seen).session.note).toBe(SESSION_NOTE);
+  });
+
+  it('keeps a note typed in the same breath as a set was ticked', async () => {
+    const session = aSession(SQUAT, [135, 185]);
+    const element = await mount({ session });
+    const seen = changes(element);
+    const key = noteKeyFor(session, 0);
+
+    await tapNote(element, key);
+    await typeNote(element, key, NOTE_TEXT);
+    // Neither blurred nor waited out. A lifter types a note about the set they
+    // have just done and presses Done on it, both inside half a second, and the
+    // one session that reaches storage has to carry the tick *and* the words.
+    await tap(element, setRow(element, 0), 'complete');
+
+    expect(seen).toHaveLength(1);
+    expect(only(seen).completedSetId).toBe(setAt(session, 0, 0).id);
+    expect(rowNote(only(seen).session, 0)).toBe(NOTE_TEXT);
+    expect(setAt(only(seen).session, 0, 0).status).toBe('complete');
+  });
+
+  it('keeps a note typed in the same breath as a set was unticked', async () => {
+    const session = aSession(SQUAT, [135]);
+    const element = await mount({ session });
+    playRoot(element);
+    await tap(element, setRow(element, 0), 'complete');
+    const seen = changes(element);
+    const key = noteKeyFor(session, 0);
+
+    await tapNote(element, key);
+    await typeNote(element, key, NOTE_TEXT);
+    await tap(element, setRow(element, 0), 'undo');
+
+    expect(seen).toHaveLength(1);
+    expect(rowNote(only(seen).session, 0)).toBe(NOTE_TEXT);
+    expect(setAt(only(seen).session, 0, 0).status).toBe('planned');
+  });
+
+  it('keeps a note typed in the same breath as an edit was saved', async () => {
+    const session = aSession(SQUAT, [135]);
+    const element = await mount({ session });
+    const seen = changes(element);
+    const key = noteKeyFor(session, 0);
+
+    await tap(element, setRow(element, 0), 'edit');
+    await tapNote(element, key);
+    await typeNote(element, key, NOTE_TEXT);
+    await tap(element, setRow(element, 0), 'save-edit');
+
+    expect(seen).toHaveLength(1);
+    expect(rowNote(only(seen).session, 0)).toBe(NOTE_TEXT);
+    expect(setAt(only(seen).session, 0, 0).performed).not.toBeNull();
+  });
+
+  it('carries an unwritten note into the finish panel, and draws one box for it', async () => {
+    const session = aSession(SQUAT, [135]);
+    const element = await mount({ session });
+
+    await tapNote(element, WORKOUT_NOTE_KEY);
+    await typeNote(element, WORKOUT_NOTE_KEY, SESSION_NOTE);
+    await tapScreen(element, 'ptk-button[data-action="finish"]');
+
+    // One box for this note and not two. The surface at the foot and its control
+    // are both withdrawn while the panel is up, which is the only thing keeping
+    // the same note from being open in two places with two different drafts in it.
+    expect(noteBoxes(element, WORKOUT_NOTE_KEY)).toHaveLength(1);
+    expect(noteKeys(element)).toEqual([noteKeyFor(session, 0)]);
+    expect(noteField(element, WORKOUT_NOTE_KEY).value).toBe(SESSION_NOTE);
+    expect(noteBox(element, WORKOUT_NOTE_KEY).getAttribute('label')).toBe(ACTIVE_NOTES.workoutNote);
+  });
+
+  it('carries a note still in the box into the finished session', async () => {
+    const session = aSession(SQUAT, [135]);
+    const element = await mount({ session });
+    playRoot(element);
+    await tap(element, setRow(element, 0), 'complete');
+    const finished = finishes(element);
+
+    await tapScreen(element, 'ptk-button[data-action="finish"]');
+    const seen = changes(element);
+    await typeNote(element, WORKOUT_NOTE_KEY, SESSION_NOTE);
+    expect(seen).toEqual([]);
+    // Confirmed with the words still in the box. This event is the only carrier
+    // of the finished session, so a draft dropped here exists nowhere else --
+    // it is the one place the fold is required rather than merely safe.
+    await tapScreen(element, 'ptk-button[data-action="finish-confirm"]');
+
+    expect(finished).toHaveLength(1);
+    expect(finished[0]?.session.note).toBe(SESSION_NOTE);
+    expect(finished[0]?.session.status).toBe('completed');
+  });
+
+  it('has no accessibility violations with a box open', async () => {
+    const session = aSession(SQUAT, [135]);
+    const element = await mount({ session, equipment: aPoundGym() });
+    await tapNote(element, noteKeyFor(session, 0));
+    await typeNote(element, noteKeyFor(session, 0), NOTE_TEXT);
+
+    // Contrast off for this file's usual reason, and the box open because a
+    // labelled control nobody has revealed is a control axe never sees.
+    const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
+    expect(results.violations).toEqual([]);
   });
 });
 

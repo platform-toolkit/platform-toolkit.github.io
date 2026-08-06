@@ -28,6 +28,27 @@
  * exists to remove. `undoSet` clears the performance with the status, so undo means
  * "I did not do that" rather than "I did that but it is not ticked".
  *
+ * WHERE THE NOTES ARE, AND WHY NO BUTTON SAVES ONE
+ *
+ * Section 7.9 asks for one note on the workout and one on each lift, and it
+ * asks for them unobtrusive until they are wanted. So each is a quiet button
+ * that reveals a box -- the same shape as the set editor, one open at a time,
+ * for the same reason -- and a note already written shows as one muted line of
+ * the lifter's own words rather than as a badge saying there is one.
+ *
+ * Nothing is pressed to keep it. The text is written half a second after the
+ * last keystroke, which is section 10.2's debounce, and immediately on leaving
+ * the box. It is also folded into every other edit this screen makes, so a
+ * lifter who types a note and taps Done on a set in the same breath keeps both
+ * whichever order the two events arrive in. Applying the same note twice costs
+ * nothing: the core hands back the session it was given when the text has not
+ * moved, and `#changed` is skipped on that.
+ *
+ * A *set* note is not here. The core stores one and section 7.9 only asks for
+ * it if it fits cleanly; a fold on each of forty rows is forty controls in the
+ * way of the one tap this screen exists for, so it stays unwritten until there
+ * is a place for it that is not this list.
+ *
  * WHAT THIS ELEMENT DOES NOT OWN
  *
  * Storage, the clock and the workout itself. The session arrives as a property and
@@ -41,9 +62,11 @@ import type { Weight, WeightUnit } from '@platform-toolkit/domain';
 import {
   CHOICE_CHANGE_EVENT,
   NUMBER_FIELD_CHANGE_EVENT,
+  TEXT_AREA_CHANGE_EVENT,
   type ChoiceChangeDetail,
   type Choice,
   type NumberFieldChangeDetail,
+  type TextAreaChangeDetail,
 } from '@platform-toolkit/ui';
 import '@platform-toolkit/ui';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
@@ -56,8 +79,11 @@ import {
   completeSet,
   finishWorkout,
   findSet,
+  findWorkoutExercise,
   outstandingSets,
   recordSet,
+  setExerciseNote,
+  setWorkoutNote,
   undoSet,
   type FinishDisposition,
 } from '../core/session.js';
@@ -73,7 +99,17 @@ import type {
 } from '../types.js';
 
 import { ACTIVE_NOTES, FINISH_DISPOSITIONS, FINISH_DISPOSITION_NOTES, SET_KINDS } from './copy.js';
-import { DONE_REPS_FIELD, DONE_WEIGHT_FIELD, actionOf, fieldOf, setOf } from './dataset.js';
+import {
+  DONE_REPS_FIELD,
+  DONE_WEIGHT_FIELD,
+  WORKOUT_NOTE_KEY,
+  actionOf,
+  exerciseNoteId,
+  exerciseNoteKey,
+  fieldOf,
+  noteOf,
+  setOf,
+} from './dataset.js';
 import { formatPerformance, formatSetRun } from './format.js';
 import { renderLoading } from './loading-view.js';
 
@@ -114,6 +150,17 @@ const SAVE_ACTION = 'save-edit';
 const FINISH_ACTION = 'finish';
 const FINISH_CANCEL_ACTION = 'finish-cancel';
 const FINISH_CONFIRM_ACTION = 'finish-confirm';
+const NOTE_ACTION = 'note';
+
+/**
+ * Section 10.2's short debounce, in milliseconds.
+ *
+ * Long enough that a sentence is one write rather than forty, short enough that
+ * a phone taken out of a hand mid-note has already stored it. Not a property:
+ * the tests reach the same code through the immediate flush on leaving the box,
+ * and a knob a test sets to zero is a knob no test exercises at its real value.
+ */
+const NOTE_DELAY_MILLIS = 500;
 
 /** Which disposition the finish panel is on. Neither is preselected; see copy. */
 function isDisposition(value: string): value is FinishDisposition {
@@ -149,6 +196,32 @@ export class PtkActiveWorkout extends LitElement {
     .progress {
       margin: 0 0 var(--ptk-space-md);
       font-size: var(--ptk-font-size-md);
+    }
+
+    /* A heading with its quiet note control at the far end of the same line. */
+    .head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--ptk-space-xs);
+    }
+
+    /*
+     * The lifter's own words read back, so it is muted like .previous and
+     * deliberately not styled as .note -- one is a record and the other is the
+     * tool talking about itself. Newlines are kept: a note typed as a list was
+     * meant as one.
+     */
+    .written {
+      margin: var(--ptk-space-xs) 0 0;
+      color: var(--ptk-color-text-muted);
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+
+    .note-box {
+      margin-top: var(--ptk-space-xs);
     }
 
     .exercise + .exercise {
@@ -327,6 +400,24 @@ export class PtkActiveWorkout extends LitElement {
   /** Whether the finish panel is up. Section 7.12 makes it a step, not a button. */
   @state() private finishing = false;
 
+  /** The one note box that is open, by key, or `null`. See `dataset.ts`. */
+  @state() private noting: string | null = null;
+
+  /**
+   * What that box holds, which is not state and must not become it.
+   *
+   * A field rather than `@state` on purpose. This changes on every keystroke,
+   * and a re-render of this screen walks every set of every exercise -- on a
+   * long session that is the whole template diffed to move a caret one place.
+   * Nothing needs the re-render either: the box already holds what was typed,
+   * and it adopts its own value before reporting it, so the binding below is
+   * only ever writing back what is already there.
+   */
+  #noteText = '';
+
+  /** Section 10.2's timer, or `null` when nothing is waiting to be written. */
+  #noteTimer: ReturnType<typeof setTimeout> | null = null;
+
   /** The answer to "what about the sets you did not do", unset until given. */
   @state() private disposition: FinishDisposition | null = null;
 
@@ -346,13 +437,26 @@ export class PtkActiveWorkout extends LitElement {
     super.connectedCallback();
     this.addEventListener(NUMBER_FIELD_CHANGE_EVENT, this.#onValue);
     this.addEventListener(CHOICE_CHANGE_EVENT, this.#onChoice);
+    this.addEventListener(TEXT_AREA_CHANGE_EVENT, this.#onText);
+    // Composed, so one listener on the host catches a box inside a child's own
+    // shadow root. This is what makes the note already written by the time a
+    // lifter's next tap lands: moving focus happens on the press, and the tap
+    // that took it is a separate event afterwards.
+    this.addEventListener('focusout', this.#onFocusOut);
     this.addEventListener('click', this.#onClick);
   }
 
   override disconnectedCallback(): void {
     this.removeEventListener(NUMBER_FIELD_CHANGE_EVENT, this.#onValue);
     this.removeEventListener(CHOICE_CHANGE_EVENT, this.#onChoice);
+    this.removeEventListener(TEXT_AREA_CHANGE_EVENT, this.#onText);
+    this.removeEventListener('focusout', this.#onFocusOut);
     this.removeEventListener('click', this.#onClick);
+    // Dropped rather than flushed. An event from a detached element reaches
+    // nobody, so a write here would be a write that silently did not happen --
+    // and the focusout above has already run for every way off this screen,
+    // because leaving it means pressing something.
+    this.#clearNoteTimer();
     super.disconnectedCallback();
   }
 
@@ -377,15 +481,25 @@ export class PtkActiveWorkout extends LitElement {
       <p class="progress">
         ${String(progress.completed)} of ${String(progress.total)} ${ACTIVE_NOTES.setsDone}
       </p>
-      ${session.exercises.map((exercise) => this.#exercise(exercise, loadings))}
+      ${session.exercises.map((exercise) => this.#exercise(session, exercise, loadings))}
       ${
         this.finishing
           ? this.#finishPanel(session)
-          : html`<div class="actions">
-              <ptk-button variant="primary" data-action=${FINISH_ACTION}
-                >${ACTIVE_NOTES.finish}</ptk-button
-              >
-            </div>`
+          : html`
+              ${
+                // At the foot rather than under the title. A workout note is
+                // written at the end of one, and a written note kept at the top
+                // would push the first lift off a phone every time the screen
+                // was opened.
+                this.#noteSurface(session, WORKOUT_NOTE_KEY)
+              }
+              <div class="actions">
+                <ptk-button variant="primary" data-action=${FINISH_ACTION}
+                  >${ACTIVE_NOTES.finish}</ptk-button
+                >
+                ${this.#noteButton(WORKOUT_NOTE_KEY, ACTIVE_NOTES.workoutNote)}
+              </div>
+            `
       }
     `;
   }
@@ -409,14 +523,103 @@ export class PtkActiveWorkout extends LitElement {
     return answers;
   }
 
-  #exercise(exercise: WorkoutExercise, loadings: Loadings): TemplateResult {
+  #exercise(
+    session: WorkoutSession,
+    exercise: WorkoutExercise,
+    loadings: Loadings,
+  ): TemplateResult {
+    const note = exerciseNoteKey(exercise.id);
     return html`<section class="exercise">
-      <h3>${exercise.displayName}</h3>
-      ${this.#previousLine(exercise)}
+      <div class="head">
+        <h3>${exercise.displayName}</h3>
+        ${this.#noteButton(note, this.#exerciseName(ACTIVE_NOTES.note, exercise))}
+      </div>
+      ${this.#previousLine(exercise)} ${this.#noteSurface(session, note)}
       <ul>
         ${exercise.sets.map((set) => this.#set(exercise, set, loadings))}
       </ul>
     </section>`;
+  }
+
+  /**
+   * The control that reveals a note box, and nothing else.
+   *
+   * Quiet, like the set editor's toggle beside it, and carrying `expanded` for
+   * the same reason: a control that reveals something has to say whether it
+   * already has. The word on it is one word; which note it is belongs in the
+   * accessible name, because "Note, Back squat" printed under a heading that
+   * reads "Back squat" is the heading twice.
+   */
+  #noteButton(key: string, name: string): TemplateResult {
+    return html`<ptk-button
+      variant="quiet"
+      data-action=${NOTE_ACTION}
+      data-note=${key}
+      .expanded=${this.noting === key}
+      accessible-name=${name}
+      >${ACTIVE_NOTES.note}</ptk-button
+    >`;
+  }
+
+  /**
+   * A note: the box while it is open, one muted line once it is not, nothing
+   * at all where none has been written.
+   *
+   * The line is the note itself and not a mark saying there is one. A lifter's
+   * own sentence about how the second set went is worth the two lines it takes,
+   * and the alternative asks them to open a fold to find out whether it was
+   * worth opening. The history list's "has notes" is a different thing: that is
+   * a summary of a session it is not showing.
+   */
+  #noteSurface(session: WorkoutSession, key: string): TemplateResult | typeof nothing {
+    if (this.noting !== key) {
+      const written = this.#noteAt(session, key);
+      return written === '' ? nothing : html`<p class="written">${written}</p>`;
+    }
+    return this.#noteBox(session, key);
+  }
+
+  /**
+   * The box itself, wherever it is drawn.
+   *
+   * The value is the draft when this is the box being typed in and the stored
+   * note when it is not, which is the whole of what the finish panel needs to
+   * pick up an unwritten note mid-keystroke. It is also what keeps the binding
+   * from fighting the caret: the box adopts its own text before reporting it,
+   * so the string handed back here is the one already in it and lit-html
+   * commits nothing.
+   */
+  #noteBox(session: WorkoutSession, key: string): TemplateResult {
+    const spoken = this.#noteName(session, key);
+    return html`<ptk-text-area
+      class="note-box"
+      data-note=${key}
+      label=${key === WORKOUT_NOTE_KEY ? ACTIVE_NOTES.workoutNote : ACTIVE_NOTES.note}
+      accessible-name=${spoken ?? nothing}
+      .value=${this.noting === key ? this.#noteText : this.#noteAt(session, key)}
+    ></ptk-text-area>`;
+  }
+
+  /**
+   * The longer name a note box is announced by, or `null` where the label on
+   * it already says which note it is.
+   *
+   * A session with eight lifts draws eight boxes labelled "Note", so a visitor
+   * tabbing into the fifth is told nothing about which lift it belongs to --
+   * while a visible "Note, Back squat" printed under a heading already reading
+   * "Back squat" is the heading twice. The eye gets the short name and the ear
+   * gets the long one.
+   *
+   * It extends the visible label rather than replacing it, which is WCAG 2.5.3:
+   * the words somebody can see have to reach the control they can see. The
+   * workout's own box is already named for what it is, so it gets nothing back
+   * and renders no `aria-label` at all.
+   */
+  #noteName(session: WorkoutSession, key: string): string | null {
+    const exerciseId = exerciseNoteId(key);
+    if (exerciseId === null) return null;
+    const exercise = findWorkoutExercise(session, exerciseId);
+    return exercise === null ? null : this.#exerciseName(ACTIVE_NOTES.note, exercise);
   }
 
   /**
@@ -569,6 +772,12 @@ export class PtkActiveWorkout extends LitElement {
               }
             `
       }
+      ${
+        // Section 7.12.4's last chance at a note, drawn open rather than behind
+        // the toggle at the foot of the screen -- which is withdrawn while this
+        // panel is up, so there is never a second box for the same note.
+        this.#noteBox(session, WORKOUT_NOTE_KEY)
+      }
       <div class="actions">
         <ptk-button variant="primary" data-action=${FINISH_CONFIRM_ACTION} ?disabled=${!ready}
           >${ACTIVE_NOTES.finishConfirm}</ptk-button
@@ -589,7 +798,12 @@ export class PtkActiveWorkout extends LitElement {
    */
   #name(verb: string, exercise: WorkoutExercise, set: WorkoutSet): string {
     const position = exercise.sets.indexOf(set) + 1;
-    return `${verb}, ${exercise.displayName} set ${String(position)}`;
+    return `${this.#exerciseName(verb, exercise)} set ${String(position)}`;
+  }
+
+  /** The same, for a control that belongs to the lift rather than to one set. */
+  #exerciseName(verb: string, exercise: WorkoutExercise): string {
+    return `${verb}, ${exercise.displayName}`;
   }
 
   readonly #onValue = (event: CustomEvent<NumberFieldChangeDetail>): void => {
@@ -601,6 +815,30 @@ export class PtkActiveWorkout extends LitElement {
   readonly #onChoice = (event: CustomEvent<ChoiceChangeDetail>): void => {
     const { value } = event.detail;
     if (isDisposition(value)) this.disposition = value;
+  };
+
+  readonly #onText = (event: CustomEvent<TextAreaChangeDetail>): void => {
+    const key = noteOf(event);
+    if (key === null) return;
+    // The box being typed in is the open one, whether or not a button opened
+    // it: the finish panel draws its own and never toggles anything. Writing
+    // whatever the last box held first, because two drafts at once is how one
+    // of them gets written into the other's note.
+    if (key !== this.noting) {
+      this.#flushNote();
+      this.noting = key;
+    }
+    this.#noteText = event.detail.value;
+    this.#clearNoteTimer();
+    this.#noteTimer = setTimeout(() => {
+      this.#noteTimer = null;
+      this.#flushNote();
+    }, NOTE_DELAY_MILLIS);
+  };
+
+  /** Leaving a box writes it, and does not close it. */
+  readonly #onFocusOut = (): void => {
+    this.#flushNote();
   };
 
   readonly #onClick = (event: Event): void => {
@@ -620,6 +858,9 @@ export class PtkActiveWorkout extends LitElement {
       case SAVE_ACTION:
         this.#saveEdit(event);
         return;
+      case NOTE_ACTION:
+        this.#toggleNote(event);
+        return;
       case FINISH_ACTION:
         this.finishing = true;
         return;
@@ -636,14 +877,14 @@ export class PtkActiveWorkout extends LitElement {
   };
 
   #complete(event: Event): void {
-    const session = this.session;
+    const session = this.#withDraft(this.session);
     const setId = setOf(event);
     if (session === null || setId === null || findSet(session, setId) === null) return;
     this.#changed(completeSet(session, setId, this.#context()), setId);
   }
 
   #undo(event: Event): void {
-    const session = this.session;
+    const session = this.#withDraft(this.session);
     const setId = setOf(event);
     if (session === null || setId === null || findSet(session, setId) === null) return;
     // The editor closes with the undo. Leaving it open would show the numbers of a
@@ -680,7 +921,7 @@ export class PtkActiveWorkout extends LitElement {
   }
 
   #saveEdit(event: Event): void {
-    const session = this.session;
+    const session = this.#withDraft(this.session);
     const setId = setOf(event);
     if (session === null || setId === null) return;
     const found = findSet(session, setId);
@@ -708,13 +949,91 @@ export class PtkActiveWorkout extends LitElement {
     return { amount, unit: this.unit };
   }
 
-  #finish(): void {
+  /**
+   * Opens a note box, or closes the one already open.
+   *
+   * Whatever was in the previous box is written on the way, which is the same
+   * rule the set editor follows for the same reason -- one box open at a time,
+   * and closing one must not be how its contents are lost.
+   */
+  #toggleNote(event: Event): void {
+    const key = noteOf(event);
     const session = this.session;
+    if (key === null || session === null) return;
+    this.#flushNote();
+    if (this.noting === key) {
+      this.noting = null;
+      return;
+    }
+    this.noting = key;
+    // Read from the session and not from the flush above: that wrote a
+    // different note, and this one is unaffected by it.
+    this.#noteText = this.#noteAt(session, key);
+  }
+
+  /** Writes the open draft, if there is one and if it says anything new. */
+  #flushNote(): void {
+    this.#clearNoteTimer();
+    const session = this.session;
+    const key = this.noting;
+    if (session === null || key === null) return;
+    const next = this.#applyNote(session, key, this.#noteText);
+    // Identity, not deep equality: the core returns the session it was given
+    // when the normalised text has not moved, and a debounced box fires
+    // carrying what it already holds more often than it fires carrying a
+    // change. Persisting that would rewrite storage for a keystroke undone.
+    if (next === session) return;
+    this.#changed(next, null);
+  }
+
+  /**
+   * A session with the open draft already in it.
+   *
+   * Every other edit this screen makes goes through here, so that the order the
+   * browser happens to deliver a blur and the tap that caused it in does not
+   * decide whether a note survives. Idempotent by construction: applying text
+   * the session already carries returns the session.
+   */
+  #withDraft(session: WorkoutSession | null): WorkoutSession | null {
+    const key = this.noting;
+    if (session === null || key === null) return session;
+    return this.#applyNote(session, key, this.#noteText);
+  }
+
+  /** Which core setter a note key names. An unrecognised one changes nothing. */
+  #applyNote(session: WorkoutSession, key: string, text: string): WorkoutSession {
+    if (key === WORKOUT_NOTE_KEY) return setWorkoutNote(session, text, this.#context());
+    const exerciseId = exerciseNoteId(key);
+    if (exerciseId === null) return session;
+    return setExerciseNote(session, exerciseId, text, this.#context());
+  }
+
+  /** What is stored against a note key, as the empty string where nothing is. */
+  #noteAt(session: WorkoutSession, key: string): string {
+    if (key === WORKOUT_NOTE_KEY) return session.note ?? '';
+    const exerciseId = exerciseNoteId(key);
+    if (exerciseId === null) return '';
+    return findWorkoutExercise(session, exerciseId)?.note ?? '';
+  }
+
+  #clearNoteTimer(): void {
+    if (this.#noteTimer === null) return;
+    clearTimeout(this.#noteTimer);
+    this.#noteTimer = null;
+  }
+
+  #finish(): void {
+    // The one place the draft *has* to be folded in rather than merely being
+    // safe to: this dispatches the finished session and no other, so a note
+    // still sitting in the box when Finish is pressed exists nowhere else.
+    const session = this.#withDraft(this.session);
     if (session === null) return;
     const outstanding = outstandingSets(session);
     if (outstanding.length > 0 && this.disposition === null) return;
 
     const finished = finishWorkout(session, this.disposition ?? 'leave', this.#context());
+    this.#clearNoteTimer();
+    this.noting = null;
     this.finishing = false;
     this.disposition = null;
     this.dispatchEvent(

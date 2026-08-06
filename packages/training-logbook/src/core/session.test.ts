@@ -533,6 +533,36 @@ describe('insertSets', () => {
 });
 
 describe('notes', () => {
+  /**
+   * Two exercises of two sets each, so a note written to the wrong one has
+   * somewhere to show up. A mapping bug over a single-exercise fixture is
+   * indistinguishable from the correct answer.
+   */
+  function twoExerciseWorkout(): WorkoutSession {
+    const at = contextSeries();
+    let session = createWorkout(at(AT_START), { localDate: ON_DAY });
+    for (const displayName of ['Squat', 'Bench Press']) {
+      session = addExercise(session, at(AT_START), {
+        exerciseId: displayName.toLowerCase(),
+        displayName,
+        loading: 'barbell-total-weight',
+        plan: [
+          { kind: 'working', performance: squatPlan() },
+          { kind: 'working', performance: squatPlan() },
+        ],
+      });
+    }
+    return session;
+  }
+
+  function exerciseNotes(session: WorkoutSession): readonly (string | null)[] {
+    return session.exercises.map((exercise) => exercise.note);
+  }
+
+  function setNotes(session: WorkoutSession): readonly (string | null)[] {
+    return session.exercises.flatMap((exercise) => exercise.sets.map((set) => set.note));
+  }
+
   it('sets and clears a workout note', () => {
     const session = setWorkoutNote(twoSetWorkout(), 'Felt heavy', testContext(AT_LATER));
 
@@ -540,22 +570,153 @@ describe('notes', () => {
     expect(setWorkoutNote(session, null, testContext(AT_LATER)).note).toBeNull();
   });
 
-  it('sets an exercise note', () => {
+  it('sets and clears an exercise note', () => {
     const session = twoSetWorkout();
     const id = session.exercises[0]?.id ?? '';
+    const noted = setExerciseNote(session, id, 'Belt from set two', testContext());
 
-    expect(
-      setExerciseNote(session, id, 'Belt from set two', testContext()).exercises[0]?.note,
-    ).toBe('Belt from set two');
+    expect(noted.exercises[0]?.note).toBe('Belt from set two');
+    expect(setExerciseNote(noted, id, null, testContext(AT_LATER)).exercises[0]?.note).toBeNull();
   });
 
-  it('sets a set note', () => {
+  it('sets and clears a set note', () => {
     const session = twoSetWorkout();
     const id = firstSet(session).id;
+    const noted = setSetNote(session, id, 'Knee wrap slipped', testContext());
 
+    expect(noted.exercises[0]?.sets[0]?.note).toBe('Knee wrap slipped');
     expect(
-      setSetNote(session, id, 'Knee wrap slipped', testContext()).exercises[0]?.sets[0]?.note,
+      setSetNote(noted, id, null, testContext(AT_LATER)).exercises[0]?.sets[0]?.note,
+    ).toBeNull();
+  });
+
+  it('stamps the workout when a note actually changes', () => {
+    const session = twoSetWorkout();
+    const exerciseId = session.exercises[0]?.id ?? '';
+    const setId = firstSet(session).id;
+
+    expect(session.updatedAt).toBe(AT_START);
+    expect(setWorkoutNote(session, 'Rough', testContext(AT_LATER)).updatedAt).toBe(AT_LATER);
+    expect(setExerciseNote(session, exerciseId, 'Belt on', testContext(AT_LATER)).updatedAt).toBe(
+      AT_LATER,
+    );
+    expect(setSetNote(session, setId, 'Cut it short', testContext(AT_LATER)).updatedAt).toBe(
+      AT_LATER,
+    );
+  });
+
+  it('writing the note that is already there changes nothing at all', () => {
+    // A note box debounces and fires with the text it already holds. Returning a
+    // new session would persist it, re-render the screen, and move the workout to
+    // the top of the history for a keystroke nobody made.
+    const at = contextSeries();
+    let session = twoSetWorkout();
+    const exerciseId = session.exercises[0]?.id ?? '';
+    const setId = firstSet(session).id;
+    session = setWorkoutNote(session, 'Rough', at(AT_START));
+    session = setExerciseNote(session, exerciseId, 'Belt on', at(AT_START));
+    session = setSetNote(session, setId, 'Cut it short', at(AT_START));
+
+    expect(setWorkoutNote(session, 'Rough', at(AT_LATER))).toBe(session);
+    expect(setExerciseNote(session, exerciseId, 'Belt on', at(AT_LATER))).toBe(session);
+    expect(setSetNote(session, setId, 'Cut it short', at(AT_LATER))).toBe(session);
+    expect(session.updatedAt).toBe(AT_START);
+  });
+
+  it('reads the same words with whitespace round them as the same note', () => {
+    // The comparison is against the trimmed value. Against the raw argument, a
+    // box that hands back its text with a trailing space -- which is what a
+    // lifter typing mid-sentence produces -- would write on every keystroke.
+    const session = setWorkoutNote(twoSetWorkout(), 'Rough', testContext(AT_START));
+
+    expect(setWorkoutNote(session, '  Rough  ', testContext(AT_LATER))).toBe(session);
+  });
+
+  it('clearing a note that is already clear changes nothing', () => {
+    const session = twoSetWorkout();
+    const exerciseId = session.exercises[0]?.id ?? '';
+    const setId = firstSet(session).id;
+
+    expect(setWorkoutNote(session, null, testContext(AT_LATER))).toBe(session);
+    expect(setExerciseNote(session, exerciseId, null, testContext(AT_LATER))).toBe(session);
+    expect(setSetNote(session, setId, null, testContext(AT_LATER))).toBe(session);
+  });
+
+  it('leaves the session alone for an identifier nothing answers to', () => {
+    const session = twoSetWorkout();
+
+    expect(setExerciseNote(session, 'nothing', 'Belt on', testContext(AT_LATER))).toBe(session);
+    expect(setSetNote(session, 'nothing', 'Cut it short', testContext(AT_LATER))).toBe(session);
+  });
+
+  it('stores an emptied box as no note rather than as an empty one', () => {
+    // `hasNote` in `summary.ts` asks whether the note is non-null, so an empty
+    // string stored as typed leaves a permanent "has notes" mark on the history
+    // row with nothing behind it. Spaces alone are the same box.
+    const at = contextSeries();
+    let session = twoSetWorkout();
+    const exerciseId = session.exercises[0]?.id ?? '';
+    const setId = firstSet(session).id;
+    session = setWorkoutNote(session, 'Rough', at(AT_START));
+    session = setExerciseNote(session, exerciseId, 'Belt on', at(AT_START));
+    session = setSetNote(session, setId, 'Cut it short', at(AT_START));
+
+    expect(setWorkoutNote(session, '', at(AT_LATER)).note).toBeNull();
+    expect(setWorkoutNote(session, '   ', at(AT_LATER)).note).toBeNull();
+    expect(setExerciseNote(session, exerciseId, '', at(AT_LATER)).exercises[0]?.note).toBeNull();
+    expect(setExerciseNote(session, exerciseId, '   ', at(AT_LATER)).exercises[0]?.note).toBeNull();
+    expect(setSetNote(session, setId, '', at(AT_LATER)).exercises[0]?.sets[0]?.note).toBeNull();
+    expect(setSetNote(session, setId, '   ', at(AT_LATER)).exercises[0]?.sets[0]?.note).toBeNull();
+  });
+
+  it('emptying a box that held nothing is not a change', () => {
+    const session = twoSetWorkout();
+    const exerciseId = session.exercises[0]?.id ?? '';
+    const setId = firstSet(session).id;
+
+    expect(setWorkoutNote(session, '', testContext(AT_LATER))).toBe(session);
+    expect(setExerciseNote(session, exerciseId, '  ', testContext(AT_LATER))).toBe(session);
+    expect(setSetNote(session, setId, '', testContext(AT_LATER))).toBe(session);
+  });
+
+  it('stores a note without the whitespace round it', () => {
+    const session = twoSetWorkout();
+    const exerciseId = session.exercises[0]?.id ?? '';
+    const setId = firstSet(session).id;
+
+    expect(setWorkoutNote(session, '  Felt heavy  ', testContext(AT_LATER)).note).toBe(
+      'Felt heavy',
+    );
+    expect(
+      setExerciseNote(session, exerciseId, ' Belt from set two ', testContext(AT_LATER))
+        .exercises[0]?.note,
+    ).toBe('Belt from set two');
+    expect(
+      setSetNote(session, setId, '\n Knee wrap slipped \n', testContext(AT_LATER)).exercises[0]
+        ?.sets[0]?.note,
     ).toBe('Knee wrap slipped');
+  });
+
+  it('notes one exercise without touching the other', () => {
+    const session = twoExerciseWorkout();
+    const id = session.exercises[1]?.id ?? '';
+
+    expect(exerciseNotes(setExerciseNote(session, id, 'Paused', testContext(AT_LATER)))).toEqual([
+      null,
+      'Paused',
+    ]);
+  });
+
+  it('notes one set without touching the other three', () => {
+    const session = twoExerciseWorkout();
+    const id = session.exercises[1]?.sets[0]?.id ?? '';
+
+    expect(setNotes(setSetNote(session, id, 'Elbow flared', testContext(AT_LATER)))).toEqual([
+      null,
+      null,
+      'Elbow flared',
+      null,
+    ]);
   });
 
   it('retitles the workout', () => {

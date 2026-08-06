@@ -21,6 +21,7 @@ import {
   markSetIncomplete,
   performance,
   recordSet,
+  setExerciseNote,
   setSetNote,
   setWorkoutNote,
   skipSet,
@@ -334,10 +335,36 @@ describe('summarize', () => {
   it('reports a note anywhere in the workout', () => {
     const session = threeSetWorkout();
     const [id] = setIds(session);
+    const exerciseId = session.exercises[0]?.id ?? '';
 
     expect(summarize(session).hasNotes).toBe(false);
     expect(summarize(setWorkoutNote(session, 'Rough', testContext())).hasNotes).toBe(true);
     expect(summarize(setSetNote(session, id ?? '', 'Belt', testContext())).hasNotes).toBe(true);
+    // The exercise half of `hasNote` had no case of its own, and a workout note
+    // or a set note answers true whatever that half does.
+    expect(summarize(setExerciseNote(session, exerciseId, 'Belt on', testContext())).hasNotes).toBe(
+      true,
+    );
+  });
+
+  it('stops reporting notes once they are cleared', () => {
+    // The mark comes off again. A note typed and then deleted leaves an empty
+    // box, and the row that kept saying "has notes" over nothing was the defect
+    // the setters trim for.
+    const at = contextSeries();
+    let session = threeSetWorkout();
+    const [id] = setIds(session);
+    const exerciseId = session.exercises[0]?.id ?? '';
+    session = setWorkoutNote(session, 'Rough', at(AT_START));
+    session = setExerciseNote(session, exerciseId, 'Belt on', at(AT_START));
+    session = setSetNote(session, id ?? '', 'Belt', at(AT_START));
+    expect(summarize(session).hasNotes).toBe(true);
+
+    session = setWorkoutNote(session, null, at(AT_LATER));
+    session = setExerciseNote(session, exerciseId, '', at(AT_LATER));
+    session = setSetNote(session, id ?? '', '   ', at(AT_LATER));
+
+    expect(summarize(session).hasNotes).toBe(false);
   });
 
   it('carries the identity a history row needs', () => {

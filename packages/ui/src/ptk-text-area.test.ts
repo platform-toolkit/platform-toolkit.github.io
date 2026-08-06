@@ -64,6 +64,24 @@ describe('ptk-text-area', () => {
     expect(element.shadowRoot?.querySelector('label')?.textContent.trim()).toBe('Notes');
   });
 
+  it('adds no aria-label when it was given no fuller name', async () => {
+    // The default has to be nothing at all rather than the empty string: an
+    // `aria-label=""` is ignored by some screen readers and read as an unnamed
+    // control by others, and either way the `<label for>` above stops being
+    // what names the box.
+    expect(box(await mount()).hasAttribute('aria-label')).toBe(false);
+  });
+
+  it('announces the fuller name while still showing the short one', async () => {
+    // The point of the property: eight of these on a page can read "Note" to
+    // the eye and name their own lift to the ear. Both halves are asserted,
+    // because a fix that replaced the visible label would pass on the first.
+    const element = await mount({ accessibleName: 'Note, Back squat' });
+
+    expect(box(element).getAttribute('aria-label')).toBe('Note, Back squat');
+    expect(element.shadowRoot?.querySelector('label')?.textContent.trim()).toBe('Notes');
+  });
+
   it('re-renders when a property changes', async () => {
     // The one test that still passes with Lit's decorators misconfigured is the
     // one that never changes a property after the first render.

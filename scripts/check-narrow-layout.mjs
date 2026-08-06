@@ -1476,6 +1476,130 @@ const LOGBOOK_REPEAT_SETTLE = [
 ];
 
 /**
+ * The planner's two tiles, then the picker over them.
+ *
+ * The picker is here for one thing only: the longest exercise name the catalogue
+ * holds. Every name on this screen is the catalogue's -- `displayName` is
+ * `option.name` and nothing on the planner types over it -- so the widest heading
+ * the note row can ever be asked to sit beside is reached by choosing it, not by
+ * inventing it. The two tiles come first because the fill list below is the plan
+ * route's, unchanged: reusing it is what keeps a change to the planner one edit
+ * rather than two that drift.
+ *
+ * The fold is opened here rather than in `clickAfter` for the reason the mixed
+ * route opens it here: `pick` runs before that list and Playwright will not
+ * answer a select it cannot see.
+ */
+const LOGBOOK_NOTES_CLICK = [...LOGBOOK_PLAN_CLICK, 'ptk-workout-builder ptk-disclosure summary'];
+
+/**
+ * The longest name in the catalogue, by position because that is all `pick` speaks.
+ *
+ * Derived rather than guessed, the way the mixed route's index is: the options are
+ * grouped by loading model and sorted by name inside each group, so a placeholder
+ * and fifteen barbell lifts sort ahead of this one. The same arithmetic puts the
+ * first plain bodyweight movement at 39, which is the index that route uses.
+ *
+ * A catalogue edit that moves it is not a silent failure. The first settle
+ * selector below names the heading this index has to produce, so an index that
+ * lands on a shorter movement fails here rather than measuring a narrower screen
+ * and reporting the widest one covered.
+ */
+const LOGBOOK_NOTES_CHOOSE = [{ selector: 'ptk-workout-builder ptk-select select', index: 16 }];
+
+/**
+ * Add the picked lift, start, and open the first exercise's note.
+ *
+ * The picked row's own weight box is deliberately left empty, and that is a
+ * consequence of the slot order rather than a choice: `add-picked` cannot run
+ * before `choose`, so the row does not exist when `fill` runs, and `fillAfter` --
+ * the only fill left -- is what types the note this route exists for. A planned
+ * weight is not what is being measured here, and five other logbook routes draw
+ * one. What the empty box buys instead is a set row in a state no other route
+ * reaches: a barbell lift with reps and no weight on it.
+ *
+ * The note button is `.first()`, which is the first exercise on the card. Its box
+ * is what `fillAfter` types into, and the press in `clickLast` is what closes it
+ * again -- so this is the note that ends up as the written line, and the last
+ * exercise's is the one left open.
+ */
+const LOGBOOK_NOTES_CLICK_AFTER = [
+  ...LOGBOOK_MIXED_ADD,
+  ...LOGBOOK_START,
+  'ptk-active-workout ptk-button[data-action="note"][data-note^="exercise:"] button',
+];
+
+/**
+ * A note with a token in it that cannot be broken between two words.
+ *
+ * Invented (section 5.1), and hostile on purpose. `p.written` is drawn
+ * `white-space: pre-wrap` so that a note typed as a list stays one, and pre-wrap
+ * is exactly the setting under which a long unbroken run of characters stops
+ * being wrapped -- `overflow-wrap: anywhere` beside it is what saves the page,
+ * and a note of ordinary words would never ask it to. Sixty-odd characters, which
+ * is wider than a 320px column at any of the five passes and far wider than one
+ * at 220% text.
+ *
+ * Typed into the `textarea` inside the box rather than into the host: `fill`
+ * needs a real editable control, and the host is a Lit element with the field in
+ * its own shadow root. Playwright's CSS engine pierces it.
+ */
+const LOGBOOK_NOTES_FILL_AFTER = [
+  {
+    selector: 'ptk-active-workout ptk-text-area[data-note^="exercise:"] textarea',
+    value:
+      'Invented note -- felt heavy off the floor, cue: bracehardbeforethebaroverthemidfootandthenstand',
+  },
+];
+
+/**
+ * The last exercise's note button, which closes the box above and opens its own.
+ *
+ * Two presses would be the obvious way to reach both states and one is enough,
+ * because this control does both: opening a second note writes the first. That
+ * leaves the two surfaces on screen at once -- the typed note read back as a
+ * muted line under the first heading, and an open box under the longest heading
+ * in the catalogue -- which is the arrangement worth measuring and one no single
+ * press could produce.
+ *
+ * Named through `section.exercise:last-of-type` and not by its `data-note` value:
+ * the key carries `WorkoutExercise.id`, which is minted at runtime and is not a
+ * string this file can know. `tap` takes `.first()`, which is the note button at
+ * the top of the card, so the last section is the only way to name the other one.
+ */
+const LOGBOOK_NOTES_CLICK_LAST = [
+  'ptk-active-workout section.exercise:last-of-type ptk-button[data-action="note"] button',
+];
+
+/**
+ * The three things this route exists for, and none of them implies another.
+ *
+ * **The open box is named `[data-note^="exercise:"]` and never a bare
+ * `ptk-text-area`.** The finish panel draws its own box, unconditionally and
+ * already open, so the bare tag matches a screen this route never reached -- and
+ * `/logbook/ (finishing)` is measuring that one already. The prefix says the box
+ * on screen belongs to a lift, which only the press in `clickLast` can produce.
+ * Qualified through the last section as well, because that is the box that press
+ * opened rather than whichever one the template drew first.
+ *
+ * `p.written` is the other half and is the slower one: it is the note the fill
+ * typed, written by the press above, handed to the root, and handed back down as
+ * a new session. Nothing draws it until that round trip has completed, so it
+ * cannot pass against a keystroke that landed in a box nobody closed.
+ *
+ * The heading is settled on first because it is what proves the picker's index
+ * still names the movement this route was written around. Naming the string is
+ * not the `pick` rule broken: these are `LIFTS` in `packages/domain`, this
+ * repository's own source, and renaming one is a compile-visible edit that this
+ * check failing is the correct answer to.
+ */
+const LOGBOOK_NOTES_SETTLE = [
+  'ptk-active-workout section.exercise:last-of-type h3:text-is("Lying Triceps Extension")',
+  'ptk-active-workout section.exercise:last-of-type ptk-text-area[data-note^="exercise:"]',
+  'ptk-active-workout p.written',
+];
+
+/**
  * A session left on the origin by the warm-up calculator, as if a lifter had
  * just walked over from it.
  *
@@ -2106,6 +2230,35 @@ const ROUTES = [
     fill: LOGBOOK_PLAN_FILL,
     clickAfter: LOGBOOK_REPEAT_CLICK,
     settle: LOGBOOK_REPEAT_SETTLE,
+  },
+  {
+    // Section 7.9's note surface, which arrived with two hazards nothing here
+    // measured. The first is the head row a note button put on every exercise: an
+    // `<h3>` and a 44px control in one `space-between` flex line, which is the
+    // arrangement that overflows when the heading is long and the column is 320px.
+    // The second is a `ptk-text-area` inside a card that has padding of its own --
+    // a textarea takes its intrinsic width from `cols` rather than from its
+    // container, and `width: 100%` with `box-sizing: border-box` in the element's
+    // own shadow root is the whole of what stops it -- and this is the first time
+    // the tool draws one there. The third thing on the screen is the written line,
+    // which is where a lifter's unbroken token has to wrap.
+    //
+    // One entry rather than two, and the finish panel's box is the one deliberately
+    // not given its own. That panel draws it open and unconditionally, so
+    // `/logbook/ (finishing)` already measures it at all five passes -- a second
+    // route would spend ten more page loads re-measuring a surface that is covered
+    // and would say nothing about the box inside an exercise card, which is a
+    // different container at a different depth.
+    path: '/logbook/',
+    label: '/logbook/ (notes)',
+    click: LOGBOOK_NOTES_CLICK,
+    reveal: [],
+    choose: LOGBOOK_NOTES_CHOOSE,
+    fill: LOGBOOK_PLAN_FILL,
+    clickAfter: LOGBOOK_NOTES_CLICK_AFTER,
+    fillAfter: LOGBOOK_NOTES_FILL_AFTER,
+    clickLast: LOGBOOK_NOTES_CLICK_LAST,
+    settle: LOGBOOK_NOTES_SETTLE,
   },
   {
     // One entry for the framed copy, the way meet-day gets one: the chrome around

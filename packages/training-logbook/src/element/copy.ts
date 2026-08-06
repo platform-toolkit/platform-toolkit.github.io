@@ -358,6 +358,24 @@ export const ACTIVE_NOTES = {
   /** A row whose numbers differ from the plan looks like an error unless labelled. */
   edited: 'Different from the plan',
 
+  /**
+   * Section 7.9's control, on a lift and on the session.
+   *
+   * One word. It is a quiet button on a screen that is mostly buttons, and what
+   * it belongs to is said in its accessible name rather than on it -- "Note,
+   * Back squat" printed under a heading reading "Back squat" is the heading
+   * twice.
+   */
+  note: 'Note',
+
+  /**
+   * The session's own note, which has to be told apart from the eight above it.
+   *
+   * "Note" alone at the top of the screen reads as a note about the workout's
+   * first lift, which is what it sits directly above.
+   */
+  workoutNote: 'Note for the workout',
+
   progressHeading: 'Progress',
   /** A count with no unit reads as a percentage. */
   setsDone: 'sets done',

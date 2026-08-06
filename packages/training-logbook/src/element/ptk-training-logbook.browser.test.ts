@@ -83,6 +83,7 @@ import {
   SAVE_STATE_NOTES,
   UNIT_LABELS,
 } from './copy.js';
+import { WORKOUT_NOTE_KEY, exerciseNoteKey } from './dataset.js';
 import {
   BACKUP_EXPORTED_EVENT,
   SET_COMPLETED_EVENT,
@@ -807,6 +808,94 @@ function unreadable(store: LogbookStore): LogbookStore {
     ...store,
     readWorkout: () => Promise.reject(new Error('this record cannot be read')),
   };
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * What the lifter wrote down. Section 7.9.
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * Two sentences a lifter typed. Invented, per section 5.1, and deliberately
+ * unalike -- an assertion that a note reached storage means nothing if the note
+ * about the session and the note about the lift could be mistaken for each other.
+ */
+const WORKOUT_NOTE = 'Invented: whole session felt slow, bar path fine';
+const EXERCISE_NOTE = 'Invented: left knee tracking in on the second rep';
+
+/** The quiet control that opens one note, named by the key it acts on. */
+function noteControl(element: PtkTrainingLogbook, key: string): HTMLElement {
+  const found = deepAll(shadow(element), `[data-action="note"][data-note="${key}"]`)[0];
+  if (found === undefined) throw new Error(`Nothing on this screen opens the "${key}" note.`);
+  return found;
+}
+
+/**
+ * The box a keyboard actually reaches.
+ *
+ * Two steps, because the box is a `ptk-text-area` and the thing that takes a
+ * keystroke is the `<textarea>` inside its own shadow root -- and it is that
+ * element the component reads `event.target` off. An event dispatched at the host
+ * carries a value the box never held and is dropped, which would leave every case
+ * below asserting against a screen nobody typed into.
+ */
+function noteField(element: PtkTrainingLogbook, key: string): HTMLTextAreaElement {
+  const box = deepAll(shadow(element), `ptk-text-area[data-note="${key}"]`)[0];
+  if (box === undefined) throw new Error(`The "${key}" note box is not open.`);
+  const field = shadow(box).querySelector('textarea');
+  if (field === null) throw new Error(`The "${key}" note box has nothing to type in.`);
+  return field;
+}
+
+/** Presses a note's own button, which opens the box or closes it again. */
+async function pressNote(element: PtkTrainingLogbook, key: string): Promise<void> {
+  nativeButton(noteControl(element, key)).click();
+  await settle(element);
+}
+
+/**
+ * Types into an open box, and stops there.
+ *
+ * Nothing about storage is awaited, because nothing about storage has happened: the
+ * write is half a second behind the last keystroke, so a case asserting on the
+ * database here would be asserting on the length of section 10.2's debounce.
+ */
+async function typeNote(element: PtkTrainingLogbook, key: string, text: string): Promise<void> {
+  const field = noteField(element, key);
+  field.value = text;
+  field.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+  await settle(element);
+}
+
+/** Leaves the box, which is what writes it without waiting the debounce out. */
+async function leaveNote(element: PtkTrainingLogbook, key: string): Promise<void> {
+  const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
+  noteField(element, key).dispatchEvent(leaving);
+  await settle(element);
+}
+
+/** Opens a note, types it and moves on -- the whole of what a lifter does. */
+async function writeNote(element: PtkTrainingLogbook, key: string, text: string): Promise<void> {
+  await pressNote(element, key);
+  await typeNote(element, key, text);
+  await leaveNote(element, key);
+}
+
+/**
+ * Every note the screen is showing back as the lifter's own words.
+ *
+ * The line and not a mark: a closed note is printed, so this is what a lifter reads
+ * without opening anything, and it is rendered from the session the root hands back
+ * down rather than from anything the logging screen kept.
+ */
+function writtenNotes(element: PtkTrainingLogbook): string[] {
+  return deepAll(shadow(element), 'p.written').map((line) => line.textContent.trim());
+}
+
+/** The row of one exercise in the stored session, by position. */
+function noteKeyFor(session: WorkoutSession, index: number): string {
+  return exerciseNoteKey(exerciseAt(session, index).id);
 }
 
 describe('the training logbook', () => {
@@ -1558,6 +1647,229 @@ describe('the training logbook', () => {
       // saved, so it had better be.
       expect(await store.readActiveId()).toBeNull();
       expect(await store.readWorkouts()).toHaveLength(1);
+    });
+  });
+
+  /**
+   * Section 7.9, from the box to the database.
+   *
+   * The leaf suite proves what a note box does to a session held in a property, and
+   * `session.test.ts` proves what the setters do to a session. Neither can see the
+   * only thing that matters at a rack: whether the words a lifter typed are still
+   * there tomorrow. Nothing here is pressed to save -- the write is a debounce, a
+   * blur and a fold into every other edit -- so every one of these journeys ends at
+   * storage, read back through the repository rather than off the element.
+   *
+   * On the durable store for the reason the repeat cases above are: `#persist`
+   * returns early where the repository is not durable, so the same cases on the
+   * memory store would assert their way through a journey in which nothing was
+   * written and pass.
+   */
+  describe('a note a lifter wrote', () => {
+    it("puts the workout's own note in storage, and not only on the screen", async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await planASquatSession(element);
+
+      await writeNote(element, WORKOUT_NOTE_KEY, WORKOUT_NOTE);
+
+      expect((await activeWorkout(store)).note).toBe(WORKOUT_NOTE);
+
+      // And read back to the lifter once the box is closed. The logging screen
+      // renders the session the root hands back down, so a root that took the event
+      // and dropped the session would still show the box that was typed into and
+      // nothing under it -- with the words in the database either way.
+      await pressNote(element, WORKOUT_NOTE_KEY);
+      expect(writtenNotes(element)).toEqual([WORKOUT_NOTE]);
+    });
+
+    it('files a note about one lift against that row, and leaves the session alone', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await planASquatSession(element);
+      // The row in this session, which is what the key names. Keyed on the catalogue
+      // identifier instead, a session with squats in it twice would show one note
+      // under both -- and `noteControl` would not find this button at all.
+      const key = noteKeyFor(await activeWorkout(store), 0);
+
+      await writeNote(element, key, EXERCISE_NOTE);
+
+      const stored = await activeWorkout(store);
+      expect(exerciseAt(stored, 0).note).toBe(EXERCISE_NOTE);
+      // The two controls are one line apart on screen, and a note filed under the
+      // wrong one is invisible until somebody goes looking for it.
+      expect(stored.note).toBeNull();
+    });
+
+    it('writes an emptied note back as nothing at all', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await planASquatSession(element);
+      await writeNote(element, WORKOUT_NOTE_KEY, WORKOUT_NOTE);
+      expect((await activeWorkout(store)).note).toBe(WORKOUT_NOTE);
+
+      // Whitespace rather than the empty string: a box one backspace short of empty
+      // is the same intention, and stored as it arrives it leaves a history row
+      // marked as carrying a note with nothing behind it to read.
+      await typeNote(element, WORKOUT_NOTE_KEY, '   ');
+      await leaveNote(element, WORKOUT_NOTE_KEY);
+
+      expect((await activeWorkout(store)).note).toBeNull();
+      await pressNote(element, WORKOUT_NOTE_KEY);
+      expect(writtenNotes(element)).toEqual([]);
+    });
+
+    /**
+     * Closing a box is not how its contents are lost, and neither is opening
+     * another one.
+     *
+     * Section 7.9 puts no Save anywhere near a note, so the only events between a
+     * lifter's last keystroke and their next tap are a blur and a click -- and the
+     * browser is free to deliver those in either order. Here there is no blur at
+     * all, which is the harder half: the press has to write the box it is closing,
+     * and the press that moves to another lift's note has to write the first before
+     * it adopts the second, or one draft is written into the other's note.
+     */
+    it('keeps both notes when each box is closed by a press and never left', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await planASquatSession(element);
+      const key = noteKeyFor(await activeWorkout(store), 0);
+
+      await pressNote(element, WORKOUT_NOTE_KEY);
+      await typeNote(element, WORKOUT_NOTE_KEY, WORKOUT_NOTE);
+      // Straight to the other note's button, mid-draft.
+      await pressNote(element, key);
+      await typeNote(element, key, EXERCISE_NOTE);
+      await pressNote(element, key);
+
+      const stored = await activeWorkout(store);
+      expect(stored.note).toBe(WORKOUT_NOTE);
+      expect(exerciseAt(stored, 0).note).toBe(EXERCISE_NOTE);
+    });
+
+    /**
+     * A note half typed when the next set is ticked survives the tick.
+     *
+     * The same ordering problem as above, met on the control this whole screen
+     * exists for. A lifter finishes a set, starts writing about it and taps Done
+     * with the box still open -- and the set's own write is what goes to storage,
+     * carrying whichever session the screen handed over. Built from the property
+     * without the draft folded in, that write is a note deleted by a tap on Done.
+     */
+    it('keeps a note being typed when the set beside it is ticked off', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await planASquatSession(element);
+
+      await pressNote(element, WORKOUT_NOTE_KEY);
+      await typeNote(element, WORKOUT_NOTE_KEY, WORKOUT_NOTE);
+      await press(element, 'complete', setRow(element, 0));
+
+      const stored = await activeWorkout(store);
+      expect(stored.note).toBe(WORKOUT_NOTE);
+      // Both, and not one at the price of the other: a tick that quietly dropped
+      // the note would pass an assertion made only about the note's absence.
+      expect(isDone(setRow(element, 0))).toBe(true);
+      expect(exerciseAt(stored, 0).sets[0]?.status).toBe('complete');
+    });
+
+    /**
+     * Section 7.12.4, and the case with nowhere else to be caught.
+     *
+     * The finish panel draws its own box, open, with no button to press first -- so
+     * the last note of a session is routinely typed and then confirmed, with no blur
+     * and no debounce between the two. Finish dispatches the finished session and no
+     * other, so a draft still sitting in the box at that moment exists nowhere else
+     * in the program and is gone with the screen.
+     */
+    it('keeps a note typed into the finish panel and never left', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await planASquatSession(element);
+      await press(element, 'complete', setRow(element, 0));
+      const id = (await activeWorkout(store)).id;
+
+      await press(element, 'finish');
+      // Answered before the note is typed, so that the last thing to happen to the
+      // box is the keystroke. A press after it could plausibly blur the field, and
+      // this case would then prove the blur path a second time instead.
+      await choose(element, 'ptk-choice-group', 'skip');
+      await typeNote(element, WORKOUT_NOTE_KEY, WORKOUT_NOTE);
+      await press(element, 'finish-confirm');
+
+      const stored = await store.readWorkout(id);
+      expect(stored?.status).toBe('completed');
+      expect(stored?.note).toBe(WORKOUT_NOTE);
+      // Finished as well as noted: a session left open would be resumable, and the
+      // assertion above would hold against a note the lifter has to finish again to
+      // keep.
+      expect(await store.readActiveId()).toBeNull();
+    });
+
+    /**
+     * The only trace a note left before this sub-task, and the only one on a screen
+     * that is not showing the session.
+     *
+     * The mark and not the words: the history list is one line per workout and a
+     * lifter's paragraph about their Tuesday does not go on it. `summary.test.ts`
+     * owns which of the three kinds of note counts; what is asserted here is that
+     * the count reaches a row at all, which is a walk from the box through storage
+     * and back out through `listWorkouts`.
+     */
+    it('marks the row in the history of a session with a note in it', async () => {
+      const { store } = await durableStore();
+      // A finished session with nothing written on it, to pair against. Without it
+      // this case passes against a row that says "Has notes" about every workout.
+      const plain = await seedRepeatable(store);
+      const element = await mount(store);
+      await planASquatSession(element);
+      const noted = (await activeWorkout(store)).id;
+
+      await writeNote(element, WORKOUT_NOTE_KEY, WORKOUT_NOTE);
+      await press(element, 'complete', setRow(element, 0));
+      await press(element, 'finish');
+      await choose(element, 'ptk-choice-group', 'skip');
+      await press(element, 'finish-confirm');
+      await press(element, 'home');
+
+      const row = await historyRow(element, noted);
+      expect(row.textContent).toContain(HISTORY_NOTES.hasNotes);
+      expect(row.textContent).not.toContain(WORKOUT_NOTE);
+      expect((await historyRow(element, plain.id)).textContent).not.toContain(
+        HISTORY_NOTES.hasNotes,
+      );
+    });
+
+    /**
+     * Section 18.9's promise, made about a note rather than about a set.
+     *
+     * The element and its database connection are both thrown away, so the lines on
+     * the second screen can only have come from the disk. Both notes at once,
+     * because they are stored in different places -- one on the session, one on a
+     * row of it -- and a resume that read back only the first would look right.
+     */
+    it('shows both stored notes back on the logging screen after a refresh', async () => {
+      const { store, databaseName } = await durableStore();
+      const first = await mount(store);
+      await planASquatSession(first);
+      const key = noteKeyFor(await activeWorkout(store), 0);
+
+      await writeNote(first, WORKOUT_NOTE_KEY, WORKOUT_NOTE);
+      await writeNote(first, key, EXERCISE_NOTE);
+
+      // The refresh.
+      first.remove();
+      store.close();
+
+      const second = await mount(await reopen(databaseName));
+      await press(second, 'resume-workout');
+
+      // The lift's note above its sets, the session's at the foot, in that order.
+      expect(writtenNotes(second)).toEqual([EXERCISE_NOTE, WORKOUT_NOTE]);
+      // Closed. A session reopened with its boxes up would hide the first lift
+      // behind two text areas nobody asked for.
+      expect(deepAll(shadow(second), 'ptk-text-area[data-note]')).toHaveLength(0);
     });
   });
 

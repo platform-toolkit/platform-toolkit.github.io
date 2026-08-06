@@ -479,35 +479,75 @@ export function undoSet(
   }));
 }
 
-/** Sets or clears the one workout-level note. Section 7.9. */
+/**
+ * What a note is once it has been typed: the text without its edges, and `null`
+ * where that leaves nothing.
+ *
+ * A lifter who opens a note box, types, changes their mind and empties it hands
+ * back `''`. Stored as it arrives that is a note as far as `hasNote` in
+ * `summary.ts` is concerned, so the history row keeps a "has notes" mark for
+ * ever with nothing behind it to read; two spaces is the same box one press
+ * short. Trimming and emptying is the whole of it -- no length cap, because
+ * cutting a lifter's own words short is not this file's decision.
+ */
+function normalizeNote(note: string | null): string | null {
+  const trimmed = note?.trim() ?? '';
+  return trimmed === '' ? null : trimmed;
+}
+
+/**
+ * Sets or clears the one workout-level note. Section 7.9.
+ *
+ * Unchanged text returns the session itself. A note box debounces, so it fires
+ * carrying what it already holds -- and a new session object is written to
+ * storage, read back and re-rendered for a keystroke that changed nothing. The
+ * comparison is against the normalised value, or the same words with a trailing
+ * space would count as a different note.
+ */
 export function setWorkoutNote(
   session: WorkoutSession,
   note: string | null,
   context: SessionContext,
 ): WorkoutSession {
-  return touch({ ...session, note }, context.at);
+  const next = normalizeNote(note);
+  if (next === session.note) return session;
+  return touch({ ...session, note: next }, context.at);
 }
 
-/** Sets or clears an exercise's note. */
+/**
+ * Sets or clears an exercise's note.
+ *
+ * The lookup is here rather than inside `mapExercises`, which would be shorter
+ * and would answer for callers that are asking a different question -- `addSet`
+ * or `attachWarmup` naming an exercise that is gone is not this. What
+ * `mapExercises` does is map and then touch, so without the guard a note aimed
+ * at nothing still moves the workout to the top of the history.
+ */
 export function setExerciseNote(
   session: WorkoutSession,
   exerciseId: LogbookId,
   note: string | null,
   context: SessionContext,
 ): WorkoutSession {
-  return mapExercises(session, context.at, (exercise) =>
-    exercise.id === exerciseId ? { ...exercise, note } : exercise,
+  const next = normalizeNote(note);
+  const exercise = findWorkoutExercise(session, exerciseId);
+  if (exercise === null || exercise.note === next) return session;
+  return mapExercises(session, context.at, (candidate) =>
+    candidate.id === exerciseId ? { ...candidate, note: next } : candidate,
   );
 }
 
-/** Sets or clears a set's note. */
+/** Sets or clears a set's note. The same two guards, for the same two reasons. */
 export function setSetNote(
   session: WorkoutSession,
   setId: LogbookId,
   note: string | null,
   context: SessionContext,
 ): WorkoutSession {
-  return mapSet(session, setId, context.at, (set) => ({ ...set, note }));
+  const next = normalizeNote(note);
+  const found = findSet(session, setId);
+  if (found === null || found.set.note === next) return session;
+  return mapSet(session, setId, context.at, (set) => ({ ...set, note: next }));
 }
 
 /** Retitles the workout. */
