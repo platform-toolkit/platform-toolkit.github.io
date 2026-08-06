@@ -17,7 +17,7 @@
  *
  * So the record carries what the lifter *chose* -- the rack, the lifts, the
  * working weights -- and the ramp is built here, by this build, through the
- * same {@link warmupChange} every other caller uses. The one thing that cannot
+ * same engine every other caller uses. The one thing that cannot
  * be recomputed is the weight a lifter typed over a generated set, so the
  * adjustments travel with it.
  *
@@ -48,7 +48,7 @@ import type {
   WorkoutSession,
 } from '../types.js';
 
-import { findExercise, loadFor, warmupFamilyFor } from './catalog.js';
+import { findExercise, loadFor } from './catalog.js';
 import {
   CountSchema,
   EquipmentSnapshotSchema,
@@ -65,7 +65,7 @@ import {
   type PlannedSet,
   type SessionContext,
 } from './session.js';
-import { applyWarmup, warmupChange } from './warmup.js';
+import { rampLastExercise } from './warmup.js';
 
 /**
  * The record format this build writes and the only one it reads.
@@ -228,10 +228,10 @@ export interface HandoffLandingOptions {
  * asking them to confirm the thing they just confirmed, at the rack, with the
  * bar loaded.
  *
- * The ramp goes through {@link warmupChange} and {@link applyWarmup} rather
- * than being assembled here, which is what puts the handoff on the same path as
- * every other generated warm-up: one snapshot format, one insertion order, one
- * set of engine versions frozen into the record.
+ * The ramp goes through {@link rampLastExercise} rather than being assembled
+ * here, which is what puts the handoff on the same path as every other
+ * generated warm-up: one snapshot format, one insertion order, one set of
+ * engine versions frozen into the record.
  */
 export function workoutFromHandoff(
   record: WarmupHandoff,
@@ -272,19 +272,10 @@ export function workoutFromHandoff(
     });
     landed += 1;
 
-    // `addExercise` appends and mints the identifier itself, so the exercise
-    // just added is the last one. Reading it back rather than threading an id
-    // out of the core keeps the identifier generator the only thing that names
-    // anything.
-    const added = session.exercises[session.exercises.length - 1];
-    const family = warmupFamilyFor(option);
-    if (added === undefined || family === null) continue;
-
-    const change = warmupChange(
+    const ramp = rampLastExercise(
       session,
-      added.id,
+      option,
       {
-        family,
         equipment,
         workingWeight: entry.workingWeight,
         workingSets: entry.workingSets,
@@ -293,11 +284,8 @@ export function workoutFromHandoff(
       },
       context,
     );
-    if (change?.ok === true) {
-      session = applyWarmup(session, added.id, change.change, context);
-    } else {
-      unramped.push(option.name);
-    }
+    session = ramp.session;
+    if (!ramp.ok && ramp.reason === 'refused') unramped.push(option.name);
   }
 
   if (landed === 0) return null;

@@ -1172,6 +1172,45 @@ const LOGBOOK_LOADING_SETTLE = [
 ];
 
 /**
+ * Ask for a ramp under both lifts, then start.
+ *
+ * After the fill and not before it, because a ticked row with an empty weight box is
+ * refused -- the planner would stay put and the route would go on to measure the
+ * planner while calling itself the logging screen. Both rows rather than one: two
+ * ramps is what a real session looks like and it is the taller card.
+ *
+ * The tick is reached through `[data-value="warmup"]`, which is the only way in from
+ * outside. `ptk-toggle-group` holds an option's value as a *property* on the input,
+ * invisible to a selector, and it writes the attribute onto the label for exactly
+ * this. Position would work today and there is one option; a second tick beside it
+ * would silently move this press onto the wrong question.
+ */
+const LOGBOOK_WARMUP_CLICK = [
+  'ptk-workout-builder li[data-row="0"] [data-field="warmup"] [data-value="warmup"] input',
+  'ptk-workout-builder li[data-row="1"] [data-field="warmup"] [data-value="warmup"] input',
+  ...LOGBOOK_START,
+];
+
+/**
+ * A generated warm-up row, with plates drawn under it.
+ *
+ * `data-kind` rather than the row's position or its visible word. A ramp and a
+ * working set come out of the same tag with the same classes, so every other selector
+ * on this screen matches just as well against a session where nothing was generated
+ * -- and that is the failure this route exists to catch, since the whole route is two
+ * ticks and a Start. The attribute is on the row for this reader and nothing in the
+ * element consults it.
+ *
+ * The plate stack is named too, and it is the slower half: the ramp's rungs are
+ * searched against the rack rather than read off the plan, so a screen settled on the
+ * row alone is a screen measured a paint before the plates arrive under it.
+ */
+const LOGBOOK_WARMUP_SETTLE = [
+  'ptk-active-workout li[data-set][data-kind="warmup"]',
+  'ptk-active-workout li[data-set][data-kind="warmup"] ptk-plate-stack [role="img"]',
+];
+
+/**
  * Ask to finish, then answer the question that asking raises.
  *
  * Nothing has been ticked off on this route, so every set is outstanding and the
@@ -1749,6 +1788,22 @@ const ROUTES = [
     clickAfter: LOGBOOK_START,
     clickLast: LOGBOOK_LOG_CLICK,
     settle: LOGBOOK_LOADING_SETTLE,
+  },
+  {
+    // The logging screen with a ramp on it, which no other route can reach: every
+    // one of them plans working sets only, so the warm-up rows a session actually
+    // opens with have never been measured at any width. It is also the longest card
+    // the tool draws -- a squat ramp is five or six rows above the working sets, each
+    // with its own plate diagram -- and the rack presses are borrowed from the
+    // loading route because a tick is not offered at all until a rack exists.
+    path: '/logbook/',
+    label: '/logbook/ (warm-up)',
+    click: LOGBOOK_LOADING_CLICK,
+    reveal: [],
+    fill: LOGBOOK_PLAN_FILL,
+    clickAfter: LOGBOOK_WARMUP_CLICK,
+    clickLast: [],
+    settle: LOGBOOK_WARMUP_SETTLE,
   },
   {
     path: '/logbook/',

@@ -51,6 +51,7 @@ import {
 
 import type {
   EquipmentSnapshot,
+  ExerciseOption,
   LogbookId,
   SetPerformance,
   WarmupSnapshot,
@@ -58,6 +59,7 @@ import type {
   WorkoutSet,
 } from '../types.js';
 
+import { warmupFamilyFor } from './catalog.js';
 import { sameEquipment, toBarbellSetup } from './equipment.js';
 import {
   attachWarmup,
@@ -238,6 +240,57 @@ export function clearWarmup(
   const dropped = exercise.sets.filter((set) => set.kind === 'warmup' && !isSettled(set));
   const cleared = dropped.reduce((current, set) => removeSet(current, set.id, context), session);
   return attachWarmup(cleared, exerciseId, null, context);
+}
+
+/**
+ * Why no ramp was written. Two answers, because a caller does two things with them.
+ *
+ * `no-ramp` is the catalogue saying this movement has none -- an accessory, a machine,
+ * a custom exercise nobody gave a family to. Ordinary, expected, and **silent**: a
+ * lifter who planned a squat and a curl did not ask for a curl ramp and should not be
+ * told one was skipped. `refused` is the engine turning down inputs that should have
+ * worked, which is the one a screen names, because something the lifter typed is why.
+ */
+export type RampRefusal = 'no-ramp' | 'refused';
+
+/** A ramp written, or the session unchanged and the reason it was not. */
+export type RampOutcome =
+  | { readonly ok: true; readonly session: WorkoutSession }
+  | { readonly ok: false; readonly session: WorkoutSession; readonly reason: RampRefusal };
+
+/**
+ * Ramps the exercise that was just added, or explains why it was not.
+ *
+ * Shared by the two screens that compose a session from scratch -- the calculator
+ * handoff and the builder -- and it exists because they had begun to be the same
+ * fifteen lines twice. Root section 5.8's fork rule with a specific failure behind it:
+ * the pair would agree about the ladder, since both go through {@link warmupChange},
+ * and disagree about the edges nobody looks at. Which lift gets named as unramped,
+ * whether a missing family is silent, whether the snapshot is written before the sets.
+ * Two screens producing subtly different records of the same warm-up is the kind of
+ * thing found months later in an exported backup.
+ *
+ * The exercise is read back as the last one rather than passed in by identifier,
+ * because `addExercise` appends and mints the identifier itself. Threading one out of
+ * the core would mean something other than the identifier generator naming things.
+ */
+export function rampLastExercise(
+  session: WorkoutSession,
+  option: ExerciseOption,
+  input: Omit<WarmupInput, 'family'>,
+  context: SessionContext,
+): RampOutcome {
+  const added = session.exercises[session.exercises.length - 1];
+  const family = warmupFamilyFor(option);
+  // A session with no exercises in it is grouped with the no-family answer rather than
+  // given a third reason. Both mean there is nothing to ramp and nothing to say about
+  // it, and a caller that reached here with an empty session has a bug the name of a
+  // refusal code would not help with.
+  if (added === undefined || family === null) return { ok: false, session, reason: 'no-ramp' };
+
+  const change = warmupChange(session, added.id, { ...input, family }, context);
+  if (change?.ok !== true) return { ok: false, session, reason: 'refused' };
+  return { ok: true, session: applyWarmup(session, added.id, change.change, context) };
 }
 
 /**

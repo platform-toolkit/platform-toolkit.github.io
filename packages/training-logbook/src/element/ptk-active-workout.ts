@@ -396,11 +396,20 @@ export class PtkActiveWorkout extends LitElement {
     </section>`;
   }
 
+  /**
+   * One row. `data-kind` is on it for a reader outside the shadow root, not for us.
+   *
+   * The kind is already on screen as a word in `.set-kind`, and nothing in here reads
+   * the attribute. What has no other way to see it is the layout check: a ramp and a
+   * working set render from the same tag with the same classes, so a check driving the
+   * tool through its controls could press Start on a warm-up it asked for and then
+   * measure a screen where none was generated, with every selector still matching.
+   */
   #set(exercise: WorkoutExercise, set: WorkoutSet, loadings: Loadings): TemplateResult {
     const done = set.status !== 'planned';
     const shown = set.performed ?? set.planned;
     const loading = loadings?.get(set.id) ?? null;
-    return html`<li data-set=${set.id} class=${done ? 'done' : ''}>
+    return html`<li data-set=${set.id} data-kind=${set.kind} class=${done ? 'done' : ''}>
       <div class="set-head">
         <div class="set-what">
           <span class="set-kind">${SET_KINDS[set.kind]}</span>

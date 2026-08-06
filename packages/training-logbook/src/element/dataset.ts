@@ -41,6 +41,15 @@ export const SETS_FIELD = 'sets';
 export const REPS_FIELD = 'reps';
 export const WEIGHT_FIELD = 'weight';
 
+/**
+ * The fourth, which only some rows have and which is a tick rather than a number.
+ *
+ * Separate from the three above because it is not read by {@link readCount} and
+ * carries no complaint of its own: a warm-up asked for without a weight is reported
+ * against {@link WEIGHT_FIELD}, where the empty box the lifter has to fill in is.
+ */
+export const WARMUP_FIELD = 'warmup';
+
 /** The two the whole session asks for, which belong to no row. */
 export const DATE_FIELD = 'date';
 export const TITLE_FIELD = 'title';

@@ -243,9 +243,40 @@ export const BUILDER_NOTES = {
    */
   startNeedsExercise: 'Add at least one exercise to start.',
 
-  /** Warm-ups are the next milestone, and a lifter who uses the calculator will look. */
-  warmupsLater:
-    'Warm-up sets are not generated yet. The warm-up calculator is a separate tool in this collection and works today.',
+  /**
+   * The tick on a row that can have a ramp, and what it promises.
+   *
+   * The legend names the subject and the option names the action, because a fieldset
+   * of one still has to say what the tick is about when it is read out on its own.
+   * The description says where the numbers come from: a lifter with the calculator
+   * open in another tab is going to compare the two, and "the same rules" is the
+   * claim section 8.1 actually makes -- not "the same as last time" and not "what you
+   * should lift".
+   */
+  warmupLegend: 'Warm-up',
+  warmupLabel: 'Work up to this weight',
+  warmupNote:
+    'Warm-up sets worked out from your rack, by the same rules as the warm-up calculator.',
+
+  /**
+   * Why the tick is not on the screen at all.
+   *
+   * A rack is the one input the lifter has to supply and the tool cannot guess, so
+   * without one there is nothing to disable -- there is a question that has not been
+   * answered yet, and this says which screen answers it. Drawing a ticked-out control
+   * instead would be a dead control on a primary journey (root section 0.4).
+   */
+  warmupNeedsRack:
+    'Warm-ups are worked out from your bar and plates. Set those up under Equipment on the previous screen and they will be offered here.',
+
+  /**
+   * Said once under the rows, for the exercises that will never have the tick.
+   *
+   * Only where at least one row is in that position, and never as a note on the row
+   * itself: a chin-up is not missing a feature, and a line under every one of them
+   * saying so is how a screen fills up with sentences nobody needs to read.
+   */
+  warmupNotEveryLift: 'Warm-ups are only worked out for barbell lifts the calculator knows.',
 } as const;
 
 /**

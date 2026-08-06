@@ -27,16 +27,16 @@
  *
  * WHAT IS NOT HERE YET, AND IS NOT PRETENDED TO BE
  *
- * Milestone 1. Warm-up generation, notes, RPE, repeating a session, custom exercises,
- * the rest timer, editing history, reading a backup back in, Markdown export and the
- * deletion flow are all later milestones. Section 0.4 forbids standing in for them with
+ * Notes, RPE, repeating a session, custom exercises, the rest timer, editing history,
+ * reading a backup back in, Markdown export and the deletion flow are all later
+ * milestones. Section 0.4 forbids standing in for them with
  * a disabled control or a "coming soon", so none of them has one: the only thing said
  * about a missing feature is said in prose, where a lifter would otherwise go looking
  * for it -- reading a backup file back in, which is the one a person will hunt for the
  * moment they have downloaded a file.
  */
 
-import { formatWeight, type WeightUnit } from '@platform-toolkit/domain';
+import { convertWeight, formatWeight, type WeightUnit } from '@platform-toolkit/domain';
 import {
   SEGMENTED_CHANGE_EVENT,
   type Choice,
@@ -50,6 +50,7 @@ import { backupFilename, serializeBackup } from '../core/backup.js';
 import { exerciseOptions, loadFor } from '../core/catalog.js';
 import { createProfile, findProfile, updateProfileEquipment } from '../core/equipment.js';
 import { handoffLifts, workoutFromHandoff } from '../core/handoff.js';
+import { rampLastExercise } from '../core/warmup.js';
 // Type-only, so nothing of the storage side reaches this module. The port and the
 // key belong to the shell, which is the only thing that knows the browser has
 // somewhere to leave a record; this element is handed a reader and asks it twice.
@@ -113,6 +114,7 @@ import {
   type ProfileSavedDetail,
   type RackChangedDetail,
 } from './ptk-equipment-library.js';
+import type { PlannedExercise } from './plan.js';
 import { WORKOUT_PLANNED_EVENT, type WorkoutPlannedDetail } from './ptk-workout-builder.js';
 
 /** The tag `defineTrainingLogbook()` registers this under. */
@@ -517,6 +519,7 @@ export class PtkTrainingLogbook extends LitElement {
         .today=${this.today}
         .unit=${this.settings.displayUnit}
         .exercises=${this.exercises}
+        .equipment=${this.settings.equipment}
       ></ptk-workout-builder>
       <div class="actions section">
         <ptk-button variant="quiet" data-action=${CANCEL_PLAN_ACTION}
@@ -664,9 +667,9 @@ export class PtkTrainingLogbook extends LitElement {
     for (const planned of exercises) {
       const load = loadFor(planned.option.loading, planned.weight);
       const plan: readonly PlannedSet[] = Array.from({ length: planned.sets }, () => ({
-        // Every set from the builder is a working set. Warm-ups are generated in
-        // Milestone 2 and back-offs and AMRAPs are added mid-session, so `working`
-        // is the only kind this screen can honestly produce.
+        // Every set typed into the builder is a working set. A ramp is added below,
+        // and back-offs and AMRAPs are added mid-session, so `working` is the only
+        // kind the form itself can honestly produce.
         kind: 'working' as const,
         performance: performance(load, planned.reps),
       }));
@@ -676,6 +679,7 @@ export class PtkTrainingLogbook extends LitElement {
         loading: planned.option.loading,
         plan,
       });
+      session = this.#ramp(session, planned, context);
     }
     session = startWorkout(session, context);
 
@@ -684,6 +688,49 @@ export class PtkTrainingLogbook extends LitElement {
     this.#emitWorkout(WORKOUT_STARTED_EVENT, session.id);
     void this.#persist(session, false);
   };
+
+  /**
+   * The ramp under one planned exercise, where one was asked for and is possible.
+   *
+   * Three guards before the engine sees anything, and none of them is defensive
+   * duplication of the builder. The builder decides what to *draw*; a plan can also
+   * arrive from a consumer dispatching the event itself, and a tick honoured without
+   * a rack would reach `toBarbellSetup` with nothing to build out of.
+   *
+   * The weight is converted into the rack's own unit rather than passed as typed.
+   * `WarmupInput.workingWeight` is a bare number in the plate unit -- it has nowhere
+   * to carry one -- so a lifter who reads in pounds and trains on kilogram plates
+   * would otherwise get a ramp up to 100 kg from a 100 lb top set. Section 11.4
+   * expects exactly that mix, and what they typed is untouched: the conversion feeds
+   * the ramp and nothing else.
+   *
+   * A refusal is silent. The lift keeps its working sets, which are the lifter's own
+   * numbers, and the alternative -- a sentence on the logging screen naming a lift
+   * whose ramp the engine turned down -- is a message at a rack about something
+   * already fixable there. The handoff names them because a lifter who pressed one
+   * button cannot see what it was about to do; somebody who filled in this form can.
+   */
+  #ramp(
+    session: WorkoutSession,
+    planned: PlannedExercise,
+    context: SessionContext,
+  ): WorkoutSession {
+    const equipment = this.settings.equipment;
+    if (!planned.warmup || equipment === null || planned.weight === null) return session;
+    const { amount } = convertWeight(planned.weight, equipment.plateUnit);
+    if (!Number.isFinite(amount) || amount <= 0) return session;
+    return rampLastExercise(
+      session,
+      planned.option,
+      {
+        equipment,
+        workingWeight: amount,
+        workingSets: planned.sets,
+        workingReps: planned.reps,
+      },
+      context,
+    ).session;
+  }
 
   readonly #onChanged = (event: CustomEvent<WorkoutChangedDetail>): void => {
     stopHere(event);

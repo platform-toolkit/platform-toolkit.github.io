@@ -34,6 +34,8 @@ function option(id: string): ExerciseOption {
 
 const SQUAT = option('squat');
 const CHIN_UP = option('chin-up');
+/** A movement that takes a weight and has no ramp, so only the gate can refuse it. */
+const LAT_PULLDOWN = option('lat-pulldown');
 
 function row(overrides: Partial<PlanDraftRow> = {}): PlanDraftRow {
   return { ...newPlanRow(SQUAT, 'row-1'), ...overrides };
@@ -50,6 +52,13 @@ describe('newPlanRow', () => {
     // Blank rather than a guess. Section 7.4 allows a plan with no weight in it,
     // and a prefilled number is one a lifter has to notice before they overwrite it.
     expect(seeded.weight).toBe('');
+  });
+
+  it('leaves the warm-up unticked', () => {
+    // The one default that was argued rather than assumed: a row that arrived
+    // ticked would fail to generate for every lifter who meant to fill the weight
+    // in at the rack, and would put sets nobody asked for on a card.
+    expect(newPlanRow(SQUAT, 'row-7').warmup).toBe(false);
   });
 
   it('takes the key from its caller, so one exercise can appear twice', () => {
@@ -69,7 +78,9 @@ describe('readPlan', () => {
 
     expect(reading).toStrictEqual({
       ok: true,
-      exercises: [{ option: SQUAT, sets: 5, reps: 3, weight: { amount: 140, unit: 'kg' } }],
+      exercises: [
+        { option: SQUAT, sets: 5, reps: 3, weight: { amount: 140, unit: 'kg' }, warmup: false },
+      ],
     });
   });
 
@@ -105,6 +116,7 @@ describe('readPlan', () => {
           sets: Number(seeded.sets),
           reps: Number(seeded.reps),
           weight: null,
+          warmup: false,
         },
       ],
     });
@@ -173,6 +185,75 @@ describe('readPlan', () => {
     expect(reading.ok && reading.exercises[0]?.weight?.amount).toBe(102.5);
   });
 
+  it('carries a warm-up the lifter ticked into the reading', () => {
+    const reading = readPlan([row({ sets: '5', reps: '3', weight: '140', warmup: true })], 'kg');
+
+    expect(reading).toStrictEqual({
+      ok: true,
+      exercises: [
+        { option: SQUAT, sets: 5, reps: 3, weight: { amount: 140, unit: 'kg' }, warmup: true },
+      ],
+    });
+  });
+
+  it('drops a warm-up asked for on a movement the catalogue cannot ramp', () => {
+    // A lat pulldown draws no tick, so the only way to a true here is a caller
+    // building rows by hand -- and reading it back as a request would send one the
+    // rest of the tool drops in silence.
+    const reading = readPlan([row({ option: LAT_PULLDOWN, weight: '60', warmup: true })], 'kg');
+
+    expect(reading.ok && reading.exercises[0]?.warmup).toBe(false);
+  });
+
+  it('does not ask an unrampable row for the weight a ramp would need', () => {
+    // The gate runs first, so the complaint below never reaches a row that was
+    // never going to be ramped. Otherwise a hand-built pulldown row would be
+    // refused over a control that is not on the screen.
+    const seeded = newPlanRow(LAT_PULLDOWN, 'row-1');
+    const reading = readPlan([{ ...seeded, warmup: true }], 'kg');
+
+    expect(reading).toStrictEqual({
+      ok: true,
+      exercises: [
+        {
+          option: LAT_PULLDOWN,
+          sets: Number(seeded.sets),
+          reps: Number(seeded.reps),
+          weight: null,
+          warmup: false,
+        },
+      ],
+    });
+  });
+
+  it('refuses a warm-up with nothing to work up to', () => {
+    // Against the empty box and not against the tick: the box is the thing to fill
+    // in, and a lifter who wanted the ramp does not want to be talked out of it.
+    const reading = readPlan([row({ weight: '   ', warmup: true })], 'kg');
+
+    expect(!reading.ok && reading.problems).toStrictEqual([
+      { row: 0, field: 'weight', code: 'warmup-needs-weight' },
+    ]);
+  });
+
+  it('reads the same row cleanly once the weight is filled in', () => {
+    const ticked = row({ weight: '', warmup: true });
+
+    expect(readPlan([ticked], 'kg').ok).toBe(false);
+    expect(readPlan([{ ...ticked, weight: '140' }], 'kg').ok).toBe(true);
+  });
+
+  it('says one thing about a weight box, not two', () => {
+    // An unreadable weight is already a complaint under that control. Adding the
+    // warm-up's on top would stack two messages in one place and leave the second
+    // still there after the first is fixed.
+    const reading = readPlan([row({ weight: 'nonsense', warmup: true })], 'kg');
+
+    expect(!reading.ok && reading.problems).toStrictEqual([
+      { row: 0, field: 'weight', code: 'unreadable' },
+    ]);
+  });
+
   it('reports every problem on every row at once', () => {
     // Section 5.5's rule seen from a form: a reader that stopped at the first
     // problem would make a lifter press Start once per mistake.
@@ -216,7 +297,7 @@ describe('problemFor', () => {
 });
 
 describe('planProblem', () => {
-  it.each(['unreadable', 'not-whole', 'not-positive', 'too-many'] as const)(
+  it.each(['unreadable', 'not-whole', 'not-positive', 'too-many', 'warmup-needs-weight'] as const)(
     'says something a lifter can act on for %s',
     (code) => {
       const message = planProblem({ row: 0, field: 'sets', code });
@@ -232,5 +313,15 @@ describe('planProblem', () => {
     // The one message that would otherwise be a dead end: zero is refused, and
     // wanting zero of something is a real intention with a different control.
     expect(planProblem({ row: 0, field: 'sets', code: 'not-positive' })).toContain('Remove');
+  });
+
+  it('tells a lifter the other way out of a warm-up that needs a weight', () => {
+    // Two ways forward, and the second is the one nobody would find on their own:
+    // untick it and decide at the rack. A message naming only the weight box would
+    // read as the tool insisting on a number the lifter has not decided yet.
+    const message = planProblem({ row: 0, field: 'weight', code: 'warmup-needs-weight' });
+
+    expect(message).toContain('weight');
+    expect(message).toContain('Untick');
   });
 });

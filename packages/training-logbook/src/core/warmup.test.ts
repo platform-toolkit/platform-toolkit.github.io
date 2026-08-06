@@ -18,8 +18,15 @@
 import { WARMUP_ENGINE_VERSION, WARMUP_RULESET_VERSION } from '@platform-toolkit/domain';
 import { describe, expect, it } from 'vitest';
 
-import type { EquipmentSnapshot, SetPerformance, WorkoutSession, WorkoutSet } from '../types.js';
+import type {
+  EquipmentSnapshot,
+  ExerciseOption,
+  SetPerformance,
+  WorkoutSession,
+  WorkoutSet,
+} from '../types.js';
 
+import { findExercise } from './catalog.js';
 import { AT_LATER, AT_START, ON_DAY, testContext } from './context.fixture.js';
 import { DEFAULT_EQUIPMENT } from './equipment.js';
 import {
@@ -35,6 +42,7 @@ import {
 import {
   applyWarmup,
   clearWarmup,
+  rampLastExercise,
   warmupChange,
   warmupIsCurrent,
   warmupMatchesEquipment,
@@ -64,6 +72,28 @@ function squatInput(overrides: Partial<WarmupInput> = {}): WarmupInput {
 
 /** What `planWarmup` answers for {@link squatInput}, as totals in pounds. */
 const RAMP = [45, 45, 105, 145, 175, 205];
+
+/**
+ * {@link squatInput} with the family taken off.
+ *
+ * Rebuilt field by field rather than spread and deleted, because working out the
+ * family from the option is the whole of what `rampLastExercise` adds -- a caller's
+ * own family reaching the engine would let the derivation break unnoticed.
+ */
+function rampInput(overrides: Partial<WarmupInput> = {}): Omit<WarmupInput, 'family'> {
+  const { equipment, workingWeight, workingSets, workingReps } = squatInput(overrides);
+  return { equipment, workingWeight, workingSets, workingReps };
+}
+
+function option(id: string): ExerciseOption {
+  const found = findExercise(id);
+  if (found === null) throw new Error(`no such exercise: ${id}`);
+  return found;
+}
+
+const SQUAT = option('squat');
+const DEADLIFT = option('deadlift');
+const CHIN_UP = option('chin-up');
 
 /** A rack that is nobody's default, so nothing can pass by resembling one. */
 function aGym(): EquipmentSnapshot {
@@ -484,6 +514,74 @@ describe('clearWarmup', () => {
     const context = testContext();
     const ramped = withRamp(aSquatWorkout(context), context);
     expect(clearWarmup(ramped, 'id-gone', context)).toBe(ramped);
+  });
+});
+
+describe('rampLastExercise', () => {
+  it('writes the ramp above the exercise it was asked about', () => {
+    const context = testContext();
+    const session = aSquatWorkout(context);
+    const outcome = rampLastExercise(session, SQUAT, rampInput(), context);
+
+    expect(outcome.ok).toBe(true);
+    expect(totals(onlyExercise(outcome.session).sets)).toEqual([...RAMP, 225, 225]);
+    expect(onlyExercise(outcome.session).warmup?.plan.family).toBe('squat-press');
+  });
+
+  it('ramps the exercise just added and not the first one', () => {
+    // `addExercise` appends and mints the identifier itself, so the lift is read
+    // back rather than named. Reading back the wrong one would put a deadlift ramp
+    // under the squat that was already there, on the lift the lifter has finished.
+    const context = testContext();
+    const session = addExercise(aSquatWorkout(context), context, {
+      exerciseId: 'deadlift',
+      displayName: 'Deadlift',
+      loading: 'barbell-total-weight',
+      plan: [{ kind: 'working', performance: workingSet() }],
+    });
+    const outcome = rampLastExercise(session, DEADLIFT, rampInput(), context);
+
+    expect(outcome.session.exercises[0]?.warmup).toBe(null);
+    expect(outcome.session.exercises[1]?.warmup?.plan.family).toBe('deadlift');
+  });
+
+  it('has nothing to say about a movement with no ramp', () => {
+    // Ordinary, expected and silent: somebody who planned a squat and a chin-up did
+    // not ask for a chin-up ramp and must not be told one was skipped.
+    const context = testContext();
+    const session = addExercise(aSquatWorkout(context), context, {
+      exerciseId: 'chin-up',
+      displayName: 'Chin-Up',
+      loading: 'bodyweight',
+      plan: [{ kind: 'working', performance: performance({ kind: 'none' }, 8) }],
+    });
+    const outcome = rampLastExercise(session, CHIN_UP, rampInput(), context);
+
+    expect(outcome).toEqual({ ok: false, session, reason: 'no-ramp' });
+    expect(outcome.session).toBe(session);
+  });
+
+  it('answers the same way for a session with nothing in it', () => {
+    // Grouped with the no-family answer rather than given a third reason. Both mean
+    // there is nothing to ramp, and a caller that got here with an empty session has
+    // a bug the name of a refusal code would not help with.
+    const context = testContext();
+    const empty = createWorkout(context, { localDate: ON_DAY });
+    const outcome = rampLastExercise(empty, SQUAT, rampInput(), context);
+
+    expect(outcome).toEqual({ ok: false, session: empty, reason: 'no-ramp' });
+  });
+
+  it('separates a refusal by the engine from a lift that has no ramp', () => {
+    // The one a screen names, because something the lifter typed is why. The lift
+    // still keeps its working sets -- refusing those would lose the session over a
+    // warm-up.
+    const context = testContext();
+    const session = aSquatWorkout(context);
+    const outcome = rampLastExercise(session, SQUAT, rampInput({ workingWeight: 0 }), context);
+
+    expect(outcome).toEqual({ ok: false, session, reason: 'refused' });
+    expect(outcome.session).toBe(session);
   });
 });
 

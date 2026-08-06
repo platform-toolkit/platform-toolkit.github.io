@@ -40,18 +40,26 @@ import {
   NUMBER_FIELD_CHANGE_EVENT,
   SELECT_CHANGE_EVENT,
   TEXT_FIELD_CHANGE_EVENT,
+  TOGGLE_GROUP_CHANGE_EVENT,
+  type Choice,
   type DateFieldChangeDetail,
   type NumberFieldChangeDetail,
   type SelectChangeDetail,
   type SelectOption,
   type TextFieldChangeDetail,
+  type ToggleGroupChangeDetail,
 } from '@platform-toolkit/ui';
 import '@platform-toolkit/ui';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { property, state } from 'lit/decorators.js';
 
-import { CATALOG_EXERCISES, PRIMARY_EXERCISES, takesWeight } from '../core/catalog.js';
-import type { CalendarDay, ExerciseOption, LoadingModel } from '../types.js';
+import {
+  CATALOG_EXERCISES,
+  PRIMARY_EXERCISES,
+  canGenerateWarmup,
+  takesWeight,
+} from '../core/catalog.js';
+import type { CalendarDay, EquipmentSnapshot, ExerciseOption, LoadingModel } from '../types.js';
 
 import { BUILDER_NOTES, LOADING_LABELS } from './copy.js';
 import {
@@ -59,6 +67,7 @@ import {
   REPS_FIELD,
   SETS_FIELD,
   TITLE_FIELD,
+  WARMUP_FIELD,
   WEIGHT_FIELD,
   actionOf,
   exerciseOf,
@@ -231,6 +240,10 @@ export class PtkWorkoutBuilder extends LitElement {
       display: grid;
       gap: var(--ptk-space-sm);
     }
+
+    .warmup {
+      margin-top: var(--ptk-space-sm);
+    }
   `;
 
   /**
@@ -255,6 +268,16 @@ export class PtkWorkoutBuilder extends LitElement {
    */
   @property({ attribute: false }) exercises: readonly ExerciseOption[] = CATALOG_EXERCISES;
 
+  /**
+   * The rack a ramp would be built out of, or `null` where none has been chosen.
+   *
+   * Read here only to decide whether the warm-up tick is drawn at all -- this element
+   * generates nothing, and the root is where a plan is actually composed. Offering the
+   * tick without a rack would be a control that reads as available and does nothing,
+   * which root 0.4 rules out; the section note says what to do instead.
+   */
+  @property({ attribute: false }) equipment: EquipmentSnapshot | null = null;
+
   @state() private localDate = '';
   @state() private sessionTitle = '';
   @state() private rows: readonly PlanDraftRow[] = [];
@@ -276,6 +299,7 @@ export class PtkWorkoutBuilder extends LitElement {
     this.addEventListener(NUMBER_FIELD_CHANGE_EVENT, this.#onValue);
     this.addEventListener(DATE_FIELD_CHANGE_EVENT, this.#onValue);
     this.addEventListener(SELECT_CHANGE_EVENT, this.#onPick);
+    this.addEventListener(TOGGLE_GROUP_CHANGE_EVENT, this.#onToggle);
     this.addEventListener('click', this.#onClick);
   }
 
@@ -284,6 +308,7 @@ export class PtkWorkoutBuilder extends LitElement {
     this.removeEventListener(NUMBER_FIELD_CHANGE_EVENT, this.#onValue);
     this.removeEventListener(DATE_FIELD_CHANGE_EVENT, this.#onValue);
     this.removeEventListener(SELECT_CHANGE_EVENT, this.#onPick);
+    this.removeEventListener(TOGGLE_GROUP_CHANGE_EVENT, this.#onToggle);
     this.removeEventListener('click', this.#onClick);
     super.disconnectedCallback();
   }
@@ -334,7 +359,7 @@ export class PtkWorkoutBuilder extends LitElement {
       </section>
 
       <section class="section">
-        <p class="note">${BUILDER_NOTES.warmupsLater}</p>
+        ${this.#warmupNote()}
         ${
           this.rows.length === 0
             ? html`<p class="note">${BUILDER_NOTES.startNeedsExercise}</p>`
@@ -441,7 +466,63 @@ export class PtkWorkoutBuilder extends LitElement {
             : html`<p class="note">${BUILDER_NOTES.noWeightNote}</p>`
         }
       </div>
+      ${this.#warmupTick(row)}
     </li>`;
+  }
+
+  /**
+   * The one tick a row may carry, drawn only where it could be honoured.
+   *
+   * Both halves of the condition are load-bearing and neither is about tidiness. The
+   * catalogue half is section 8.2: a movement with no warm-up family has no ramp to
+   * generate, and a tick that composed nothing would be a dead control. The rack half
+   * is the same argument one step out -- a ramp is plates on a bar, and without a bar
+   * there is nothing to work up. What the lifter gets instead is the section note,
+   * which says where to set one up rather than leaving a control that does nothing.
+   *
+   * A `ptk-toggle-group` of one rather than a checkbox, because `packages/ui` has no
+   * standalone checkbox and adding one to draw a single tick would be the second
+   * control answering the same question -- root 5.8's fork, in the package whose whole
+   * job is to not have one.
+   */
+  #warmupTick(row: PlanDraftRow): TemplateResult | typeof nothing {
+    if (!canGenerateWarmup(row.option) || this.equipment === null) return nothing;
+    const choices: readonly Choice[] = [
+      {
+        value: WARMUP_FIELD,
+        label: BUILDER_NOTES.warmupLabel,
+        description: BUILDER_NOTES.warmupNote,
+      },
+    ];
+    return html`<div class="warmup" data-field=${WARMUP_FIELD}>
+      <ptk-toggle-group
+        layout="list"
+        label=${BUILDER_NOTES.warmupLegend}
+        .choices=${choices}
+        .values=${row.warmup ? [WARMUP_FIELD] : []}
+      ></ptk-toggle-group>
+    </div>`;
+  }
+
+  /**
+   * Why a row that could have a ramp has no tick on it, said once for the screen.
+   *
+   * Once rather than per row, because the reason is never about the row: a lifter with
+   * no rack sees it under every barbell lift they add, and eight copies of the same
+   * sentence is how a note stops being read. Silent when every row can be ramped and a
+   * rack exists -- the tick and its own description are the whole explanation then.
+   */
+  #warmupNote(): TemplateResult | typeof nothing {
+    if (this.rows.length === 0) return nothing;
+    const any = this.rows.some((row) => canGenerateWarmup(row.option));
+    // Ordered so the sentence that names an action comes first. A lifter with no rack
+    // and a mixed list can act on the rack; being told that accessories have no ramp
+    // is true and gets them nowhere.
+    if (!any) return html`<p class="note">${BUILDER_NOTES.warmupNotEveryLift}</p>`;
+    if (this.equipment === null) return html`<p class="note">${BUILDER_NOTES.warmupNeedsRack}</p>`;
+    if (this.rows.some((row) => !canGenerateWarmup(row.option)))
+      return html`<p class="note">${BUILDER_NOTES.warmupNotEveryLift}</p>`;
+    return nothing;
   }
 
   #error(
@@ -500,6 +581,25 @@ export class PtkWorkoutBuilder extends LitElement {
 
   readonly #onPick = (event: CustomEvent<SelectChangeDetail>): void => {
     this.picked = event.detail.value ?? '';
+  };
+
+  /**
+   * The warm-up tick, read off the group's whole selection rather than its `selected`.
+   *
+   * `detail.values` is the state afterwards and `detail.selected` is the transition; a
+   * one-option group makes them equivalent today, and reading the state is what keeps
+   * this correct the day a second tick joins the group.
+   */
+  readonly #onToggle = (event: CustomEvent<ToggleGroupChangeDetail>): void => {
+    if (fieldOf(event) !== WARMUP_FIELD) return;
+    const index = rowOf(event, this.rows.length);
+    if (index === null) return;
+    const warmup = event.detail.values.includes(WARMUP_FIELD);
+    this.rows = this.rows.map((row, position) => (position === index ? { ...row, warmup } : row));
+    // Cleared like any other edit. Unticking is the fix the 'warmup-needs-weight'
+    // message offers, so leaving the complaint up would leave it pointing at a box
+    // that no longer has to be filled in.
+    this.problems = [];
   };
 
   readonly #onClick = (event: Event): void => {

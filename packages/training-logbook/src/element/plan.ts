@@ -18,7 +18,7 @@
 
 import type { Weight, WeightUnit } from '@platform-toolkit/domain';
 
-import { takesWeight } from '../core/catalog.js';
+import { canGenerateWarmup, takesWeight } from '../core/catalog.js';
 import type { ExerciseOption } from '../types.js';
 
 /**
@@ -49,9 +49,23 @@ export interface PlanDraftRow {
   readonly reps: string;
   /** Blank is allowed and means "I will fill it in as I go". */
   readonly weight: string;
+  /** Whether the lifter asked for a ramp up to this weight. */
+  readonly warmup: boolean;
 }
 
-/** A row filled in from an exercise's own defaults. */
+/**
+ * A row filled in from an exercise's own defaults, with no warm-up asked for.
+ *
+ * Off, on a screen whose whole design is about tap count, and that is the one
+ * default here that was argued rather than assumed. Three things decided it. A ramp
+ * needs a working weight, and the weight box is deliberately optional -- so a row
+ * that defaulted to on would fail to generate for every lifter who meant to fill the
+ * number in at the rack, silently, on the screen after this one. It needs a rack, and
+ * a lifter who has not set one up would be offered something the tool cannot do.
+ * And section 15.3: sets nobody asked for, appearing on a card, are the tool deciding
+ * how somebody ought to train. One visible tick beside the numbers costs the lifter
+ * who wants warm-ups a tap and costs the lifter who does not exactly nothing.
+ */
 export function newPlanRow(option: ExerciseOption, key: string): PlanDraftRow {
   return {
     key,
@@ -59,6 +73,7 @@ export function newPlanRow(option: ExerciseOption, key: string): PlanDraftRow {
     sets: String(option.defaultSets),
     reps: String(option.defaultReps),
     weight: '',
+    warmup: false,
   };
 }
 
@@ -69,13 +84,23 @@ export interface PlannedExercise {
   readonly reps: number;
   /** `null` where the lifter left it blank, or where the movement takes no weight. */
   readonly weight: Weight | null;
+  /**
+   * Whether a ramp was asked for.
+   *
+   * A request and not a promise: false wherever the catalogue says the movement has
+   * no family, whatever the row held. Whether one is actually generated still depends
+   * on a rack this module does not see and on the engine's own answer, both of which
+   * are settled where the session is built.
+   */
+  readonly warmup: boolean;
 }
 
 /** Which of a row's three controls is wrong. */
 export type PlanField = 'sets' | 'reps' | 'weight';
 
 /** What is wrong with it. */
-export type PlanProblemCode = 'unreadable' | 'not-whole' | 'not-positive' | 'too-many';
+export type PlanProblemCode =
+  'unreadable' | 'not-whole' | 'not-positive' | 'too-many' | 'warmup-needs-weight';
 
 /** One complaint, against one control of one row. */
 export interface PlanProblem {
@@ -102,6 +127,12 @@ export function planProblem(problem: PlanProblem): string {
       return 'Above zero. Remove the exercise to plan none of it.';
     case 'too-many':
       return 'More than this screen can show. Split it into two entries.';
+    case 'warmup-needs-weight':
+      // Named against the empty box rather than against the tick, because the box is
+      // the thing to fill in and a lifter who wanted the ramp does not want to be
+      // talked out of it. Untick and the row reads cleanly again, which the second
+      // sentence says so that nobody has to discover it.
+      return 'A warm-up needs the weight you are working up to. Untick it to decide at the rack.';
   }
 }
 
@@ -153,12 +184,23 @@ export function readPlan(rows: readonly PlanDraftRow[], unit: WeightUnit): PlanR
     // that is no longer on the screen.
     const weight = takesWeight(draft.option.loading) ? readWeight(draft.weight, unit) : null;
 
+    // Gated on the catalogue and not only on the tick. A row for a movement with no
+    // warm-up family cannot have asked for one from the screen -- the control is not
+    // drawn -- and honouring the flag anyway would let a caller building rows by hand
+    // send a request the rest of the tool would drop in silence.
+    const warmup = draft.warmup && canGenerateWarmup(draft.option);
+
     if (typeof sets === 'string') problems.push({ row, field: 'sets', code: sets });
     if (typeof reps === 'string') problems.push({ row, field: 'reps', code: reps });
     if (typeof weight === 'string') problems.push({ row, field: 'weight', code: weight });
+    // Only against a box that read cleanly and came back empty. A blank weight is
+    // ordinary and is refused here for one reason: the ramp has nothing to work up to.
+    if (warmup && weight === null) {
+      problems.push({ row, field: 'weight', code: 'warmup-needs-weight' });
+    }
 
     if (typeof sets === 'number' && typeof reps === 'number' && typeof weight !== 'string') {
-      exercises.push({ option: draft.option, sets, reps, weight });
+      exercises.push({ option: draft.option, sets, reps, weight, warmup });
     }
   }
 
