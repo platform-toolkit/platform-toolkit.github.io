@@ -17,6 +17,7 @@ import type {
   EquipmentSnapshot,
   SetLoad,
   SetPerformance,
+  WarmupSnapshot,
   WorkoutSession,
   WorkoutSet,
 } from '../types.js';
@@ -26,6 +27,7 @@ import {
   SCHEMA_VERSION,
   addExercise,
   addSet,
+  attachWarmup,
   completeSet,
   createWorkout,
   discardWorkout,
@@ -92,6 +94,48 @@ function setById(session: WorkoutSession, setId: string): WorkoutSet {
   const found = findSet(session, setId);
   if (found === null) throw new Error(`no set ${setId}`);
   return found.set;
+}
+
+/** An invented rack, in kilograms so the plans in this file read in the rack's own unit. */
+function aGym(): EquipmentSnapshot {
+  return {
+    barWeight: { amount: 20, unit: 'kg' },
+    collarWeight: { amount: 5, unit: 'kg' },
+    plateUnit: 'kg',
+    plates: [
+      { weight: 25, pairs: null, fullDiameter: true },
+      { weight: 10, pairs: null, fullDiameter: true },
+      { weight: 5, pairs: null, fullDiameter: false },
+      { weight: 2.5, pairs: null, fullDiameter: false },
+    ],
+  };
+}
+
+/**
+ * A snapshot off the engine rather than one written by hand.
+ *
+ * Nothing below reads its contents; what is wanted is any non-null one, so that
+ * a case about an identifier stays about the identifier rather than passing on
+ * `attachWarmup`'s null-to-null guard. Inventing a snapshot would mean inventing
+ * a ramp, and no warm-up number in this package is written outside the engine.
+ */
+function aWarmupSnapshot(): WarmupSnapshot {
+  const context = testContext();
+  const session = twoSetWorkout();
+  const change = warmupChange(
+    session,
+    session.exercises[0]?.id ?? '',
+    {
+      family: 'squat-press',
+      equipment: aGym(),
+      workingWeight: 100,
+      workingSets: 2,
+      workingReps: 5,
+    },
+    context,
+  );
+  if (change?.ok !== true) throw new Error('the fixture produced no ramp');
+  return change.change.snapshot;
 }
 
 describe('createWorkout', () => {
@@ -532,6 +576,115 @@ describe('insertSets', () => {
   });
 });
 
+/**
+ * Every operation that takes an identifier, handed one nothing in the session
+ * answers to.
+ *
+ * `toBe` rather than `toEqual`, and that is the whole of the block. These used to
+ * walk the exercises, match nothing and stamp `updatedAt` regardless --
+ * `summarize` sorts the history on `updatedAt`, so a tap on a control for a set
+ * another tab had just removed moved the workout back to the top of the list
+ * having changed nothing in it. Every value assertion in this file passes against
+ * that, which is why none of them caught it.
+ */
+describe('an operation aimed at an identifier nothing answers to', () => {
+  const GONE = 'id-nothing';
+
+  it('leaves the session alone, by identity, for every set operation', () => {
+    const session = twoSetWorkout();
+
+    expect(completeSet(session, GONE, testContext(AT_LATER))).toBe(session);
+    expect(recordSet(session, GONE, performance(kilograms(100), 3), testContext(AT_LATER))).toBe(
+      session,
+    );
+    expect(markSetIncomplete(session, GONE, null, testContext(AT_LATER))).toBe(session);
+    expect(skipSet(session, GONE, testContext(AT_LATER))).toBe(session);
+    expect(undoSet(session, GONE, testContext(AT_LATER))).toBe(session);
+    expect(planSet(session, GONE, squatPlan(), testContext(AT_LATER))).toBe(session);
+    expect(duplicateSet(session, GONE, testContext(AT_LATER))).toBe(session);
+    expect(removeSet(session, GONE, testContext(AT_LATER))).toBe(session);
+    expect(setSetNote(session, GONE, 'Cut it short', testContext(AT_LATER))).toBe(session);
+  });
+
+  it('leaves the session alone, by identity, for every exercise operation', () => {
+    const session = twoSetWorkout();
+    const planned: PlannedSet = { kind: 'backoff', performance: performance(kilograms(80), 8) };
+
+    expect(addSet(session, GONE, planned, testContext(AT_LATER))).toBe(session);
+    expect(insertSets(session, GONE, 0, [planned], testContext(AT_LATER))).toBe(session);
+    expect(attachWarmup(session, GONE, aWarmupSnapshot(), testContext(AT_LATER))).toBe(session);
+    expect(removeExercise(session, GONE, testContext(AT_LATER))).toBe(session);
+    expect(moveExercise(session, GONE, 'up', testContext(AT_LATER))).toBe(session);
+    expect(setExerciseNote(session, GONE, 'Belt on', testContext(AT_LATER))).toBe(session);
+  });
+
+  it('spends no identifier on an exercise that is gone', () => {
+    // The guard has to sit in front of `buildSet` and not behind it. An
+    // identifier burnt on a set nobody kept is invisible in the session it was
+    // not written to, and turns up later as a hole in the sequence a repository
+    // is handing out -- which is only ever read as a lost record.
+    const at = contextSeries();
+    let session = createWorkout(at(AT_START), { localDate: ON_DAY });
+    session = addExercise(session, at(AT_START), {
+      exerciseId: 'squat',
+      displayName: 'Squat',
+      loading: 'barbell-total-weight',
+      plan: [{ kind: 'working', performance: squatPlan() }],
+    });
+    const exerciseId = session.exercises[0]?.id ?? '';
+    const planned: PlannedSet = { kind: 'backoff', performance: squatPlan() };
+    addSet(session, GONE, planned, at(AT_LATER));
+    const added = addSet(session, exerciseId, planned, at(AT_LATER));
+
+    // The session, the exercise and its one planned set took `id-1` to `id-3`.
+    expect(added.exercises[0]?.sets[1]?.id).toBe('id-4');
+  });
+});
+
+describe('an operation repeated on a set that is already in that state', () => {
+  it('skipping a set that is already skipped changes nothing at all', () => {
+    // Skipping writes three fields and none of them is a moment, so a second tap
+    // has nothing left to say -- and saying it anyway would move the workout up
+    // the history for a lifter pressing a control that already looks pressed.
+    const at = contextSeries();
+    const first = twoSetWorkout();
+    const session = skipSet(first, firstSet(first).id, at(AT_START));
+
+    expect(skipSet(session, firstSet(session).id, at(AT_LATER))).toBe(session);
+  });
+
+  it('undoing a set that was never done changes nothing at all', () => {
+    const session = twoSetWorkout();
+
+    expect(undoSet(session, firstSet(session).id, testContext(AT_LATER))).toBe(session);
+  });
+
+  it('taking a warm-up off an exercise that has none changes nothing at all', () => {
+    // `clearWarmup` reaches this with `null` every time it is called, so an
+    // exercise that never had a ramp is the ordinary case and not a corner.
+    const session = twoSetWorkout();
+
+    expect(attachWarmup(session, session.exercises[0]?.id ?? '', null, testContext(AT_LATER))).toBe(
+      session,
+    );
+  });
+
+  it('completing a set that is already complete is a new answer to when', () => {
+    // Deliberately not guarded, unlike the three above. A completion writes the
+    // moment it happened, so a second tap says something the first did not.
+    // `recordSet` is the path that keeps the original moment, because correcting
+    // the record of a lift is not doing it again -- and it still does.
+    const session = twoSetWorkout();
+    const id = firstSet(session).id;
+    const done = completeSet(session, id, testContext(AT_START));
+    const again = completeSet(done, id, testContext(AT_LATER));
+
+    expect(again).not.toBe(done);
+    expect(setById(again, id).completedAt).toBe(AT_LATER);
+    expect(again.updatedAt).toBe(AT_LATER);
+  });
+});
+
 describe('notes', () => {
   /**
    * Two exercises of two sets each, so a note written to the wrong one has
@@ -724,6 +877,34 @@ describe('notes', () => {
       'Heavy squat',
     );
   });
+
+  it('stores an emptied title box as no title rather than as an empty one', () => {
+    // `summarize` puts the title straight on the history row, so a stored `''`
+    // heads a row with a blank and two spaces heads it with two spaces. The same
+    // three defects the note setters above stopped having, one field over.
+    const session = setWorkoutTitle(twoSetWorkout(), 'Heavy squat', testContext(AT_START));
+
+    expect(setWorkoutTitle(session, '', testContext(AT_LATER)).title).toBeNull();
+    expect(setWorkoutTitle(session, '   ', testContext(AT_LATER)).title).toBeNull();
+    expect(setWorkoutTitle(session, '  Squat day  ', testContext(AT_LATER)).title).toBe(
+      'Squat day',
+    );
+  });
+
+  it('writing the title that is already there changes nothing at all', () => {
+    const session = setWorkoutTitle(twoSetWorkout(), 'Heavy squat', testContext(AT_START));
+
+    expect(setWorkoutTitle(session, 'Heavy squat', testContext(AT_LATER))).toBe(session);
+    expect(setWorkoutTitle(session, '  Heavy squat  ', testContext(AT_LATER))).toBe(session);
+    expect(session.updatedAt).toBe(AT_START);
+  });
+
+  it('clearing a title that is already clear changes nothing', () => {
+    const session = twoSetWorkout();
+
+    expect(setWorkoutTitle(session, null, testContext(AT_LATER))).toBe(session);
+    expect(setWorkoutTitle(session, '  ', testContext(AT_LATER))).toBe(session);
+  });
 });
 
 describe('startWorkout', () => {
@@ -816,21 +997,6 @@ describe('repeatWorkout', () => {
     session = setSetNote(session, id, 'Cut it short', at(AT_START));
     session = completeSet(session, id, at(AT_START));
     return finishWorkout(session, 'skip', at(AT_LATER));
-  }
-
-  /** An invented rack, in kilograms so the plan above reads in the rack's own unit. */
-  function aGym(): EquipmentSnapshot {
-    return {
-      barWeight: { amount: 20, unit: 'kg' },
-      collarWeight: { amount: 5, unit: 'kg' },
-      plateUnit: 'kg',
-      plates: [
-        { weight: 25, pairs: null, fullDiameter: true },
-        { weight: 10, pairs: null, fullDiameter: true },
-        { weight: 5, pairs: null, fullDiameter: false },
-        { weight: 2.5, pairs: null, fullDiameter: false },
-      ],
-    };
   }
 
   /** Invented working weights, rising so the order they come back in can be read off. */

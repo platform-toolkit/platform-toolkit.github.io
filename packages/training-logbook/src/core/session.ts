@@ -40,6 +40,24 @@
  *
  * A second "complete as planned" function would have to decide what to do with
  * the second case, and every answer to that is worse than not asking.
+ *
+ * AN OPERATION THAT MATCHED NOTHING RETURNS THE SESSION IT WAS GIVEN
+ *
+ * {@link mapExercises} and {@link mapSet} compare before they stamp, so an
+ * operation aimed at an identifier nothing answers to -- a removed set, a stale
+ * id from a row another tab has just taken away -- changes nothing and moves
+ * nothing. `summarize` sorts the history on `updatedAt`, so without that the
+ * dead tap puts the workout back at the top of the list.
+ *
+ * That is the floor. Three operations go further and refuse a repeat of
+ * themselves -- {@link skipSet}, {@link undoSet} and {@link attachWarmup}, each
+ * argued where it happens. The ones that do not are deliberate rather than
+ * missed: {@link completeSet} and {@link markSetIncomplete} write `completedAt`,
+ * so a second tap is a new answer to *when*, and {@link planSet} and
+ * {@link recordSet} are handed a freshly built `SetPerformance` that identity
+ * cannot compare. The only value comparison in the package, `samePerformance` in
+ * `summary.ts`, ignores effort on purpose, so guarding with it would swallow a
+ * lifter who changed an RPE and nothing else.
  */
 
 import type {
@@ -123,12 +141,34 @@ function touch(session: WorkoutSession, at: Instant): WorkoutSession {
   return { ...session, updatedAt: at };
 }
 
+/**
+ * True where a map handed every element straight back.
+ *
+ * Identity and not value, which is what makes it cheap enough to run on every
+ * operation and honest about the one case a value comparison would get wrong: a
+ * performance rewritten with the same numbers is a write the lifter made.
+ */
+function sameItems<T>(before: readonly T[], after: readonly T[]): boolean {
+  return after.every((item, index) => item === before[index]);
+}
+
+/**
+ * Maps the exercises and stamps the workout -- unless nothing moved.
+ *
+ * Every map in this file returns the object it was given where it changes
+ * nothing at its own level, so `sameItems` is enough to tell a walk that matched
+ * something from one that matched nothing. See the header for why the difference
+ * is worth a comparison: the alternative is a tap on a control for a set that is
+ * already gone moving the whole workout up the history.
+ */
 function mapExercises(
   session: WorkoutSession,
   at: Instant,
   map: (exercise: WorkoutExercise) => WorkoutExercise,
 ): WorkoutSession {
-  return touch({ ...session, exercises: session.exercises.map(map) }, at);
+  const exercises = session.exercises.map(map);
+  if (sameItems(session.exercises, exercises)) return session;
+  return touch({ ...session, exercises }, at);
 }
 
 function mapSet(
@@ -139,7 +179,12 @@ function mapSet(
 ): WorkoutSession {
   return mapExercises(session, at, (exercise) => {
     if (!exercise.sets.some((set) => set.id === setId)) return exercise;
-    return { ...exercise, sets: exercise.sets.map((set) => (set.id === setId ? map(set) : set)) };
+    const sets = exercise.sets.map((set) => (set.id === setId ? map(set) : set));
+    // The same test one level down, and it has to be here: a `map` that handed
+    // its set back unchanged would still be wrapped in a fresh exercise object,
+    // which is a change as far as `mapExercises` can see.
+    if (sameItems(exercise.sets, sets)) return exercise;
+    return { ...exercise, sets };
   });
 }
 
@@ -217,6 +262,9 @@ export function removeExercise(
   context: SessionContext,
 ): WorkoutSession {
   const exercises = session.exercises.filter((exercise) => exercise.id !== exerciseId);
+  // Not through `mapExercises`, so this one has to count for itself: removing an
+  // exercise that is not there is the header's dead tap like any other.
+  if (exercises.length === session.exercises.length) return session;
   return touch({ ...session, exercises }, context.at);
 }
 
@@ -258,6 +306,13 @@ export function moveExercise(
  * `null` takes it off. The snapshot is the claim "this ramp was generated, by
  * this engine, from this rack", and retracting the claim is a different act from
  * deleting the sets underneath it -- so this touches no set either way.
+ *
+ * The snapshot is compared by identity, which is the right test for both
+ * callers. `applyWarmup` always arrives with one it has just built, so a
+ * regenerated ramp always writes even where it came out the same; `clearWarmup`
+ * passing `null` to an exercise that never had a ramp is the no-op it looks
+ * like, and turning generation off twice should not move the workout up the
+ * history.
  */
 export function attachWarmup(
   session: WorkoutSession,
@@ -266,7 +321,7 @@ export function attachWarmup(
   context: SessionContext,
 ): WorkoutSession {
   return mapExercises(session, context.at, (exercise) =>
-    exercise.id === exerciseId ? { ...exercise, warmup } : exercise,
+    exercise.id === exerciseId && exercise.warmup !== warmup ? { ...exercise, warmup } : exercise,
   );
 }
 
@@ -445,18 +500,21 @@ export function markSetIncomplete(
  * copied plan in the result would put weight a lifter never touched into their
  * history. Section 15.3: skipping is not a failure, and nothing in this package
  * scores it.
+ *
+ * Skipping a set that is already skipped hands the set back. The three fields
+ * below are the whole of the change and there is no moment among them for a
+ * second tap to move -- unlike a completion, where *when* is part of the answer.
  */
 export function skipSet(
   session: WorkoutSession,
   setId: LogbookId,
   context: SessionContext,
 ): WorkoutSession {
-  return mapSet(session, setId, context.at, (set) => ({
-    ...set,
-    performed: null,
-    status: 'skipped',
-    completedAt: null,
-  }));
+  return mapSet(session, setId, context.at, (set) =>
+    set.status === 'skipped' && set.performed === null && set.completedAt === null
+      ? set
+      : { ...set, performed: null, status: 'skipped', completedAt: null },
+  );
 }
 
 /**
@@ -465,18 +523,21 @@ export function skipSet(
  * The performance goes with it. Undo means "I tapped that by mistake", and a set
  * left holding a copied plan after being un-completed would show as untouched
  * while carrying a result.
+ *
+ * Undoing a set that was never done hands the set back, for `skipSet`'s reason:
+ * a correction applied twice is one correction, and the result carries no
+ * timestamp that a repeat could legitimately move.
  */
 export function undoSet(
   session: WorkoutSession,
   setId: LogbookId,
   context: SessionContext,
 ): WorkoutSession {
-  return mapSet(session, setId, context.at, (set) => ({
-    ...set,
-    performed: null,
-    status: 'planned',
-    completedAt: null,
-  }));
+  return mapSet(session, setId, context.at, (set) =>
+    set.status === 'planned' && set.performed === null && set.completedAt === null
+      ? set
+      : { ...set, performed: null, status: 'planned', completedAt: null },
+  );
 }
 
 /**
@@ -517,11 +578,12 @@ export function setWorkoutNote(
 /**
  * Sets or clears an exercise's note.
  *
- * The lookup is here rather than inside `mapExercises`, which would be shorter
- * and would answer for callers that are asking a different question -- `addSet`
- * or `attachWarmup` naming an exercise that is gone is not this. What
- * `mapExercises` does is map and then touch, so without the guard a note aimed
- * at nothing still moves the workout to the top of the history.
+ * Both halves of the guard stay, and they are no longer doing the same amount of
+ * work. `mapExercises` now backstops the missing exercise on its own, so the
+ * half that is load-bearing here is the comparison: without it a debounced box
+ * firing the text it already holds rewrites the exercise and stamps the workout.
+ * The lookup stays because the comparison needs it, and saying so at the call
+ * site is cheaper than reading the intent back out of the mapper.
  */
 export function setExerciseNote(
   session: WorkoutSession,
@@ -537,7 +599,7 @@ export function setExerciseNote(
   );
 }
 
-/** Sets or clears a set's note. The same two guards, for the same two reasons. */
+/** Sets or clears a set's note. The same two guards, with the same backstop under them. */
 export function setSetNote(
   session: WorkoutSession,
   setId: LogbookId,
@@ -550,13 +612,23 @@ export function setSetNote(
   return mapSet(session, setId, context.at, (set) => ({ ...set, note: next }));
 }
 
-/** Retitles the workout. */
+/**
+ * Retitles the workout, on the same three terms as its note.
+ *
+ * `normalizeNote`'s rule is the title's rule and is deliberately shared rather
+ * than copied: `summarize` puts `title` straight on the history row, so a box
+ * emptied to `''` heads a row with a blank where a title should be, and two
+ * spaces heads it with two spaces. Unchanged text returns the session itself
+ * because a title box debounces like a note box does.
+ */
 export function setWorkoutTitle(
   session: WorkoutSession,
   title: string | null,
   context: SessionContext,
 ): WorkoutSession {
-  return touch({ ...session, title }, context.at);
+  const next = normalizeNote(title);
+  if (next === session.title) return session;
+  return touch({ ...session, title: next }, context.at);
 }
 
 /**
