@@ -38,6 +38,7 @@
 // ships, and one that would pass and fail for the wrong reasons.
 import '@platform-toolkit/ui/tokens.css';
 import { formatWeight, type Weight } from '@platform-toolkit/domain';
+import { SEGMENTED_CHANGE_EVENT, type SegmentedChangeDetail } from '@platform-toolkit/ui';
 import axe from 'axe-core';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -75,6 +76,8 @@ import {
   ACTIVE_NOTES,
   BUILDER_NOTES,
   DONE_NOTES,
+  EFFORT_FIELD_LABELS,
+  EFFORT_SETTING_NOTES,
   FINISH_DISPOSITIONS,
   HANDOFF_NOTES,
   HISTORY_NOTES,
@@ -83,7 +86,13 @@ import {
   SAVE_STATE_NOTES,
   UNIT_LABELS,
 } from './copy.js';
-import { WORKOUT_NOTE_KEY, exerciseNoteKey } from './dataset.js';
+import {
+  DONE_EFFORT_FIELD,
+  EFFORT_SETTING_FIELD,
+  UNIT_SETTING_FIELD,
+  WORKOUT_NOTE_KEY,
+  exerciseNoteKey,
+} from './dataset.js';
 import {
   BACKUP_EXPORTED_EVENT,
   SET_COMPLETED_EVENT,
@@ -896,6 +905,108 @@ function writtenNotes(element: PtkTrainingLogbook): string[] {
 /** The row of one exercise in the stored session, by position. */
 function noteKeyFor(session: WorkoutSession, index: number): string {
   return exerciseNoteKey(exerciseAt(session, index).id);
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * How effort is entered, if at all. Section 7.10.
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * One of the home screen's two settings controls, named by the field it writes.
+ *
+ * By `data-field` and never by position, for the reason {@link historyRow} takes an
+ * identifier: both controls are a `ptk-segmented` in the same section, so
+ * `deepAll(...)[0]` names whichever one the template happens to draw first. The two
+ * settings are independent, so a case that pressed the wrong one would move a
+ * setting, see the screen respond, and assert its way to a pass.
+ */
+function settingControl(element: PtkTrainingLogbook, name: string): HTMLElement {
+  const wrapper = deepAll(shadow(element), `[data-field="${name}"]`)[0];
+  if (wrapper === undefined) throw new Error(`This screen has no "${name}" control.`);
+  // Two steps rather than one compound selector, as `field` above does: a compound
+  // `querySelector` types as `Element` and would need the cast section 2.4 forbids.
+  const found = wrapper.querySelector('ptk-segmented');
+  if (found === null) throw new Error(`The "${name}" wrapper holds no segmented control.`);
+  return found;
+}
+
+/** Every answer a settings control offers, in the order a thumb meets them. */
+function settingSegments(element: PtkTrainingLogbook, name: string): HTMLInputElement[] {
+  return [...shadow(settingControl(element, name)).querySelectorAll('input')];
+}
+
+/** Which segment is showing as chosen, or `null` where none is. */
+function chosenSetting(element: PtkTrainingLogbook, name: string): string | null {
+  return settingSegments(element, name).find((segment) => segment.checked)?.value ?? null;
+}
+
+/** Answers one settings control by pressing a segment, which is how a lifter answers. */
+async function chooseSetting(
+  element: PtkTrainingLogbook,
+  name: string,
+  value: string,
+): Promise<void> {
+  const segment = settingSegments(element, name).find((candidate) => candidate.value === value);
+  if (segment === undefined) throw new Error(`The "${name}" control does not offer "${value}".`);
+  segment.click();
+  await settle(element);
+}
+
+/**
+ * The same event a segment sends, dispatched by a consumer instead of by a thumb.
+ *
+ * The only way to reach the root's own no-op guard. `ptk-segmented` drops a repeat
+ * of the value it is already showing, and a click on a checked radio fires no
+ * `change` at all, so the guard inside `#onSetting` exists for the case section 15
+ * makes ordinary: a page that has imported the event name and reports a setting
+ * itself. Left untested, the guard could go and every journey here would still pass.
+ */
+async function reportSetting(
+  element: PtkTrainingLogbook,
+  name: string,
+  value: string,
+): Promise<void> {
+  settingControl(element, name).dispatchEvent(
+    new CustomEvent<SegmentedChangeDetail>(SEGMENTED_CHANGE_EVENT, {
+      detail: { value },
+      bubbles: true,
+      composed: true,
+    }),
+  );
+  await settle(element);
+}
+
+/**
+ * A store that counts what the settings cost in writes.
+ *
+ * The count is the only observable a no-op has. Both handlers refuse the answer
+ * already stored, and a handler that wrote it anyway would leave the screen, the
+ * database and every assertion about either one exactly as they are -- while
+ * spending a transaction on every glance at the control, and flashing the storage
+ * line on a screen that changed nothing.
+ */
+function countingSettings(store: LogbookStore): {
+  store: LogbookStore;
+  calls: { writes: number };
+} {
+  const calls = { writes: 0 };
+  return {
+    calls,
+    store: {
+      ...store,
+      writeSettings: (settings) => {
+        calls.writes += 1;
+        return store.writeSettings(settings);
+      },
+    },
+  };
+}
+
+/** The editor's effort box, wherever the logging screen has drawn one. */
+function effortBoxes(root: DocumentFragment | HTMLElement): HTMLElement[] {
+  return deepAll(root, `[data-field="${DONE_EFFORT_FIELD}"]`);
 }
 
 describe('the training logbook', () => {
@@ -1873,6 +1984,196 @@ describe('the training logbook', () => {
     });
   });
 
+  /**
+   * Section 7.10, from the control to the box it governs.
+   *
+   * The setting half of it, and only that half: `ptk-active-workout.browser.test.ts`
+   * owns what the editor's effort box does to a set, on which scale, and what happens
+   * to an effort recorded on the other one. What is under test here is the pair of
+   * facts no leaf suite can see -- that the answer is written down rather than held
+   * on a control, and that the two settings controls in one section, sending one
+   * event carrying one string, do not write each other's field.
+   *
+   * On the durable store throughout, for the reason the repeat and note cases are:
+   * `#persist` returns early where the repository is not durable, so a case that
+   * asserted on stored settings over the memory store would assert nothing and pass.
+   */
+  describe('how effort is entered', () => {
+    it('opens on Off for a lifter who has never answered it', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+
+      // Section 7.10's first-use default, read off the control rather than off the
+      // settings: a scale chosen on the lifter's behalf puts a box in the editor
+      // that nothing on the logging screen explains the arrival of.
+      expect(chosenSetting(element, EFFORT_SETTING_FIELD)).toBe('none');
+      // Off first, and all three offered. A control opening on Off because Off is
+      // the only answer it draws would satisfy the line above.
+      expect(
+        settingSegments(element, EFFORT_SETTING_FIELD).map((segment) => segment.value),
+      ).toEqual(['none', 'rpe', 'rir']);
+      // And nothing was written to get there. The default belongs to the repository,
+      // not to a settings row the tool saved over an empty database on first boot.
+      expect((await store.readSettings())?.effort ?? null).toBeNull();
+    });
+
+    it('writes the chosen scale down, and opens on it after a refresh', async () => {
+      const { store, databaseName } = await durableStore();
+      const first = await mount(store);
+
+      await chooseSetting(first, EFFORT_SETTING_FIELD, 'rpe');
+
+      // Awaited through the storage the setting actually went to, and not through the
+      // control: a segmented that only moved its own property satisfies every
+      // assertion made against the screen it is on, and loses the answer at the
+      // refresh -- which for a preference is where it is next read.
+      await vi.waitFor(async () => {
+        expect((await store.readSettings())?.effort).toBe('rpe');
+      });
+
+      // The refresh.
+      first.remove();
+      store.close();
+
+      const second = await mount(await reopen(databaseName));
+      expect(chosenSetting(second, EFFORT_SETTING_FIELD)).toBe('rpe');
+    });
+
+    /**
+     * The two controls do not write each other's field.
+     *
+     * This pair is the whole reason `#onSetting` routes on `data-field`. Both
+     * controls are a `ptk-segmented`, both send `SEGMENTED_CHANGE_EVENT` carrying
+     * nothing but a string, and one listener on the root hears both -- so the only
+     * thing standing between a lifter choosing RIR and their logbook switching to
+     * kilograms is which key the handler reads. Asserting on the setting that was
+     * chosen cannot see any of that; asserting on the one that was not is what can.
+     */
+    it('leaves the unit alone when an effort scale is chosen', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      expect(chosenSetting(element, UNIT_SETTING_FIELD)).toBe(UNIT);
+
+      await chooseSetting(element, EFFORT_SETTING_FIELD, 'rir');
+
+      await vi.waitFor(async () => {
+        expect((await store.readSettings())?.effort).toBe('rir');
+      });
+      expect((await store.readSettings())?.displayUnit).toBe(UNIT);
+      expect(chosenSetting(element, UNIT_SETTING_FIELD)).toBe(UNIT);
+    });
+
+    it('leaves the effort scale alone when the unit is chosen', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+
+      await chooseSetting(element, UNIT_SETTING_FIELD, 'kg');
+
+      await vi.waitFor(async () => {
+        expect((await store.readSettings())?.displayUnit).toBe('kg');
+      });
+      // Off, and not merely unchanged on screen. A unit press that switched effort on
+      // would put a third box in the editor of every session afterwards, and the
+      // lifter's only clue would be the box.
+      expect((await store.readSettings())?.effort).toBe('none');
+      expect(chosenSetting(element, EFFORT_SETTING_FIELD)).toBe('none');
+    });
+
+    it('writes nothing when the answer already on screen is chosen again', async () => {
+      const { store } = await durableStore();
+      const { store: counted, calls } = countingSettings(store);
+      const element = await mount(counted);
+      await chooseSetting(element, EFFORT_SETTING_FIELD, 'rpe');
+      await vi.waitFor(async () => {
+        expect((await store.readSettings())?.effort).toBe('rpe');
+      });
+
+      const before = calls.writes;
+      // Or the assertion below holds against a tool that never wrote anything.
+      expect(before).toBeGreaterThan(0);
+
+      // The segment already chosen, pressed again -- which is what checking what the
+      // setting says looks like from the tool's side.
+      await chooseSetting(element, EFFORT_SETTING_FIELD, 'rpe');
+      // And reported by a consumer, which is the only way past the control's own
+      // deduplication and therefore the only way to the guard in `#onSetting`. Both
+      // branches, because both keep one and they are separate lines.
+      await reportSetting(element, EFFORT_SETTING_FIELD, 'rpe');
+      await reportSetting(element, UNIT_SETTING_FIELD, UNIT);
+
+      expect(calls.writes).toBe(before);
+      expect(chosenSetting(element, EFFORT_SETTING_FIELD)).toBe('rpe');
+      expect(chosenSetting(element, UNIT_SETTING_FIELD)).toBe(UNIT);
+    });
+
+    it('explains the scale that was chosen, and only that one', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+
+      const off = readAll(element);
+      expect(off).toContain(EFFORT_SETTING_NOTES.none);
+      expect(off).not.toContain(EFFORT_SETTING_NOTES.rpe);
+      expect(off).not.toContain(EFFORT_SETTING_NOTES.rir);
+
+      await chooseSetting(element, EFFORT_SETTING_FIELD, 'rir');
+
+      const rir = readAll(element);
+      expect(rir).toContain(EFFORT_SETTING_NOTES.rir);
+      // Section 7.10: never both scales at once. Three sentences under the control
+      // read as a glossary, which is how somebody comes away believing the tool
+      // records both -- and it would pass an assertion made only about the chosen
+      // one, since the chosen one would be in there too.
+      expect(rir).not.toContain(EFFORT_SETTING_NOTES.rpe);
+      expect(rir).not.toContain(EFFORT_SETTING_NOTES.none);
+      // The sentence about what switching off does is not one of the three and stays
+      // whatever is chosen. Without it, turning effort off reads as deleting the
+      // efforts already recorded.
+      expect(rir).toContain(HOME_NOTES.effortNote);
+    });
+
+    /**
+     * The answer given on the home screen reaches the screen it is about.
+     *
+     * The binding and nothing below it: what the box does to a set, and what it does
+     * with an effort recorded on the other scale, are the other suite's. What only a
+     * root-mounted case can see is that the editor was built from the stored setting
+     * -- a dropped `.effort` binding leaves an editor with no effort box, which is
+     * also exactly what the tool correctly draws for the lifter in the next case.
+     */
+    it('puts an effort box in the editor once a scale is chosen', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+
+      await chooseSetting(element, EFFORT_SETTING_FIELD, 'rpe');
+      await planASquatSession(element);
+      await press(element, 'edit', setRow(element, 0));
+
+      expect(effortBoxes(setRow(element, 0))).toHaveLength(1);
+      // Named on the scale that was chosen. A box labelled for the other one is a
+      // number stored against the wrong meaning, in the direction that makes an easy
+      // set read as a brutal one.
+      const text = readAll(element);
+      expect(text).toContain(EFFORT_FIELD_LABELS.rpe);
+      expect(text).not.toContain(EFFORT_FIELD_LABELS.rir);
+    });
+
+    it('draws no effort box while effort is off', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await planASquatSession(element);
+
+      await press(element, 'edit', setRow(element, 0));
+
+      expect(effortBoxes(setRow(element, 0))).toHaveLength(0);
+      // The reps box is the pairing: without it this case passes against an editor
+      // that failed to open at all, which is the same absence for a different reason.
+      expect(field(setRow(element, 0), 'done-reps')).not.toBeNull();
+      const text = readAll(element);
+      expect(text).not.toContain(EFFORT_FIELD_LABELS.rpe);
+      expect(text).not.toContain(EFFORT_FIELD_LABELS.rir);
+    });
+  });
+
   describe('when the browser will not store anything', () => {
     it('says so before the first set is logged, and still logs it', async () => {
       const element = await mount(memoryLogbookStore());
@@ -1939,6 +2240,35 @@ describe('the training logbook', () => {
       await planASquatSession(element);
       await press(element, 'complete', setRow(element, 0));
 
+      expect(changed).toEqual([]);
+    });
+
+    /**
+     * Nor does a preference, which had been the one handler that let its event out.
+     *
+     * A `ptk-segmented` change is `composed` like everything else in `packages/ui`,
+     * and the two settings controls are the only ones the root itself listens to --
+     * so until `#onSetting` stopped it, `{value: 'rpe'}` and `{value: 'kg'}` were
+     * arriving at whatever the embedding page has bound to `document`. Neither is
+     * training and section 12.5 is arguably untouched by either, which is exactly
+     * why it survived: the boundary is worth keeping as a boundary rather than as a
+     * judgement made one event at a time about which leak matters. A preference is
+     * still application state, and section 2.5 grants a framing page none of it.
+     *
+     * Both controls, because they are two calls to the same handler and a guard that
+     * covered one of them would look right in the diff.
+     */
+    it('keeps a setting inside the tool', async () => {
+      const changed = record(SEGMENTED_CHANGE_EVENT);
+
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await chooseSetting(element, EFFORT_SETTING_FIELD, 'rpe');
+      await chooseSetting(element, UNIT_SETTING_FIELD, 'kg');
+
+      // The settings themselves, so this cannot pass against two presses that missed.
+      expect(chosenSetting(element, EFFORT_SETTING_FIELD)).toBe('rpe');
+      expect(chosenSetting(element, UNIT_SETTING_FIELD)).toBe('kg');
       expect(changed).toEqual([]);
     });
 
@@ -2009,10 +2339,30 @@ describe('the training logbook', () => {
       const element = await mount(store);
 
       const screens: string[] = [readAll(element)];
+
+      // Both scales, and before the walk rather than instead of it.
+      //
+      // The three sentences under the effort control are the only copy anywhere in
+      // the tool whose whole job is to describe difficulty, and section 7.10 puts
+      // exactly one of them on screen at a time. So a walk that never chooses a
+      // scale reads the "no effort box" sentence at every stage and pronounces the
+      // vocabulary clean, having never seen two thirds of the copy most likely to
+      // fail this. That is not hypothetical: the RPE and RIR sentences said "is
+      // harder" until this case was widened, and `hard` is on the list below.
+      for (const scale of ['rpe', 'rir'] as const) {
+        await chooseSetting(element, EFFORT_SETTING_FIELD, scale);
+        screens.push(readAll(element));
+      }
+
       await press(element, 'start-workout');
       screens.push(readAll(element));
       await press(element, 'add-primary');
       await press(element, 'start');
+      screens.push(readAll(element));
+      // Opened rather than only ticked off, because the effort box and its hint are
+      // drawn only here -- and the setting is left on RIR, so what the walk reads
+      // from this point on is the screen a lifter recording effort actually sees.
+      await press(element, 'edit', setRow(element, 0));
       screens.push(readAll(element));
       await press(element, 'complete', setRow(element, 0));
       await press(element, 'finish');

@@ -137,7 +137,11 @@ describe('setWasEdited', () => {
     expect(setWasEdited(setAt(assisted, 0))).toBe(true);
   });
 
-  it('is true when only the effort differs', () => {
+  it('is false when only the effort differs', () => {
+    // Section 7.10: nothing plans an effort -- the ramp writes null into every
+    // rung and the builder has no field for one. A recorded effort therefore
+    // always differs from a planned nothing, so counting it here would put
+    // "Different from the plan" under every set a lifter rated.
     const session = threeSetWorkout();
     const [id] = setIds(session);
     const rated = recordSet(
@@ -147,11 +151,15 @@ describe('setWasEdited', () => {
       testContext(),
     );
 
-    expect(setWasEdited(setAt(rated, 0))).toBe(true);
+    expect(setWasEdited(setAt(rated, 0))).toBe(false);
   });
 
-  it('distinguishes the two effort scales at the same number', () => {
-    // RPE 8 is close to failure and RIR 8 is eight reps clear of it.
+  it('is false even where the two efforts are on opposite scales', () => {
+    // RPE 8 is close to failure and RIR 8 is eight reps clear of it, so this is
+    // the widest an effort field can differ -- and it is still not an edit,
+    // because a plan carrying an effort at all is a state nothing here writes.
+    // Where the scales do have to be told apart is `formatEffort`, which labels
+    // a stored effort from the effort itself and never from today's setting.
     const session = threeSetWorkout();
     const [id] = setIds(session);
     const planned = recordSet(
@@ -172,7 +180,7 @@ describe('setWasEdited', () => {
       })),
     };
 
-    expect(setWasEdited(setAt(rewritten, 0))).toBe(true);
+    expect(setWasEdited(setAt(rewritten, 0))).toBe(false);
   });
 
   it('is false where one half of the comparison is missing', () => {

@@ -89,6 +89,8 @@ import {
 } from '../core/session.js';
 import { setWasEdited, workoutProgress } from '../core/summary.js';
 import type {
+  Effort,
+  EffortSetting,
   EquipmentSnapshot,
   Instant,
   LogbookId,
@@ -98,8 +100,16 @@ import type {
   WorkoutSet,
 } from '../types.js';
 
-import { ACTIVE_NOTES, FINISH_DISPOSITIONS, FINISH_DISPOSITION_NOTES, SET_KINDS } from './copy.js';
 import {
+  ACTIVE_NOTES,
+  EFFORT_FIELD_HINTS,
+  EFFORT_FIELD_LABELS,
+  FINISH_DISPOSITIONS,
+  FINISH_DISPOSITION_NOTES,
+  SET_KINDS,
+} from './copy.js';
+import {
+  DONE_EFFORT_FIELD,
   DONE_REPS_FIELD,
   DONE_WEIGHT_FIELD,
   WORKOUT_NOTE_KEY,
@@ -110,7 +120,7 @@ import {
   noteOf,
   setOf,
 } from './dataset.js';
-import { formatPerformance, formatSetRun } from './format.js';
+import { formatEffort, formatPerformance, formatSetRun } from './format.js';
 import { renderLoading } from './loading-view.js';
 
 /** The plates for every set of the session on screen, or none because there is no rack. */
@@ -285,6 +295,12 @@ export class PtkActiveWorkout extends LitElement {
       font-size: var(--ptk-font-size-sm);
     }
 
+    .set-effort {
+      display: block;
+      color: var(--ptk-color-text-muted);
+      font-size: var(--ptk-font-size-sm);
+    }
+
     .set-controls {
       display: flex;
       flex-wrap: wrap;
@@ -363,6 +379,23 @@ export class PtkActiveWorkout extends LitElement {
   @property({ attribute: false }) unit: WeightUnit = 'lb';
 
   /**
+   * Whether the editor asks for an effort, and on which scale. Section 7.10.
+   *
+   * `none` is the first-use default and draws no box at all rather than a
+   * disabled one -- section 0.4, and the brief asks for this to be unobtrusive by
+   * default. It governs the *entry* box only: an effort already on a set is shown
+   * on its row whatever this says, because turning the setting off is a decision
+   * about the form and not a decision to unsay what was recorded.
+   *
+   * This is the one setting the logging screen reads, so a dropped binding is
+   * indistinguishable from a lifter who never switched it on. Only a case that
+   * mounts the root over settings holding a scale can tell those apart; there are
+   * two at the end of `ptk-active-workout.browser.test.ts` for the same reason the
+   * equipment pair is there.
+   */
+  @property({ attribute: false }) effort: EffortSetting = 'none';
+
+  /**
    * The rack this session is being lifted on, or `null` where none has been chosen.
    *
    * `null` draws no plates anywhere, and that is the whole reason `settings.equipment`
@@ -396,6 +429,15 @@ export class PtkActiveWorkout extends LitElement {
 
   @state() private editWeight = '';
   @state() private editReps = '';
+
+  /**
+   * The effort box, in whichever scale {@link effort} names.
+   *
+   * Kept as typed rather than parsed, the same as the two above: "7." is a state a
+   * decimal box passes through, and a field holding a number would swallow the dot
+   * and put the caret back a place while somebody is still typing.
+   */
+  @state() private editEffort = '';
 
   /** Whether the finish panel is up. Section 7.12 makes it a step, not a button. */
   @state() private finishing = false;
@@ -657,11 +699,22 @@ export class PtkActiveWorkout extends LitElement {
     const done = set.status !== 'planned';
     const shown = set.performed ?? set.planned;
     const loading = loadings?.get(set.id) ?? null;
+    // Off `performed` and never off `shown`. An effort is a fact about a set that
+    // was done, so reading it through the plan fallback would be reading a field
+    // that is null on every plan there is -- true today, and quietly wrong the
+    // first time anything writes one.
+    const effort = formatEffort(set.performed?.effort ?? null);
     return html`<li data-set=${set.id} data-kind=${set.kind} class=${done ? 'done' : ''}>
       <div class="set-head">
         <div class="set-what">
           <span class="set-kind">${SET_KINDS[set.kind]}</span>
           <span class="set-plan">${formatPerformance(shown)}</span>
+          ${
+            // Drawn whatever the setting says. Switching effort off hides the box
+            // it is entered in; it does not unsay a number already recorded, and a
+            // history that disappeared on a settings tap would be the worse bug.
+            effort === null ? nothing : html`<span class="set-effort">${effort}</span>`
+          }
         </div>
         <div class="set-controls">
           ${
@@ -697,7 +750,7 @@ export class PtkActiveWorkout extends LitElement {
           : renderLoading(loading, this.equipment.plateUnit)
       }
       ${setWasEdited(set) ? html`<p class="status">${ACTIVE_NOTES.edited}</p>` : nothing}
-      ${this.editing === set.id ? this.#editor(exercise) : nothing}
+      ${this.editing === set.id ? this.#editor(exercise, set) : nothing}
     </li>`;
   }
 
@@ -708,9 +761,9 @@ export class PtkActiveWorkout extends LitElement {
    * without the editor having to carry the identifier a second time -- and so a
    * lifter can see the plan they are correcting while they correct it.
    */
-  #editor(exercise: WorkoutExercise): TemplateResult {
+  #editor(exercise: WorkoutExercise, set: WorkoutSet): TemplateResult {
     const weighted = takesWeight(exercise.loading);
-    return html`<div class="editor">
+    return html`<div class="editor" role="group" aria-label=${this.#setName(exercise, set)}>
       <p class="note">${ACTIVE_NOTES.editNote}</p>
       <div class="numbers">
         ${
@@ -730,6 +783,19 @@ export class PtkActiveWorkout extends LitElement {
             .value=${this.editReps}
           ></ptk-number-field>
         </div>
+        ${
+          // Last of the three, because it is the one a lifter can leave alone. The
+          // grid is auto-fit, so a third box needs no layout of its own.
+          this.effort === 'none'
+            ? nothing
+            : html`<div data-field=${DONE_EFFORT_FIELD}>
+                <ptk-number-field
+                  label=${EFFORT_FIELD_LABELS[this.effort]}
+                  hint=${EFFORT_FIELD_HINTS[this.effort]}
+                  .value=${this.editEffort}
+                ></ptk-number-field>
+              </div>`
+        }
       </div>
       <div>
         <ptk-button variant="primary" data-action=${SAVE_ACTION}>${ACTIVE_NOTES.save}</ptk-button>
@@ -797,8 +863,24 @@ export class PtkActiveWorkout extends LitElement {
    * within it are what a sighted user reads off the row above the button.
    */
   #name(verb: string, exercise: WorkoutExercise, set: WorkoutSet): string {
+    return `${verb}, ${this.#setName(exercise, set)}`;
+  }
+
+  /**
+   * The same set, named without a verb in front of it.
+   *
+   * For the editor, which is a group of fields rather than a control. Naming the
+   * group is what orients somebody moving by form field: the three boxes are
+   * "Weight lifted", "Reps done" and "Effort (RPE)", which say what they hold and
+   * not which set they belong to, while every button on the row above them is
+   * already qualified. Only one editor is open at a time, so this is not the eight
+   * identical labels that made {@link ptk-text-area} grow an `accessible-name` --
+   * there is no ambiguity here, only no orientation, and a name on the group gives
+   * it once rather than repeating it into all three fields.
+   */
+  #setName(exercise: WorkoutExercise, set: WorkoutSet): string {
     const position = exercise.sets.indexOf(set) + 1;
-    return `${this.#exerciseName(verb, exercise)} set ${String(position)}`;
+    return `${exercise.displayName} set ${String(position)}`;
   }
 
   /** The same, for a control that belongs to the lift rather than to one set. */
@@ -810,6 +892,7 @@ export class PtkActiveWorkout extends LitElement {
     const field = fieldOf(event);
     if (field === DONE_WEIGHT_FIELD) this.editWeight = event.detail.value;
     if (field === DONE_REPS_FIELD) this.editReps = event.detail.value;
+    if (field === DONE_EFFORT_FIELD) this.editEffort = event.detail.value;
   };
 
   readonly #onChoice = (event: CustomEvent<ChoiceChangeDetail>): void => {
@@ -918,6 +1001,26 @@ export class PtkActiveWorkout extends LitElement {
     this.editing = setId;
     this.editWeight = load.kind === 'none' ? '' : String(load.weight.amount);
     this.editReps = reps === null ? '' : String(reps);
+    this.editEffort = this.#seedEffort(found.set.performed?.effort ?? null);
+  }
+
+  /**
+   * What the effort box opens holding.
+   *
+   * Read from `performed` alone and not from `performed ?? planned`, which is
+   * where this parts company with the two boxes above it. Those are seeded from
+   * the plan so that a lifter correcting their reps is not asked to retype a
+   * weight they did not change; there is nothing equivalent here, because nothing
+   * plans an effort -- `performed ?? planned` would only ever reach a `planned`
+   * whose effort is null and read as an empty box by a longer route.
+   *
+   * An effort recorded on the *other* scale opens the box empty. Showing an RIR 3
+   * in a box labelled RPE would be a lie about a number whose whole meaning is
+   * its scale, and 3 is a plausible reading on both.
+   */
+  #seedEffort(stored: Effort | null): string {
+    if (stored?.scale !== this.effort) return '';
+    return String(stored.value);
   }
 
   #saveEdit(event: Event): void {
@@ -930,14 +1033,37 @@ export class PtkActiveWorkout extends LitElement {
     const performed = {
       load: loadFor(found.exercise.loading, this.#weight()),
       repetitions: readReps(this.editReps),
-      // Effort is Milestone 3. Carried over rather than dropped, so a future editor
-      // for it cannot be defeated by somebody correcting their reps.
-      effort: found.set.performed?.effort ?? null,
+      effort: this.#effort(found.set.performed?.effort ?? null),
     };
 
     const wasPlanned = found.set.status === 'planned';
     this.editing = null;
     this.#changed(recordSet(session, setId, performed, this.#context()), wasPlanned ? setId : null);
+  }
+
+  /**
+   * What the editor's effort box says, given what the set already held.
+   *
+   * Three cases, and the third is the one worth writing down.
+   *
+   * With the setting off no box was drawn, so the stored effort is carried
+   * through untouched -- otherwise somebody who logs in RPE, switches the setting
+   * off and later corrects a rep count would silently lose the effort on that
+   * set, and only on that set.
+   *
+   * An empty box clears an effort recorded on the same scale, because emptying
+   * the box is how a mistyped one is taken back and there is no other control for
+   * it. It does not clear one recorded on the other scale: {@link #seedEffort}
+   * opened that box empty on purpose, so the emptiness is the tool's and not the
+   * lifter's, and reading it as an instruction would delete a number nobody was
+   * shown.
+   */
+  #effort(stored: Effort | null): Effort | null {
+    const scale = this.effort;
+    if (scale === 'none') return stored;
+    const value = readEffort(this.editEffort);
+    if (value !== null) return { scale, value };
+    return stored?.scale !== scale ? stored : null;
   }
 
   /** What the editor's weight box says, in the unit it was typed in. */
@@ -1080,6 +1206,26 @@ function readReps(text: string): number | null {
   // Zero is allowed here and refused in the planner: planning nought reps is a typo,
   // recording nought is "I got under the bar and did not move it", which is a fact.
   if (!Number.isInteger(value) || value < 0) return null;
+  return value;
+}
+
+/**
+ * An effort from the editor, or `null` for blank and for anything unreadable.
+ *
+ * Not an integer, unlike {@link readReps}: half points are ordinary on the RPE
+ * scale and 8.5 is the commonest thing anybody writes on it.
+ *
+ * Zero passes, and there is no ceiling. RIR 0 is the entry that matters most --
+ * nothing left in the tank -- so refusing it would refuse the answer the scale
+ * exists for; and section 15.3 puts an upper bound out of reach, since an RPE of
+ * 11 is a lifter's own account of a set and nothing here is entitled to correct
+ * it. What is refused is only what cannot be read as a number at all.
+ */
+function readEffort(text: string): number | null {
+  const trimmed = text.trim();
+  if (trimmed === '') return null;
+  const value = Number(trimmed);
+  if (!Number.isFinite(value) || value < 0) return null;
   return value;
 }
 

@@ -23,7 +23,6 @@
 import type { Weight } from '@platform-toolkit/domain';
 
 import type {
-  Effort,
   SetLoad,
   SetPerformance,
   WorkoutExercise,
@@ -38,15 +37,19 @@ export function setWasEdited(set: WorkoutSet): boolean {
   return !samePerformance(planned, performed);
 }
 
+/**
+ * Effort is deliberately not compared.
+ *
+ * Section 7.10: an effort is entered and never generated, so nothing anywhere
+ * plans one -- `warmup.ts` writes `null` into every rung it produces and the
+ * builder has no field for it. A recorded RPE therefore always differs from a
+ * planned nothing, and comparing the two would put the "Edited" line under every
+ * set a lifter said how hard it felt. An effort is not a departure from the plan;
+ * it is a fact about the set that only exists once the set is done.
+ */
 function samePerformance(a: SetPerformance, b: SetPerformance): boolean {
   if (a.repetitions !== b.repetitions) return false;
-  if (!sameEffort(a.effort, b.effort)) return false;
   return sameLoad(a.load, b.load);
-}
-
-function sameEffort(a: Effort | null, b: Effort | null): boolean {
-  if (a === null || b === null) return a === b;
-  return a.scale === b.scale && a.value === b.value;
 }
 
 /** The weight a load carries, or `null` for the kind that carries none. */

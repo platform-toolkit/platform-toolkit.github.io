@@ -27,8 +27,8 @@
  *
  * WHAT IS NOT HERE YET, AND IS NOT PRETENDED TO BE
  *
- * Notes, RPE, custom exercises, the rest timer, editing history, reading a backup back
- * in, Markdown export and the deletion flow are all later milestones. Section 0.4
+ * Custom exercises, the rest timer, editing history, reading a backup back in,
+ * Markdown export and the deletion flow are all later milestones. Section 0.4
  * forbids standing in for them with a disabled control or a "coming soon", so none of
  * them has one: the only thing said about a missing feature is said in prose, where a
  * lifter would otherwise go looking for it -- reading a backup file back in, which is
@@ -73,6 +73,7 @@ import { workoutDurationMillis, type WorkoutSummary } from '../core/summary.js';
 import { defaultSettings, type TrainingLogbookRepository } from '../storage/repository.js';
 import type {
   CalendarDay,
+  EffortSetting,
   EquipmentProfile,
   EquipmentSnapshot,
   ExerciseOption,
@@ -86,6 +87,8 @@ import type {
 
 import {
   DONE_NOTES,
+  EFFORT_SETTING_LABELS,
+  EFFORT_SETTING_NOTES,
   HANDOFF_NOTES,
   HOME_NOTES,
   SAVE_STATES,
@@ -94,7 +97,7 @@ import {
   formatDuration,
   type SaveState,
 } from './copy.js';
-import { actionOf } from './dataset.js';
+import { EFFORT_SETTING_FIELD, UNIT_SETTING_FIELD, actionOf, fieldOf } from './dataset.js';
 import { formatVolume } from './format.js';
 import {
   BACKUP_EXPORTED_EVENT,
@@ -162,8 +165,19 @@ const UNIT_CHOICES: readonly Choice[] = [
   { value: 'kg', label: UNIT_LABELS.kg },
 ];
 
+/** Off first, because section 7.10 makes it the default and it is the shortest answer. */
+const EFFORT_CHOICES: readonly Choice[] = [
+  { value: 'none', label: EFFORT_SETTING_LABELS.none },
+  { value: 'rpe', label: EFFORT_SETTING_LABELS.rpe },
+  { value: 'rir', label: EFFORT_SETTING_LABELS.rir },
+];
+
 function isUnit(value: string): value is WeightUnit {
   return value === 'kg' || value === 'lb';
+}
+
+function isEffortSetting(value: string): value is EffortSetting {
+  return Object.hasOwn(EFFORT_SETTING_LABELS, value);
 }
 
 /**
@@ -236,7 +250,7 @@ export class PtkTrainingLogbook extends LitElement {
       color: var(--ptk-color-text);
     }
 
-    .units {
+    .settings {
       display: grid;
       gap: var(--ptk-space-sm);
     }
@@ -362,7 +376,7 @@ export class PtkTrainingLogbook extends LitElement {
     this.addEventListener(WORKOUT_PLANNED_EVENT, this.#onPlanned);
     this.addEventListener(WORKOUT_CHANGED_EVENT, this.#onChanged);
     this.addEventListener(WORKOUT_FINISHED_EVENT, this.#onFinished);
-    this.addEventListener(SEGMENTED_CHANGE_EVENT, this.#onUnit);
+    this.addEventListener(SEGMENTED_CHANGE_EVENT, this.#onSetting);
     this.addEventListener(RACK_CHANGED_EVENT, this.#onRack);
     this.addEventListener(PROFILE_SAVED_EVENT, this.#onProfileSaved);
     this.addEventListener(PROFILE_APPLIED_EVENT, this.#onProfileApplied);
@@ -375,7 +389,7 @@ export class PtkTrainingLogbook extends LitElement {
     this.removeEventListener(WORKOUT_PLANNED_EVENT, this.#onPlanned);
     this.removeEventListener(WORKOUT_CHANGED_EVENT, this.#onChanged);
     this.removeEventListener(WORKOUT_FINISHED_EVENT, this.#onFinished);
-    this.removeEventListener(SEGMENTED_CHANGE_EVENT, this.#onUnit);
+    this.removeEventListener(SEGMENTED_CHANGE_EVENT, this.#onSetting);
     this.removeEventListener(RACK_CHANGED_EVENT, this.#onRack);
     this.removeEventListener(PROFILE_SAVED_EVENT, this.#onProfileSaved);
     this.removeEventListener(PROFILE_APPLIED_EVENT, this.#onProfileApplied);
@@ -521,14 +535,30 @@ export class PtkTrainingLogbook extends LitElement {
         ></ptk-equipment-library>
       </section>
 
-      <section class="section units">
+      <section class="section settings">
         <h2>${HOME_NOTES.settingsHeading}</h2>
-        <ptk-segmented
-          label=${HOME_NOTES.unitLabel}
-          .choices=${UNIT_CHOICES}
-          .value=${this.settings.displayUnit}
-        ></ptk-segmented>
+        <div data-field=${UNIT_SETTING_FIELD}>
+          <ptk-segmented
+            label=${HOME_NOTES.unitLabel}
+            .choices=${UNIT_CHOICES}
+            .value=${this.settings.displayUnit}
+          ></ptk-segmented>
+        </div>
         <p class="note">${HOME_NOTES.unitNote}</p>
+        <div data-field=${EFFORT_SETTING_FIELD}>
+          <ptk-segmented
+            label=${HOME_NOTES.effortLabel}
+            .choices=${EFFORT_CHOICES}
+            .value=${this.settings.effort}
+          ></ptk-segmented>
+        </div>
+        ${
+          // The chosen scale explained rather than all three listed. Section 17: the
+          // terms are explained where they are needed, and a lifter who has picked
+          // one does not need the other two argued at them.
+          html`<p class="note">${EFFORT_SETTING_NOTES[this.settings.effort]}</p>`
+        }
+        <p class="note">${HOME_NOTES.effortNote}</p>
       </section>
 
       <section class="section">
@@ -627,6 +657,7 @@ export class PtkTrainingLogbook extends LitElement {
       <ptk-active-workout
         .session=${this.active}
         .unit=${this.settings.displayUnit}
+        .effort=${this.settings.effort}
         .equipment=${this.settings.equipment}
         .previous=${this.previous}
         .now=${this.now}
@@ -982,10 +1013,37 @@ export class PtkTrainingLogbook extends LitElement {
     void this.#persist(session, true);
   };
 
-  readonly #onUnit = (event: CustomEvent<SegmentedChangeDetail>): void => {
+  /**
+   * One of the two settings segmented controls.
+   *
+   * Routed on `data-field` rather than on the value, because both send the same
+   * event carrying nothing but a string and this element hears both. Matching on
+   * the value alone works only for as long as no two choices collide, and `none`
+   * is one careless addition away from being a unit or a disposition.
+   *
+   * The type guards stay anyway. They are what makes a value arriving from a
+   * consumer that dispatched the event itself unable to write a scale the schema
+   * would refuse, and they are the reason neither branch needs a cast.
+   */
+  readonly #onSetting = (event: CustomEvent<SegmentedChangeDetail>): void => {
+    // Stopped here like every other handler, and it had been the one that was not.
+    // A segmented change is `composed`, so `{value: 'rpe'}` and `{value: 'kg'}` were
+    // reaching whatever the embedding site listens for on `document`. Neither is
+    // training and section 12.5 is arguably untouched -- but the boundary this
+    // element declares is the boundary it should keep, and a preference is still
+    // application state a framing page was granted no access to.
+    stopHere(event);
     const { value } = event.detail;
-    if (!isUnit(value) || value === this.settings.displayUnit) return;
-    void this.#saveSettings({ ...this.settings, displayUnit: value });
+    const field = fieldOf(event);
+    if (field === UNIT_SETTING_FIELD) {
+      if (!isUnit(value) || value === this.settings.displayUnit) return;
+      void this.#saveSettings({ ...this.settings, displayUnit: value });
+      return;
+    }
+    if (field === EFFORT_SETTING_FIELD) {
+      if (!isEffortSetting(value) || value === this.settings.effort) return;
+      void this.#saveSettings({ ...this.settings, effort: value });
+    }
   };
 
   /**

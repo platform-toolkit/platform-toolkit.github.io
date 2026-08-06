@@ -28,7 +28,14 @@
 import type { WeightUnit } from '@platform-toolkit/domain';
 
 import type { FinishDisposition } from '../core/session.js';
-import type { LoadingModel, SetKind, SetStatus, WorkoutStatus } from '../types.js';
+import type {
+  EffortScale,
+  EffortSetting,
+  LoadingModel,
+  SetKind,
+  SetStatus,
+  WorkoutStatus,
+} from '../types.js';
 
 /**
  * How durable this device's storage turned out to be, and how the last write went.
@@ -128,6 +135,74 @@ export const UNIT_LABELS: Readonly<Record<WeightUnit, string>> = {
 };
 
 /**
+ * How a recorded effort is named on the row it belongs to.
+ *
+ * The scale comes from the effort and never from the setting, which is why this
+ * is keyed on {@link EffortScale} rather than on {@link EffortSetting} below.
+ * Somebody who logs a month in RPE and then switches to RIR has a month of rows
+ * that still mean RPE, and a label read off today's setting would relabel all of
+ * them -- silently, and in the direction that makes an easy set look like a
+ * brutal one.
+ */
+export const EFFORT_LABELS: Readonly<Record<EffortScale, string>> = {
+  rpe: 'RPE',
+  rir: 'RIR',
+};
+
+/**
+ * The three answers to how effort is entered, if at all. Section 7.10.
+ *
+ * Not derived from {@link EFFORT_LABELS} with an extra entry, though the two
+ * agree today. One names a scale a number was recorded on and the other names a
+ * preference, and folding them together is how "off" would eventually acquire a
+ * meaning on a stored set.
+ */
+export const EFFORT_SETTING_LABELS: Readonly<Record<EffortSetting, string>> = {
+  none: 'Off',
+  rpe: 'RPE',
+  rir: 'RIR',
+};
+
+/**
+ * What each scale means, said once where the choice is made.
+ *
+ * Section 17 asks that RPE and RIR be explained rather than assumed, and this is
+ * the only screen where somebody picks between them. Both sentences describe the
+ * scale and neither says which to use.
+ *
+ * Both end "closer to your limit" rather than "is harder", and that is deliberate
+ * twice over. `hard` is on the vocabulary list the browser test refuses to find on
+ * any screen -- sections 15.3 and 16.1, the words that turn a record into advice --
+ * and while an exemption would be arguable here, since defining a scale is not
+ * grading a session, not needing one is better. It is also simply more accurate:
+ * RPE 10 and RIR 0 are both the point where nothing is left, which is what the two
+ * scales actually measure from opposite ends.
+ */
+export const EFFORT_SETTING_NOTES: Readonly<Record<EffortSetting, string>> = {
+  none: 'No effort box. Sets record weight and reps only.',
+  rpe: 'Rate of perceived exertion, usually 6 to 10. Higher means closer to your limit.',
+  rir: 'Reps in reserve: how many more you could have done. Lower means closer to your limit.',
+};
+
+/** What the editor's effort box is called, in whichever scale the setting names. */
+export const EFFORT_FIELD_LABELS: Readonly<Record<EffortScale, string>> = {
+  rpe: 'Effort (RPE)',
+  rir: 'Effort (RIR)',
+};
+
+/**
+ * The usual range, as a hint and not a limit.
+ *
+ * Nothing refuses a number outside it. Section 15.3: an RPE of 11 is a lifter's
+ * own account of a set, and a tool that rejected it would be grading the entry
+ * rather than recording it.
+ */
+export const EFFORT_FIELD_HINTS: Readonly<Record<EffortScale, string>> = {
+  rpe: 'Usually 6 to 10. Leave it blank for none.',
+  rir: 'Usually 0 to 5. Leave it blank for none.',
+};
+
+/**
  * The two answers to "you left some sets undone". Section 7.12 step 2.
  *
  * Both are offered and neither is preselected, because they record different things
@@ -184,12 +259,24 @@ export const HOME_NOTES = {
    */
   repeatFailed: 'That workout could not be read back, so nothing was started. It is still saved.',
 
-  settingsHeading: 'Units',
+  settingsHeading: 'Settings',
   unitLabel: 'Show weights in',
 
   /** Without this, changing the unit looks like it will rewrite what is recorded. */
   unitNote:
     'This changes what new entries are typed in. Weights already recorded keep the unit they were typed in.',
+
+  effortLabel: 'Record effort as',
+
+  /**
+   * Turning effort off hides the box; it does not delete anything.
+   *
+   * Said because the control reads like a switch on the data rather than on the
+   * form, and somebody with a year of RPE behind them would reasonably not touch
+   * it. The scale a set was recorded on stays on that set either way.
+   */
+  effortNote:
+    'Off hides the box. Efforts already recorded stay on their sets and keep their scale.',
 
   backupHeading: 'Backup',
   backup: 'Download a backup',

@@ -5,8 +5,9 @@
  * A set, in the shorthand it is written in on a piece of paper.
  *
  * Separate from `copy.ts` because that file holds sentences and this one holds a
- * rendering rule with a decision in it. Two decisions, in fact, and both are the kind
- * that is invisible until it is wrong.
+ * rendering rule with a decision in it. Three decisions, in fact, and each is the kind
+ * that is invisible until it is wrong. It reads two words out of `copy.ts` and that is
+ * the whole of the dependency -- a rule about which word to use is still a rule.
  *
  * **A weight is shown in the unit it was recorded in, and never converted.** Section
  * 11.4, and `HOME_NOTES.unitNote` promises it in as many words: changing the display
@@ -24,7 +25,8 @@
 
 import { formatWeight } from '@platform-toolkit/domain';
 
-import type { SetLoad, SetPerformance } from '../types.js';
+import type { Effort, SetLoad, SetPerformance } from '../types.js';
+import { EFFORT_LABELS } from './copy.js';
 
 /** How an assisted set's counterweight is labelled, so it cannot read as load. */
 export const ASSIST_SUFFIX = 'assist';
@@ -81,6 +83,26 @@ export function formatPerformance(performance: SetPerformance | null): string {
   const reps = performance.repetitions;
   if (load === null) return reps === null ? NOT_SET : `${String(reps)} reps`;
   return reps === null ? load : `${load} ${TIMES} ${String(reps)}`;
+}
+
+/**
+ * A recorded effort, or `null` where there is none. Section 7.10.
+ *
+ * **The scale comes from the effort and never from the setting.** That is the
+ * decision this function exists to hold: `Effort` carries its own scale
+ * precisely so a lifter who logs three months in RPE and then switches to RIR
+ * still reads those three months as RPE. Labelling from the setting would
+ * relabel a whole history on one tap, and an RPE 9 reprinted as RIR 9 is not a
+ * cosmetic error -- it is the same number meaning nearly the opposite thing.
+ *
+ * Deliberately not folded into {@link formatPerformance}. That line is also what
+ * {@link formatSetRun} builds a previous-performance summary out of, where width
+ * is the whole constraint, and an effort appended to every set in the run would
+ * cost more of it than the reps do.
+ */
+export function formatEffort(effort: Effort | null): string | null {
+  if (effort === null) return null;
+  return `${EFFORT_LABELS[effort.scale]} ${String(effort.value)}`;
 }
 
 /** The word between one weight and the several rep counts lifted at it. */

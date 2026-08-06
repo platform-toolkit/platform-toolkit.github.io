@@ -1201,6 +1201,112 @@ const LOGBOOK_LOG_SETTLE = [
 ];
 
 /**
+ * Turn effort entry on, then plan the standard session over it.
+ *
+ * The setting has to be the first press. `start-workout` replaces the home
+ * screen with the planner and takes the settings section with it, and nothing
+ * carries the answer forward afterwards but the root's own state -- so the order
+ * here is the whole of what puts a third box in the editor seven presses later.
+ * Get it wrong and the route still runs, still measures a logging screen, and
+ * measures the two-box editor every other logbook route already covers.
+ *
+ * `ptk-segmented` exposes no `data-value`, so the option is reached by the words
+ * in it. `ptk-toggle-group` writes one onto each option for exactly this reader,
+ * which is why `LOGBOOK_LOADING_CLICK` above can name a plate by its
+ * denomination; `ptk-segmented` renders `<label class="segment">` around a
+ * clipped radio and a `<span>`, and puts the value on the input as a property,
+ * where no selector can see it. That leaves the words, spelled
+ * `label.segment:has(span:text-is("RPE"))` -- the form
+ * `PLATFORM_TARGETS_CLICK_AFTER` argues at length, and the two shorter spellings
+ * are wrong here for the reasons given there.
+ *
+ * Naming visible text is the weaker contract and it is taken knowingly rather
+ * than by preference. `EFFORT_SETTING_LABELS` is this repository's own source,
+ * and this route failing is the right answer to somebody renaming it -- but the
+ * failure will say "nothing matched", not "the label moved". If a third caller
+ * ever wants an option out of a `ptk-segmented`, give the element the attribute
+ * and delete this paragraph.
+ *
+ * Qualified through `[data-field="effort-setting"]`, never a bare segment. The
+ * settings section holds two of these bars now, `tap` takes `.first()`, and an
+ * unqualified selector would answer the unit question instead -- silently,
+ * because "lb" is a real segment and pressing it is a real press.
+ *
+ * RPE rather than RIR, by one character in the right direction: the two field
+ * labels are the same length and RPE's hint sentence is the longer of the two.
+ * RIR's sentence is longer only under the *home* control, which this route walks
+ * away from before anything is measured.
+ */
+const LOGBOOK_EFFORT_CLICK = [
+  'ptk-training-logbook [data-field="effort-setting"] label.segment:has(span:text-is("RPE"))',
+  ...LOGBOOK_PLAN_CLICK,
+];
+
+/**
+ * A reading with a half point in it, which is the widest an ordinary answer gets.
+ *
+ * Invented (section 5.1), and a decimal rather than a whole number for the same
+ * reason the planner's 142.5 is one: it is a character wider, and it is the shape
+ * `readEffort` was deliberately written to accept where `readReps` refuses it. It
+ * reaches the row as "RPE 8.5" one press later.
+ */
+const LOGBOOK_EFFORT_FILL_AFTER = [
+  { selector: 'ptk-active-workout [data-field="done-effort"] input', value: '8.5' },
+];
+
+/**
+ * Save the correction, then open the editor over it again.
+ *
+ * The second press is what makes this one route instead of two. `#saveEdit`
+ * clears `editing`, so the three-box editor is gone by the time anything is
+ * measured -- and the row line this route also exists for does not exist until
+ * that save has been through the root and come back. Re-opening draws both at
+ * once, because `#toggleEditor` re-seeds from the stored performance: the grid
+ * comes back with the reading in it, underneath a row already carrying it.
+ *
+ * The alternative was two entries, one settling on the editor before the save and
+ * one on the row after it, for ten more page loads and an arrangement one press
+ * produces. The precedent is the deliberate absence of a "finishing with a note"
+ * route: a second entry earns itself only where the first genuinely cannot draw
+ * the thing.
+ *
+ * `.first()` on both, which is the first set of the first exercise -- the same row
+ * `LOGBOOK_LOG_CLICK` completed and opened above.
+ */
+const LOGBOOK_EFFORT_CLICK_LAST = [
+  'ptk-active-workout ptk-button[data-action="save-edit"] button',
+  'ptk-active-workout ptk-button[data-action="edit"] button',
+];
+
+/**
+ * The recorded reading on the row, and the box it came out of, re-opened over it.
+ *
+ * Neither implies the other and both are the point of the route.
+ *
+ * `span.set-effort` inside `li[data-set].done` is drawn only where the set was
+ * recorded with an effort, which needs the home-screen press, the typed reading
+ * and the save to have all landed. A set completed with the setting off draws the
+ * kind and the plan line and nothing else, so this cannot pass against the screen
+ * `LOGBOOK_LOG_SETTLE` already measures.
+ *
+ * The box is named as an `input` on purpose: that is the one selector shape
+ * `settled()` asks a *value* of. Existence would be satisfied the moment the
+ * second press committed a template, and would say nothing about the press before
+ * it. A value can only have come from `#seedEffort` reading the effort back off
+ * the stored set, so this is the whole round trip -- press, event, root state,
+ * property, re-render -- rather than a box that merely rendered.
+ *
+ * That is also why the objection on `LOGBOOK_LOG_SETTLE` does not apply. It
+ * refuses the editor's number fields because a set completed at its planned
+ * weight leaves them empty; the effort box is the one field that cannot be empty
+ * here, because the value in it is the one this route typed.
+ */
+const LOGBOOK_EFFORT_SETTLE = [
+  'ptk-active-workout li[data-set].done span.set-effort',
+  'ptk-active-workout [data-field="done-effort"] input',
+];
+
+/**
  * Pick a rack on the way past, so the logging screen draws plates.
  *
  * The tool leaves `settings.equipment` null until a lifter answers the equipment
@@ -2151,6 +2257,64 @@ const ROUTES = [
     clickAfter: LOGBOOK_START,
     clickLast: LOGBOOK_LOG_CLICK,
     settle: LOGBOOK_LOG_SETTLE,
+  },
+  {
+    // Section 7.10's effort entry, which arrived as two surfaces and is measured
+    // as one route.
+    //
+    // The editor's `.numbers` is `repeat(auto-fit, minmax(min(100%, 8rem), 1fr))`
+    // and every route in this file has measured it holding two boxes. Three has
+    // never been drawn at any width. auto-fit resolves its column count from the
+    // element's own width, so a third track is a different arrangement rather
+    // than more of the same one -- and the third box is the one that costs most
+    // per track: 'Weight lifted' is the longer label, but the effort field is the
+    // only one of the three carrying a hint sentence under it.
+    //
+    // The second surface is a set row with a `.set-effort` line on it, and that is
+    // a height question rather than a width one. "RPE 8.5" cannot widen
+    // `.set-what`; what it does is put a third stacked line into the left half of a
+    // `space-between` flex row whose right half is two 44px buttons and which
+    // already wraps at 320px. That is what the two text-scaling passes are for, and
+    // it is the failure an ancestor with a height in pixels makes silently.
+    //
+    // One route and not two, because one press list reaches both -- see
+    // `LOGBOOK_EFFORT_CLICK_LAST` for the press that does it.
+    //
+    // The home screen's settings section needs no route of its own. It went from
+    // one bar and one sentence to two bars and three, but it is drawn from the
+    // first paint behind no fold, so `/logbook/ (home)` already measures the whole
+    // of it at all five passes and this route would only measure it again.
+    //
+    // What a green run here does not say anything about:
+    //
+    // - The RIR wording, anywhere. The editor is measured at its worse case, since
+    //   the two field labels are the same length and RPE's hint is the longer -- but
+    //   the note under the home bar is the *chosen* scale's explanation, the default
+    //   is `none`, and RIR's sentence is the longest of the three. Nothing draws it.
+    // - A long reading. Section 15.3 refuses nothing a lifter types, so the box holds
+    //   whatever string goes in it and this types three characters. An 8rem track
+    //   under a hostile entry is unmeasured, and unlike the unbuildable route's
+    //   figure there is no honest ordinary value that reaches it.
+    // - Effort on a movement with no weight box. A reps-only lift draws two boxes,
+    //   and that pair is uneven in a way the weight/reps pair is not: one label with
+    //   a sentence under it beside one without. It needs the picker and
+    //   `LOGBOOK_MIXED_CHOOSE`'s index, which is a whole entry for a grid narrower
+    //   than this one.
+    // - A reading stored on the other scale. `#seedEffort` opens the box empty where
+    //   the stored scale differs, so a row reading "RIR 2" under a box labelled
+    //   'Effort (RPE)' is real and undrawn. No press list reaches it: `home` is
+    //   rendered only on the finish panel, so changing the bar mid-session means
+    //   ending the session first, and the sets are then behind a screen this route
+    //   never visits.
+    path: '/logbook/',
+    label: '/logbook/ (effort)',
+    click: LOGBOOK_EFFORT_CLICK,
+    reveal: [],
+    fill: LOGBOOK_PLAN_FILL,
+    clickAfter: [...LOGBOOK_START, ...LOGBOOK_LOG_CLICK],
+    fillAfter: LOGBOOK_EFFORT_FILL_AFTER,
+    clickLast: LOGBOOK_EFFORT_CLICK_LAST,
+    settle: LOGBOOK_EFFORT_SETTLE,
   },
   {
     // A second logging entry rather than plates added to the one above, because

@@ -17,6 +17,7 @@ import type { SetLoad, SetPerformance } from '../types.js';
 import {
   ASSIST_SUFFIX,
   NOT_SET,
+  formatEffort,
   formatLoad,
   formatPerformance,
   formatSetRun,
@@ -237,5 +238,41 @@ describe('formatSetRun', () => {
         performed({ kind: 'implement', weight: SIXTY_KG }, 0),
       ]),
     ).toBe('60 kg for 5, 0');
+  });
+});
+
+describe('formatEffort', () => {
+  it('says nothing where none was recorded', () => {
+    // The same rule `formatLoad` follows: null rather than an empty string, so the
+    // row decides whether an unrated set draws a blank line or no line at all.
+    expect(formatEffort(null)).toBeNull();
+  });
+
+  it('names the scale the effort was recorded on', () => {
+    expect(formatEffort({ scale: 'rpe', value: 8 })).toBe('RPE 8');
+    expect(formatEffort({ scale: 'rir', value: 2 })).toBe('RIR 2');
+  });
+
+  it('reads the scale off the effort and not off anything ambient', () => {
+    // The whole point of `Effort` carrying its own scale. Somebody who logs three
+    // months in RPE and then switches the setting to RIR still has three months of
+    // RPE, and 8 on the two scales is nearly opposite: close to failure against
+    // eight reps clear of it. There is no setting in scope here, and that is the
+    // assertion -- this function cannot be handed one to be wrong about.
+    expect(formatEffort({ scale: 'rpe', value: 8 })).not.toBe(
+      formatEffort({ scale: 'rir', value: 8 }),
+    );
+  });
+
+  it('keeps a half point rather than rounding it away', () => {
+    // 8.5 is the commonest thing anybody writes on the RPE scale, and a formatter
+    // that printed it as 8 or 9 would be editing the entry on the way to the screen.
+    expect(formatEffort({ scale: 'rpe', value: 8.5 })).toBe('RPE 8.5');
+  });
+
+  it('keeps a zero, which on the RIR scale is the answer that matters most', () => {
+    // Nothing left in the tank. A formatter testing the value for truthiness would
+    // print an unrated set for the hardest one in the session.
+    expect(formatEffort({ scale: 'rir', value: 0 })).toBe('RIR 0');
   });
 });

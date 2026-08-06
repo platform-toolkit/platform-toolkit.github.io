@@ -38,7 +38,8 @@ import { html } from 'lit';
 
 import type { Instant } from '../types.js';
 
-import { SAVE_STATES } from './copy.js';
+import { EFFORT_SETTING_NOTES, SAVE_STATES } from './copy.js';
+import { EFFORT_SETTING_FIELD } from './dataset.js';
 import type { PtkTrainingLogbook } from './ptk-training-logbook.js';
 import {
   AT_START,
@@ -156,6 +157,38 @@ async function choose(element: PtkTrainingLogbook, tag: string, value: string): 
   if (radio === undefined) throw new Error(`No "${value}" to choose in <${tag}>.`);
   radio.click();
   await settled(element);
+}
+
+/**
+ * Answers one of the settings controls, named by the field it sits in.
+ *
+ * `choose` above takes a tag name, and the settings section holds two segmented controls
+ * drawn from the same tag. It would find the unit one, so a story that meant to pick a
+ * scale would quietly change the display unit instead and then publish the default screen
+ * under a name saying otherwise.
+ */
+async function chooseSetting(
+  element: PtkTrainingLogbook,
+  field: string,
+  value: string,
+): Promise<void> {
+  const wrapper = deepAll(shadow(element), `[data-field="${field}"]`)[0];
+  if (wrapper === undefined) throw new Error(`This screen has no "${field}" control.`);
+  // Two steps rather than one compound selector: a compound `querySelector` types as
+  // `Element` and would need the cast section 2.4 forbids.
+  const group = wrapper.querySelector('ptk-segmented');
+  if (group === null) throw new Error(`The "${field}" wrapper holds no segmented control.`);
+  const radio = [...shadow(group).querySelectorAll('input')].find(
+    (candidate) => candidate.value === value,
+  );
+  if (radio === undefined) throw new Error(`No "${value}" to choose for "${field}".`);
+  radio.click();
+  await settled(element);
+}
+
+/** Every sentence the tool says in its own voice, at any shadow depth. */
+function notes(element: PtkTrainingLogbook): string[] {
+  return deepAll(shadow(element), 'p.note').map((line) => line.textContent);
 }
 
 /**
@@ -378,6 +411,65 @@ export const AfterFinishing: Story = {
  */
 export const NoStorageOnThisDevice: Story = {
   args: { ...aFreshTool('no-storage'), repository: anUnstoredRepository() },
+};
+
+/**
+ * Effort entry switched to RPE, and the one sentence that explains it. Section 7.10.
+ *
+ * Three answers to one question and never two scales at once, because an RPE of 8 and an
+ * RIR of 8 are near-opposite claims about a set: a screen offering both would collect a
+ * column of numbers whose meaning depends on which box somebody reached for that day.
+ *
+ * Only the chosen scale is explained. Section 17 asks for the terms rather than assuming
+ * them, and a lifter who has picked one does not need the other two argued at them -- so
+ * the sentence under the control changes with the tap, and the sentence under *that* is
+ * the one that never does.
+ *
+ * Off is the first-use default and is therefore already on every other home story in this
+ * file, which is why there are two of these rather than three.
+ */
+export const RecordingEffortAsRpe: Story = {
+  args: aFreshTool('effort-rpe'),
+  play: async ({ canvasElement }) => {
+    const element = await logbook(canvasElement);
+    await chooseSetting(element, EFFORT_SETTING_FIELD, 'rpe');
+    await until('the RPE sentence to be drawn', () =>
+      notes(element).includes(EFFORT_SETTING_NOTES.rpe),
+    );
+    // The negative half, and the reason this is not just a screenshot: three sentences
+    // stacked under one control is a screen that explains a scale nobody chose, and it
+    // is what a template listing all three would look like on a good day.
+    if (notes(element).includes(EFFORT_SETTING_NOTES.none)) {
+      throw new Error('The Off sentence is still on the screen under an RPE setting.');
+    }
+  },
+};
+
+/**
+ * The same control answered the other way, which is worth its own page for the wording.
+ *
+ * The two sentences are the halves that have to be read against each other. The scales
+ * run in opposite directions -- one counts up towards a limit and the other counts down
+ * to it -- and they are explained by two sentences that look alike, in the same place,
+ * under controls that are identical. Reviewing either alone is how the pair comes to say
+ * the same thing.
+ *
+ * The last sentence is the same on both, and it is the one that has to survive being read
+ * by somebody with a year of RPE behind them: turning this off hides the box and leaves
+ * every effort already recorded on its set, in the scale it was recorded on.
+ */
+export const RecordingEffortAsRir: Story = {
+  args: aFreshTool('effort-rir'),
+  play: async ({ canvasElement }) => {
+    const element = await logbook(canvasElement);
+    await chooseSetting(element, EFFORT_SETTING_FIELD, 'rir');
+    await until('the RIR sentence to be drawn', () =>
+      notes(element).includes(EFFORT_SETTING_NOTES.rir),
+    );
+    if (notes(element).includes(EFFORT_SETTING_NOTES.rpe)) {
+      throw new Error('The RPE sentence is still on the screen under an RIR setting.');
+    }
+  },
 };
 
 /**

@@ -60,9 +60,21 @@ export const WARMUP_FIELD = 'warmup';
 export const DATE_FIELD = 'date';
 export const TITLE_FIELD = 'title';
 
-/** The two the logging screen's editor asks for. */
+/** The three the logging screen's editor asks for, the last only where it is switched on. */
 export const DONE_WEIGHT_FIELD = 'done-weight';
 export const DONE_REPS_FIELD = 'done-reps';
+export const DONE_EFFORT_FIELD = 'done-effort';
+
+/**
+ * The two the home screen's settings ask for.
+ *
+ * They exist because both are a `ptk-segmented`, whose change event carries a
+ * value and nothing else. One listener on the root hears both, and telling them
+ * apart by the value would work only for as long as no two choices ever collide
+ * -- which "none" is already one careless addition away from doing.
+ */
+export const UNIT_SETTING_FIELD = 'unit-setting';
+export const EFFORT_SETTING_FIELD = 'effort-setting';
 
 /**
  * The innermost `data-` value of one key on an event's path, or `null`.

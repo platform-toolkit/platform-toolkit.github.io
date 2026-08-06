@@ -45,6 +45,18 @@
  * there that presses something while a box still holds unwritten words is about
  * that race, and each one asserts on the single session handed up rather than on
  * two events arriving in a hopeful order.
+ *
+ * SECTION 7.10'S EFFORT IS THE FOURTH
+ *
+ * One setting decides whether a third box is drawn in the editor, and the whole of
+ * the difficulty is that it governs the *entry* and not the record. A number already
+ * on a set keeps its own scale and stays on screen with the setting off, so most of
+ * the ways this can go wrong look like a lifter who simply never rated that set --
+ * an effort silently dropped by an unrelated rep correction, an RIR read back as an
+ * RPE, a stored rating deleted by a box the tool itself opened empty. The block
+ * below drives every one of those through the editor's own controls and then asserts
+ * on the `Effort` the session came back holding, scale included, because the scale
+ * is the half a rendered string agrees about while being wrong.
  */
 
 // Without the stylesheet every declaration reading a custom property is dropped, so the
@@ -63,18 +75,34 @@ import type { LogbookStore } from '../storage/port.js';
 import { createRepository, defaultSettings } from '../storage/repository.js';
 import type {
   CalendarDay,
+  Effort,
+  EffortSetting,
   EquipmentSnapshot,
   ExerciseOption,
   Instant,
   LogbookId,
+  LogbookSettings,
   SetPerformance,
   WorkoutExercise,
   WorkoutSession,
   WorkoutSet,
 } from '../types.js';
 
-import { ACTIVE_NOTES, LOADING_NOTES, SAVE_STATES } from './copy.js';
-import { WORKOUT_NOTE_KEY, exerciseNoteKey } from './dataset.js';
+import {
+  ACTIVE_NOTES,
+  EFFORT_FIELD_HINTS,
+  EFFORT_FIELD_LABELS,
+  EFFORT_LABELS,
+  LOADING_NOTES,
+  SAVE_STATES,
+} from './copy.js';
+import {
+  DONE_EFFORT_FIELD,
+  DONE_REPS_FIELD,
+  DONE_WEIGHT_FIELD,
+  WORKOUT_NOTE_KEY,
+  exerciseNoteKey,
+} from './dataset.js';
 import { formatSetRun } from './format.js';
 import { defineTrainingLogbook } from './index.js';
 import {
@@ -189,6 +217,8 @@ interface MountOptions {
   readonly equipment?: EquipmentSnapshot | null;
   readonly unit?: 'kg' | 'lb';
   readonly previous?: ReadonlyMap<string, PreviousPerformance>;
+  /** Section 7.10's setting. `none` is what a logbook is in on day one. */
+  readonly effort?: EffortSetting;
 }
 
 async function mount(options: MountOptions): Promise<PtkActiveWorkout> {
@@ -197,6 +227,7 @@ async function mount(options: MountOptions): Promise<PtkActiveWorkout> {
   element.equipment = options.equipment ?? null;
   element.unit = options.unit ?? 'lb';
   element.previous = options.previous ?? new Map();
+  element.effort = options.effort ?? 'none';
   element.now = (): Instant => AT_START;
   document.body.append(element);
   teardown.push(() => {
@@ -1140,9 +1171,423 @@ describe('the notes on a session', () => {
   });
 });
 
+/**
+ * The editor's boxes on one row, named by the field each of them routes to.
+ *
+ * Read as a list rather than probed one at a time, because the case that matters
+ * is an absence: an assertion that the effort box is missing passes just as well
+ * against an editor that failed to draw anything at all.
+ */
+function editorFields(row: HTMLElement): (string | undefined)[] {
+  return deepAll(row, '[data-field]').map((wrapper) => wrapper.dataset['field']);
+}
+
+/** One of them, or a failure rather than an assertion made against nothing. */
+function editorField(root: DocumentFragment | HTMLElement, field: string): HTMLElement {
+  const wrapper = deepAll(root, `[data-field="${field}"]`)[0];
+  if (wrapper === undefined) throw new Error(`The editor has no "${field}" box.`);
+  return wrapper;
+}
+
+function numberField(root: DocumentFragment | HTMLElement, field: string): HTMLElement {
+  const host = editorField(root, field).querySelector('ptk-number-field');
+  if (host === null) throw new Error(`The "${field}" box holds no field.`);
+  return host;
+}
+
+/** The box a keyboard actually reaches. */
+function numberBox(root: DocumentFragment | HTMLElement, field: string): HTMLInputElement {
+  const input = shadow(numberField(root, field)).querySelector('input');
+  if (input === null) throw new Error(`The "${field}" field has no input in it.`);
+  return input;
+}
+
+/** What the eye reads above a box, off the rendered label and not the attribute. */
+function fieldLabel(root: DocumentFragment | HTMLElement, field: string): string {
+  return shadow(numberField(root, field)).querySelector('label')?.textContent.trim() ?? '';
+}
+
+/** The standing note under it, or the empty string where none is drawn. */
+function fieldHint(root: DocumentFragment | HTMLElement, field: string): string {
+  return shadow(numberField(root, field)).querySelector('.hint')?.textContent.trim() ?? '';
+}
+
+/**
+ * Types into one of the editor's boxes the way a keyboard does.
+ *
+ * `input` on the inner element, for `type`'s reason at the foot of this file:
+ * every field in `packages/ui` reports on `@input`, so a test dispatching the
+ * element's own change event proves the screen reads an event nothing fires.
+ */
+async function typeInto(
+  element: PtkActiveWorkout,
+  row: HTMLElement,
+  field: string,
+  text: string,
+): Promise<void> {
+  const input = numberBox(row, field);
+  input.value = text;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  await element.updateComplete;
+}
+
+/** Every effort drawn on a row, in row order, exactly as a lifter reads it. */
+function rowEfforts(element: Element): string[] {
+  return deepAll(shadow(element), 'span.set-effort').map((span) => span.textContent.trim());
+}
+
+/** Every "different from the plan" line on screen. */
+function statusLines(element: Element): string[] {
+  return deepAll(shadow(element), 'p.status').map((line) => line.textContent.trim());
+}
+
+/** What one set of a handed-back session actually holds, scale and all. */
+function storedEffort(session: WorkoutSession, exercise: number, index: number): Effort | null {
+  return setAt(session, exercise, index).performed?.effort ?? null;
+}
+
+/**
+ * A session whose *plan* carries a rating, which nothing in this tool writes.
+ *
+ * Built by hand through `performance`'s third argument rather than by any screen,
+ * because there is no screen that produces one -- an effort is entered against a
+ * set that was done. It exists so the three places that read `performed` alone can
+ * be told apart from the three that would read `performed ?? planned`, which agree
+ * with them on every session a lifter can currently reach.
+ */
+function aPlannedRating(exercise: ExerciseOption, effort: Effort): WorkoutSession {
+  const at = contextSeries();
+  let session = createWorkout(at(AT_START), { localDate: ON_DAY, title: 'Squat day' });
+  session = addExercise(session, at(AT_START), {
+    exerciseId: exercise.id,
+    displayName: exercise.name,
+    loading: exercise.loading,
+    plan: [
+      {
+        kind: 'working' as const,
+        performance: performance(
+          { kind: 'implement', weight: { amount: 135, unit: 'lb' } },
+          5,
+          effort,
+        ),
+      },
+    ],
+  });
+  return startWorkout(session, at(AT_START));
+}
+
+describe('the effort a set was rated at', () => {
+  it('draws no box for it until a lifter asks for one', async () => {
+    // The state a logbook is in on day one, section 7.10. The other two boxes are
+    // asserted with it because an editor that drew nothing at all would satisfy an
+    // assertion about the third one on its own.
+    const element = await mount({ session: aSession(SQUAT, [135]) });
+
+    await tap(element, setRow(element, 0), 'edit');
+
+    expect(editorFields(setRow(element, 0))).toEqual([DONE_WEIGHT_FIELD, DONE_REPS_FIELD]);
+  });
+
+  it('draws it labelled and explained for whichever scale was chosen', async () => {
+    const rpe = await mount({ session: aSession(SQUAT, [135]), effort: 'rpe' });
+    await tap(rpe, setRow(rpe, 0), 'edit');
+    const rir = await mount({ session: aSession(SQUAT, [135]), effort: 'rir' });
+    await tap(rir, setRow(rir, 0), 'edit');
+
+    expect(editorFields(setRow(rpe, 0))).toEqual([
+      DONE_WEIGHT_FIELD,
+      DONE_REPS_FIELD,
+      DONE_EFFORT_FIELD,
+    ]);
+    // The two scales run in opposite directions -- a hard 10 is an RPE and an easy
+    // one is nine reps left in the tank -- so a box labelled with the wrong one of
+    // them collects a number that means very nearly the reverse of what it says.
+    expect(fieldLabel(setRow(rpe, 0), DONE_EFFORT_FIELD)).toBe(EFFORT_FIELD_LABELS.rpe);
+    expect(fieldLabel(setRow(rir, 0), DONE_EFFORT_FIELD)).toBe(EFFORT_FIELD_LABELS.rir);
+    expect(EFFORT_FIELD_LABELS.rpe).not.toBe(EFFORT_FIELD_LABELS.rir);
+
+    // Section 17: the scale is explained where it is asked for, or the box is a
+    // number with no units offered to somebody who has met neither acronym.
+    expect(fieldHint(setRow(rpe, 0), DONE_EFFORT_FIELD)).toBe(EFFORT_FIELD_HINTS.rpe);
+    expect(fieldHint(setRow(rir, 0), DONE_EFFORT_FIELD)).toBe(EFFORT_FIELD_HINTS.rir);
+  });
+
+  it('records what was typed, on the scale the box was labelled with', async () => {
+    const element = await mount({ session: aSession(SQUAT, [135]), effort: 'rpe' });
+    const seen = changes(element);
+
+    await tap(element, setRow(element, 0), 'edit');
+    await typeInto(element, setRow(element, 0), DONE_EFFORT_FIELD, '8');
+    await tap(element, setRow(element, 0), 'save-edit');
+
+    // The scale is asserted with the number because the two are one fact. An 8
+    // stored without it, or stored under the other one, is a set that reads as
+    // brutal where it was easy.
+    expect(storedEffort(only(seen).session, 0, 0)).toEqual({ scale: 'rpe', value: 8 });
+  });
+
+  it('shows the effort on the row it was recorded against', async () => {
+    const element = await mount({ session: aSession(SQUAT, [135, 185]), effort: 'rpe' });
+    playRoot(element);
+
+    await tap(element, setRow(element, 0), 'edit');
+    await typeInto(element, setRow(element, 0), DONE_EFFORT_FIELD, '8');
+    await tap(element, setRow(element, 0), 'save-edit');
+
+    // One row and not both, so a rating drawn from the exercise rather than from
+    // the set cannot pass. Composed from the label constant rather than typed out,
+    // because `format.test.ts` owns the shorthand.
+    expect(rowEfforts(element)).toEqual([`${EFFORT_LABELS.rpe} 8`]);
+  });
+
+  it('keeps showing it after effort entry is switched off', async () => {
+    const element = await mount({ session: aSession(SQUAT, [135]), effort: 'rpe' });
+    playRoot(element);
+    await tap(element, setRow(element, 0), 'edit');
+    await typeInto(element, setRow(element, 0), DONE_EFFORT_FIELD, '8');
+    await tap(element, setRow(element, 0), 'save-edit');
+
+    element.effort = 'none';
+    await element.updateComplete;
+
+    // The whole of the display/entry split. Turning the setting off withdraws the
+    // box a number is entered in; a history that vanished with it would be the
+    // worse bug by far, and it is one a lifter would find weeks later.
+    expect(rowEfforts(element)).toEqual([`${EFFORT_LABELS.rpe} 8`]);
+    await tap(element, setRow(element, 0), 'edit');
+    expect(editorFields(setRow(element, 0))).toEqual([DONE_WEIGHT_FIELD, DONE_REPS_FIELD]);
+  });
+
+  it('records no effort at all for a set ticked off in one tap', async () => {
+    const element = await mount({ session: aSession(SQUAT, [135]), effort: 'rpe' });
+    playRoot(element);
+
+    await tap(element, setRow(element, 0), 'complete');
+
+    // An effort is entered and never generated. The one-tap path copies the plan
+    // into `performed`, and nothing plans an effort -- so a set ticked off says
+    // nothing about how it felt, and must not appear to.
+    expect(storedEffort(currentSession(element), 0, 0)).toBeNull();
+    expect(rowEfforts(element)).toEqual([]);
+  });
+
+  it('re-opens the box on the effort already recorded', async () => {
+    const element = await mount({ session: aSession(SQUAT, [135]), effort: 'rpe' });
+    playRoot(element);
+    await tap(element, setRow(element, 0), 'edit');
+    await typeInto(element, setRow(element, 0), DONE_EFFORT_FIELD, '8');
+    await tap(element, setRow(element, 0), 'save-edit');
+
+    await tap(element, setRow(element, 0), 'edit');
+
+    // Seeded, for the same reason the weight box is: an empty box a lifter does
+    // not refill is how a correction to the reps deletes the rating beside them.
+    expect(numberBox(setRow(element, 0), DONE_EFFORT_FIELD).value).toBe('8');
+  });
+
+  it('opens the box empty where the rating was made on the other scale', async () => {
+    const element = await mount({ session: aSession(SQUAT, [135]), effort: 'rpe' });
+    playRoot(element);
+    await tap(element, setRow(element, 0), 'edit');
+    await typeInto(element, setRow(element, 0), DONE_EFFORT_FIELD, '3');
+    await tap(element, setRow(element, 0), 'save-edit');
+
+    element.effort = 'rir';
+    await element.updateComplete;
+    await tap(element, setRow(element, 0), 'edit');
+
+    // 3 is a plausible reading on both scales and means opposite things on them,
+    // so seeding across is not a small inaccuracy -- it offers an RPE 3 back for
+    // saving as an RIR 3. The row still says which one it was.
+    expect(numberBox(setRow(element, 0), DONE_EFFORT_FIELD).value).toBe('');
+    expect(rowEfforts(element)).toEqual([`${EFFORT_LABELS.rpe} 3`]);
+  });
+
+  it('clears the rating when its own box is emptied', async () => {
+    const element = await mount({ session: aSession(SQUAT, [135]), effort: 'rpe' });
+    playRoot(element);
+    await tap(element, setRow(element, 0), 'edit');
+    await typeInto(element, setRow(element, 0), DONE_EFFORT_FIELD, '8');
+    await tap(element, setRow(element, 0), 'save-edit');
+
+    await tap(element, setRow(element, 0), 'edit');
+    await typeInto(element, setRow(element, 0), DONE_EFFORT_FIELD, '');
+    await tap(element, setRow(element, 0), 'save-edit');
+
+    // There is no other control for taking a mistyped effort back, so emptying
+    // the box has to be one -- and the line on the row has to go with it.
+    expect(storedEffort(currentSession(element), 0, 0)).toBeNull();
+    expect(rowEfforts(element)).toEqual([]);
+  });
+
+  it('does not clear a rating made on the other scale from a box it opened empty', async () => {
+    const element = await mount({ session: aSession(SQUAT, [135]), effort: 'rpe' });
+    playRoot(element);
+    await tap(element, setRow(element, 0), 'edit');
+    await typeInto(element, setRow(element, 0), DONE_EFFORT_FIELD, '8');
+    await tap(element, setRow(element, 0), 'save-edit');
+
+    // Switched, then an ordinary correction with the effort box left exactly as
+    // the tool opened it. That emptiness is the tool's own doing -- the case
+    // above put it there deliberately -- so reading it as "take the rating back"
+    // would delete a number the lifter was never shown and never touched.
+    element.effort = 'rir';
+    await element.updateComplete;
+    await tap(element, setRow(element, 0), 'edit');
+    await typeInto(element, setRow(element, 0), DONE_REPS_FIELD, '4');
+    await tap(element, setRow(element, 0), 'save-edit');
+
+    expect(storedEffort(currentSession(element), 0, 0)).toEqual({ scale: 'rpe', value: 8 });
+    expect(setAt(currentSession(element), 0, 0).performed?.repetitions).toBe(4);
+    expect(rowEfforts(element)).toEqual([`${EFFORT_LABELS.rpe} 8`]);
+  });
+
+  it('leaves a rating alone when a rep count is corrected with the setting off', async () => {
+    const element = await mount({ session: aSession(SQUAT, [135]), effort: 'rpe' });
+    playRoot(element);
+    await tap(element, setRow(element, 0), 'edit');
+    await typeInto(element, setRow(element, 0), DONE_EFFORT_FIELD, '9');
+    await tap(element, setRow(element, 0), 'save-edit');
+
+    element.effort = 'none';
+    await element.updateComplete;
+    await tap(element, setRow(element, 0), 'edit');
+    await typeInto(element, setRow(element, 0), DONE_REPS_FIELD, '4');
+    await tap(element, setRow(element, 0), 'save-edit');
+
+    // No box was drawn, so nothing was said. Somebody who logs a year in RPE and
+    // then switches the setting off must not lose a rating per set, one set at a
+    // time, every time they fix a rep count.
+    expect(storedEffort(currentSession(element), 0, 0)).toEqual({ scale: 'rpe', value: 9 });
+    expect(setAt(currentSession(element), 0, 0).performed?.repetitions).toBe(4);
+  });
+
+  it('keeps a half point and a nought exactly as they were typed', async () => {
+    const element = await mount({ session: aSession(SQUAT, [135, 185]), effort: 'rpe' });
+    playRoot(element);
+
+    // 8.5 is the commonest thing anybody writes on the RPE scale, and a reader
+    // borrowed from the rep box would refuse it for not being an integer.
+    await tap(element, setRow(element, 0), 'edit');
+    await typeInto(element, setRow(element, 0), DONE_EFFORT_FIELD, '8.5');
+    await tap(element, setRow(element, 0), 'save-edit');
+
+    // RIR 0 is the entry the scale exists for -- nothing left in the tank -- and
+    // it is the one a truthiness check silently drops.
+    element.effort = 'rir';
+    await element.updateComplete;
+    await tap(element, setRow(element, 1), 'edit');
+    await typeInto(element, setRow(element, 1), DONE_EFFORT_FIELD, '0');
+    await tap(element, setRow(element, 1), 'save-edit');
+
+    expect(storedEffort(currentSession(element), 0, 0)).toEqual({ scale: 'rpe', value: 8.5 });
+    expect(storedEffort(currentSession(element), 0, 1)).toEqual({ scale: 'rir', value: 0 });
+    expect(rowEfforts(element)).toEqual([`${EFFORT_LABELS.rpe} 8.5`, `${EFFORT_LABELS.rir} 0`]);
+  });
+
+  it('says nothing about the plan where the only thing added was a rating', async () => {
+    const element = await mount({ session: aSession(SQUAT, [135]), effort: 'rpe' });
+    playRoot(element);
+
+    // The editor opens seeded, so saving without touching the weight or the reps
+    // records the set exactly as planned. Nothing plans an effort, so comparing
+    // one would put "Different from the plan" under every set a lifter rated --
+    // which is the line's meaning worn away until nobody reads the one that counts.
+    await tap(element, setRow(element, 0), 'edit');
+    await typeInto(element, setRow(element, 0), DONE_EFFORT_FIELD, '9');
+    await tap(element, setRow(element, 0), 'save-edit');
+
+    expect(storedEffort(currentSession(element), 0, 0)).toEqual({ scale: 'rpe', value: 9 });
+    expect(statusLines(element)).toEqual([]);
+
+    // And the line is still drawn by something, or the absence above is an
+    // assertion about a selector nothing ever matches.
+    await tap(element, setRow(element, 0), 'edit');
+    await typeInto(element, setRow(element, 0), DONE_REPS_FIELD, '4');
+    await tap(element, setRow(element, 0), 'save-edit');
+
+    expect(statusLines(element)).toEqual([ACTIVE_NOTES.edited]);
+  });
+
+  it('reads a rating off what was done and never off the plan', async () => {
+    // The plan fallback the two boxes above the effort one are seeded through is
+    // right for a weight and wrong for this: a rating belongs to a set that was
+    // done. It reaches the same answer on every session a lifter can reach today,
+    // because nothing plans an effort -- so this fixture plans one, which is the
+    // only way the two rules are distinguishable at all.
+    const session = aPlannedRating(SQUAT, { scale: 'rpe', value: 8 });
+    const element = await mount({ session, effort: 'rpe' });
+
+    expect(rowEfforts(element)).toEqual([]);
+    await tap(element, setRow(element, 0), 'edit');
+    expect(numberBox(setRow(element, 0), DONE_EFFORT_FIELD).value).toBe('');
+
+    // And with no box drawn at all, where the save carries the stored rating
+    // through untouched. The stored rating of a set nobody has done is nothing.
+    const off = await mount({ session, effort: 'none' });
+    const seen = changes(off);
+    await tap(off, setRow(off, 0), 'edit');
+    await tap(off, setRow(off, 0), 'save-edit');
+
+    expect(storedEffort(only(seen).session, 0, 0)).toBeNull();
+  });
+
+  it('has no accessibility violations with the effort box open', async () => {
+    const element = await mount({ session: aSession(SQUAT, [135]), effort: 'rpe' });
+    await tap(element, setRow(element, 0), 'edit');
+    await typeInto(element, setRow(element, 0), DONE_EFFORT_FIELD, '8');
+
+    // Contrast off for this file's usual reason. The box open because a field
+    // nobody revealed is a field axe never sees, and this one carries both a
+    // label and a hint it has to be described by.
+    const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
+    expect(results.violations).toEqual([]);
+  });
+});
+
+/**
+ * The editor is a group of fields, and a group of fields wants a name.
+ *
+ * Deliberately not the answer task #20 gave `ptk-text-area`. There, eight boxes
+ * labelled "Note" were on one screen at once and each one had to say which lift it
+ * belonged to, because the ambiguity was real. Here only one editor is ever open, so
+ * nothing is ambiguous -- what is missing is orientation, for somebody who tabbed
+ * into "Weight lifted" from a list of forty rows and cannot see which row opened. A
+ * name on the group answers that once, on entry, and leaves all three fields'
+ * accessible names equal to their visible labels.
+ */
+describe('the editor a set opens', () => {
+  /** The editor's own container, which is what a group name has to sit on. */
+  function editorGroup(row: HTMLElement): HTMLElement {
+    const group = deepAll(row, '[role="group"]')[0];
+    if (group === undefined) throw new Error('This row has no editor group.');
+    return group;
+  }
+
+  it('names itself for the set it belongs to, and leaves each field its own label', async () => {
+    const element = await mount({ session: aSession(SQUAT, [135, 135, 135]), effort: 'rpe' });
+
+    await tap(element, setRow(element, 1), 'edit');
+    const row = setRow(element, 1);
+
+    // The second set of three and not the first: a name built off the row's lift
+    // alone, or off a position hardcoded to one, passes on set one either way.
+    expect(editorGroup(row).getAttribute('aria-label')).toBe(`${SQUAT.name} set 2`);
+    // One group on the screen and not one per row. The closed rows draw no editor,
+    // so three groups would mean three open editors -- which is the other way this
+    // could be wrong and looks identical from inside the row.
+    expect(deepAll(shadow(element), '[role="group"]')).toHaveLength(1);
+    // And the fields say what they hold, unqualified. Each one's accessible name
+    // staying word for word its visible label is what keeps WCAG 2.5.3 satisfied
+    // without anybody having to think about it again.
+    expect(editorFields(row)).toEqual([DONE_WEIGHT_FIELD, DONE_REPS_FIELD, DONE_EFFORT_FIELD]);
+    expect(fieldLabel(row, DONE_EFFORT_FIELD)).toBe(EFFORT_FIELD_LABELS.rpe);
+  });
+});
+
 describe('the rack the tool hands down', () => {
   it('reaches the logging screen from the settings the repository loaded', async () => {
-    const element = await mountTool(aPoundGym());
+    const element = await mountTool({ equipment: aPoundGym() });
 
     await press(element, 'start-workout');
     await press(element, 'add-primary'); // The first of section 6.1's four is the squat.
@@ -1159,7 +1604,7 @@ describe('the rack the tool hands down', () => {
     // The same journey with `equipment` left at its default. Both halves are needed: the
     // first proves the binding exists, and without this one a binding hard-wired to a
     // rack the tool invented would pass it.
-    const element = await mountTool(null);
+    const element = await mountTool({ equipment: null });
 
     await press(element, 'start-workout');
     await press(element, 'add-primary');
@@ -1171,15 +1616,56 @@ describe('the rack the tool hands down', () => {
 });
 
 /**
+ * Section 7.10's setting, over the same wiring and for the same reason as the rack.
+ *
+ * `.effort=${this.settings.effort}` on one line of `ptk-training-logbook` is the whole
+ * of it, and dropping it type-checks, lints, renders and passes every case above --
+ * the editor would simply never ask anybody for an effort, which is exactly what it
+ * correctly does for a lifter who has left the setting alone. Only a journey that goes
+ * through the settings the repository loaded can tell those two apart, so this is a
+ * pair rather than a case: the second half is what stops a binding hard-wired to a
+ * scale the tool picked for itself from passing the first.
+ */
+describe('the effort setting the tool hands down', () => {
+  it('reaches the editor from the settings the repository loaded', async () => {
+    const element = await mountTool({ effort: 'rir' });
+
+    await press(element, 'start-workout');
+    await press(element, 'add-primary');
+    await type(element, '135');
+    await press(element, 'start');
+    await press(element, 'edit');
+
+    const row = setRow(element, 0);
+    expect(editorFields(row)).toEqual([DONE_WEIGHT_FIELD, DONE_REPS_FIELD, DONE_EFFORT_FIELD]);
+    // Named for the scale the settings hold and not for the other one, or the
+    // binding could be reading any of the three answers and still draw a box.
+    expect(fieldLabel(row, DONE_EFFORT_FIELD)).toBe(EFFORT_FIELD_LABELS.rir);
+  });
+
+  it('asks for no effort where the lifter has never switched it on', async () => {
+    const element = await mountTool({});
+
+    await press(element, 'start-workout');
+    await press(element, 'add-primary');
+    await type(element, '135');
+    await press(element, 'start');
+    await press(element, 'edit');
+
+    expect(editorFields(setRow(element, 0))).toEqual([DONE_WEIGHT_FIELD, DONE_REPS_FIELD]);
+  });
+});
+
+/**
  * The whole tool over a store that keeps a session and reports itself durable.
  *
  * Durable so the save line settles on a phrase `settle()` can wait for, and in memory
  * rather than IndexedDB because nothing in this file is a claim about persistence --
  * `ptk-training-logbook.browser.test.ts` makes those, against a real database.
  */
-async function mountTool(equipment: EquipmentSnapshot | null): Promise<PtkTrainingLogbook> {
+async function mountTool(settings: Partial<LogbookSettings>): Promise<PtkTrainingLogbook> {
   const store: LogbookStore = { ...memoryLogbookStore(), durable: true };
-  await store.writeSettings({ ...defaultSettings(), equipment });
+  await store.writeSettings({ ...defaultSettings(), ...settings });
 
   const element = document.createElement('ptk-training-logbook');
   let next = 0;
