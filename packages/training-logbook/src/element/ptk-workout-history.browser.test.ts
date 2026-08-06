@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The history list and its Repeat control, in a real browser.
+ * The history list and its two controls, in a real browser.
  *
  * Mounted on its own rather than through `ptk-training-logbook`, unlike the equipment
  * suite next door. Nothing here is a conversation between elements: the list takes
@@ -39,8 +39,10 @@ import type { CalendarDay, LogbookId, WorkoutStatus } from '../types.js';
 import { HISTORY_NOTES, HOME_NOTES, WORKOUT_STATUSES } from './copy.js';
 import { defineTrainingLogbook } from './index.js';
 import {
+  WORKOUT_OPEN_EVENT,
   WORKOUT_REPEAT_EVENT,
   type PtkWorkoutHistory,
+  type WorkoutOpenDetail,
   type WorkoutRepeatDetail,
 } from './ptk-workout-history.js';
 
@@ -220,6 +222,11 @@ function repeatButtons(element: PtkWorkoutHistory): HTMLElement[] {
   return deepAll(shadow(element), '[data-action="repeat-workout"]');
 }
 
+/** Every Open control on the screen. Unlike the Repeats, these are never withdrawn. */
+function openButtons(element: PtkWorkoutHistory): HTMLElement[] {
+  return deepAll(shadow(element), '[data-action="open-workout"]');
+}
+
 /**
  * The `<button>` inside a `ptk-button`.
  *
@@ -238,6 +245,12 @@ function innerButton(host: HTMLElement): HTMLButtonElement {
 /** Presses the Repeat on one row, by position, the way a thumb does. */
 async function pressRepeat(element: PtkWorkoutHistory, index: number): Promise<void> {
   innerButton(one(row(element, index), '[data-action="repeat-workout"]')).click();
+  await element.updateComplete;
+}
+
+/** Presses the Open on one row, by position. */
+async function pressOpen(element: PtkWorkoutHistory, index: number): Promise<void> {
+  innerButton(one(row(element, index), '[data-action="open-workout"]')).click();
   await element.updateComplete;
 }
 
@@ -260,6 +273,19 @@ function repeatsHeardOn(target: EventTarget): WorkoutRepeatDetail[] {
   return seen;
 }
 
+/** The same, for the other event. Two rows now dispatch and they must not be swapped. */
+function opensHeardOn(target: EventTarget): WorkoutOpenDetail[] {
+  const seen: WorkoutOpenDetail[] = [];
+  const listener = (event: Event): void => {
+    if (event instanceof CustomEvent) seen.push(event.detail as WorkoutOpenDetail);
+  };
+  target.addEventListener(WORKOUT_OPEN_EVENT, listener);
+  teardown.push(() => {
+    target.removeEventListener(WORKOUT_OPEN_EVENT, listener);
+  });
+  return seen;
+}
+
 describe('a history with nothing in it', () => {
   it('says nothing is logged yet rather than leaving a heading over an empty box', async () => {
     // The state most likely to read as a failed read. A heading over nothing is
@@ -272,6 +298,7 @@ describe('a history with nothing in it', () => {
     // Nothing to repeat, so nothing offers to. A screen reader landing on a Repeat
     // with no row under it has been sent somewhere that does not exist.
     expect(repeatButtons(element)).toHaveLength(0);
+    expect(openButtons(element)).toHaveLength(0);
   });
 });
 
@@ -434,18 +461,64 @@ describe('asking to do one of them again', () => {
     );
   });
 
-  it('ignores a press on anything in a row that is not the Repeat', async () => {
+  it('ignores a press on anything in a row that is not one of the two controls', async () => {
     // A row is a title, a date, a list of lifts and four facts, and all of it is
     // inside the node carrying `data-workout`. Without the action check every one of
     // those would start a workout -- silently, from a tap that looks like scrolling.
     const element = await mount(threeWorkouts());
-    const asked = repeatsHeardOn(element);
+    const repeats = repeatsHeardOn(element);
+    const opens = opensHeardOn(element);
 
     one(row(element, 1), '.name').click();
     row(element, 1).click();
     await element.updateComplete;
 
-    expect(asked).toEqual([]);
+    expect(repeats).toEqual([]);
+    expect(opens).toEqual([]);
+  });
+});
+
+describe('opening a workout', () => {
+  it('asks for the row that was pressed, and never repeats it by mistake', async () => {
+    // Two controls on every row, drawn from the same template, one row apart in the
+    // markup. Reading the action off the wrong node -- or falling through the switch
+    // to the second case -- starts a session from a press that meant to read one, and
+    // a lifter mid-workout would find out by being told they already have one open.
+    const element = await mount(threeWorkouts());
+    const opens = opensHeardOn(element);
+    const repeats = repeatsHeardOn(element);
+
+    await pressOpen(element, 1);
+
+    expect(opens).toHaveLength(1);
+    expect(opens[0]?.id).toBe('past-b');
+    expect(repeats).toEqual([]);
+  });
+
+  it('is heard outside the shadow root it was dispatched in', async () => {
+    const element = await mountInsideAShadowRoot(threeWorkouts());
+    const opens = opensHeardOn(document.body);
+
+    await pressOpen(element, 2);
+
+    expect(opens).toHaveLength(1);
+    expect(opens[0]?.id).toBe('past-c');
+  });
+
+  it('names the row it belongs to, the same way the Repeat does', async () => {
+    const element = await mount([
+      aWorkout('past-a', { title: 'Squat day', localDate: MIDDLE }),
+      aWorkout('past-b', { title: null, localDate: EARLIEST }),
+    ]);
+
+    const [first, second] = openButtons(element);
+    if (first === undefined || second === undefined) throw new Error('Both rows want an Open.');
+    expect(innerButton(first).getAttribute('aria-label')).toBe(
+      `${HISTORY_NOTES.open}: Squat day, ${MIDDLE}`,
+    );
+    expect(innerButton(second).getAttribute('aria-label')).toBe(
+      `${HISTORY_NOTES.open}: ${HISTORY_NOTES.unnamed}, ${EARLIEST}`,
+    );
   });
 });
 
@@ -470,6 +543,25 @@ describe('a session already in progress', () => {
     expect(notes(element).filter((note) => note === HISTORY_NOTES.repeatBusy)).toHaveLength(1);
   });
 
+  it('keeps every Open, because reading last week cannot disturb this week', async () => {
+    // The reason the Repeats go is that only one session can be open at a time, and
+    // that reason says nothing about reading. Withdrawing both is the easy mistake --
+    // one `busy` guard around the whole action block -- and it takes the logbook away
+    // at the one moment it is most likely to be wanted, standing at the rack between
+    // sets wondering what the last set of five went at.
+    const element = await mount(threeWorkouts());
+    element.busy = true;
+    await element.updateComplete;
+
+    expect(openButtons(element)).toHaveLength(3);
+
+    const opens = opensHeardOn(element);
+    await pressOpen(element, 1);
+
+    expect(opens).toHaveLength(1);
+    expect(opens[0]?.id).toBe('past-b');
+  });
+
   it('offers them again once the session is over', async () => {
     // Paired with the case above for the same reason the notes mark is: a screen that
     // never drew the buttons would pass that one.
@@ -484,13 +576,17 @@ describe('a session already in progress', () => {
     expect(notes(element)).not.toContain(HISTORY_NOTES.repeatBusy);
   });
 
-  it('dispatches nothing while it is busy, whatever is pressed', async () => {
+  it('starts nothing while it is busy, whatever is pressed', async () => {
+    // Withdrawing the button is a rendering decision and the guard in the handler is
+    // the one that holds: a press can still arrive from a control the render has not
+    // caught up with, or from anything else in the row.
     const element = await mount(threeWorkouts());
     element.busy = true;
     await element.updateComplete;
     const asked = repeatsHeardOn(element);
 
     row(element, 2).click();
+    one(row(element, 2), '.name').click();
     await element.updateComplete;
 
     expect(asked).toEqual([]);

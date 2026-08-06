@@ -598,6 +598,43 @@ export const DONE_NOTES = {
 } as const;
 
 /**
+ * The sentences on a workout that has already been done. Section 5.4.
+ *
+ * The screen says what happened and stops. There is no summary line grading the
+ * session, no total tonnage, no comparison with the session before it -- section 9.1
+ * draws the line at "what did I do", and everything past it is the analytics this
+ * package is explicitly not. The one derived word here is "Edited", and it is derived
+ * from two numbers that are both on the row already.
+ */
+export const DETAIL_NOTES = {
+  /** Read from the workout where it has a name, so this is the fallback. */
+  heading: 'Workout',
+
+  /**
+   * What a finished workout with nothing in it says.
+   *
+   * It is reachable: plan a session, start it, finish it without ticking anything.
+   * A screen that drew an empty list under a heading would read as a failed load.
+   */
+  empty: 'Nothing was recorded in this workout.',
+
+  /** The workout could not be read back at all, which is not an empty workout. */
+  unreadable: 'That workout could not be read.',
+
+  /**
+   * The line under a set whose result differs from what was written down.
+   *
+   * Said as a fact and not as a shortfall. Section 15.3: a lifter who planned five
+   * and did three has recorded three, and a screen that framed the difference as a
+   * miss would be scoring the session. `setWasEdited` deliberately ignores effort,
+   * for the reason written where it is defined.
+   */
+  plannedLabel: 'Planned',
+
+  back: 'Back to the logbook',
+} as const;
+
+/**
  * The sentences the equipment library says.
  *
  * Two things are being said at once on that screen and the copy has to keep them
@@ -813,6 +850,15 @@ export const HISTORY_NOTES = {
 
   /** Section 4.4. On a row, so it says which workout without repeating its name. */
   repeat: 'Repeat',
+
+  /**
+   * Section 5.4's first history action.
+   *
+   * Offered while a session is open, unlike Repeat. Reading last week's numbers is
+   * one of the reasons to have the logbook out at the rack at all, and nothing about
+   * looking at a finished workout can disturb the one in progress.
+   */
+  open: 'Open',
 
   /**
    * Why no row offers to be repeated while a session is open.

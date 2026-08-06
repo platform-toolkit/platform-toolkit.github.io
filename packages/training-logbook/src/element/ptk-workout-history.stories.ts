@@ -85,7 +85,8 @@ type Story = StoryObj<PtkWorkoutHistory>;
  * sorted its own property would be sorting a page of a list it cannot see the rest of,
  * which is the bug that arrives the day this list is paginated.
  *
- * Every row carries Repeat, trailing, so a column of them lines up under one another.
+ * Every row carries Open and Repeat, trailing, so two columns of them line up under one
+ * another. Open is first because it is the one that is safe to press by accident.
  */
 export const SomeTraining: Story = {};
 
@@ -122,8 +123,10 @@ export const OneWorkout: Story = {
  * the reason is never about the row -- the same rule the builder's warm-up note is written
  * under.
  *
- * Nothing else on the page changes. The history stays readable while a workout is in
- * progress, which is the point of taking only the buttons away.
+ * Open stays on every row, and that is the half of this story worth checking. The reason
+ * Repeat goes is that only one session can be open at a time, and that reason says
+ * nothing about reading: standing at the rack between sets wondering what the last set of
+ * five went at is one of the reasons the logbook is out at all.
  */
 export const WorkoutInProgress: Story = {
   args: { busy: true },

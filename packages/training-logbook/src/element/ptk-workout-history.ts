@@ -7,11 +7,19 @@
  * Read-only about the past, deliberately and not provisionally. Editing history is a
  * later sub-task and section 0.4 is explicit that a milestone must not ship its journey
  * with dead controls in it, so there is no disabled Edit button here waiting to be
- * wired: a row that cannot be opened does not offer to open.
+ * wired: a row offers what can be done to it today and nothing else.
  *
- * Repeat is not an exception to that. It reads a row and writes a new workout dated
- * today, so nothing listed here changes -- which is also why the row it came from stays
- * exactly as it reads while the copy is being planned.
+ * Neither of the two things it offers changes anything listed here. Repeat reads a row
+ * and writes a *new* workout dated today, which is why the row it came from stays
+ * exactly as it reads while the copy is being planned. Open only reads.
+ *
+ * WHY OPEN SURVIVES `busy` AND REPEAT DOES NOT
+ *
+ * They are withdrawn for one reason and it applies to one of them. Repeat starts a
+ * session and there can only be one open at a time. Reading last week's numbers is one
+ * of the reasons the logbook is out at the rack at all, and there is no state in which
+ * looking at a finished workout could disturb the one in progress -- so the row keeps
+ * its Open, and the sentence above the list keeps saying only what it is about.
  *
  * WHY IT TAKES SUMMARIES AND NOT SESSIONS
  *
@@ -59,7 +67,23 @@ export interface WorkoutRepeatDetail {
   readonly id: LogbookId;
 }
 
+/**
+ * The lifter asked to see one of these.
+ *
+ * Separate from {@link WORKOUT_REPEAT_EVENT} rather than one event with a verb in it.
+ * The two are answered in different places -- one plans a session, one changes screen
+ * -- and a root switching on a field inside a detail would be a router with extra
+ * steps. Same payload, and for the same reason: a summary has no sets in it.
+ */
+export const WORKOUT_OPEN_EVENT = 'ptk-workout-open';
+
+/** Which workout to show. */
+export interface WorkoutOpenDetail {
+  readonly id: LogbookId;
+}
+
 const REPEAT_ACTION = 'repeat-workout';
+const OPEN_ACTION = 'open-workout';
 
 /**
  * "1 working set", "9 working sets".
@@ -145,7 +169,9 @@ export class PtkWorkoutHistory extends LitElement {
     .actions {
       margin-top: var(--ptk-space-xs);
       display: flex;
-      /* Trailing, so a column of rows puts every Repeat under the last one. */
+      flex-wrap: wrap;
+      gap: var(--ptk-space-xs);
+      /* Trailing, so a column of rows puts every last button under the last one. */
       justify-content: flex-end;
     }
   `;
@@ -213,41 +239,76 @@ export class PtkWorkoutHistory extends LitElement {
         }
         ${workout.hasNotes ? html`<span>${HISTORY_NOTES.hasNotes}</span>` : nothing}
       </p>
-      ${
-        this.busy
-          ? nothing
-          : html`<div class="actions">
-              <ptk-button
+      <div class="actions">
+        <ptk-button
+          variant="quiet"
+          data-action=${OPEN_ACTION}
+          accessible-name=${this.#spoken(HISTORY_NOTES.open, workout)}
+          >${HISTORY_NOTES.open}</ptk-button
+        >
+        ${
+          this.busy
+            ? nothing
+            : html`<ptk-button
                 variant="quiet"
                 data-action=${REPEAT_ACTION}
-                accessible-name=${`${HISTORY_NOTES.repeat}: ${
-                  workout.title ?? HISTORY_NOTES.unnamed
-                }, ${workout.localDate}`}
+                accessible-name=${this.#spoken(HISTORY_NOTES.repeat, workout)}
                 >${HISTORY_NOTES.repeat}</ptk-button
-              >
-            </div>`
-      }
+              >`
+        }
+      </div>
     </li>`;
   }
 
+  /**
+   * What a row's button is announced as.
+   *
+   * Two buttons a row and eight rows a screen is sixteen controls reading "Open" and
+   * "Repeat", so each says which workout it is for. It extends the visible word rather
+   * than replacing it, which is WCAG 2.5.3.
+   */
+  #spoken(action: string, workout: WorkoutSummary): string {
+    return `${action}: ${workout.title ?? HISTORY_NOTES.unnamed}, ${workout.localDate}`;
+  }
+
   readonly #onClick = (event: Event): void => {
-    // `busy` again, and not only in the template. Withdrawing the buttons is a decision
-    // about what is drawn; a press arriving from a stale frame, a synthetic click or a
-    // consumer's own markup does not go through the template at all. The root guards
-    // this too, but an element whose docblock says no row can start one has to be true
-    // on its own rather than by arrangement with its caller.
-    if (this.busy) return;
-    if (actionOf(event) !== REPEAT_ACTION) return;
     const id = workoutOf(event);
     if (id === null) return;
+    switch (actionOf(event)) {
+      case OPEN_ACTION:
+        this.#emit(WORKOUT_OPEN_EVENT, id);
+        return;
+      case REPEAT_ACTION:
+        // `busy` again, and not only in the template. Withdrawing the button is a
+        // decision about what is drawn; a press arriving from a stale frame, a
+        // synthetic click or a consumer's own markup does not go through the template
+        // at all. The root guards this too, but an element whose docblock says no row
+        // can start one has to be true on its own rather than by arrangement with its
+        // caller.
+        if (this.busy) return;
+        this.#emit(WORKOUT_REPEAT_EVENT, id);
+        return;
+      default:
+        return;
+    }
+  };
+
+  /**
+   * Both events, because both carry the same thing.
+   *
+   * `WorkoutOpenDetail` and `WorkoutRepeatDetail` are declared separately -- they are
+   * read by different code and are free to diverge -- and they are the same shape
+   * today, so one dispatcher takes the shape rather than either name.
+   */
+  #emit(name: string, id: LogbookId): void {
     this.dispatchEvent(
-      new CustomEvent<WorkoutRepeatDetail>(WORKOUT_REPEAT_EVENT, {
+      new CustomEvent<{ readonly id: LogbookId }>(name, {
         detail: { id },
         bubbles: true,
         composed: true,
       }),
     );
-  };
+  }
 }
 
 declare global {
@@ -257,5 +318,6 @@ declare global {
 
   interface HTMLElementEventMap {
     [WORKOUT_REPEAT_EVENT]: CustomEvent<WorkoutRepeatDetail>;
+    [WORKOUT_OPEN_EVENT]: CustomEvent<WorkoutOpenDetail>;
   }
 }

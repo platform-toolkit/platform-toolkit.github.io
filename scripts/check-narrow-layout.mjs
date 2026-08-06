@@ -1656,6 +1656,27 @@ const LOGBOOK_REPEAT_SETTLE = [
 ];
 
 /**
+ * The row's other button, which opens the session rather than starting a new one.
+ *
+ * In `clickLast` over `LOGBOOK_REPEAT_CLICK`, so the whole session-and-home journey
+ * above is walked once and paid for twice. The row it lands on is the same one --
+ * `li[data-workout]` for the reason the settle list above names it -- and the press
+ * cannot happen at all unless the finished workout came back out of storage.
+ */
+const LOGBOOK_OPEN_CLICK_LAST = [
+  'ptk-workout-history li[data-workout] ptk-button[data-action="open-workout"] button',
+];
+
+/**
+ * A set row on the opened workout.
+ *
+ * The read behind the press is asynchronous and writes nothing, so the storage line
+ * says Saved for the entire journey and cannot be waited on. A `li[data-set]` inside
+ * `ptk-workout-detail` exists only on the far side of a `getWorkout` that came back.
+ */
+const LOGBOOK_OPEN_SETTLE = ['ptk-workout-detail li[data-set]'];
+
+/**
  * The planner's two tiles, then the picker over them.
  *
  * The picker is here for one thing only: the longest exercise name the catalogue
@@ -2499,6 +2520,23 @@ const ROUTES = [
     fill: LOGBOOK_PLAN_FILL,
     clickAfter: LOGBOOK_REPEAT_CLICK,
     settle: LOGBOOK_REPEAT_SETTLE,
+  },
+  {
+    // Section 5.4's read-only screen, reached the only way it can be: the repeat
+    // route's whole journey, then the other button on the row it leaves behind.
+    // Nothing here has been measured at any width -- a set row is a kind, a load, a
+    // status and sometimes an effort on one wrapping line, under an exercise heading,
+    // inside a card, and the planned line beneath an edited set is longer than any of
+    // them. The title a lifter typed heads the page and the ISO day sits under it,
+    // which is the same pairing the history row has and at a different depth.
+    path: '/logbook/',
+    label: '/logbook/ (a workout read back)',
+    click: LOGBOOK_PLAN_CLICK,
+    reveal: [],
+    fill: LOGBOOK_PLAN_FILL,
+    clickAfter: LOGBOOK_REPEAT_CLICK,
+    clickLast: LOGBOOK_OPEN_CLICK_LAST,
+    settle: LOGBOOK_OPEN_SETTLE,
   },
   {
     // Section 7.9's note surface, which arrived with two hazards nothing here

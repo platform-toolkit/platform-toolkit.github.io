@@ -75,6 +75,7 @@ import type {
 import {
   ACTIVE_NOTES,
   BUILDER_NOTES,
+  DETAIL_NOTES,
   DONE_NOTES,
   EFFORT_FIELD_LABELS,
   EFFORT_SETTING_NOTES,
@@ -760,6 +761,26 @@ async function repeat(element: PtkTrainingLogbook, row: HTMLElement): Promise<vo
     expect(setRows(element).length).toBeGreaterThan(0);
   });
   await settle(element);
+}
+
+/**
+ * Presses Open on a row and waits for the workout to be on screen.
+ *
+ * Waits on the detail element rather than on `setRows`, which the home screen has none
+ * of and the detail screen has plenty: the read behind the press is asynchronous, and a
+ * helper that returned as soon as the click landed would assert against the home screen
+ * it left. `settle` alone would do the same -- nothing is written by opening a workout,
+ * so the storage line says Saved for the whole journey.
+ */
+async function open(element: PtkTrainingLogbook, row: HTMLElement): Promise<HTMLElement> {
+  nativeButton(control(row, 'open-workout')).click();
+  await vi.waitFor(async () => {
+    await element.updateComplete;
+    expect(deepAll(shadow(element), 'ptk-workout-detail')).toHaveLength(1);
+  });
+  const screen = deepAll(shadow(element), 'ptk-workout-detail')[0];
+  if (screen === undefined) throw new Error('The workout did not open.');
+  return screen;
 }
 
 /**
@@ -1760,6 +1781,105 @@ describe('the training logbook', () => {
       // saved, so it had better be.
       expect(await store.readActiveId()).toBeNull();
       expect(await store.readWorkouts()).toHaveLength(1);
+    });
+  });
+
+  /**
+   * Section 5.4, from the row to the record.
+   *
+   * The leaf suites either side of this one prove that a row dispatches an identifier
+   * and that a detail screen draws a session it is handed. Neither can see the read in
+   * between, which is the whole of this journey: the identifier off a press has to reach
+   * `getWorkout`, and what comes back has to be the workout that was pressed rather than
+   * the one the tool happened to have in hand.
+   *
+   * On the durable store, because a read is only interesting where something was
+   * written down first.
+   */
+  describe('reading a workout back', () => {
+    it('opens the workout that was pressed, with what was actually lifted on it', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+
+      const screen = await open(element, await historyRow(element, source.id));
+
+      const said = readAll(screen);
+      expect(said).toContain(REPEATED_TITLE);
+      expect(said).toContain(REPEATED_DAY);
+      // Every set of the source, not a summary of them: the summary on the row it was
+      // opened from already had the count, and the sets are the reason to press it.
+      expect(deepAll(shadow(screen), 'li[data-set]')).toHaveLength(
+        source.exercises.flatMap((exercise) => exercise.sets).length,
+      );
+      expect(said).toContain(formatWeight({ amount: REPEATED_WEIGHT, unit: 'kg' }));
+      // Read and not started. A press that quietly began a session would look almost
+      // right -- a screenful of the same sets -- and would be the tool writing to a
+      // history it was asked to show.
+      expect(await store.readActiveId()).toBeNull();
+      expect(await store.readWorkout(source.id)).toEqual(source);
+    });
+
+    it('goes back to the home screen with the history still on it', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+      await open(element, await historyRow(element, source.id));
+
+      nativeButton(control(shadow(element), 'home')).click();
+      await settle(element);
+
+      // The row is back, which means the history was read again rather than kept: going
+      // home is the one route in this tool that reloads it, and a detail screen that
+      // returned to a stale list would be the first place that showed.
+      await historyRow(element, source.id);
+      expect(deepAll(shadow(element), 'ptk-workout-detail')).toHaveLength(0);
+      expect(deepAll(shadow(element), '[data-action="start-workout"]')).toHaveLength(1);
+    });
+
+    it('says the workout could not be read, instead of drawing an empty one', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(unreadable(store));
+
+      const screen = await open(element, await historyRow(element, source.id));
+
+      // The screen changes even though the read failed. A press that appeared to do
+      // nothing gets pressed again, and the second press fails the same way.
+      expect(readAll(screen)).toContain(DETAIL_NOTES.unreadable);
+      // And it does not read as "you did nothing that day", which is the other sentence
+      // this screen has and the wrong one here.
+      expect(readAll(screen)).not.toContain(DETAIL_NOTES.empty);
+    });
+
+    it('opens a past workout while a session is in progress', async () => {
+      const { store, databaseName } = await durableStore();
+      const source = await seedRepeatable(store);
+      const first = await mount(store);
+      await planASquatSession(first);
+      const openSession = await store.readActiveId();
+
+      // The refresh for the reason the repeat case above needs one: nothing on the
+      // logging screen goes back, so reopening the tool is the only way to stand on the
+      // home screen with a workout still in progress.
+      first.remove();
+      store.close();
+      const reopened = await reopen(databaseName);
+      const element = await mount(reopened);
+      expect(readAll(element)).toContain(HOME_NOTES.resumeNote);
+
+      const screen = await open(element, await historyRow(element, source.id));
+
+      // Reading last week cannot disturb this week. The Repeats are withdrawn while a
+      // session is open and Open is not, because only one of those two starts anything.
+      expect(readAll(screen)).toContain(REPEATED_TITLE);
+      expect(await reopened.readActiveId()).toBe(openSession);
+
+      // And the session is still waiting when the lifter comes back out.
+      nativeButton(control(shadow(element), 'home')).click();
+      await settle(element);
+      expect(readAll(element)).toContain(HOME_NOTES.resumeNote);
+      expect(await reopened.readActiveId()).toBe(openSession);
     });
   });
 

@@ -99,6 +99,7 @@ import type {
 } from '../types.js';
 
 import {
+  DETAIL_NOTES,
   DONE_NOTES,
   EFFORT_SETTING_LABELS,
   EFFORT_SETTING_NOTES,
@@ -148,7 +149,12 @@ import {
 } from './ptk-exercise-library.js';
 import type { PlannedExercise } from './plan.js';
 import { WORKOUT_PLANNED_EVENT, type WorkoutPlannedDetail } from './ptk-workout-builder.js';
-import { WORKOUT_REPEAT_EVENT, type WorkoutRepeatDetail } from './ptk-workout-history.js';
+import {
+  WORKOUT_OPEN_EVENT,
+  WORKOUT_REPEAT_EVENT,
+  type WorkoutOpenDetail,
+  type WorkoutRepeatDetail,
+} from './ptk-workout-history.js';
 
 /** The tag `defineTrainingLogbook()` registers this under. */
 export const TRAINING_LOGBOOK_TAG = 'ptk-training-logbook';
@@ -156,11 +162,16 @@ export const TRAINING_LOGBOOK_TAG = 'ptk-training-logbook';
 /**
  * Which screen is showing.
  *
- * A union rather than a router. This tool is four screens with one path between them,
+ * A union rather than a router. This tool is five screens with one path between them,
  * and a URL per screen would put a lifter's session in their history -- a back button
  * that unwinds a workout is worse than one that leaves the page.
+ *
+ * `detail` is the one that is reached and left rather than passed through, and it is
+ * still not a route. It is also the only screen reachable while a session is open:
+ * looking up what a lift was done for last month is a thing done mid-workout, and the
+ * live session is untouched behind it.
  */
-type Screen = 'home' | 'build' | 'active' | 'done';
+type Screen = 'home' | 'build' | 'active' | 'done' | 'detail';
 
 const START_ACTION = 'start-workout';
 const RESUME_ACTION = 'resume-workout';
@@ -370,6 +381,19 @@ export class PtkTrainingLogbook extends LitElement {
   /** Whether the last Repeat press failed to read its workout back. */
   @state() private repeatFailed = false;
 
+  /**
+   * The finished workout being read, or `null` where it could not be read back.
+   *
+   * A session and not a summary, and read on the press rather than held for every row
+   * in the list. Section 17.2: twenty rows on the home screen are twenty summaries,
+   * and the sets behind one of them are fetched when somebody asks to see them.
+   *
+   * `null` is also what an unreadable workout looks like, and the screen says so. The
+   * alternative -- staying on the home screen with a note under the list -- makes a
+   * press that reached storage and failed look like a press that missed the button.
+   */
+  @state() private opened: WorkoutSession | null = null;
+
   /** `null` until the first read has told us whether this browser stores anything. */
   @state() private saveState: SaveState | null = null;
 
@@ -422,6 +446,7 @@ export class PtkTrainingLogbook extends LitElement {
     this.addEventListener(EXERCISE_SAVED_EVENT, this.#onExerciseSaved);
     this.addEventListener(EXERCISE_REMOVED_EVENT, this.#onExerciseRemoved);
     this.addEventListener(WORKOUT_REPEAT_EVENT, this.#onRepeat);
+    this.addEventListener(WORKOUT_OPEN_EVENT, this.#onOpen);
     this.addEventListener('click', this.#onClick);
   }
 
@@ -437,6 +462,7 @@ export class PtkTrainingLogbook extends LitElement {
     this.removeEventListener(PROFILE_REMOVED_EVENT, this.#onProfileRemoved);
     this.removeEventListener(EXERCISE_SAVED_EVENT, this.#onExerciseSaved);
     this.removeEventListener(EXERCISE_REMOVED_EVENT, this.#onExerciseRemoved);
+    this.removeEventListener(WORKOUT_OPEN_EVENT, this.#onOpen);
     this.removeEventListener(WORKOUT_REPEAT_EVENT, this.#onRepeat);
     this.removeEventListener('click', this.#onClick);
     super.disconnectedCallback();
@@ -532,6 +558,8 @@ export class PtkTrainingLogbook extends LitElement {
         return this.#activeScreen();
       case 'done':
         return this.#doneScreen();
+      case 'detail':
+        return this.#detailScreen();
       case 'home':
         return this.#homeScreen();
     }
@@ -739,6 +767,30 @@ export class PtkTrainingLogbook extends LitElement {
     `;
   }
 
+  /**
+   * A workout that is already done, with a way back and nothing else.
+   *
+   * No Repeat here, though section 5.4 lists it as a history action. It is on the row
+   * this screen was opened from, one press away, and putting it here as well would
+   * mean a second answer to what happens when the copy cannot be read -- the row's
+   * note is on the home screen, which is not the screen the press would have been on.
+   *
+   * Back rather than a browser back button, for the reason the {@link Screen} union
+   * exists. It goes through `HOME_ACTION`, so it reloads the history on the way -- a
+   * workout opened, read and returned from should not leave a stale list behind it.
+   */
+  #detailScreen(): TemplateResult {
+    return html`
+      ${this.#saveLine()}
+      <section class="section">
+        <ptk-workout-detail .session=${this.opened}></ptk-workout-detail>
+        <div class="actions">
+          <ptk-button variant="primary" data-action=${HOME_ACTION}>${DETAIL_NOTES.back}</ptk-button>
+        </div>
+      </section>
+    `;
+  }
+
   /** Section 18.9's phrase, on every screen rather than only on the home one. */
   #saveLine(): TemplateResult | typeof nothing {
     const state = this.saveState;
@@ -922,6 +974,33 @@ export class PtkTrainingLogbook extends LitElement {
     stopHere(event);
     void this.#repeat(event.detail.id);
   };
+
+  readonly #onOpen = (event: CustomEvent<WorkoutOpenDetail>): void => {
+    stopHere(event);
+    void this.#open(event.detail.id);
+  };
+
+  /**
+   * Reads a finished workout back and shows it. Section 5.4.
+   *
+   * The screen changes whatever the read returns, including on a throw. A press that
+   * appeared to do nothing is the worst of the three outcomes -- a lifter presses it
+   * again, and again -- and the detail screen has a sentence for a workout it has not
+   * got, which is the same sentence for a row storage no longer holds and for a
+   * database that would not open. To somebody looking at the row those are one event.
+   *
+   * No `active` guard, unlike {@link #repeat}. Nothing here writes.
+   */
+  async #open(id: LogbookId): Promise<void> {
+    const repository = this.repository;
+    if (repository === null) return;
+    try {
+      this.opened = await repository.getWorkout(id);
+    } catch {
+      this.opened = null;
+    }
+    this.screen = 'detail';
+  }
 
   /**
    * Does a listed workout again, as a fresh session dated today.
@@ -1354,6 +1433,11 @@ export class PtkTrainingLogbook extends LitElement {
         this.backupDone = false;
         this.unramped = [];
         this.repeatFailed = false;
+        // Dropped rather than kept for a second visit. It is a whole session held in
+        // memory, and the next press re-reads it in a few milliseconds -- while a
+        // stale copy would redraw the workout as it was before an edit somewhere else
+        // changed it.
+        this.opened = null;
         void this.#reload();
         return;
       case BACKUP_ACTION:
