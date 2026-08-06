@@ -14,6 +14,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./field-reading": {
+      "types": "./dist/field-reading.d.ts",
+      "default": "./dist/field-reading.js"
+    },
     "./tokens.css": "./src/tokens.css"
   },
   "scripts": {
@@ -21,6 +25,7 @@
   },
   "dependencies": {
     "@platform-toolkit/configuration": "workspace:*",
+    "@platform-toolkit/domain": "workspace:*",
     "lit": "3.3.3"
   }
 }

@@ -202,6 +202,9 @@ importers:
       '@platform-toolkit/configuration':
         specifier: workspace:*
         version: link:../configuration
+      '@platform-toolkit/domain':
+        specifier: workspace:*
+        version: link:../domain
       lit:
         specifier: 3.3.3
         version: 3.3.3

@@ -22,13 +22,18 @@
  */
 import { convertWeight, formatWeight, type WeightUnit } from '@platform-toolkit/domain';
 import { createPreferenceStore, type PreferenceStore } from '@platform-toolkit/preferences';
-import { CHOICE_CHANGE_EVENT, type Choice, type ChoiceChangeDetail } from '@platform-toolkit/ui';
+import {
+  CHOICE_CHANGE_EVENT,
+  EQUIPMENT_CHANGE_EVENT,
+  type Choice,
+  type ChoiceChangeDetail,
+  type EquipmentChangeDetail,
+} from '@platform-toolkit/ui';
+import '@platform-toolkit/ui';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
 import { DEFAULT_EQUIPMENT, loadEquipment, saveEquipment, type Equipment } from './equipment.js';
-import { EQUIPMENT_CHANGE_EVENT, type EquipmentChangeDetail } from './ptk-equipment-setup.js';
-import './ptk-equipment-setup.js';
 import {
   LIFT_CHANGE_EVENT,
   LIFT_MOVE_EVENT,

@@ -1,17 +1,24 @@
 // Copyright 2026 Jason Smathers
 // SPDX-License-Identifier: Apache-2.0
 
-import { PtkChoiceGroup, PtkNumberField, PtkToggleGroup } from '@platform-toolkit/ui';
+import { CUSTOM_BAR_ID, DEFAULT_EQUIPMENT, type Equipment } from '@platform-toolkit/domain';
 // Every spacing and sizing declaration in these components reads a custom
 // property, and a declaration referencing an undefined one is dropped. Without
 // the stylesheet the layout measured below is not the shipped layout: padding
 // collapses to zero and the disclosure's rotated chevron lands two pixels past
 // the column it is supposed to sit inside.
-import '@platform-toolkit/ui/tokens.css';
+import './tokens.css';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { CUSTOM_BAR_ID, DEFAULT_EQUIPMENT, type Equipment } from './equipment.js';
+// Siblings by relative path, not through the barrel: from inside this package
+// `@platform-toolkit/ui` is the *built* copy, and the two spellings are two
+// modules whose second `customElements.define` throws. The three are imported
+// as values because the assertions narrow with `instanceof`, so the constructor
+// has to be the same one the source chain registered.
+import { PtkChoiceGroup } from './ptk-choice-group.js';
+import { PtkNumberField } from './ptk-number-field.js';
+import { PtkToggleGroup } from './ptk-toggle-group.js';
 import {
   EQUIPMENT_CHANGE_EVENT,
   type EquipmentChangeDetail,
@@ -192,6 +199,34 @@ describe('ptk-equipment-setup', () => {
     const summary = find(element, 'ptk-disclosure').getAttribute('summary');
     expect(summary).toContain('kg');
     expect(summary).toContain('20 kg');
+  });
+
+  it('is actually shut when it is shut, which needs `ptk-disclosure` registered', async () => {
+    // Not `mount`, which opens the fold. Every other test here opens it first,
+    // which is why deleting this element's own `import './ptk-disclosure.js'`
+    // used to survive the whole suite: an undefined custom element still renders
+    // its light DOM children, so the fold degrades into a permanently open block
+    // with every control present, correct and reachable by selector. `check:narrow`
+    // does not catch it either -- the built pages import the barrel, which
+    // registers the fold for them. Only a consumer reaching for this element on
+    // its own sees the bug, and that is exactly what this file does.
+    const element = document.createElement('ptk-equipment-setup');
+    element.equipment = RACK;
+    document.body.append(element);
+    teardown.push(() => {
+      element.remove();
+    });
+    await element.updateComplete;
+
+    // Deliberately no `import './ptk-disclosure.js'` at the top of this file and
+    // no `instanceof PtkDisclosure` here: importing the class to assert against
+    // would register the tag, and register it for the element under test too, so
+    // the assertion would pass on the strength of the test's own import.
+    //
+    // `checkVisibility` rather than `display`, because a closed `<details>` hides
+    // its contents with `content-visibility`, which `getComputedStyle` reports as
+    // a perfectly ordinary `display: block`.
+    expect(find(element, 'ptk-choice-group').checkVisibility()).toBe(false);
   });
 
   it('re-renders when the equipment is replaced after the first render', async () => {

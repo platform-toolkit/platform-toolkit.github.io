@@ -47,7 +47,8 @@
         "./packages/training-logbook/src/storage/index.ts"
       ],
       "@platform-toolkit/training-logbook/types": ["./packages/training-logbook/src/types.ts"],
-      "@platform-toolkit/ui": ["./packages/ui/src/index.ts"]
+      "@platform-toolkit/ui": ["./packages/ui/src/index.ts"],
+      "@platform-toolkit/ui/field-reading": ["./packages/ui/src/field-reading.ts"]
     }
   },
   // `build-constants.d.ts` is not a test, but a test that reaches the site's

@@ -42,6 +42,16 @@ const workspaceSource = [
   replacement: fileURLToPath(new URL(`./packages/${name}/src/index.ts`, import.meta.url)),
 }));
 
+// The one subpath a test reaches through. It exists so that `session.ts` -- pure,
+// and run in a bare Node project on purpose -- can have the field parsers without
+// pulling the element barrel, which calls `customElements.define` on import. Left
+// to the `exports` map it would resolve to `dist`, which is the stale-output trap
+// the block above exists to close, so it is aliased to source like the rest.
+workspaceSource.push({
+  find: /^@platform-toolkit\/ui\/field-reading$/,
+  replacement: fileURLToPath(new URL('./packages/ui/src/field-reading.ts', import.meta.url)),
+});
+
 /**
  * One project per workspace package.
  *

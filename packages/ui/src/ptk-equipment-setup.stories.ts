@@ -1,12 +1,18 @@
 // Copyright 2026 Jason Smathers
 // SPDX-License-Identifier: Apache-2.0
 
+import { CUSTOM_BAR_ID, DEFAULT_EQUIPMENT, type Equipment } from '@platform-toolkit/domain';
+import type { PtkEquipmentSetup } from '@platform-toolkit/ui';
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 
-import { CUSTOM_BAR_ID, DEFAULT_EQUIPMENT, type Equipment } from './equipment.js';
-import type { PtkEquipmentSetup } from './ptk-equipment-setup.js';
-import './ptk-equipment-setup.js';
+// Through the package entry, not the relative path beside this file -- and note
+// this is the opposite of what the test next door does. Storybook renders a
+// workspace package from its built output, so a relative import here would load
+// the source copy and define the tag a second time against the built one the
+// preview already pulled in. The registry throws and the story still looks
+// right, because the first definition won.
+import '@platform-toolkit/ui';
 
 /**
  * The rack, described once and remembered.

@@ -64,18 +64,14 @@ import {
 } from '@platform-toolkit/domain';
 import type { MeetFormat } from '@platform-toolkit/data-contracts';
 import {
+  EQUIPMENT_CHANGE_EVENT,
   NUMBER_FIELD_CHANGE_EVENT,
   SEGMENTED_CHANGE_EVENT,
+  type EquipmentChangeDetail,
   type NumberFieldChangeDetail,
   type SegmentedChangeDetail,
 } from '@platform-toolkit/ui';
 import '@platform-toolkit/ui';
-
-import {
-  EQUIPMENT_CHANGE_EVENT,
-  type EquipmentChangeDetail,
-} from '../warm-up/ptk-equipment-setup.js';
-import '../warm-up/ptk-equipment-setup.js';
 
 import {
   WARMUP_ATTEMPTS_DONE_LABEL,

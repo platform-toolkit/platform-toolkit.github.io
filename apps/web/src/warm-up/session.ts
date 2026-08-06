@@ -63,6 +63,17 @@ import {
   definePreference,
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
+// These were declared here until `ptk-equipment-setup` moved into `packages/ui`
+// and took its plate-pair counting with it. They return sentences rather than
+// codes, which is why they sit in the screen layer and not in `domain`; the two
+// ceilings are exported so `SESSION_PREFERENCES` below can state the same bound
+// the parser enforces instead of restating the number.
+//
+// Through the subpath, not the package entry. This module is pure and its tests
+// run in a bare Node project so that a DOM dependency introduced into it fails
+// rather than quietly working -- and the entry's first act is to define thirteen
+// custom elements.
+import { MAX_COUNT, MAX_WEIGHT, parseCount, parseWeight } from '@platform-toolkit/ui/field-reading';
 
 import { BAR_PRESETS, CUSTOM_BAR_ID, toBarbellSetup, type Equipment } from './equipment.js';
 
@@ -222,79 +233,6 @@ export function updateEntry(
     const rebuilt = next.weight !== entry.weight || next.barId !== entry.barId;
     return rebuilt ? { ...next, adjustments: [] } : next;
   });
-}
-
-/*
- * ---------------------------------------------------------------------------
- * Reading what was typed.
- * ---------------------------------------------------------------------------
- */
-
-/** A parsed field, or the sentence to show under it. */
-export type FieldReading =
-  | { readonly ok: true; readonly value: number }
-  | { readonly ok: false; readonly message: string }
-  /** Nothing typed yet. Not an error: an empty field is where every row starts. */
-  | { readonly ok: false; readonly message: null };
-
-const EMPTY: FieldReading = { ok: false, message: null };
-
-/**
- * The largest weight this will accept, in either unit.
- *
- * Not a judgement about anybody's squat. It is the point past which a typo has
- * clearly happened -- a missed decimal point turns 102.5 into 1025 -- and the
- * plate search would otherwise walk a table of tens of thousands of loadings to
- * answer a question nobody asked.
- */
-const MAX_WEIGHT = 2000;
-const MAX_COUNT = 20;
-
-/**
- * Reads a typed weight.
- *
- * Deliberately strict about what a number looks like: `Number('')` is zero and
- * `Number(' 12 ')` is twelve, so a field cleared by a lifter mid-thought would
- * otherwise parse as a bar-only session, and `parseFloat` would read `1o5` as one.
- */
-export function parseWeight(text: string, unit: WeightUnit): FieldReading {
-  const trimmed = text.trim();
-  if (trimmed === '') return EMPTY;
-  if (!/^\d*\.?\d+$/.test(trimmed)) {
-    return { ok: false, message: 'Enter a weight using digits, for example 102.5.' };
-  }
-  const value = Number(trimmed);
-  if (value <= 0) {
-    return { ok: false, message: 'Enter a weight above zero.' };
-  }
-  if (value > MAX_WEIGHT) {
-    return { ok: false, message: `Enter a weight of ${String(MAX_WEIGHT)} ${unit} or less.` };
-  }
-  return { ok: true, value };
-}
-
-/**
- * Reads a typed count of something. Whole numbers only -- there is no half a rep.
- *
- * `what` is the plural noun the messages are written around, and `max` is the
- * ceiling. Both are arguments because the equipment screen counts pairs of
- * plates against a different limit than a working set counts reps, and a second
- * copy of this function would be a second set of error sentences to keep in step.
- */
-export function parseCount(text: string, what: string, max: number = MAX_COUNT): FieldReading {
-  const trimmed = text.trim();
-  if (trimmed === '') return EMPTY;
-  if (!/^\d+$/.test(trimmed)) {
-    return { ok: false, message: `Enter how many ${what} as a whole number.` };
-  }
-  const value = Number(trimmed);
-  if (value < 1) {
-    return { ok: false, message: `Enter at least one of the ${what}.` };
-  }
-  if (value > max) {
-    return { ok: false, message: `Enter ${String(max)} ${what} or fewer.` };
-  }
-  return { ok: true, value };
 }
 
 /**

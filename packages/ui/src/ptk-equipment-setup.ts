@@ -4,10 +4,13 @@
 /**
  * What the lifter has: the unit, the bar, the collars, and the plates.
  *
- * A tool component rather than shared chrome. It knows that a 25 kg plate is
- * competition diameter and that a bar has a weight; `ptk-choice-group`,
- * `ptk-toggle-group` and `ptk-number-field` know none of that and are repeated
- * here once per question.
+ * Shared chrome, though it knows that a 25 kg plate is competition diameter and
+ * that a bar has a weight. Naming a domain concept was the old test for keeping
+ * an element in a tool; the real test is whether a second package would have to
+ * fork it. The training logbook became the third consumer and is itself a
+ * package, so it cannot import from `apps/web` -- and `ptk-plate-stack` had been
+ * here on the same footing all along. The vocabulary comes from
+ * `@platform-toolkit/domain`, so nothing is duplicated to pay for the move.
  *
  * It touches no storage. An `Equipment` arrives as a property and a new one
  * leaves on an event, which is what lets every state of this screen -- an empty
@@ -35,24 +38,6 @@
  * screen says is what the bar weighs.
  */
 import {
-  formatWeight,
-  type PlateDenomination,
-  type Weight,
-  type WeightUnit,
-} from '@platform-toolkit/domain';
-import {
-  CHOICE_CHANGE_EVENT,
-  NUMBER_FIELD_CHANGE_EVENT,
-  TOGGLE_GROUP_CHANGE_EVENT,
-  type Choice,
-  type ChoiceChangeDetail,
-  type NumberFieldChangeDetail,
-  type ToggleGroupChangeDetail,
-} from '@platform-toolkit/ui';
-import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
-import { customElement, property, state } from 'lit/decorators.js';
-
-import {
   BAR_PRESETS,
   COLLAR_PRESETS,
   CUSTOM_BAR_ID,
@@ -62,13 +47,30 @@ import {
   barLabel,
   denomination,
   describeEquipment,
+  formatWeight,
   microPlateState,
   setMicroPlates,
   toggleDenomination,
   updateDenomination,
   type Equipment,
-} from './equipment.js';
-import { parseCount, parseWeight } from './session.js';
+  type PlateDenomination,
+  type Weight,
+  type WeightUnit,
+} from '@platform-toolkit/domain';
+import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
+import { customElement, property, state } from 'lit/decorators.js';
+
+// `ptk-disclosure` is rendered but nothing else here imports it, and a
+// side-effect import is the only thing that registers it. Reaching the siblings
+// through the package barrel used to do this for free; from inside the package
+// that would be a self-import, so the fold would render as an inert element with
+// its children showing -- which looks close enough to right that a story and a
+// text assertion both pass.
+import './ptk-disclosure.js';
+import { parseCount, parseWeight } from './field-reading.js';
+import { CHOICE_CHANGE_EVENT, type Choice, type ChoiceChangeDetail } from './ptk-choice-group.js';
+import { NUMBER_FIELD_CHANGE_EVENT, type NumberFieldChangeDetail } from './ptk-number-field.js';
+import { TOGGLE_GROUP_CHANGE_EVENT, type ToggleGroupChangeDetail } from './ptk-toggle-group.js';
 
 /** Fired whenever the lifter changes anything about the rack. */
 export interface EquipmentChangeDetail {

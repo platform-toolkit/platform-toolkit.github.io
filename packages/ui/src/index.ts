@@ -7,7 +7,11 @@
  * Tools own their own domain logic and their own presentation. What they share
  * is the chrome: the theme, the tokens that theme is expressed in, and the small
  * number of elements that must look and behave identically wherever they appear.
- * Anything specific to one tool belongs in that tool, not here.
+ * An element earns a place here by having a second consumer that would otherwise
+ * fork it -- not by being free of domain vocabulary. `ptk-plate-stack` and
+ * `ptk-equipment-setup` both know what a plate weighs; they take that vocabulary
+ * from `@platform-toolkit/domain` rather than inventing it, which is what keeps
+ * the sharing honest.
  *
  * Design tokens are not exported from this module because they are CSS, not
  * JavaScript. Import them at `@platform-toolkit/ui/tokens.css`.
@@ -21,6 +25,7 @@ import './ptk-choice-group.js';
 import './ptk-copy-button.js';
 import './ptk-date-field.js';
 import './ptk-disclosure.js';
+import './ptk-equipment-setup.js';
 import './ptk-notice.js';
 import './ptk-number-field.js';
 import './ptk-plate-stack.js';
@@ -29,6 +34,19 @@ import './ptk-select.js';
 import './ptk-text-area.js';
 import './ptk-text-field.js';
 import './ptk-toggle-group.js';
+
+// Not an element. It is here because `ptk-equipment-setup` counts plate pairs
+// with it and the warm-up tool, which used to own it, still reads the same
+// sentences and the same two ceilings -- a second copy would be a second set of
+// error strings with a number interpolated into them, and the drift shows up as
+// a wrong sentence rather than as a failure.
+export {
+  MAX_COUNT,
+  MAX_WEIGHT,
+  parseCount,
+  parseWeight,
+  type FieldReading,
+} from './field-reading.js';
 
 export { PtkButton, type ButtonVariant } from './ptk-button.js';
 export {
@@ -48,6 +66,11 @@ export {
   PtkDisclosure,
   type DisclosureToggleDetail,
 } from './ptk-disclosure.js';
+export {
+  EQUIPMENT_CHANGE_EVENT,
+  PtkEquipmentSetup,
+  type EquipmentChangeDetail,
+} from './ptk-equipment-setup.js';
 export { PtkNotice, type NoticeTone } from './ptk-notice.js';
 export { PtkPlateStack } from './ptk-plate-stack.js';
 export {

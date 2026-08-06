@@ -31,6 +31,7 @@ import {
   type ChoiceChangeDetail,
   type NumberFieldChangeDetail,
 } from '@platform-toolkit/ui';
+import { parseCount, parseWeight, type FieldReading } from '@platform-toolkit/ui/field-reading';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 
@@ -38,14 +39,11 @@ import { BAR_PRESETS, CUSTOM_BAR_ID, barLabel, type Equipment } from './equipmen
 import {
   adjustableWarmups,
   markKey,
-  parseCount,
-  parseWeight,
   planFor,
   sessionRows,
   withAdjustment,
   type AdjustableWarmup,
   type Completion,
-  type FieldReading,
   type LiftEntry,
   type SessionRow,
 } from './session.js';
