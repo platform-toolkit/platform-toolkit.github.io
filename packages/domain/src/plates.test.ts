@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildLoadingTable,
+  describeChange,
   emptyImplement,
   findLoading,
   plateChange,
@@ -282,5 +283,33 @@ describe('plateChange', () => {
     const change = plateChange(at(95), at(132));
     expect(change.removed).toEqual([...change.removed].sort((left, right) => right - left));
     expect(change.added).toEqual([...change.added].sort((left, right) => right - left));
+  });
+});
+
+describe('describeChange', () => {
+  it('says what to add when nothing comes off', () => {
+    expect(describeChange({ removed: [], added: [20] }, 'kg')).toBe('Add 20 kg per side');
+  });
+
+  it('says what to take off when nothing goes on', () => {
+    expect(describeChange({ removed: [5], added: [] }, 'kg')).toBe('Take off 5 kg per side');
+  });
+
+  it('says what to take off and what to put on when both happen', () => {
+    // "Take off 10, add 15" and "add 5" are the same arithmetic and different
+    // amounts of work at the rack, and only the first needs warning about.
+    expect(describeChange({ removed: [10], added: [15] }, 'kg')).toBe(
+      'Take off 10 kg, add 15 kg per side',
+    );
+  });
+
+  it('joins several plates a side rather than totalling them', () => {
+    expect(describeChange({ removed: [], added: [25, 10, 2.5] }, 'kg')).toBe(
+      'Add 25 kg + 10 kg + 2.5 kg per side',
+    );
+  });
+
+  it('says nothing when nothing moves', () => {
+    expect(describeChange({ removed: [], added: [] }, 'kg')).toBe('');
   });
 });

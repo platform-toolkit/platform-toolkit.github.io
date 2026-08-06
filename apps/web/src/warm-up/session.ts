@@ -44,7 +44,6 @@ import {
   adjustWarmups,
   convertWeight,
   findLift,
-  formatWeight,
   planWarmup,
   roundForDisplay,
   warmupSteps,
@@ -811,15 +810,4 @@ export function saveCompletion(
     }
   }
   store.write(SESSION_PREFERENCES.marks, stored);
-}
-
-/** A short description of what to move, for the line under a checklist row. */
-export function describeChange(change: PlateChange, unit: WeightUnit): string {
-  const list = (weights: readonly number[]): string =>
-    weights.map((weight) => formatWeight({ amount: weight, unit })).join(' + ');
-
-  if (change.removed.length === 0 && change.added.length === 0) return '';
-  if (change.removed.length === 0) return `Add ${list(change.added)} per side`;
-  if (change.added.length === 0) return `Take off ${list(change.removed)} per side`;
-  return `Take off ${list(change.removed)}, add ${list(change.added)} per side`;
 }

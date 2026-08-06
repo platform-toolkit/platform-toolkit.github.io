@@ -95,6 +95,8 @@ export {
   type SessionContext,
 } from './session.js';
 
+export { sessionLoadings, type SetLoading } from './loading.js';
+
 export {
   byMostRecent,
   isWorkingSet,

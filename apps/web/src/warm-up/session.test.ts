@@ -12,7 +12,6 @@ import {
   addLift,
   adjustableWarmups,
   convertEntryWeights,
-  describeChange,
   loadCompletion,
   loadEntries,
   markKey,
@@ -450,24 +449,6 @@ describe('withAdjustment', () => {
     // drop whichever sets were adjusted last rather than the ones highest up.
     const list = withAdjustment(withAdjustment([], 4, 90), 2, 65);
     expect(list.map((adjustment) => adjustment.index)).toEqual([2, 4]);
-  });
-});
-
-describe('describeChange', () => {
-  it('says what to add when nothing comes off', () => {
-    expect(describeChange({ removed: [], added: [20] }, 'kg')).toBe('Add 20 kg per side');
-  });
-
-  it('says what to take off and what to put on when both happen', () => {
-    // "Remove 10, add 25" and "add 20" are different amounts of work at the
-    // rack, and only the first needs warning about.
-    expect(describeChange({ removed: [10], added: [15] }, 'kg')).toBe(
-      'Take off 10 kg, add 15 kg per side',
-    );
-  });
-
-  it('says nothing when nothing moves', () => {
-    expect(describeChange({ removed: [], added: [] }, 'kg')).toBe('');
   });
 });
 

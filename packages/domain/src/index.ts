@@ -378,6 +378,7 @@ export {
 export {
   LOADING_TOLERANCE,
   buildLoadingTable,
+  describeChange,
   emptyImplement,
   findLoading,
   plateChange,

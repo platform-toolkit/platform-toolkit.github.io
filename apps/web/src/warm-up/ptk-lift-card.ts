@@ -18,6 +18,7 @@
  * from a story or a test with no storage and no session behind it.
  */
 import {
+  describeChange,
   formatWeight,
   type WarmupAdvisory,
   type WarmupPlan,
@@ -36,7 +37,6 @@ import { customElement, property } from 'lit/decorators.js';
 import { BAR_PRESETS, CUSTOM_BAR_ID, barLabel, type Equipment } from './equipment.js';
 import {
   adjustableWarmups,
-  describeChange,
   markKey,
   parseCount,
   parseWeight,

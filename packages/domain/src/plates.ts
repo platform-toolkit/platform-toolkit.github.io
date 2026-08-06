@@ -31,7 +31,7 @@
  * the total is the bar plus twice the side. There is no asymmetric loading in
  * this collection and there should not be one: it is a way to injure somebody.
  */
-import { convertWeight, type Weight, type WeightUnit } from './weight.js';
+import { convertWeight, formatWeight, type Weight, type WeightUnit } from './weight.js';
 
 /** One size of plate, and how many pairs of it exist. */
 export interface PlateDenomination {
@@ -351,8 +351,16 @@ export interface PlateChange {
  * side" and "remove 10, add 25 per side" are different amounts of work and the
  * second is the one a lifter needs warning about. Plates common to both sides of
  * the change stay on the bar and are not mentioned.
+ *
+ * Only the plates, deliberately. A `Loading` satisfies it, but a caller holding
+ * nothing but a plate list -- an empty bar, or a row it is walking a chain along
+ * -- should not have to invent a total to ask the question, because an invented
+ * total is a number nothing reads and everything trusts.
  */
-export function plateChange(from: Loading, to: Loading): PlateChange {
+export function plateChange(
+  from: Pick<Loading, 'perSide'>,
+  to: Pick<Loading, 'perSide'>,
+): PlateChange {
   const remaining = new Map<number, number>();
   for (const weight of from.perSide) {
     const key = Math.round(weight * HUNDREDTHS);
@@ -379,4 +387,30 @@ export function plateChange(from: Loading, to: Loading): PlateChange {
 
   const heaviestFirst = (left: number, right: number): number => right - left;
   return { removed: removed.sort(heaviestFirst), added: added.sort(heaviestFirst) };
+}
+
+/**
+ * What to move, in one line, for the row under a set.
+ *
+ * Here rather than in whichever tool needed it first, because two tools now show
+ * a lifter the same instruction about the same bar. Two copies of this wording
+ * would not diverge by anybody rewriting one -- they would diverge because a
+ * plural got fixed on the screen somebody was looking at, and then the warm-up
+ * card and the logbook card would be giving subtly different instructions for
+ * the same change. The plate maths already lives in `plateChange`; the sentence
+ * about it belongs beside it.
+ *
+ * An empty change is an empty string rather than "No change", so a caller can
+ * decide whether a row that needs nothing moved says so or says nothing. Most
+ * say nothing: the bar is already right, and a line confirming it is a line to
+ * read at every rung of a ramp.
+ */
+export function describeChange(change: PlateChange, unit: WeightUnit): string {
+  const list = (weights: readonly number[]): string =>
+    weights.map((weight) => formatWeight({ amount: weight, unit })).join(' + ');
+
+  if (change.removed.length === 0 && change.added.length === 0) return '';
+  if (change.removed.length === 0) return `Add ${list(change.added)} per side`;
+  if (change.added.length === 0) return `Take off ${list(change.removed)} per side`;
+  return `Take off ${list(change.removed)}, add ${list(change.added)} per side`;
 }
