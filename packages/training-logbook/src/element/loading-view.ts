@@ -60,7 +60,14 @@ export function renderLoading(
         ${renderChange(loading, unit)}
       </div>`;
     case 'not-loadable':
-      return html`<p class="loading-note">${describeGap(loading.below, loading.above, unit)}</p>`;
+      // `refusal` as well as `loading-note`, which the change line above also carries.
+      // The two read alike and behave nothing alike -- one is a wrapping paragraph drawn
+      // in place of the plates, the other a short line under them -- and the only thing
+      // separating them otherwise is how deep they sit, so the obvious selector picks the
+      // wrong one and a check written with it measures a screen that is never in trouble.
+      return html`<p class="loading-note refusal">
+        ${describeGap(loading.below, loading.above, unit)}
+      </p>`;
   }
 }
 

@@ -8,6 +8,20 @@ moment it changes, the screen says on every page whether that storage is really 
 way training leaves the device is a JSON file the lifter downloads. That is the whole data model,
 and it is the reason the tool is usable in a basement gym with one bar of signal.
 
+Describe your rack once — the bar, the plates in the box, the collars — and save it under a name,
+which is how anybody who trains in two rooms switches between them instead of retyping an inventory.
+Everything else follows from knowing what is on the floor. Each set on the logging screen draws what
+goes on each end of the bar and what to change since the set before it. A weight the plates cannot
+build is named as one, with the nearest weights they can build either side of it, and the number the
+lifter typed is left exactly as it was typed. A planned lift the catalogue knows a warm-up family
+for can be ticked to have its ramp worked out when the session starts, by calling the warm-up
+calculator's rules rather than keeping a second copy of them.
+
+A session already set up in that calculator can be landed here whole. It travels through this
+device's own storage rather than through a link: a URL carrying a session carries it into the
+address bar, the history and the next site's `Referer`, which is the opposite of what this tool
+promises.
+
 **It does not tell anybody what to lift.** A missed set is recorded and not scored, an effort rating
 is stored and not interpreted, and nothing here derives a programme from a history. Prescribing is a
 different tool with a different burden of proof; a logbook that quietly started coaching would be
@@ -94,6 +108,7 @@ pnpm add @platform-toolkit/training-logbook
 | `@platform-toolkit/training-logbook`         | The pure rules and the vocabulary, re-exported. Start here.             |
 | `@platform-toolkit/training-logbook/core`    | The pure rules alone. No Lit, no DOM, no storage, no network, no clock. |
 | `@platform-toolkit/training-logbook/element` | The custom elements and `defineTrainingLogbook()`.                      |
+| `@platform-toolkit/training-logbook/handoff` | The calculator's record, the key it travels in, and the reader over it. |
 | `@platform-toolkit/training-logbook/storage` | The storage port, two adapters, and the repository built over them.     |
 | `@platform-toolkit/training-logbook/types`   | The persisted vocabulary as types only.                                 |
 
@@ -125,7 +140,7 @@ The call is explicit rather than a side effect of the import, and it is safe to 
 times from any number of modules. The custom element registry is a global that throws on a second
 write, so a package that registered its tags on import would hand you a `NotSupportedError` from a
 file you did not write, before a line of your own code ran, the first time a bundler failed to
-dedupe it. Four tags are registered together; three of them render inside the fourth, and
+dedupe it. All the tags go in together, and every one but the root renders inside the root, so
 registering only the root would give you a blank tool with a clean console.
 
 `tokens.css` is a stylesheet, not a framework — the design tokens the elements read for colour,
@@ -145,6 +160,7 @@ including tap targets below the 44 px floor the gym flow is built to.
 | `now`                | `() => Instant`                     | The current instant as an ISO string. Called, never cached.    |
 | `nextId`             | `() => LogbookId`                   | A fresh opaque identifier. Defaults to `crypto.randomUUID()`.  |
 | `applicationVersion` | `string`                            | Stamped into a backup file, for a human reading it much later. |
+| `handoff`            | `HandoffSource \| null`             | Where a session handed over by the warm-up calculator waits.   |
 
 `today` is a string and not a `Date` on purpose: `new Date('2026-05-15')` is midnight UTC, which is
 the fourteenth of May anywhere west of Greenwich — and a training log is a record of which day
@@ -184,6 +200,44 @@ element uses, and that is where the rules about what may be written when live.
 another tab holding an older version open. Catch it and fall back to `memoryLogbookStore()`, which
 is what this repository's own shell does. The error type has nowhere to put a workout, a note or an
 exercise name, and that is the enforcement of the privacy rule rather than a habit.
+
+### The handoff reader is the other thing you supply
+
+A session set up in the warm-up calculator reaches the logbook through storage on the same origin,
+and the element reads it through a reader you hand in — for the reason it takes a repository rather
+than opening one. `./handoff` is that subpath, and it stands on its own so that the tool _writing_ a
+record takes none of the rest of this package with it.
+
+```js
+import { createHandoffSource } from '@platform-toolkit/training-logbook/handoff';
+
+element.handoff = createHandoffSource(
+  {
+    read: (key) => localStorage.getItem(key),
+    write: (key, value) => localStorage.setItem(key, value),
+    remove: (key) => localStorage.removeItem(key),
+  },
+  { now: () => Date.now() },
+);
+```
+
+The reader is asked once, when the property arrives, and never on a render path: `peek()` goes to
+storage and parses a document. It does not consume what it finds, so the offer survives a reload,
+and only a record that can never be used — unparseable, or older than the hour `HANDOFF_MAX_AGE_MS`
+allows — is forgotten in passing. Leave `handoff` unset and the home screen never offers anything,
+which is the right answer on a page with no sibling calculator.
+
+**Do not give a framed copy a reader.** A third-party frame is handed storage partitioned to the
+embedding site, and the calculator wrote its record to the top-level origin, so the key the reader
+is looking for has never existed there and never will. What that buys is a reader that always
+answers nothing — the same screen with a moving part behind it. This repository's own shell supplies
+one on the standalone route and deliberately not on the embed route.
+
+`offerHandoff` is the other side, for a tool writing a record: it puts one under
+`HANDOFF_STORAGE_KEY` and answers `'offered'` or `'unavailable'` rather than throwing, so a page
+that offers to hand a session over can say whether it managed to. The age is the reader's question
+and not the writer's, because a record is written once and read on a page that may be opened at any
+point afterwards.
 
 ### Events
 
@@ -244,9 +298,13 @@ A backup is a plain, documented, versioned JSON file rather than an export forma
 whole answer to "what happens to my training if this project stops". Anything that can read JSON can
 read it, this package's own reader is one of those things, and neither requires the other.
 
-Plate loading, weight conversion and directional rounding are **not** in here. They come from
+Plate loading, weight conversion and directional rounding are rules, and the rules are in
 `@platform-toolkit/domain`, which the other tools in this collection use as well — a rule copied
-into two packages is the fork this collection exists to avoid.
+into two packages is the fork this collection exists to avoid. What this package adds is the part
+that is about a logbook rather than about a barbell: `sessionLoadings` decides which stored plan a
+set reads its plates from, so a finished session keeps the answer it was shown, and which sets the
+plate-change line under a row is counted from, so a set the lifter says they skipped is not counted
+as a bar they loaded. The search underneath both is the domain's.
 
 ---
 

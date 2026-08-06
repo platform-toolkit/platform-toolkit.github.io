@@ -3,7 +3,7 @@
 Open-source tools for the powerlifting community. Each one works on its own, and any site may embed
 a single tool without taking the rest.
 
-**Status: early development.** The site is live at <https://platform-toolkit.github.io>. Six tools
+**Status: early development.** The site is live at <https://platform-toolkit.github.io>. Seven tools
 ship today. Platform Targets is usable end to end for classification standards and for records: pick
 a category, enter what you have lifted, and it tells you where that places and how far the next
 thing is. Its profile import is not built yet — Qualification Check is where importing a lifter's
@@ -146,6 +146,28 @@ it before anything else happens, because the tool does not fetch an address some
 people under one name is ordinary rather than exceptional, so the tool always asks which; it never
 picks, not even when the archive returns exactly one lifter.
 
+### Training Logbook
+
+A training log that plans a session, ticks the sets off as they are taken, and keeps all of it on
+the device.
+
+Set out the session first — the lifts, the sets, the weights — then work through it, marking each
+set as it is done and correcting it where what was lifted differed from what was planned. Describe
+the gym once and every set draws its own per-side plate loading underneath it; the gyms you describe
+are remembered. A lift with a warm-up family can have a ramp generated onto the card, and a session
+already worked out in the Warm-Up Calculator can be carried straight across.
+
+Nothing leaves the device. No account, no server, no sync, no telemetry: a workout is written to the
+browser's own storage as it changes, and the way training leaves is a JSON file the lifter
+downloads. Every screen says whether that storage is really keeping it, because a browser can refuse
+storage to a page — better to read that before anything is typed than to find out when a block of
+training disappears.
+
+**It does not coach.** A missed set is recorded and not scored, an effort rating is stored and not
+interpreted, and nothing here derives a programme from a history. Prescribing carries a burden of
+proof a logbook's own data cannot meet, and a lifter being quietly advised by something they take
+for a notebook has no way to see what the advice rests on.
+
 ## Architecture
 
 Static site, no backend. GitHub Actions fetches every source on a schedule, validates and normalizes
@@ -286,17 +308,18 @@ Tools whose answers do not depend on a federation have no such segment:
 | One-Rep Max Estimator | `/one-rep-max/embed/`           |
 | Meet Day Planner      | `/meet-day/embed/`              |
 | Qualification Check   | `/qualify/embed/uspa/`          |
+| Training Logbook      | `/logbook/embed/`               |
 
 An embed route is chrome-free: no site header, no navigation, and no link out of the frame. It also
 installs nothing on your visitors — no service worker is registered and no web app manifest is
 linked from a framed document, so embedding a tool never caches anything under your origin.
 
-A frame is the fastest route and not the only one. Qualification Check is also a package —
-`packages/qualification-check/`, with its own README covering the custom elements, the events, and
-the shared data contracts that let one tool's output become another's input. The site consumes it
-exactly the way a third party would, which is the property that keeps it honest: if the site can do
-something the package cannot, that is a bug in the package. The other tools are still reachable only
-through their frames.
+A frame is the fastest route and not the only one. Qualification Check and the Training Logbook are
+also packages — `packages/qualification-check/` and `packages/training-logbook/`, each with its own
+README covering the custom elements, the events, and the shared data contracts that let one tool's
+output become another's input. The site consumes each of them exactly the way a third party would,
+which is the property that keeps it honest: if the site can do something the package cannot, that is
+a bug in the package. The remaining tools are still reachable only through their frames.
 
 ## Theming
 

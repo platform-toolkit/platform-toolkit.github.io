@@ -1029,6 +1029,75 @@ const LOGBOOK_HOME_SETTLE = [
 ];
 
 /**
+ * Change the rack, which is what gives the library something to save.
+ *
+ * The untick is not decoration on the way to the name box. `settings.equipment`
+ * stays null until a lifter *changes* something -- opening the fold is not a
+ * change -- and a null rack means no row can ever read "In use", so the saved
+ * gym would be measured in its one-button shape only.
+ */
+const LOGBOOK_LIBRARY_CLICK = [
+  ...LOGBOOK_RACK_CLICK,
+  'ptk-equipment-setup ptk-toggle-group[data-field="plates"] [data-value="45"] input',
+];
+
+/** The one press that turns the draft rack into a stored gym. */
+const LOGBOOK_LIBRARY_SAVE = ['ptk-equipment-library ptk-button[data-action="save-rack"] button'];
+
+/**
+ * Name the rack, save it, change the rack, then name and save a second one.
+ *
+ * Two gyms rather than one, and the untick between them is what makes the pair
+ * worth the extra presses: the row template draws "In use" and the Use button as
+ * *alternatives*, so a library holding one profile can only ever show one of the
+ * two row shapes. Saving a second gym against a rack the first no longer matches
+ * puts both on screen at once -- a name, a badge and a Remove on one row and a
+ * name, a Use and a Remove on the next, which is the widest thing the library
+ * draws and the reason this route exists.
+ *
+ * The box has to be filled twice because saving empties it. That is the element
+ * clearing a field it has consumed, not a quirk to work around, and a second fill
+ * is the honest way to drive it.
+ *
+ * Both names are invented (section 5.1) and deliberately long: the name is free text a
+ * lifter types, and it is the string that has to wrap rather than push a
+ * two-button row sideways in a 320px column.
+ */
+const LOGBOOK_LIBRARY_FILL = [
+  {
+    selector: 'ptk-equipment-library ptk-text-field[data-field="gym-name"] input',
+    value: 'Invented Garage, everything but the 45s',
+  },
+];
+
+const LOGBOOK_LIBRARY_CLICK_AFTER = [
+  ...LOGBOOK_LIBRARY_SAVE,
+  'ptk-equipment-setup ptk-toggle-group[data-field="plates"] [data-value="25"] input',
+];
+
+const LOGBOOK_LIBRARY_FILL_AFTER = [
+  {
+    selector: 'ptk-equipment-library ptk-text-field[data-field="gym-name"] input',
+    value: 'Invented Basement, tens and under',
+  },
+];
+
+/**
+ * One row of each kind, which is the whole point of saving twice.
+ *
+ * Neither selector alone proves the screen. A `li[data-profile]` exists against
+ * any stored gym, so settling on the row would pass with one profile and measure
+ * a library that never drew a badge; and the badge alone would pass against a
+ * library whose every row is the current rack. Requiring both is requiring that
+ * two gyms landed and that they disagree about the plates -- which is the state
+ * the row template has two shapes for.
+ */
+const LOGBOOK_LIBRARY_SETTLE = [
+  'ptk-equipment-library li[data-profile] span.in-use',
+  'ptk-equipment-library li[data-profile] ptk-button[data-action="use-rack"] button',
+];
+
+/**
  * Open the planner and put two lifts in it.
  *
  * Two, and specifically these two. One row measures a row; two measure the gap
@@ -1172,6 +1241,64 @@ const LOGBOOK_LOADING_SETTLE = [
 ];
 
 /**
+ * Strip the rack down to plates that cannot make a half.
+ *
+ * The fractional set goes in one press -- the switch above the chips is there
+ * because the small plates are owned or not owned as a bag -- and the 2.5 goes
+ * with it. What is left is 45, 25, 10 and 5, so every side is a multiple of five
+ * and every total the rack can build is the bar plus a multiple of ten.
+ *
+ * That is an ordinary gym rather than a contrived one, which is the point: the
+ * sentence this route measures is not an edge case, it is what a lifter sees the
+ * first time they type a weight their plates do not reach. Every figure is
+ * invented (section 5.1) and every denomination named here is `packages/domain`'s own
+ * source, not a federation's published numbers.
+ */
+const LOGBOOK_COARSE_CLICK = [
+  ...LOGBOOK_RACK_CLICK,
+  'ptk-equipment-setup input[data-field="micro-all"]',
+  'ptk-equipment-setup ptk-toggle-group[data-field="plates"] [data-value="2.5"] input',
+  ...LOGBOOK_PLAN_CLICK,
+];
+
+/**
+ * A weight that rack cannot build, beside one it can.
+ *
+ * 137.5 falls between 135 and 145 and is reachable by neither, so the diagram is
+ * replaced by the longest form of the sentence -- the refusal, the lead-in, and
+ * *both* neighbours -- which is a line of prose where every other route on this
+ * tool has a row of plate faces. A gap with only one neighbour would measure a
+ * shorter string, so the number is chosen to sit strictly inside the range the
+ * plates reach rather than off either end.
+ *
+ * The press stays loadable at 65 on purpose. A card that is nothing but refusals
+ * is not the screen a lifter meets, and the two side by side is what puts a
+ * wrapped sentence directly under a plate row -- the vertical rhythm that breaks
+ * first. It also keeps the settle honest: an equipment answer that never landed
+ * draws neither the sentence nor the diagram.
+ */
+const LOGBOOK_UNBUILDABLE_FILL = [
+  {
+    selector: 'ptk-workout-builder [data-field="title"] input',
+    value: 'Invented Thursday -- a weight these plates cannot build',
+  },
+  { selector: 'ptk-workout-builder li[data-row="0"] [data-field="weight"] input', value: '137.5' },
+  { selector: 'ptk-workout-builder li[data-row="1"] [data-field="weight"] input', value: '65' },
+];
+
+/**
+ * The refusal sentence, and a diagram somewhere else on the card.
+ *
+ * `p.refusal` and not `.loading-note`: the change line under a plate row carries
+ * that class too, so matching it would settle on the wrong paragraph and report
+ * this screen covered against a session that loaded perfectly.
+ */
+const LOGBOOK_UNBUILDABLE_SETTLE = [
+  'ptk-active-workout p.refusal',
+  'ptk-active-workout ptk-plate-stack [role="img"]',
+];
+
+/**
  * Ask for a ramp under both lifts, then start.
  *
  * After the fill and not before it, because a ticked row with an empty weight box is
@@ -1208,6 +1335,82 @@ const LOGBOOK_WARMUP_CLICK = [
 const LOGBOOK_WARMUP_SETTLE = [
   'ptk-active-workout li[data-set][data-kind="warmup"]',
   'ptk-active-workout li[data-set][data-kind="warmup"] ptk-plate-stack [role="img"]',
+];
+
+/**
+ * A rack, one lift that can ramp, and the picker open over it.
+ *
+ * The four tiles are all barbell lifts, so a plan built from them alone can never
+ * reach the mixed case: every row ramps, and the note stays silent. The other
+ * movement has to come through the picker, and the picker is behind a disclosure
+ * -- opened here rather than in `clickAfter` because `pick` runs before it and
+ * Playwright will not answer a select it cannot see.
+ *
+ * The untick is the rack. Without one the section draws the *other* sentence, the
+ * one that says where to set a rack up, and this route would measure that while
+ * calling itself the mixed plan.
+ */
+const LOGBOOK_MIXED_CLICK = [
+  ...LOGBOOK_RACK_CLICK,
+  'ptk-equipment-setup ptk-toggle-group[data-field="plates"] [data-value="45"] input',
+  'ptk-training-logbook ptk-button[data-action="start-workout"] button',
+  'ptk-workout-builder ptk-button[data-exercise="squat"] button',
+  'ptk-workout-builder ptk-disclosure summary',
+];
+
+/**
+ * The first movement in the picker with no ramp to generate.
+ *
+ * By position because that is the only thing `pick` speaks, and the position is
+ * derived rather than guessed: the options are grouped by loading model in a
+ * fixed order and sorted by name inside each group, so a placeholder, the
+ * thirty-five barbell lifts, the one machine and the two weighted bodyweight
+ * movements sit ahead of the first plain bodyweight entry.
+ *
+ * A catalogue edit that moved it is not a silent failure. The settle below
+ * requires the row that lands here to be one with no weight box, and every
+ * neighbour on either side of this index has one.
+ */
+const LOGBOOK_MIXED_CHOOSE = [{ selector: 'ptk-workout-builder ptk-select select', index: 39 }];
+
+/**
+ * A title and a weight for the lift that has one.
+ *
+ * Only row 0, because the picked movement records reps and nothing else -- there
+ * is no weight box on it to fill, and naming one would be a failure about a
+ * control the catalogue is right not to draw.
+ */
+const LOGBOOK_MIXED_FILL = [
+  {
+    selector: 'ptk-workout-builder [data-field="title"] input',
+    value: 'Invented Friday -- a barbell lift and an accessory',
+  },
+  { selector: 'ptk-workout-builder li[data-row="0"] [data-field="weight"] input', value: '142.5' },
+];
+
+/** Put the picked movement on the list. Disabled until the select is answered. */
+const LOGBOOK_MIXED_ADD = ['ptk-workout-builder ptk-button[data-action="add-picked"] button'];
+
+/**
+ * Both halves of the mixed plan, and the sentence they produce between them.
+ *
+ * The note is one of two the section can draw from the same tag and class, so it
+ * is settled on last and never alone: the tick on row 0 proves a rack exists and
+ * that a ramp is on offer somewhere, and the reps-only paragraph on row 1 proves
+ * the picked movement landed and cannot be ramped. Those two facts are exactly
+ * the condition the sentence is written for, so the three together cannot pass
+ * against the no-rack sentence, which is the one they would otherwise be
+ * confused with.
+ *
+ * `section.section:last-of-type > p.note` and not `p.note`: the planner opens
+ * with a note under its own heading and every reps-only row carries one, so the
+ * bare class matches four things here and would settle before the picker was
+ * ever answered.
+ */
+const LOGBOOK_MIXED_SETTLE = [
+  'ptk-workout-builder li[data-row="0"] [data-field="warmup"]',
+  'ptk-workout-builder li[data-row="1"] .numbers p.note',
+  'ptk-workout-builder section.section:last-of-type > p.note',
 ];
 
 /**
@@ -1744,6 +1947,23 @@ const ROUTES = [
     settle: LOGBOOK_HOME_SETTLE,
   },
   {
+    // The library with something in it, which no other route reaches: every one
+    // of them leaves the equipment section holding the "no saved gyms" line, so
+    // the row that actually gets stored -- a name, a badge and two quiet buttons
+    // side by side, inside a list, inside a fold, inside a card -- has never been
+    // measured at any width. It is the deepest nesting in the tool and the one
+    // place two buttons share a line.
+    path: '/logbook/',
+    label: '/logbook/ (saved gym)',
+    click: LOGBOOK_LIBRARY_CLICK,
+    reveal: [],
+    fill: LOGBOOK_LIBRARY_FILL,
+    clickAfter: LOGBOOK_LIBRARY_CLICK_AFTER,
+    fillAfter: LOGBOOK_LIBRARY_FILL_AFTER,
+    clickLast: LOGBOOK_LIBRARY_SAVE,
+    settle: LOGBOOK_LIBRARY_SETTLE,
+  },
+  {
     // Its own entry rather than a seed on the home row, because the offer sits
     // above everything that row exists to measure and would push the rack fold
     // off the screen it was measured on.
@@ -1790,6 +2010,34 @@ const ROUTES = [
     settle: LOGBOOK_LOADING_SETTLE,
   },
   {
+    // The one logging screen where the plate diagram is replaced by prose. Every
+    // other route on this tool measures a row of plate faces, which is a wide
+    // element that cannot wrap; this measures the sentence drawn in its place,
+    // which is a long one and must. The two are the same slot in the same row and
+    // nothing else in this file has ever put text in it.
+    path: '/logbook/',
+    label: '/logbook/ (unbuildable weight)',
+    click: LOGBOOK_COARSE_CLICK,
+    reveal: [],
+    fill: LOGBOOK_UNBUILDABLE_FILL,
+    clickAfter: LOGBOOK_START,
+    settle: LOGBOOK_UNBUILDABLE_SETTLE,
+  },
+  {
+    // The planner explaining why one row has a warm-up tick and the other does
+    // not. It needs a rack, a lift that can ramp and a movement that cannot, and
+    // the third can only arrive through the picker -- so no existing route comes
+    // close to it, and the picker itself has never been driven at any width.
+    path: '/logbook/',
+    label: '/logbook/ (mixed plan)',
+    click: LOGBOOK_MIXED_CLICK,
+    reveal: [],
+    choose: LOGBOOK_MIXED_CHOOSE,
+    fill: LOGBOOK_MIXED_FILL,
+    clickAfter: LOGBOOK_MIXED_ADD,
+    settle: LOGBOOK_MIXED_SETTLE,
+  },
+  {
     // The logging screen with a ramp on it, which no other route can reach: every
     // one of them plans working sets only, so the warm-up rows a session actually
     // opens with have never been measured at any width. It is also the longest card
@@ -1823,6 +2071,10 @@ const ROUTES = [
     // -- it is the densest, and it is the screen a lifter is actually looking at
     // while the tool is doing its job.
     path: '/logbook/embed/',
+    // Labelled like the rest of the tool's entries, though the path is unique.
+    // A failure here reads beside eight others whose messages all name a screen,
+    // and "the framed one" is not the useful half of what this measures.
+    label: '/logbook/embed/ (logging)',
     click: LOGBOOK_PLAN_CLICK,
     reveal: [],
     fill: LOGBOOK_PLAN_FILL,
