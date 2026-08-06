@@ -116,6 +116,18 @@ export {
 export { sessionLoadings, type SetLoading } from './loading.js';
 
 export {
+  DEFAULT_SESSION_LIMIT,
+  searchExerciseHistory,
+  type ExerciseBest,
+  type ExerciseHistory,
+  type ExerciseHistoryOptions,
+  type ExerciseHistorySearch,
+  type ExerciseMarker,
+  type ExerciseSessionEntry,
+  type ExerciseSetEntry,
+} from './records.js';
+
+export {
   previousPerformanceIn,
   searchPreviousPerformance,
   type PreviousPerformance,

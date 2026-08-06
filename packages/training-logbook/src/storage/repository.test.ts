@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AT_LATER, AT_START, ON_DAY, contextSeries } from '../core/context.fixture.js';
 import type { PreviousPerformance } from '../core/previous.js';
+import type { ExerciseHistory } from '../core/records.js';
 import {
   addExercise,
   completeSet,
@@ -267,85 +268,85 @@ describe('listWorkouts', () => {
   });
 });
 
-describe('lastPerformance', () => {
-  /**
-   * A store that reports what the scan was actually asked to read.
-   *
-   * Both of this method's cost rules are invisible in its answer: a repository
-   * that read three years of sessions returns the same map as one that read two,
-   * and one that opened a transaction to ask about no exercises at all returns the
-   * same empty map as one that never touched the store. Counting the visits is the
-   * only way a test can tell those apart.
-   */
-  function watched(store: LogbookStore = memoryLogbookStore()): {
-    readonly store: LogbookStore;
-    readonly scans: () => number;
-    readonly visited: () => readonly CalendarDay[];
-  } {
-    let scans = 0;
-    const visited: CalendarDay[] = [];
-    return {
-      store: {
-        ...store,
-        scanWorkouts: (visit) => {
-          scans += 1;
-          return store.scanWorkouts((workout) => {
-            visited.push(workout.localDate);
-            return visit(workout);
-          });
-        },
+/**
+ * A store that reports what the scan was actually asked to read.
+ *
+ * Both of this method's cost rules are invisible in its answer: a repository
+ * that read three years of sessions returns the same map as one that read two,
+ * and one that opened a transaction to ask about no exercises at all returns the
+ * same empty map as one that never touched the store. Counting the visits is the
+ * only way a test can tell those apart.
+ */
+function watched(store: LogbookStore = memoryLogbookStore()): {
+  readonly store: LogbookStore;
+  readonly scans: () => number;
+  readonly visited: () => readonly CalendarDay[];
+} {
+  let scans = 0;
+  const visited: CalendarDay[] = [];
+  return {
+    store: {
+      ...store,
+      scanWorkouts: (visit) => {
+        scans += 1;
+        return store.scanWorkouts((workout) => {
+          visited.push(workout.localDate);
+          return visit(workout);
+        });
       },
-      scans: () => scans,
-      visited: () => visited,
-    };
-  }
+    },
+    scans: () => scans,
+    visited: () => visited,
+  };
+}
 
-  /** Invented weights, spaced far apart so a wrong set is a wrong number. */
-  function kilograms(amount: number): SetLoad {
-    return { kind: 'implement', weight: { amount, unit: 'kg' } };
-  }
+/** Invented weights, spaced far apart so a wrong set is a wrong number. */
+function kilograms(amount: number): SetLoad {
+  return { kind: 'implement', weight: { amount, unit: 'kg' } };
+}
 
-  function working(amount: number): PlannedSet {
-    return { kind: 'working', performance: performance(kilograms(amount), 5) };
-  }
+function working(amount: number): PlannedSet {
+  return { kind: 'working', performance: performance(kilograms(amount), 5) };
+}
 
-  /** One exercise inside a fixture session. */
-  interface Block {
-    readonly exerciseId: string;
-    /** Snapshotted per session, so two sessions may record one lift under two. */
-    readonly displayName?: string;
-    readonly sets: readonly PlannedSet[];
-  }
+/** One exercise inside a fixture session. */
+interface Block {
+  readonly exerciseId: string;
+  /** Snapshotted per session, so two sessions may record one lift under two. */
+  readonly displayName?: string;
+  readonly sets: readonly PlannedSet[];
+}
 
-  /**
-   * A finished session with every set ticked off as planned.
-   *
-   * Takes the identifier series rather than starting one, for `withHistory`'s
-   * reason: two sessions built from two fresh series both begin at `id-1`, and the
-   * second silently replaces the first in the store.
-   */
-  function trained(
-    at: ReturnType<typeof contextSeries>,
-    localDate: CalendarDay,
-    blocks: readonly Block[],
-    overrides: Partial<WorkoutSession> = {},
-  ): WorkoutSession {
-    let workout = createWorkout(at(AT_START), { localDate });
-    for (const block of blocks) {
-      workout = addExercise(workout, at(AT_START), {
-        exerciseId: block.exerciseId,
-        displayName: block.displayName ?? block.exerciseId,
-        loading: 'barbell-total-weight',
-        plan: block.sets,
-      });
-    }
-    workout = startWorkout(workout, at(AT_START));
-    for (const set of workout.exercises.flatMap((held) => held.sets)) {
-      workout = completeSet(workout, set.id, at(AT_LATER));
-    }
-    return { ...finishWorkout(workout, 'leave', at(AT_LATER)), ...overrides };
+/**
+ * A finished session with every set ticked off as planned.
+ *
+ * Takes the identifier series rather than starting one, for `withHistory`'s
+ * reason: two sessions built from two fresh series both begin at `id-1`, and the
+ * second silently replaces the first in the store.
+ */
+function trained(
+  at: ReturnType<typeof contextSeries>,
+  localDate: CalendarDay,
+  blocks: readonly Block[],
+  overrides: Partial<WorkoutSession> = {},
+): WorkoutSession {
+  let workout = createWorkout(at(AT_START), { localDate });
+  for (const block of blocks) {
+    workout = addExercise(workout, at(AT_START), {
+      exerciseId: block.exerciseId,
+      displayName: block.displayName ?? block.exerciseId,
+      loading: 'barbell-total-weight',
+      plan: block.sets,
+    });
   }
+  workout = startWorkout(workout, at(AT_START));
+  for (const set of workout.exercises.flatMap((held) => held.sets)) {
+    workout = completeSet(workout, set.id, at(AT_LATER));
+  }
+  return { ...finishWorkout(workout, 'leave', at(AT_LATER)), ...overrides };
+}
 
+describe('lastPerformance', () => {
   /** The weight of each set that came back, in order. */
   function amounts(entry: PreviousPerformance | undefined): readonly (number | null)[] {
     return (entry?.sets ?? []).map((set) => loadWeight(set.load)?.amount ?? null);
@@ -526,6 +527,107 @@ describe('lastPerformance', () => {
     expect(watcher.scans()).toBe(1);
     expect(amounts(found.get('squat'))).toEqual([110]);
     expect(amounts(found.get('bench-press'))).toEqual([70]);
+  });
+});
+
+describe('exerciseHistory', () => {
+  /** The three days the cases below train on, oldest last. */
+  const NEWEST: CalendarDay = '2026-03-10';
+  const MIDDLE: CalendarDay = '2026-03-01';
+  const OLDEST: CalendarDay = '2026-02-14';
+
+  /** The weight of a marker's subject, so a case names a number and not an object. */
+  function heaviestAmount(history: ExerciseHistory): number | null {
+    const first = history.heaviest[0];
+    return first === undefined ? null : (loadWeight(first.performance.load)?.amount ?? null);
+  }
+
+  it('reads every session, however few end up on the screen', async () => {
+    // The one scan in this file that may not stop early, and the only way to see
+    // that from outside is to count what it visited: an answer built from the
+    // newest session looks identical whether the walk read one session or three.
+    const at = contextSeries();
+    const watcher = watched();
+    const logbook = repository(watcher.store);
+    for (const [day, amount] of [
+      [NEWEST, 80],
+      [MIDDLE, 130],
+      [OLDEST, 90],
+    ] as const) {
+      await logbook.saveWorkout(
+        trained(at, day, [{ exerciseId: 'squat', sets: [working(amount)] }]),
+      );
+    }
+
+    const history = await logbook.exerciseHistory('squat', { limit: 1 });
+
+    expect(watcher.visited()).toEqual([NEWEST, MIDDLE, OLDEST]);
+    expect(watcher.scans()).toBe(1);
+    expect(history.sessions.map((one) => one.localDate)).toEqual([NEWEST]);
+    expect(history.truncated).toBe(true);
+    // ...and the marker came out of the session the limit left off.
+    expect(heaviestAmount(history)).toBe(130);
+    expect(history.heaviest[0]?.localDate).toBe(MIDDLE);
+  });
+
+  it('lists the sessions newest day first, whatever order they were written in', async () => {
+    const at = contextSeries();
+    const logbook = repository();
+    await logbook.saveWorkout(trained(at, MIDDLE, [{ exerciseId: 'squat', sets: [working(100)] }]));
+    await logbook.saveWorkout(trained(at, OLDEST, [{ exerciseId: 'squat', sets: [working(90)] }]));
+    await logbook.saveWorkout(trained(at, NEWEST, [{ exerciseId: 'squat', sets: [working(110)] }]));
+
+    const history = await logbook.exerciseHistory('squat');
+
+    expect(history.sessions.map((one) => one.localDate)).toEqual([NEWEST, MIDDLE, OLDEST]);
+    expect(history.truncated).toBe(false);
+  });
+
+  it('reads past the other lifts in a session', async () => {
+    // The store hands over whole sessions and most of a session is some other
+    // exercise. A history that took the first block would answer about the bench.
+    const logbook = repository();
+    await logbook.saveWorkout(
+      trained(contextSeries(), NEWEST, [
+        { exerciseId: 'bench-press', displayName: 'Bench press', sets: [working(70)] },
+        { exerciseId: 'squat', displayName: 'Squat', sets: [working(140)] },
+      ]),
+    );
+
+    const history = await logbook.exerciseHistory('squat');
+
+    expect(history.displayName).toBe('Squat');
+    expect(heaviestAmount(history)).toBe(140);
+  });
+
+  it('answers about a lift that has never been done, without failing', async () => {
+    // A custom exercise added and not yet trained. The screen is reachable from the
+    // moment it exists, and an empty history is the honest answer rather than an error.
+    const logbook = repository();
+    await logbook.saveWorkout(
+      trained(contextSeries(), NEWEST, [{ exerciseId: 'squat', sets: [working(100)] }]),
+    );
+
+    const history = await logbook.exerciseHistory('deadlift');
+
+    expect(history.exerciseId).toBe('deadlift');
+    expect(history.sessions).toEqual([]);
+    expect(history.heaviest).toEqual([]);
+    expect(history.displayName).toBeNull();
+  });
+
+  it('reads nothing out of a workout still in progress', async () => {
+    // The scan sees the active session too, and the set the lifter ticked off four
+    // minutes ago is not yet history to be compared against.
+    const at = contextSeries();
+    const logbook = repository();
+    const workout = trained(at, NEWEST, [{ exerciseId: 'squat', sets: [working(100)] }]);
+    await logbook.saveActiveWorkout({ ...workout, status: 'active', completedAt: null });
+
+    const history = await logbook.exerciseHistory('squat');
+
+    expect(history.sessions).toEqual([]);
+    expect(history.heaviest).toEqual([]);
   });
 });
 

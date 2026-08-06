@@ -28,6 +28,11 @@
 
 import { createBackup, type LogbookSnapshot, type TrainingLogbookBackup } from '../core/backup.js';
 import { searchPreviousPerformance, type PreviousPerformance } from '../core/previous.js';
+import {
+  searchExerciseHistory,
+  type ExerciseHistory,
+  type ExerciseHistoryOptions,
+} from '../core/records.js';
 import { byMostRecent, summarize, type WorkoutSummary } from '../core/summary.js';
 import { SCHEMA_VERSION } from '../core/session.js';
 import type {
@@ -111,6 +116,19 @@ export interface TrainingLogbookRepository {
   lastPerformance(
     exerciseIds: readonly string[],
   ): Promise<ReadonlyMap<string, PreviousPerformance>>;
+  /**
+   * One exercise read back across its whole history. Sections 5.5 and 9.2.
+   *
+   * The one read here that does **not** stop early, and the only one that may not: a
+   * marker saying "the most you have ever lifted" is a claim about all of it, and a
+   * walk cut short would answer a narrower question under the same word. What is
+   * bounded is what comes back -- full detail for the newest `limit` sessions and a
+   * handful of numbers from every session before them -- so the answer's size does not
+   * grow with the history even though the time does. Section 9.3.
+   *
+   * `exerciseId` and never a display name, for `lastPerformance`'s reason.
+   */
+  exerciseHistory(exerciseId: string, options?: ExerciseHistoryOptions): Promise<ExerciseHistory>;
   /** Saves a workout without touching the active marker. Editing history. */
   saveWorkout(workout: WorkoutSession): Promise<void>;
   deleteWorkout(id: LogbookId): Promise<void>;
@@ -234,6 +252,18 @@ export function createRepository(
       const search = searchPreviousPerformance(exerciseIds);
       await store.scanWorkouts((workout) => (search.consider(workout) ? 'continue' : 'stop'));
       return search.found();
+    },
+
+    async exerciseHistory(exerciseId, options = {}) {
+      const search = searchExerciseHistory(exerciseId, options);
+      // Always `continue`, unlike every other scan in this file. The reason is in the
+      // interface above, and the constant is here so that a future edit has to delete
+      // a word rather than change a comparison.
+      await store.scanWorkouts((workout) => {
+        search.consider(workout);
+        return 'continue';
+      });
+      return search.history();
     },
 
     async saveWorkout(workout) {
