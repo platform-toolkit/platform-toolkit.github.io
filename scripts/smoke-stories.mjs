@@ -49,8 +49,16 @@ const OUTPUT_DIRECTORY = fileURLToPath(new URL('../storybook-static', import.met
  * `innerText` stops at a shadow boundary, so every one of these elements would
  * report an empty string and the "did it render anything" check would fail for
  * all of them equally -- which is the same as not checking.
+ *
+ * It is a string rather than a function because this file runs under Node's lint
+ * configuration, where `document` and `Node` are not defined. It is an *invoked*
+ * expression because that is what `page.evaluate` does with a string: it
+ * evaluates it. Handing it `() => {...}` returned the function object itself,
+ * which does not serialize, so every call resolved `undefined` and the check
+ * below never once fired. The `typeof` guard is there so that the next version
+ * of this mistake fails loudly instead of passing 494 stories.
  */
-const VISIBLE_TEXT = `() => {
+const VISIBLE_TEXT = `(() => {
   const walk = (node) =>
     [...node.childNodes]
       .map((child) =>
@@ -60,7 +68,7 @@ const VISIBLE_TEXT = `() => {
       )
       .join(' ');
   return walk(document.querySelector('#storybook-root')).replace(/\\s+/g, ' ').trim();
-}`;
+})()`;
 
 async function main() {
   let index;
@@ -101,6 +109,12 @@ async function main() {
       await page.goto(url, { waitUntil: 'networkidle' });
       const text = await page.evaluate(VISIBLE_TEXT);
 
+      if (typeof text !== 'string') {
+        throw new Error(
+          `The visible-text probe returned ${typeof text} rather than a string. ` +
+            'Every story would pass regardless of what it rendered; fix the probe.',
+        );
+      }
       if (text === '') {
         failures.push(`${story.id}: rendered no text`);
       }
