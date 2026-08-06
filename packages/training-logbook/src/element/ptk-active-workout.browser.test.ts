@@ -57,6 +57,14 @@
  * below drives every one of those through the editor's own controls and then asserts
  * on the `Effort` the session came back holding, scale included, because the scale
  * is the half a rendered string agrees about while being wrong.
+ *
+ * SECTION 7.7'S FOUR CHANGES ARE THE FIFTH
+ *
+ * Every case in that block drives the whole tool, and not for the usual reason. The
+ * screen cannot apply any of the four: two of them mint an identifier and the screen
+ * has no identifier source, so all four leave as one event and the root works out what
+ * they mean. A case against the element alone could assert only that a press fired an
+ * event, which is an assertion that stays green while the tool does nothing.
  */
 
 // Without the stylesheet every declaration reading a custom property is dropped, so the
@@ -69,7 +77,13 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { findExercise } from '../core/catalog.js';
 import { AT_START, ON_DAY, contextSeries } from '../core/context.fixture.js';
 import type { PreviousPerformance } from '../core/previous.js';
-import { addExercise, createWorkout, performance, startWorkout } from '../core/session.js';
+import {
+  addExercise,
+  createWorkout,
+  performance,
+  startWorkout,
+  type SessionContext,
+} from '../core/session.js';
 import { memoryLogbookStore } from '../storage/memory.js';
 import type { LogbookStore } from '../storage/port.js';
 import { createRepository, defaultSettings } from '../storage/repository.js';
@@ -103,12 +117,15 @@ import {
   WORKOUT_NOTE_KEY,
   exerciseNoteKey,
 } from './dataset.js';
-import { formatSetRun } from './format.js';
+import { NOT_SET, formatSetRun } from './format.js';
 import { defineTrainingLogbook } from './index.js';
 import {
+  SET_PLAN_EVENT,
   WORKOUT_CHANGED_EVENT,
   WORKOUT_FINISHED_EVENT,
   type PtkActiveWorkout,
+  type SetPlanChange,
+  type SetPlanChangedDetail,
   type WorkoutChangedDetail,
   type WorkoutFinishedDetail,
 } from './ptk-active-workout.js';
@@ -1656,6 +1673,391 @@ describe('the effort setting the tool hands down', () => {
   });
 });
 
+describe('changing the sets in a live session', () => {
+  it('adds a row at the foot of the lift, planned like the one it lands after', async () => {
+    const element = await aStartedWorkout();
+
+    await pressIn(element, exerciseCard(element, 0), addSetControl());
+
+    // Four rows and not three, and the fourth reading what the third reads. `addSet`
+    // appends, so "like the row it lands after" and "like the last row" are the same
+    // sentence here -- which is what makes Add mean "one more of these".
+    expect(rowPlans(element)).toEqual([SQUAT_PLAN, SQUAT_PLAN, SQUAT_PLAN, SQUAT_PLAN]);
+    expect(rowKinds(element)).toEqual(['working', 'working', 'working', 'working']);
+  });
+
+  it('adds an empty working row to a lift whose rows have all gone', async () => {
+    const element = await aStartedWorkout();
+
+    for (const _ of [0, 1, 2]) await removeFirstRow(element);
+    expect(setRows(element).length).toBe(0);
+    await pressIn(element, exerciseCard(element, 0), addSetControl());
+
+    // Reachable, and the branch has nothing to copy from. A working set because that
+    // is the kind every other path plans, and an empty one because an empty row is
+    // still a row to tick -- the numbers go in through the editor that is already there.
+    expect(rowKinds(element)).toEqual(['working']);
+    expect(rowPlans(element)).toEqual([NOT_SET]);
+  });
+
+  it('takes the kind of the row it lands after, and not always a working set', async () => {
+    // Seeded rather than built, because nothing on the builder puts a back-off last:
+    // ramps are inserted above the working sets, so every session that screen makes has
+    // a working set at the tail and a copier hard-coded to `working` would pass anyway.
+    const store = await aStore({});
+    await store.writeWorkout(aBackoffSession(), { kind: 'set' });
+    const element = await mountToolOver(store);
+
+    await press(element, 'resume-workout');
+    expect(rowKinds(element)).toEqual(['working', 'backoff']);
+    await pressIn(element, exerciseCard(element, 0), addSetControl());
+
+    expect(rowKinds(element)).toEqual(['working', 'backoff', 'backoff']);
+    expect(rowPlans(element)).toEqual([TOP_PLAN, BACKOFF_PLAN, BACKOFF_PLAN]);
+  });
+
+  it('plans an added row from the plan and not from what was done', async () => {
+    const element = await aStartedWorkout();
+    // The last row done short of what it asked for, which is the only session where
+    // the two answers differ -- everywhere else the plan and the performance agree
+    // and a copier reading either one looks correct.
+    await pressIn(element, setRow(element, 2), controlFor('complete'));
+    await openEditorOn(element, 2);
+    await correctWeight(element, 2, '125');
+
+    await pressIn(element, exerciseCard(element, 0), addSetControl());
+
+    // `duplicateSet`'s rule, so that the two controls agree. Copying what the row
+    // *shows* would make the button beside it copy something else, which is worse
+    // than either answer on its own.
+    expect(rowPlans(element)).toEqual([SQUAT_PLAN, SQUAT_PLAN, '125 lb x 5', SQUAT_PLAN]);
+  });
+
+  it('adds to the lift whose button was pressed', async () => {
+    const element = await aPairOfLifts();
+
+    await pressIn(element, exerciseCard(element, 1), addSetControl());
+
+    // One card grew and the other did not. With one lift on screen a handler ignoring
+    // its `data-exercise` and appending to the first lift it finds is indistinguishable
+    // from a correct one.
+    expect(exerciseCards(element).map((card) => deepAll(card, 'li[data-set]').length)).toEqual([
+      3, 4,
+    ]);
+  });
+
+  it('puts a duplicate straight after the row it copied, and leaves it to be done', async () => {
+    const element = await aStartedWorkout();
+    await press(element, 'complete');
+
+    await openEditorOn(element, 0);
+    await pressIn(element, setRow(element, 0), controlFor('duplicate-set'));
+
+    // Beside the row it came from rather than at the end, which is the difference
+    // between Add and Duplicate and the only thing on screen that tells them apart.
+    expect(setRows(element).length).toBe(4);
+    expect(doneRows(element)).toEqual([true, false, false, false]);
+  });
+
+  it('marks a row skipped and says so, and undo puts it back', async () => {
+    const element = await aStartedWorkout();
+
+    await openEditorOn(element, 0);
+    await pressIn(element, setRow(element, 0), controlFor('skip-set'));
+
+    // The word matters more than the state. A skipped row is `done`, carries Undo and
+    // shows the plan, so without this line it is the same row as one that was ticked.
+    expect(statusLines(element)).toEqual([ACTIVE_NOTES.skipped]);
+    expect(doneRows(element)).toEqual([true, false, false]);
+
+    await pressIn(element, setRow(element, 0), controlFor('undo'));
+
+    expect(statusLines(element)).toEqual([]);
+    expect(doneRows(element)).toEqual([false, false, false]);
+  });
+
+  it('offers no skip on a row that has already been answered', async () => {
+    const element = await aStartedWorkout();
+    await press(element, 'complete');
+
+    await openEditorOn(element, 0);
+
+    // Skipping a set already ticked would throw away what the lifter did in order to
+    // say they did not do it. The other two stay, because a row done at the wrong
+    // weight is still a row worth copying or taking out.
+    expect(structureControls(setRow(element, 0))).toEqual(['duplicate-set', 'remove-set']);
+    expect(structureControls(setRow(element, 1))).toEqual([]);
+  });
+
+  it('takes a row out', async () => {
+    const element = await aStartedWorkout();
+
+    await openEditorOn(element, 1);
+    await pressIn(element, setRow(element, 1), controlFor('remove-set'));
+
+    expect(setRows(element).length).toBe(2);
+  });
+
+  it('closes the editor on skip and on remove, and leaves it open on duplicate', async () => {
+    const element = await aStartedWorkout();
+
+    await openEditorOn(element, 0);
+    await pressIn(element, setRow(element, 0), controlFor('duplicate-set'));
+    // Still on the row it was on: that row is there and is still being corrected.
+    expect(openEditor(element)).toBe(0);
+
+    await pressIn(element, setRow(element, 0), controlFor('skip-set'));
+    // Left open, Save would be ready to put back the performance the skip just cleared.
+    expect(openEditor(element)).toBe(-1);
+
+    await openEditorOn(element, 1);
+    await pressIn(element, setRow(element, 1), controlFor('remove-set'));
+    expect(openEditor(element)).toBe(-1);
+  });
+
+  it('keeps a note still in its box when a row is taken out', async () => {
+    const store = await aStore({});
+    const element = await mountToolOver(store);
+    await startTheWorkout(element);
+    const key = exerciseNoteKey(exerciseAt(await written(store), 0).id);
+
+    await pressIn(element, shadow(element), `ptk-button[data-action="note"][data-note="${key}"]`);
+    await draftNote(element, key, 'Belt on from here');
+    await openEditorOn(element, 2);
+    await pressIn(element, setRow(element, 2), controlFor('remove-set'));
+
+    // Asserted against the database and not the screen, because the box keeps its own
+    // draft and would read back correctly even from a session that lost it. The change
+    // is applied to whatever the root is holding, so a note not written before the
+    // event goes is a note the change overwrites.
+    const kept = await written(store);
+    expect(exerciseAt(kept, 0).sets.length).toBe(2);
+    expect(exerciseAt(kept, 0).note).toBe('Belt on from here');
+  });
+
+  it('writes nothing for a change naming a row or a lift that is not there', async () => {
+    const { store, writes } = counted(await aStore({}));
+    const element = await mountToolOver(store);
+    await startTheWorkout(element);
+    const before = await written(store);
+    const soFar = writes();
+
+    for (const change of [
+      { kind: 'duplicate' as const, setId: 'no-such-set' },
+      { kind: 'skip' as const, setId: 'no-such-set' },
+      { kind: 'remove' as const, setId: 'no-such-set' },
+      { kind: 'add' as const, exerciseId: 'no-such-lift' },
+    ]) {
+      askFor(element, change);
+    }
+    await settle(element);
+
+    // Counted rather than compared, because a miss that rebuilt the session would
+    // write bytes identical to the ones already there and no assertion on content
+    // could see it. What it would cost is four writes and an `updatedAt` a shade
+    // newer -- which moves the workout to the top of the history for nothing.
+    expect(writes()).toBe(soFar);
+    expect(await written(store)).toEqual(before);
+    expect(setRows(element).length).toBe(3);
+  });
+
+  it('has no accessibility violations with the structure controls open', async () => {
+    const element = await aStartedWorkout();
+    await openEditorOn(element, 0);
+
+    // Contrast off for this file's usual reason. Open, because three quiet buttons
+    // behind a disclosure are three buttons axe never reaches -- and each of them has
+    // to name the row it acts on, since five rows of "Remove this set" are five
+    // identical names.
+    const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
+    expect(results.violations).toEqual([]);
+  });
+});
+
+/**
+ * The three working sets the builder makes from one weight, as they read on screen.
+ *
+ * Written out rather than composed from the formatter's own pieces, so that a change
+ * to how a set is worded fails here instead of agreeing with itself.
+ */
+const SQUAT_PLAN = '135 lb x 5';
+
+/** {@link aBackoffSession}'s two rows. Invented numbers, section 5.1. */
+const TOP_PLAN = '225 lb x 5';
+const BACKOFF_PLAN = '185 lb x 8';
+
+/** The shortest road to a live session: one lift, three working sets, nothing done. */
+async function aStartedWorkout(): Promise<PtkTrainingLogbook> {
+  const element = await mountTool({});
+  await startTheWorkout(element);
+  return element;
+}
+
+/** The builder journey, which several cases below start from a store of their own. */
+async function startTheWorkout(element: PtkTrainingLogbook): Promise<void> {
+  await press(element, 'start-workout');
+  await press(element, 'add-primary');
+  await type(element, '135');
+  await press(element, 'start');
+}
+
+/** Two lifts, so that "which card was pressed" is a question with a wrong answer. */
+async function aPairOfLifts(): Promise<PtkTrainingLogbook> {
+  const element = await mountTool({});
+  await press(element, 'start-workout');
+  await press(element, 'add-primary');
+  await type(element, '135');
+  await pressIn(
+    element,
+    shadow(element),
+    `[data-action="add-primary"][data-exercise="${BENCH.id}"]`,
+  );
+  await typeWeight(element, 1, '95');
+  await press(element, 'start');
+  return element;
+}
+
+/**
+ * A session with a back-off last, built by hand through the core.
+ *
+ * Its own identifier prefix on purpose. {@link mountToolOver} counts from `id-1` and
+ * goes on counting after this session is loaded, so a seed sharing that sequence would
+ * hand a duplicated set the identifier of a row already on screen.
+ */
+function aBackoffSession(): WorkoutSession {
+  let next = 0;
+  const nextId = (): LogbookId => {
+    next += 1;
+    return `seed-${String(next)}`;
+  };
+  const at = (instant: Instant): SessionContext => ({ nextId, at: instant });
+  let session = createWorkout(at(AT_START), { localDate: ON_DAY, title: 'Squat day' });
+  session = addExercise(session, at(AT_START), {
+    exerciseId: SQUAT.id,
+    displayName: SQUAT.name,
+    loading: SQUAT.loading,
+    plan: [
+      { kind: 'working' as const, performance: lifted(225, 5) },
+      { kind: 'backoff' as const, performance: lifted(185, 8) },
+    ],
+  });
+  return startWorkout(session, at(AT_START));
+}
+
+/** Opens the editor on one row, which is where three of the four controls live. */
+async function openEditorOn(element: PtkTrainingLogbook, index: number): Promise<void> {
+  await pressIn(element, setRow(element, index), controlFor('edit'));
+}
+
+/** Opens the first row's editor and takes that row out. */
+async function removeFirstRow(element: PtkTrainingLogbook): Promise<void> {
+  await openEditorOn(element, 0);
+  await pressIn(element, setRow(element, 0), controlFor('remove-set'));
+}
+
+/** Corrects one row's weight through the editor already open on it, and saves. */
+async function correctWeight(
+  element: PtkTrainingLogbook,
+  index: number,
+  value: string,
+): Promise<void> {
+  const input = numberBox(setRow(element, index), DONE_WEIGHT_FIELD);
+  input.value = value;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  await element.updateComplete;
+  await pressIn(element, setRow(element, index), controlFor('save-edit'));
+}
+
+function controlFor(action: string): string {
+  return `[data-action="${action}"]`;
+}
+
+/** Add is the one control of the four that belongs to the lift rather than to a row. */
+function addSetControl(): string {
+  return controlFor('add-set');
+}
+
+/** What each row says it is planned as, in row order. */
+function rowPlans(element: Element): string[] {
+  return deepAll(shadow(element), 'span.set-plan').map((span) => span.textContent.trim());
+}
+
+/**
+ * The kind of each row, off the attribute rather than off the word beside it.
+ *
+ * `data-kind` is the machine-readable half of the same answer and it is what a copier
+ * that ignored the row it landed after would get wrong -- the word would be wrong too,
+ * but through one more layer of lookup table.
+ */
+function rowKinds(element: Element): (string | null)[] {
+  return setRows(element).map((row) => row.getAttribute('data-kind'));
+}
+
+/** Which rows have been answered, ticked or skipped alike. */
+function doneRows(element: Element): boolean[] {
+  return setRows(element).map((row) => row.classList.contains('done'));
+}
+
+/** Which of section 7.7's three the editor on a row is offering. */
+function structureControls(row: HTMLElement): string[] {
+  return deepAll(row, '.structure [data-action]').map(
+    (host) => host.getAttribute('data-action') ?? '',
+  );
+}
+
+/** The row whose editor is open, or -1 where none is. */
+function openEditor(element: Element): number {
+  return setRows(element).findIndex((row) => row.querySelector('.editor') !== null);
+}
+
+/**
+ * Types a note and stops there, inside the debounce.
+ *
+ * Deliberately no {@link settle}: waiting for the save line would wait out the delay
+ * and write the note, which is the one thing the case using this needs not to happen.
+ */
+async function draftNote(element: PtkTrainingLogbook, key: string, text: string): Promise<void> {
+  const field = noteField(element, key);
+  field.value = text;
+  field.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+  await element.updateComplete;
+}
+
+/** The same store, keeping a tally of how many times a workout went into it. */
+function counted(store: LogbookStore): { store: LogbookStore; writes: () => number } {
+  let writes = 0;
+  return {
+    store: {
+      ...store,
+      writeWorkout: async (workout, active): Promise<void> => {
+        writes += 1;
+        await store.writeWorkout(workout, active);
+      },
+    },
+    writes: () => writes,
+  };
+}
+
+/**
+ * Asks the root for a change the way a consumer could, rather than the way a press does.
+ *
+ * The event is public (section 12.3), so nothing stops a page dispatching one naming a
+ * row that has already gone. Straight at the root because that is where the listener
+ * is; going through a control could only ever name a row that is on screen.
+ */
+function askFor(element: PtkTrainingLogbook, change: SetPlanChange): void {
+  element.dispatchEvent(
+    new CustomEvent<SetPlanChangedDetail>(SET_PLAN_EVENT, { detail: { change } }),
+  );
+}
+
+/** The one session in a database, or a failure rather than an assertion against nothing. */
+async function written(store: LogbookStore): Promise<WorkoutSession> {
+  const first = (await store.readWorkouts())[0];
+  if (first === undefined) throw new Error('Nothing has been written to this database.');
+  return first;
+}
+
 /**
  * The whole tool over a store that keeps a session and reports itself durable.
  *
@@ -1664,9 +2066,17 @@ describe('the effort setting the tool hands down', () => {
  * `ptk-training-logbook.browser.test.ts` makes those, against a real database.
  */
 async function mountTool(settings: Partial<LogbookSettings>): Promise<PtkTrainingLogbook> {
+  return mountToolOver(await aStore(settings));
+}
+
+/** That store on its own, for the two cases that seed it or read it back. */
+async function aStore(settings: Partial<LogbookSettings>): Promise<LogbookStore> {
   const store: LogbookStore = { ...memoryLogbookStore(), durable: true };
   await store.writeSettings({ ...defaultSettings(), ...settings });
+  return store;
+}
 
+async function mountToolOver(store: LogbookStore): Promise<PtkTrainingLogbook> {
   const element = document.createElement('ptk-training-logbook');
   let next = 0;
   element.repository = createRepository(store, {
@@ -1703,9 +2113,38 @@ async function press(element: PtkTrainingLogbook, action: string): Promise<void>
   await settle(element);
 }
 
+/**
+ * The same press, aimed at one part of the screen.
+ *
+ * {@link press} takes the first control with a name anywhere on the tool, which is
+ * right while every name is unique. Section 7.7 puts an Add under every lift and three
+ * more controls in every open editor, so most of the cases below have to say which one.
+ */
+async function pressIn(
+  element: PtkTrainingLogbook,
+  root: DocumentFragment | HTMLElement,
+  selector: string,
+): Promise<void> {
+  const host = deepAll(root, selector)[0];
+  if (host === undefined) throw new Error(`There is no ${selector} here.`);
+  const button = shadow(host).querySelector('button');
+  if (button === null) throw new Error(`${selector} has no button in it.`);
+  button.click();
+  await settle(element);
+}
+
 /** Types into the builder's weight box the way a keyboard does. */
 async function type(element: PtkTrainingLogbook, value: string): Promise<void> {
-  const wrapper = deepAll(shadow(element), '[data-field="weight"]')[0];
+  await typeWeight(element, 0, value);
+}
+
+/** The same, where more than one lift is on the builder and the row matters. */
+async function typeWeight(
+  element: PtkTrainingLogbook,
+  index: number,
+  value: string,
+): Promise<void> {
+  const wrapper = deepAll(shadow(element), '[data-field="weight"]')[index];
   if (wrapper === undefined) throw new Error('This screen has no weight field.');
   const input = wrapper.querySelector('ptk-number-field')?.shadowRoot?.querySelector('input');
   if (input === undefined || input === null) throw new Error('The weight field has no box.');

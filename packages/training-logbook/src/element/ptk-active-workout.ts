@@ -49,6 +49,25 @@
  * way of the one tap this screen exists for, so it stays unwritten until there
  * is a place for it that is not this list.
  *
+ * WHY ADDING AND REMOVING SETS LEAVE AS A DIFFERENT EVENT
+ *
+ * Section 7.7's four changes are the only edits on this screen that alter the shape
+ * of the session rather than the numbers in it, and two of them mint an identifier.
+ * This element has no identifier source -- `#context`'s `nextId` throws on purpose --
+ * so it cannot apply them, and giving it one would put two counters in the tool with
+ * nothing keeping them apart.
+ *
+ * So all four travel up as one `SET_PLAN_EVENT` carrying a discriminated change, and
+ * the root applies it against the session it is already holding. All four rather than
+ * the two that need it: routing Skip and Remove locally and Add and Duplicate through
+ * the root would work, and would leave a reader of five buttons working out which two
+ * go which way. The detail carries identifiers and a verb and nothing else, which is
+ * section 12.5's rule kept in a place it does not strictly reach.
+ *
+ * The open note draft is written before the event goes, for the same reason every
+ * other edit folds it in: the root replaces the session it holds, so a draft not yet
+ * in that session is a draft overwritten by the change.
+ *
  * WHAT THIS ELEMENT DOES NOT OWN
  *
  * Storage, the clock and the workout itself. The session arrives as a property and
@@ -116,6 +135,7 @@ import {
   actionOf,
   exerciseNoteId,
   exerciseNoteKey,
+  exerciseOf,
   fieldOf,
   noteOf,
   setOf,
@@ -144,11 +164,33 @@ export interface WorkoutFinishedDetail {
   readonly session: WorkoutSession;
 }
 
+/**
+ * One of section 7.7's changes to the shape of a lift, named rather than applied.
+ *
+ * A verb and the thing it acts on. `add` names the exercise because there is no row
+ * yet to name; the other three name the row. Nothing here says what the new set will
+ * hold -- that is read off the session by whoever applies this, which is the only
+ * side that has the session it will be applied to.
+ */
+export type SetPlanChange =
+  | { readonly kind: 'add'; readonly exerciseId: LogbookId }
+  | { readonly kind: 'duplicate'; readonly setId: LogbookId }
+  | { readonly kind: 'skip'; readonly setId: LogbookId }
+  | { readonly kind: 'remove'; readonly setId: LogbookId };
+
+/** What the root is being asked to do. */
+export interface SetPlanChangedDetail {
+  readonly change: SetPlanChange;
+}
+
 /** Fired for every edit to the live session, including each one-tap completion. */
 export const WORKOUT_CHANGED_EVENT = 'ptk-workout-changed';
 
 /** Fired once, when the lifter finishes. Never on the way there. */
 export const WORKOUT_FINISHED_EVENT = 'ptk-workout-finished';
+
+/** Fired for a change to the sets themselves. See the header for why it is separate. */
+export const SET_PLAN_EVENT = 'ptk-set-plan-changed';
 
 /** The tag `defineTrainingLogbook()` registers this under. */
 export const ACTIVE_WORKOUT_TAG = 'ptk-active-workout';
@@ -161,6 +203,10 @@ const FINISH_ACTION = 'finish';
 const FINISH_CANCEL_ACTION = 'finish-cancel';
 const FINISH_CONFIRM_ACTION = 'finish-confirm';
 const NOTE_ACTION = 'note';
+const ADD_SET_ACTION = 'add-set';
+const DUPLICATE_SET_ACTION = 'duplicate-set';
+const SKIP_SET_ACTION = 'skip-set';
+const REMOVE_SET_ACTION = 'remove-set';
 
 /**
  * Section 10.2's short debounce, in milliseconds.
@@ -350,6 +396,30 @@ export class PtkActiveWorkout extends LitElement {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(min(100%, 8rem), 1fr));
       gap: var(--ptk-space-sm);
+    }
+
+    /*
+     * Section 7.7's three, below Save and separated from it. Save is why the editor
+     * is open nearly every time it is open, so it keeps the top of the block and its
+     * own line; these sit under a rule so that a thumb travelling to Save does not
+     * pass over Remove on the way.
+     */
+    .editor .structure {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--ptk-space-xs);
+      padding-top: var(--ptk-space-sm);
+      border-top: 1px solid var(--ptk-color-border);
+    }
+
+    .editor .structure-note {
+      margin: var(--ptk-space-sm) 0 calc(var(--ptk-space-sm) * -1);
+      color: var(--ptk-color-text-muted);
+      font-size: var(--ptk-font-size-sm);
+    }
+
+    .add-set {
+      margin-top: var(--ptk-space-sm);
     }
 
     .actions {
@@ -580,6 +650,15 @@ export class PtkActiveWorkout extends LitElement {
       <ul>
         ${exercise.sets.map((set) => this.#set(exercise, set, loadings))}
       </ul>
+      <div class="add-set">
+        <ptk-button
+          variant="quiet"
+          data-action=${ADD_SET_ACTION}
+          data-exercise=${exercise.id}
+          accessible-name=${this.#exerciseName(ACTIVE_NOTES.addSet, exercise)}
+          >${ACTIVE_NOTES.addSet}</ptk-button
+        >
+      </div>
     </section>`;
   }
 
@@ -749,6 +828,13 @@ export class PtkActiveWorkout extends LitElement {
           ? nothing
           : renderLoading(loading, this.equipment.plateUnit)
       }
+      ${
+        // Before the edited line, and never both: a skip clears the performance, so
+        // there is nothing left for `setWasEdited` to find a difference in. Without
+        // this a skipped row is indistinguishable from a ticked one -- both are
+        // `done`, both carry Undo, and both show the plan.
+        set.status === 'skipped' ? html`<p class="status">${ACTIVE_NOTES.skipped}</p>` : nothing
+      }
       ${setWasEdited(set) ? html`<p class="status">${ACTIVE_NOTES.edited}</p>` : nothing}
       ${this.editing === set.id ? this.#editor(exercise, set) : nothing}
     </li>`;
@@ -799,6 +885,35 @@ export class PtkActiveWorkout extends LitElement {
       </div>
       <div>
         <ptk-button variant="primary" data-action=${SAVE_ACTION}>${ACTIVE_NOTES.save}</ptk-button>
+      </div>
+      <p class="structure-note">${ACTIVE_NOTES.editStructure}</p>
+      <div class="structure">
+        <ptk-button
+          variant="quiet"
+          data-action=${DUPLICATE_SET_ACTION}
+          accessible-name=${this.#name(ACTIVE_NOTES.duplicateSet, exercise, set)}
+          >${ACTIVE_NOTES.duplicateSet}</ptk-button
+        >
+        ${
+          // Only on a row nothing has been said about yet. Skipping a set already
+          // ticked would throw away what the lifter did to say they did not do it,
+          // and skipping one already skipped is a control that changes nothing --
+          // the way back from both is Undo, which is on the row above.
+          set.status === 'planned'
+            ? html`<ptk-button
+                variant="quiet"
+                data-action=${SKIP_SET_ACTION}
+                accessible-name=${this.#name(ACTIVE_NOTES.skipSet, exercise, set)}
+                >${ACTIVE_NOTES.skipSet}</ptk-button
+              >`
+            : nothing
+        }
+        <ptk-button
+          variant="quiet"
+          data-action=${REMOVE_SET_ACTION}
+          accessible-name=${this.#name(ACTIVE_NOTES.removeSet, exercise, set)}
+          >${ACTIVE_NOTES.removeSet}</ptk-button
+        >
       </div>
     </div>`;
   }
@@ -944,6 +1059,18 @@ export class PtkActiveWorkout extends LitElement {
       case NOTE_ACTION:
         this.#toggleNote(event);
         return;
+      case ADD_SET_ACTION:
+        this.#addSet(event);
+        return;
+      case DUPLICATE_SET_ACTION:
+        this.#changeSet(event, 'duplicate');
+        return;
+      case SKIP_SET_ACTION:
+        this.#changeSet(event, 'skip');
+        return;
+      case REMOVE_SET_ACTION:
+        this.#changeSet(event, 'remove');
+        return;
       case FINISH_ACTION:
         this.finishing = true;
         return;
@@ -958,6 +1085,50 @@ export class PtkActiveWorkout extends LitElement {
         return;
     }
   };
+
+  #addSet(event: Event): void {
+    const exerciseId = exerciseOf(event);
+    if (exerciseId === null) return;
+    this.#planChange({ kind: 'add', exerciseId });
+  }
+
+  /**
+   * The three that act on one row, which differ only in the verb they send.
+   *
+   * The set is looked up before the event goes, so a control on a row the session no
+   * longer has -- a stale render, a consumer's own click -- asks the root for nothing
+   * rather than for something it will silently decline.
+   */
+  #changeSet(event: Event, kind: 'duplicate' | 'skip' | 'remove'): void {
+    const session = this.session;
+    const setId = setOf(event);
+    if (session === null || setId === null || findSet(session, setId) === null) return;
+    // Skipping or removing closes the editor, the same rule undo follows: leaving it
+    // open over a row that is gone, or whose performance has just been cleared, is
+    // leaving Save ready to put back what the lifter has said did not happen.
+    // Duplicate leaves it open -- that row is still there and still being corrected.
+    if (kind !== 'duplicate' && this.editing === setId) this.editing = null;
+    this.#planChange({ kind, setId });
+  }
+
+  /**
+   * Hands a change up, having first written whatever is in an open note box.
+   *
+   * Through the ordinary flush rather than {@link #withDraft}, because this event
+   * carries no session for a draft to be folded into. The flush dispatches
+   * synchronously and the root assigns the result to the session it holds, so the
+   * note is already in that session by the time the change is applied to it.
+   */
+  #planChange(change: SetPlanChange): void {
+    this.#flushNote();
+    this.dispatchEvent(
+      new CustomEvent<SetPlanChangedDetail>(SET_PLAN_EVENT, {
+        detail: { change },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
 
   #complete(event: Event): void {
     const session = this.#withDraft(this.session);
@@ -1237,5 +1408,6 @@ declare global {
   interface HTMLElementEventMap {
     [WORKOUT_CHANGED_EVENT]: CustomEvent<WorkoutChangedDetail>;
     [WORKOUT_FINISHED_EVENT]: CustomEvent<WorkoutFinishedDetail>;
+    [SET_PLAN_EVENT]: CustomEvent<SetPlanChangedDetail>;
   }
 }

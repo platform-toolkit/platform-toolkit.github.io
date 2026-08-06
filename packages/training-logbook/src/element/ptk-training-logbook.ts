@@ -68,9 +68,15 @@ import {
 import type { HandoffSource } from '../handoff.js';
 import {
   addExercise,
+  addSet,
   createWorkout,
+  duplicateSet,
+  emptyPerformance,
+  findWorkoutExercise,
   performance,
+  removeSet,
   repeatWorkout,
+  skipSet,
   startWorkout,
   type PlannedSet,
   type SessionContext,
@@ -117,8 +123,11 @@ import {
   type WorkoutEventDetail,
 } from './events.js';
 import {
+  SET_PLAN_EVENT,
   WORKOUT_CHANGED_EVENT,
   WORKOUT_FINISHED_EVENT,
+  type SetPlanChange,
+  type SetPlanChangedDetail,
   type WorkoutChangedDetail,
   type WorkoutFinishedDetail,
 } from './ptk-active-workout.js';
@@ -403,6 +412,7 @@ export class PtkTrainingLogbook extends LitElement {
     super.connectedCallback();
     this.addEventListener(WORKOUT_PLANNED_EVENT, this.#onPlanned);
     this.addEventListener(WORKOUT_CHANGED_EVENT, this.#onChanged);
+    this.addEventListener(SET_PLAN_EVENT, this.#onSetPlan);
     this.addEventListener(WORKOUT_FINISHED_EVENT, this.#onFinished);
     this.addEventListener(SEGMENTED_CHANGE_EVENT, this.#onSetting);
     this.addEventListener(RACK_CHANGED_EVENT, this.#onRack);
@@ -418,6 +428,7 @@ export class PtkTrainingLogbook extends LitElement {
   override disconnectedCallback(): void {
     this.removeEventListener(WORKOUT_PLANNED_EVENT, this.#onPlanned);
     this.removeEventListener(WORKOUT_CHANGED_EVENT, this.#onChanged);
+    this.removeEventListener(SET_PLAN_EVENT, this.#onSetPlan);
     this.removeEventListener(WORKOUT_FINISHED_EVENT, this.#onFinished);
     this.removeEventListener(SEGMENTED_CHANGE_EVENT, this.#onSetting);
     this.removeEventListener(RACK_CHANGED_EVENT, this.#onRack);
@@ -1060,6 +1071,73 @@ export class PtkTrainingLogbook extends LitElement {
     }
     void this.#persist(session, false);
   };
+
+  /**
+   * Section 7.7's changes to the shape of a lift, applied here rather than on screen.
+   *
+   * Two of the four mint an identifier and `ptk-active-workout` deliberately has no
+   * id source, so it names the change and this decides what it means. Against
+   * `this.active` and not against anything in the detail: the screen flushes an open
+   * note first, and the note reached this element rather than the copy the screen
+   * still holds.
+   */
+  readonly #onSetPlan = (event: CustomEvent<SetPlanChangedDetail>): void => {
+    stopHere(event);
+    const session = this.active;
+    if (session === null) return;
+    const next = this.#applyPlan(session, event.detail.change);
+    // The whole of the "does this row exist" question, for all four changes. The core
+    // hands back the session it was given where an identifier matched nothing, so a
+    // change naming a row that has gone -- a stale render, a consumer's own event --
+    // stops here rather than costing a write whose only difference is a newer
+    // `updatedAt`, which would move the workout up the history for nothing.
+    if (next === session) return;
+    this.active = next;
+    void this.#persist(next, false);
+  };
+
+  #applyPlan(session: WorkoutSession, change: SetPlanChange): WorkoutSession {
+    const context = this.#context();
+    switch (change.kind) {
+      case 'add': {
+        const planned = this.#planForAdd(session, change.exerciseId);
+        return planned === null ? session : addSet(session, change.exerciseId, planned, context);
+      }
+      // No "does this row exist" check in front of these three. The core hands back
+      // the session it was given where an identifier matched nothing, so the check
+      // above -- `next === session` -- already refuses a change naming a row that has
+      // gone, and a second one here would only restate it a level further out.
+      case 'duplicate':
+        return duplicateSet(session, change.setId, context);
+      case 'skip':
+        return skipSet(session, change.setId, context);
+      case 'remove':
+        return removeSet(session, change.setId, context);
+    }
+  }
+
+  /**
+   * What an added set is planned as, or `null` where there is no such lift.
+   *
+   * `addSet` appends, so the row it lands after is the last one, and taking that
+   * row's kind is what makes Add mean "another back-off" at the end of a lift and
+   * "another working set" in the middle of one.
+   *
+   * `planned ?? performed` is `duplicateSet`'s rule and is here so the two controls
+   * agree: a lifter who did four against a plan of five and then pressed either one
+   * gets a row planned as five. Copying what the row *shows* instead would make the
+   * button beside it copy something different, which is worse than either answer.
+   */
+  #planForAdd(session: WorkoutSession, exerciseId: LogbookId): PlannedSet | null {
+    const exercise = findWorkoutExercise(session, exerciseId);
+    if (exercise === null) return null;
+    const last = exercise.sets.at(-1);
+    // Nothing to copy, which is reachable: removing the last row leaves the lift on
+    // screen with its Add button. A working set, because that is the kind every other
+    // path plans, and an empty one, because an empty row is still a row to tick.
+    if (last === undefined) return { kind: 'working', performance: emptyPerformance() };
+    return { kind: last.kind, performance: last.planned ?? last.performed ?? emptyPerformance() };
+  }
 
   readonly #onFinished = (event: CustomEvent<WorkoutFinishedDetail>): void => {
     stopHere(event);

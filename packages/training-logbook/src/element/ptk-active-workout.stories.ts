@@ -43,6 +43,7 @@ import {
   recordSet,
   setExerciseNote,
   setWorkoutNote,
+  skipSet,
   type SessionContext,
 } from '../core/session.js';
 import type { Effort, LogbookId, WorkoutSession, WorkoutSet } from '../types.js';
@@ -228,6 +229,24 @@ function withEfforts(session: WorkoutSession, recorded: readonly RecordedEffort[
       storyContext(),
     );
   }, session);
+}
+
+/**
+ * A row skipped, through the core rather than written out.
+ *
+ * `skipSet` clears the performance as well as moving the status, and a hand-written
+ * `status: 'skipped'` would leave one behind -- which is a row the tool cannot produce
+ * and the one page where the status line and the numbers beside it would disagree.
+ */
+function withSkipped(session: WorkoutSession, exercise: number, index: number): WorkoutSession {
+  return skipSet(session, setAt(session, exercise, index).id, storyContext());
+}
+
+/** Which of section 7.7's three the open editor is offering, in the order they are drawn. */
+function structureControls(element: PtkActiveWorkout): string[] {
+  return [...shadow(element).querySelectorAll('.structure [data-action]')].map(
+    (host) => host.getAttribute('data-action') ?? '',
+  );
 }
 
 /** Every recorded effort read back onto its row, as the muted lines they are drawn as. */
@@ -764,6 +783,75 @@ export const FinishingWithNoNote: Story = {
       throw new Error('Nothing was written, but the box opened holding something.');
     }
   },
+};
+
+/**
+ * Section 7.7's four changes, which is the editor's second half. Add is the exception.
+ *
+ * Three of the four are inside the editor and one sits under the lift, and that split is
+ * the thing to read here. Add belongs to the exercise -- there is no row yet for it to
+ * act on -- so it cannot live in a panel that opens on a row; the other three name the
+ * row whose editor is open and would be four more buttons per row if they did not.
+ *
+ * Under Save and behind a rule, deliberately. Save is why the editor is open nearly every
+ * time it is open, so it keeps the top of the block, and a thumb travelling to it does not
+ * pass over Remove on the way. The line above them says what they act on, because
+ * "Remove this set" beside "Save" is otherwise a control a lifter reads as removing the
+ * lift.
+ *
+ * Nothing here is coloured or made destructive-looking. Removing a planned row a lifter
+ * decided against is the ordinary case, not the dangerous one.
+ */
+export const ChangingTheSets: Story = {
+  play: async ({ canvasElement }) => {
+    const element = await loggingScreen(canvasElement);
+    await press(element, '[data-action="edit"]');
+    await until('the editor to open', () => structureControls(element).length > 0);
+    const controls = structureControls(element);
+    if (controls.length !== 3) {
+      throw new Error(`The editor offered ${String(controls.length)}: ${controls.join(', ')}.`);
+    }
+  },
+};
+
+/**
+ * The same editor on a row that has already been ticked, which offers two rather than
+ * three.
+ *
+ * Skip is gone. Skipping a set already done would throw away what the lifter did in order
+ * to record that they did not do it, and the way back from a mistaken tick is Undo, which
+ * is on the row itself. Duplicate and Remove stay, because a row done at the wrong weight
+ * is still a row worth copying or taking out.
+ *
+ * Worth reading against the story above: two pages of the same panel, differing by one
+ * control, and nothing else on either says why.
+ */
+export const ChangingASetAlreadyDone: Story = {
+  args: { session: aStartedSession({ completed: 1, prefix: 'done-edit' }) },
+  play: async ({ canvasElement }) => {
+    const element = await loggingScreen(canvasElement);
+    await press(element, '[data-action="edit"]');
+    await until('the editor to open', () => structureControls(element).length > 0);
+    if (structureControls(element).includes('skip-set')) {
+      throw new Error('A row that has been ticked is offering Skip.');
+    }
+  },
+};
+
+/**
+ * One row skipped, which is the page the word exists for.
+ *
+ * A skipped row and a ticked one are otherwise the same row: both count as answered, both
+ * carry Undo in place of Done, and a skip clears the performance, so both show the plan.
+ * Without the line under it there is nothing on screen telling them apart -- and "I did
+ * not do this" read back as "I did this" is the one misreading this screen must not
+ * produce.
+ *
+ * Flat wording and no colour (section 15.3). A skipped set is a fact about a session and
+ * not a failure to be marked in red.
+ */
+export const ASetSkipped: Story = {
+  args: { session: withSkipped(aStartedSession({ prefix: 'skipped' }), 0, 1) },
 };
 
 /**

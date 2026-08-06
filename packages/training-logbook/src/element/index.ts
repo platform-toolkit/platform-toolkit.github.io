@@ -44,8 +44,11 @@ export {
 };
 
 export {
+  SET_PLAN_EVENT,
   WORKOUT_CHANGED_EVENT,
   WORKOUT_FINISHED_EVENT,
+  type SetPlanChange,
+  type SetPlanChangedDetail,
   type WorkoutChangedDetail,
   type WorkoutFinishedDetail,
 } from './ptk-active-workout.js';

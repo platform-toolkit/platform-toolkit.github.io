@@ -463,6 +463,48 @@ export const ACTIVE_NOTES = {
   edited: 'Different from the plan',
 
   /**
+   * Section 7.7's three structural changes, and the one that adds a row.
+   *
+   * All four are verbs about the set and not about the record of it, which is the
+   * distinction the screen has to keep: `edit` above says "change what you did",
+   * these say what happens to the row. A lifter who has one more in them presses
+   * Add; a lifter who is done with a lift presses Skip; a lifter who planned five
+   * and wants four presses Remove. Nothing here scores any of it (section 15.3).
+   */
+  /**
+   * Appended, and planned like the row it lands after -- another back-off after a
+   * back-off rather than a top set. There is deliberately no sentence on screen
+   * saying so: it would be one line under every lift, which is how a note stops
+   * being read, and the new row arrives with its numbers already in it.
+   */
+  addSet: 'Add a set',
+  duplicateSet: 'Add one more like this',
+  skipSet: 'Skip this set',
+  removeSet: 'Remove this set',
+
+  /**
+   * A skipped set is a fact and not a failure, and the row has to say which.
+   *
+   * Without it a skipped row and a ticked one are the same row: both are `done`,
+   * both carry Undo, and only the numbers beside them differ -- and a skip clears
+   * the performance, so the numbers are the plan either way. Section 15.3 is why
+   * the word is the flat one and why nothing is coloured.
+   */
+  skipped: 'Skipped',
+
+  /**
+   * Why the three destructive-looking controls are behind Change rather than on
+   * every row.
+   *
+   * A session with eight lifts draws forty rows, and five buttons on each is
+   * forty of them next to the one that matters -- section 14.3's sweaty tap
+   * landing on Remove instead of Done. Opening a row is the deliberate act that
+   * makes the rest safe, so the sentence explains what a lifter has just found
+   * rather than apologising for where it was.
+   */
+  editStructure: 'What happens to this row:',
+
+  /**
    * Section 7.9's control, on a lift and on the session.
    *
    * One word. It is a quiet button on a screen that is mostly buttons, and what

@@ -1216,10 +1216,16 @@ const LOGBOOK_START = ['ptk-workout-builder ptk-button[data-action="start"] butt
  *
  * Both, because they are the two states a row has and the second is the taller
  * one: a completed row grows an "edited" line, and the editor unfolds two number
- * fields and a save button inside a list item that is already indented. That is
- * the densest thing this tool draws in a phone column, and it is drawn *inside* a
- * row rather than in a dialog, so it inherits every level of padding above it --
- * which is exactly the nesting §5.7 says eats a 320px column at 200% text.
+ * fields, a save button and two of §7.7's three inside a list item that is
+ * already indented. That is the densest thing this tool draws in a phone column,
+ * and it is drawn *inside* a row rather than in a dialog, so it inherits every
+ * level of padding above it -- which is exactly the nesting §5.7 says eats a
+ * 320px column at 200% text.
+ *
+ * Two of the three and not all three: Skip is drawn only where nothing has been
+ * said about a row yet, and this editor is opened on the row just ticked. The
+ * wider arrangement has a route of its own below, because `.structure` wraps and
+ * two buttons and three are different layouts rather than more of the same one.
  */
 const LOGBOOK_LOG_CLICK = [
   'ptk-active-workout ptk-button[data-action="complete"] button',
@@ -1227,12 +1233,36 @@ const LOGBOOK_LOG_CLICK = [
 ];
 
 /**
+ * The same editor over a row nothing has been said about, which is where Skip is.
+ *
+ * A route of its own rather than a third press on the list above, because only one
+ * editor is open at a time and `LOGBOOK_EFFORT_CLICK_LAST` re-uses that list and
+ * depends on the editor sitting over the row it completed. Nothing is ticked on
+ * this route, so `.first()` lands on a planned row without naming one by position.
+ */
+const LOGBOOK_STRUCTURE_CLICK_LAST = ['ptk-active-workout ptk-button[data-action="edit"] button'];
+
+/**
+ * All three of them, named one by one.
+ *
+ * Skip is what distinguishes this route from the logging route above, and Remove is
+ * the last control in the editor -- so the pair is both "the arrangement this entry
+ * exists for" and "the fold has finished drawing".
+ */
+const LOGBOOK_STRUCTURE_SETTLE = [
+  'ptk-active-workout ptk-button[data-action="duplicate-set"] button',
+  'ptk-active-workout ptk-button[data-action="skip-set"] button',
+  'ptk-active-workout ptk-button[data-action="remove-set"] button',
+];
+
+/**
  * The row that has been ticked off, and the editor open inside it.
  *
  * `li[data-set].done` carries the class only once the set is recorded, so it is
- * the press being proven rather than the row existing. The save button exists
- * only while the editor is open, and it is the last thing rendered in it -- so
- * waiting for it waits for the whole fold.
+ * the press being proven rather than the row existing. Remove is the last control
+ * rendered in the editor -- below Save, behind §7.7's rule -- so waiting for it
+ * waits for the whole fold. Save was this line until those three arrived, and it
+ * would now settle the route one block early.
  *
  * Not the editor's own number fields, tempting as they are: their values come
  * from the performance being corrected, and a set completed at its planned
@@ -1241,7 +1271,7 @@ const LOGBOOK_LOG_CLICK = [
  */
 const LOGBOOK_LOG_SETTLE = [
   'ptk-active-workout li[data-set].done',
-  'ptk-active-workout ptk-button[data-action="save-edit"] button',
+  'ptk-active-workout ptk-button[data-action="remove-set"] button',
 ];
 
 /**
@@ -2317,6 +2347,21 @@ const ROUTES = [
     clickAfter: LOGBOOK_START,
     clickLast: LOGBOOK_LOG_CLICK,
     settle: LOGBOOK_LOG_SETTLE,
+  },
+  {
+    // §7.7's four changes to the shape of a lift. Three of them are a wrapping
+    // flex row inside the editor, inside a list item, inside a card -- and the row
+    // above them is Save on its own line, which makes the block the deepest wrap
+    // point in the tool. The fourth, Add, is drawn under every lift from the first
+    // paint, so the route above already measures it.
+    path: '/logbook/',
+    label: '/logbook/ (changing sets)',
+    click: LOGBOOK_PLAN_CLICK,
+    reveal: [],
+    fill: LOGBOOK_PLAN_FILL,
+    clickAfter: LOGBOOK_START,
+    clickLast: LOGBOOK_STRUCTURE_CLICK_LAST,
+    settle: LOGBOOK_STRUCTURE_SETTLE,
   },
   {
     // Section 7.10's effort entry, which arrived as two surfaces and is measured
