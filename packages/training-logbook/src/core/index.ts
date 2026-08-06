@@ -132,11 +132,17 @@ export {
 export {
   applyWarmup,
   clearWarmup,
+  rampExercise,
+  rampLastExercise,
   warmupChange,
   warmupIsCurrent,
   warmupMatchesEquipment,
   warmupSets,
+  workingPrescription,
+  type RampOutcome,
+  type RampRefusal,
   type WarmupChange,
   type WarmupChangeResult,
   type WarmupInput,
+  type WorkingPrescription,
 } from './warmup.js';

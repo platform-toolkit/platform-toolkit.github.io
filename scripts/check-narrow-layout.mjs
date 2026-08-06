@@ -1441,6 +1441,41 @@ const LOGBOOK_FINISH_SETTLE = [
 ];
 
 /**
+ * Do the whole session, put it away, and come back to the row it left behind.
+ *
+ * The long way round because there is no short one. The Repeat button is drawn per
+ * history row, a history row exists only once a workout has been completed, and a
+ * completed workout lives in IndexedDB -- which nothing in this runner's vocabulary
+ * can seed (#94). Finishing and pressing Home is therefore both the only route to
+ * the control and the exact route a lifter takes to it.
+ *
+ * The row is also the widest thing the home screen draws and none of it had been
+ * measured at any width: a title a lifter typed, an ISO day beside it, every lift
+ * in the session comma-joined, a facts line of three or four items, and a trailing
+ * button under the lot. Every other entry on this path opens on an empty logbook
+ * and gets the one-sentence empty state instead.
+ */
+const LOGBOOK_REPEAT_CLICK = [
+  ...LOGBOOK_START,
+  ...LOGBOOK_FINISH_CLICK,
+  'ptk-active-workout .finish ptk-button[data-action="finish-confirm"] button',
+  'ptk-training-logbook ptk-button[data-action="home"] button',
+];
+
+/**
+ * The row's own button, and the storage line under everything.
+ *
+ * `li[data-workout]` in the selector rather than the button on its own: the button
+ * is drawn inside a row, so naming the row is requiring that the finished session
+ * came back out of storage and was listed. The whole route is worthless against a
+ * history the home screen never read, and a bare action selector would not know.
+ */
+const LOGBOOK_REPEAT_SETTLE = [
+  'ptk-workout-history li[data-workout] ptk-button[data-action="repeat-workout"] button',
+  'ptk-training-logbook p.save',
+];
+
+/**
  * A session left on the origin by the warm-up calculator, as if a lifter had
  * just walked over from it.
  *
@@ -2062,6 +2097,15 @@ const ROUTES = [
     clickAfter: LOGBOOK_START,
     clickLast: LOGBOOK_FINISH_CLICK,
     settle: LOGBOOK_FINISH_SETTLE,
+  },
+  {
+    path: '/logbook/',
+    label: '/logbook/ (repeat)',
+    click: LOGBOOK_PLAN_CLICK,
+    reveal: [],
+    fill: LOGBOOK_PLAN_FILL,
+    clickAfter: LOGBOOK_REPEAT_CLICK,
+    settle: LOGBOOK_REPEAT_SETTLE,
   },
   {
     // One entry for the framed copy, the way meet-day gets one: the chrome around

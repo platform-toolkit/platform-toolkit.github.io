@@ -595,11 +595,21 @@ export function discardWorkout(session: WorkoutSession, context: SessionContext)
  * were written down. Exercise notes survive too, because "belt on from the third
  * set" is a note about how the exercise is done rather than about that Tuesday.
  *
- * The warm-up snapshot does not survive, and that is the subtle one. A snapshot
- * records the plates in a particular gym on a particular day against a particular
- * version of the engine (section 8.4). Carrying it into a new session would
- * present last month's plate maths as this morning's, and the fix is cheap:
- * generate again from the working prescription that did survive.
+ * The warm-up does not survive, and that is the subtle one. It goes as one thing:
+ * the snapshot, and the `warmup` sets the snapshot produced. A snapshot records
+ * the plates in a particular gym on a particular day against a particular version
+ * of the engine (section 8.4), so carrying it into a new session would present
+ * last month's plate maths as this morning's -- but keeping its rows without it is
+ * worse than either half. `loading.ts` reads a frozen table only where `warmup` is
+ * non-null, so an orphaned rung falls through to a fresh search against today's
+ * rack: last month's total drawn over this morning's plates, or, where the rack
+ * has since changed, the sentence that says the weight cannot be built. The card
+ * cannot tell such a row from a generated one and neither can the lifter.
+ *
+ * The fix is cheap and belongs to the caller: generate again from the working
+ * prescription that did survive. Where that is impossible -- no rack, or a
+ * movement with no warm-up family -- the repeat opens with no ramp, which is what
+ * the builder produces for such a lift anyway.
  */
 export function repeatWorkout(
   session: WorkoutSession,
@@ -614,18 +624,20 @@ export function repeatWorkout(
     loading: exercise.loading,
     warmup: null,
     note: exercise.note,
-    sets: exercise.sets.map((set) => ({
-      id: context.nextId(),
-      kind: set.kind,
-      // The plan, or -- for a set logged freeform last time, which had no plan --
-      // what was performed. Copying the result forward as a *plan* is the honest
-      // reading: it is what the lifter is proposing to do again.
-      planned: set.planned ?? set.performed,
-      performed: null,
-      status: 'planned' as const,
-      completedAt: null,
-      note: null,
-    })),
+    sets: exercise.sets
+      .filter((set) => set.kind !== 'warmup')
+      .map((set) => ({
+        id: context.nextId(),
+        kind: set.kind,
+        // The plan, or -- for a set logged freeform last time, which had no plan --
+        // what was performed. Copying the result forward as a *plan* is the honest
+        // reading: it is what the lifter is proposing to do again.
+        planned: set.planned ?? set.performed,
+        performed: null,
+        status: 'planned' as const,
+        completedAt: null,
+        note: null,
+      })),
   }));
   return { ...base, exercises, title: options.title ?? session.title };
 }

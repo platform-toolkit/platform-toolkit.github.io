@@ -174,6 +174,16 @@ export const HOME_NOTES = {
   /** An empty list reads as a failed read rather than as a beginning. */
   historyEmpty: 'Nothing logged yet. Your finished workouts will be listed here.',
 
+  /**
+   * A Repeat that read nothing back.
+   *
+   * Said rather than swallowed, because the row is still on screen and the press
+   * plainly did something -- section 2.4's "do not silently ignore" at the one place a
+   * lifter would otherwise press it again and again. It also says the record is intact,
+   * since the fear a failed read raises is that the workout has gone.
+   */
+  repeatFailed: 'That workout could not be read back, so nothing was started. It is still saved.',
+
   settingsHeading: 'Units',
   unitLabel: 'Show weights in',
 
@@ -520,7 +530,30 @@ export const HISTORY_NOTES = {
   unnamed: 'Workout',
   noExercises: 'No exercises',
   setsLabel: 'working sets',
+
+  /**
+   * The same fact about one set.
+   *
+   * Two keys and a choice at the call site rather than an `s` appended to a number,
+   * which is how `describeGap` in tool 2 does it and for the same reason: a rule that
+   * lives in the template cannot be read alongside the words it changes. "1 working
+   * sets" on a row somebody looks at every session is the kind of small wrongness that
+   * makes a tool feel unfinished.
+   */
+  setsLabelOne: 'working set',
   hasNotes: 'Has notes',
+
+  /** Section 4.4. On a row, so it says which workout without repeating its name. */
+  repeat: 'Repeat',
+
+  /**
+   * Why no row offers to be repeated while a session is open.
+   *
+   * One sentence for the whole list rather than one per row. The reason is never
+   * about the row, and twenty copies of it is how a note stops being read -- the
+   * same rule the builder's warm-up note is written under.
+   */
+  repeatBusy: 'You have a workout in progress, so none of these can be started again yet.',
 } as const;
 
 /** A duration in the words a session is talked about in. */

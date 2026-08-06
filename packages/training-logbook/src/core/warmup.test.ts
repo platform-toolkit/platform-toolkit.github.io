@@ -15,13 +15,18 @@
  * and what a screen is told before any of it happens.
  */
 
-import { WARMUP_ENGINE_VERSION, WARMUP_RULESET_VERSION } from '@platform-toolkit/domain';
+import {
+  WARMUP_ENGINE_VERSION,
+  WARMUP_RULESET_VERSION,
+  type WeightUnit,
+} from '@platform-toolkit/domain';
 import { describe, expect, it } from 'vitest';
 
 import type {
   EquipmentSnapshot,
   ExerciseOption,
   SetPerformance,
+  WorkoutExercise,
   WorkoutSession,
   WorkoutSet,
 } from '../types.js';
@@ -37,16 +42,20 @@ import {
   planSet,
   recordSet,
   skipSet,
+  type NewExerciseOptions,
+  type PlannedSet,
   type SessionContext,
 } from './session.js';
 import {
   applyWarmup,
   clearWarmup,
+  rampExercise,
   rampLastExercise,
   warmupChange,
   warmupIsCurrent,
   warmupMatchesEquipment,
   warmupSets,
+  workingPrescription,
   type WarmupChange,
   type WarmupInput,
 } from './warmup.js';
@@ -133,6 +142,49 @@ function onlyExercise(session: WorkoutSession) {
   const exercise = session.exercises[0];
   if (exercise === undefined) throw new Error('the fixture lost its exercise');
   return exercise;
+}
+
+/** The exercise at a position, for the cases where there is more than one. */
+function exerciseAt(session: WorkoutSession, index: number): WorkoutExercise {
+  const exercise = session.exercises[index];
+  if (exercise === undefined) throw new Error('the fixture lost its exercise');
+  return exercise;
+}
+
+/** The warm-up rows of one named exercise, in the order they are on the card. */
+function warmupsOf(session: WorkoutSession, exerciseId: string): readonly WorkoutSet[] {
+  const exercise = session.exercises.find((candidate) => candidate.id === exerciseId);
+  if (exercise === undefined) throw new Error('the fixture lost its exercise');
+  return exercise.sets.filter((set) => set.kind === 'warmup');
+}
+
+/** A draft holding exactly the exercise described, and nothing else. */
+function anExerciseOf(context: SessionContext, options: NewExerciseOptions): WorkoutExercise {
+  return onlyExercise(addExercise(createWorkout(context, { localDate: ON_DAY }), context, options));
+}
+
+/** A squat carrying exactly the sets described. */
+function aSquatOf(context: SessionContext, plan: readonly PlannedSet[]): WorkoutExercise {
+  return anExerciseOf(context, {
+    exerciseId: 'squat',
+    displayName: 'Squat',
+    loading: 'barbell-total-weight',
+    plan,
+  });
+}
+
+/**
+ * One working set on a bar.
+ *
+ * Every weight handed to this in the cases below is an invented fixture number --
+ * root section 5.1 -- picked to be unequal and to read at a glance, and none of it
+ * is anybody's published figure.
+ */
+function workingAt(amount: number, unit: WeightUnit, reps: number | null): PlannedSet {
+  return {
+    kind: 'working',
+    performance: performance({ kind: 'implement', weight: { amount, unit } }, reps),
+  };
 }
 
 /** The change for {@link squatInput}, unwrapped, or a failure that says why. */
@@ -582,6 +634,220 @@ describe('rampLastExercise', () => {
 
     expect(outcome).toEqual({ ok: false, session, reason: 'refused' });
     expect(outcome.session).toBe(session);
+  });
+});
+
+describe('rampExercise', () => {
+  /** A squat and then a deadlift, so that the squat is not the last lift. */
+  function twoLifts(context: SessionContext): WorkoutSession {
+    return addExercise(aSquatWorkout(context), context, {
+      exerciseId: 'deadlift',
+      displayName: 'Deadlift',
+      loading: 'barbell-total-weight',
+      plan: [{ kind: 'working', performance: workingSet() }],
+    });
+  }
+
+  it('ramps a lift in the middle of a session', () => {
+    // The case the tail-reading form structurally cannot reach, and the whole
+    // reason this one exists. A repeated session arrives with every exercise in it
+    // already, so rebuilding the ladder the repeat dropped means naming a lift --
+    // and after the first of them, none is the last.
+    const context = testContext();
+    const session = twoLifts(context);
+    const outcome = rampExercise(session, exerciseAt(session, 0).id, SQUAT, rampInput(), context);
+
+    expect(outcome.ok).toBe(true);
+    expect(totals(exerciseAt(outcome.session, 0).sets)).toEqual([...RAMP, 225, 225]);
+    expect(exerciseAt(outcome.session, 0).warmup?.plan.family).toBe('squat-press');
+    expect(exerciseAt(outcome.session, 1).sets).toEqual(exerciseAt(session, 1).sets);
+    expect(exerciseAt(outcome.session, 1).warmup).toBe(null);
+  });
+
+  it('answers the last lift exactly the way rampLastExercise does', () => {
+    // The two must not be able to drift, so the tail form is now a lookup and this
+    // call and nothing else. Both contexts are fresh, so the identifiers they mint
+    // line up and the comparison is about the ramp rather than about counting.
+    const session = twoLifts(testContext());
+    const last = exerciseAt(session, 1);
+
+    expect(rampExercise(session, last.id, DEADLIFT, rampInput(), testContext())).toEqual(
+      rampLastExercise(session, DEADLIFT, rampInput(), testContext()),
+    );
+  });
+
+  it('has nothing to say about a movement with no ramp', () => {
+    // Silent, for the reason it is silent in the tail form: somebody who repeated a
+    // session with a chin-up in it did not ask for a chin-up ramp.
+    const context = testContext();
+    const session = addExercise(aSquatWorkout(context), context, {
+      exerciseId: 'chin-up',
+      displayName: 'Chin-Up',
+      loading: 'bodyweight',
+      plan: [{ kind: 'working', performance: performance({ kind: 'none' }, 8) }],
+    });
+    const outcome = rampExercise(session, exerciseAt(session, 1).id, CHIN_UP, rampInput(), context);
+
+    expect(outcome).toEqual({ ok: false, session, reason: 'no-ramp' });
+    expect(outcome.session).toBe(session);
+  });
+
+  it('says the same about an exercise the session no longer holds', () => {
+    // Grouped with the no-family answer rather than given a third reason. A screen
+    // holding an identifier a background reload removed has nothing to say either.
+    const context = testContext();
+    const session = twoLifts(context);
+    const outcome = rampExercise(session, 'id-gone', SQUAT, rampInput(), context);
+
+    expect(outcome).toEqual({ ok: false, session, reason: 'no-ramp' });
+    expect(outcome.session).toBe(session);
+  });
+
+  it('separates a refusal by the engine from a lift that has no ramp', () => {
+    const context = testContext();
+    const session = twoLifts(context);
+    const outcome = rampExercise(
+      session,
+      exerciseAt(session, 0).id,
+      SQUAT,
+      rampInput({ workingWeight: 0 }),
+      context,
+    );
+
+    expect(outcome).toEqual({ ok: false, session, reason: 'refused' });
+    expect(outcome.session).toBe(session);
+  });
+
+  it('replaces the ramp already on a lift rather than writing a second one', () => {
+    // Re-ramping is the ordinary case here, not the exceptional one: a repeat is
+    // rebuilt lift by lift and a lifter may change their mind twice. Appending
+    // would leave twelve rows above the working sets and each pass would add six
+    // more.
+    const context = testContext();
+    const session = twoLifts(context);
+    const squat = exerciseAt(session, 0).id;
+    const once = rampExercise(session, squat, SQUAT, rampInput(), context);
+    const twice = rampExercise(once.session, squat, SQUAT, rampInput(), context);
+
+    expect(warmupsOf(once.session, squat)).toHaveLength(6);
+    expect(warmupsOf(twice.session, squat)).toHaveLength(6);
+    expect(totals(exerciseAt(twice.session, 0).sets)).toEqual([...RAMP, 225, 225]);
+  });
+
+  it('keeps a warm-up row the lifter has already ticked off', () => {
+    // Section 8.5's sentence, reached through the new door: preserve completed sets
+    // as performed history. A repeat being re-ramped mid-session is a lifter who
+    // has already walked part of the ladder.
+    const context = testContext();
+    const session = twoLifts(context);
+    const squat = exerciseAt(session, 0).id;
+    const once = rampExercise(session, squat, SQUAT, rampInput(), context);
+    const first = warmupsOf(once.session, squat)[0];
+    if (first === undefined) throw new Error('the fixture lost its ramp');
+    const done = completeSet(once.session, first.id, context);
+
+    const later = testContext(AT_LATER);
+    const twice = rampExercise(done, squat, SQUAT, rampInput({ workingWeight: 315 }), later);
+    const after = warmupsOf(twice.session, squat);
+
+    expect(after[0]?.id).toBe(first.id);
+    expect(after[0]?.status).toBe('complete');
+    expect(after.slice(1).every((set) => set.status === 'planned')).toBe(true);
+  });
+});
+
+describe('workingPrescription', () => {
+  it('works up to the heaviest working set and not the first one', () => {
+    // A repeat of a hand-edited session holds unequal working sets, and a ramp
+    // built to the lightest of them is a ramp that stops below the work.
+    const context = testContext();
+    const exercise = aSquatOf(context, [workingAt(185, 'lb', 5), workingAt(245, 'lb', 3)]);
+
+    expect(workingPrescription(exercise)).toEqual({
+      weight: { amount: 245, unit: 'lb' },
+      sets: 2,
+      reps: 3,
+    });
+  });
+
+  it('is the weight as it was recorded, even where the comparison crossed units', () => {
+    // Section 11.4: a weight is shown in the unit it was typed in. 100 kg outweighs
+    // 215 lb, so working out which one won had to convert -- and the answer must
+    // not, or a lifter's own logbook starts rewriting the numbers back at them.
+    const context = testContext();
+    const exercise = aSquatOf(context, [workingAt(215, 'lb', 5), workingAt(100, 'kg', 2)]);
+
+    expect(workingPrescription(exercise)?.weight).toEqual({ amount: 100, unit: 'kg' });
+    expect(workingPrescription(exercise)?.reps).toBe(2);
+  });
+
+  it('leaves the earlier of two equal sets in front', () => {
+    const context = testContext();
+    const exercise = aSquatOf(context, [workingAt(200, 'lb', 5), workingAt(200, 'lb', 2)]);
+
+    expect(workingPrescription(exercise)?.reps).toBe(5);
+  });
+
+  it('has no bar to work up to on a bodyweight lift', () => {
+    const context = testContext();
+    const exercise = anExerciseOf(context, {
+      exerciseId: 'chin-up',
+      displayName: 'Chin-Up',
+      loading: 'bodyweight',
+      plan: [{ kind: 'working', performance: performance({ kind: 'none' }, 8) }],
+    });
+
+    expect(workingPrescription(exercise)).toBe(null);
+  });
+
+  it('has none on a weighted or an assisted lift either', () => {
+    // `added` and `assisted` are the same number with opposite signs against a
+    // body, and neither is a barbell total. Flattening the union to "whatever
+    // weight is in there" would ramp somebody to the plate hung off their belt.
+    const context = testContext();
+    const added = anExerciseOf(context, {
+      exerciseId: 'chin-up',
+      displayName: 'Chin-Up',
+      loading: 'bodyweight-plus-added-weight',
+      plan: [
+        {
+          kind: 'working',
+          performance: performance({ kind: 'added', weight: { amount: 25, unit: 'lb' } }, 6),
+        },
+      ],
+    });
+    const assisted = anExerciseOf(context, {
+      exerciseId: 'chin-up',
+      displayName: 'Chin-Up',
+      loading: 'assisted-bodyweight',
+      plan: [
+        {
+          kind: 'working',
+          performance: performance({ kind: 'assisted', weight: { amount: 30, unit: 'lb' } }, 6),
+        },
+      ],
+    });
+
+    expect(workingPrescription(added)).toBe(null);
+    expect(workingPrescription(assisted)).toBe(null);
+  });
+
+  it('answers nothing for an exercise with no working sets in it', () => {
+    const context = testContext();
+    const exercise = aSquatOf(context, [
+      { kind: 'warmup', performance: workingAt(135, 'lb', 5).performance },
+    ]);
+
+    expect(workingPrescription(exercise)).toBe(null);
+  });
+
+  it('answers nothing where the heaviest set has no rep count', () => {
+    // Borrowing the lighter set's 5 would attach one set's reps to another set's
+    // weight and freeze a prescription nobody wrote down.
+    const context = testContext();
+    const exercise = aSquatOf(context, [workingAt(185, 'lb', 5), workingAt(245, 'lb', null)]);
+
+    expect(workingPrescription(exercise)).toBe(null);
   });
 });
 

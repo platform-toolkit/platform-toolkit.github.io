@@ -37,7 +37,7 @@
 // screen renders with no padding, no gaps and no tap-target floor -- a layout that never
 // ships, and one that would pass and fail for the wrong reasons.
 import '@platform-toolkit/ui/tokens.css';
-import { formatWeight } from '@platform-toolkit/domain';
+import { formatWeight, type Weight } from '@platform-toolkit/domain';
 import axe from 'axe-core';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -53,6 +53,7 @@ import {
   startWorkout,
   type SessionContext,
 } from '../core/session.js';
+import { rampLastExercise } from '../core/warmup.js';
 import type { HandoffSource } from '../handoff.js';
 import { indexedDbLogbookStore } from '../storage/indexed-db.js';
 import { memoryLogbookStore } from '../storage/memory.js';
@@ -66,6 +67,8 @@ import type {
   Instant,
   LogbookId,
   WarmupHandoff,
+  WorkoutExercise,
+  WorkoutSession,
 } from '../types.js';
 
 import {
@@ -579,7 +582,232 @@ async function addPrimary(element: PtkTrainingLogbook, exerciseId: string): Prom
   await settle(element);
 }
 
+/**
+ * Every event of one name that reached the page, with its detail.
+ *
+ * At the top rather than inside the block about events, because a repeat is also
+ * announced and the alternative was the same eleven lines twice.
+ */
+function record(name: string): unknown[] {
+  const seen: unknown[] = [];
+  const listener = (event: Event): void => {
+    seen.push(event instanceof CustomEvent ? event.detail : null);
+  };
+  document.body.addEventListener(name, listener);
+  teardown.push(() => {
+    document.body.removeEventListener(name, listener);
+  });
+  return seen;
+}
+
 const SQUAT = catalogExercise('squat');
+
+/*
+ * ---------------------------------------------------------------------------
+ * A finished session to do again. Section 4.4.
+ * ---------------------------------------------------------------------------
+ */
+
+/** The lift the seeded session deliberately leaves unramped, though it could be. */
+const BENCH = catalogExercise('bench-press');
+
+/**
+ * The day the repeated session was trained on, and the instant it was written.
+ *
+ * Its own day, and neither {@link TODAY} nor {@link LAST_TIME_DAY}: the copy has to be
+ * dated today, and a source sharing a day with the answer could not show that.
+ */
+const REPEATED_DAY: CalendarDay = '2026-02-24';
+const REPEATED_AT: Instant = '2026-02-24T17:00:00.000Z';
+
+/**
+ * What that session was planned for. Every figure invented, per section 5.1.
+ *
+ * In kilograms, because the rack it was ramped against is, and the lifter is standing at
+ * a pound rack today. A warm-up rung that comes back in kilograms was therefore copied
+ * rather than regenerated, which is the one thing the repeat must not do.
+ */
+const REPEATED_WEIGHT = 110;
+const REPEATED_SETS = 3;
+const REPEATED_REPS = 5;
+
+/** Free text a lifter typed, which the copy keeps. */
+const REPEATED_TITLE = 'Invented Tuesday, heavy';
+
+/** The rack in front of the lifter now. Invented, and in the other unit. Section 5.1. */
+function aPoundRack(): EquipmentSnapshot {
+  return {
+    barWeight: { amount: 45, unit: 'lb' },
+    collarWeight: { amount: 0, unit: 'lb' },
+    plateUnit: 'lb',
+    plates: [
+      { weight: 45, pairs: null, fullDiameter: true },
+      { weight: 25, pairs: null, fullDiameter: true },
+      { weight: 10, pairs: null, fullDiameter: false },
+      { weight: 5, pairs: null, fullDiameter: false },
+      { weight: 2.5, pairs: null, fullDiameter: false },
+    ],
+  };
+}
+
+/** Puts a rack in settings, which is the one a repeated session is ramped against. */
+async function useRack(store: LogbookStore, equipment: EquipmentSnapshot): Promise<void> {
+  await store.writeSettings({ ...defaultSettings(), equipment });
+}
+
+/**
+ * A finished session in the store, ramped on the squat and not on the bench press.
+ *
+ * Both lifts can be ramped, so the only difference between them is whether one *was* --
+ * which is exactly the fact the copy has to reproduce. Pairing a ramped lift against one
+ * the catalogue refuses would pass against a tool that never looked at the source.
+ *
+ * Written through the store and built by the core, for the reasons `seedHistory` is, and
+ * returned whole because every assertion in this section is a comparison against it.
+ */
+async function seedRepeatable(store: LogbookStore): Promise<WorkoutSession> {
+  let next = 0;
+  // Its own prefix again: `mount` hands the element `id-N` and `seedHistory` owns
+  // `last-N`, and a seeded workout sharing an identifier with a live one is overwritten
+  // by that session's first save.
+  const context: SessionContext = {
+    at: REPEATED_AT,
+    nextId: (): LogbookId => {
+      next += 1;
+      return `did-${String(next)}`;
+    },
+  };
+  let session = createWorkout(context, { localDate: REPEATED_DAY, title: REPEATED_TITLE });
+  for (const exercise of [SQUAT, BENCH]) {
+    session = addExercise(session, context, {
+      exerciseId: exercise.id,
+      displayName: exercise.name,
+      loading: exercise.loading,
+      plan: Array.from({ length: REPEATED_SETS }, () => ({
+        kind: 'working' as const,
+        performance: performance(
+          { kind: 'implement', weight: { amount: REPEATED_WEIGHT, unit: 'kg' } },
+          REPEATED_REPS,
+        ),
+      })),
+    });
+    if (exercise.id !== SQUAT.id) continue;
+    const ramped = rampLastExercise(
+      session,
+      exercise,
+      {
+        equipment: aGym(),
+        workingWeight: REPEATED_WEIGHT,
+        workingSets: REPEATED_SETS,
+        workingReps: REPEATED_REPS,
+      },
+      context,
+    );
+    // Loudly, and not by carrying on: every warm-up assertion below would otherwise be
+    // made against a source that had no ramp on it, and all of them would pass.
+    if (!ramped.ok) throw new Error('The session to be repeated was supposed to be ramped.');
+    session = ramped.session;
+  }
+  session = startWorkout(session, context);
+  for (const set of session.exercises.flatMap((exercised) => exercised.sets)) {
+    session = completeSet(session, set.id, context);
+  }
+  const finished = finishWorkout(session, 'leave', context);
+  await store.writeWorkout(finished, { kind: 'unchanged' });
+  return finished;
+}
+
+/**
+ * The home screen's row for one workout, once the read behind it has landed.
+ *
+ * By identifier and not by position. A session in progress is listed alongside the
+ * finished ones and sorts above them, so the first row is not the seeded one on every
+ * journey here -- and a case that pressed Repeat on the wrong row would still pass.
+ */
+async function historyRow(element: PtkTrainingLogbook, id: LogbookId): Promise<HTMLElement> {
+  const selector = `li[data-workout="${id}"]`;
+  await vi.waitFor(async () => {
+    await element.updateComplete;
+    expect(deepAll(shadow(element), selector)).toHaveLength(1);
+  });
+  const row = deepAll(shadow(element), selector)[0];
+  if (row === undefined) throw new Error(`The home screen is not listing ${id}.`);
+  return row;
+}
+
+/**
+ * Presses Repeat on a row and waits for the copy to be on screen.
+ *
+ * `settle` on its own would return against the home screen it clicked: the press begins
+ * with a read of the whole stored session and writes nothing until that read comes back,
+ * so the storage line says Saved for the entire journey. The set rows are the first
+ * thing that exists only on the far side of it.
+ */
+async function repeat(element: PtkTrainingLogbook, row: HTMLElement): Promise<void> {
+  nativeButton(control(row, 'repeat-workout')).click();
+  await vi.waitFor(async () => {
+    await element.updateComplete;
+    expect(setRows(element).length).toBeGreaterThan(0);
+  });
+  await settle(element);
+}
+
+/**
+ * The session the tool is now in, read back out of storage rather than off the element.
+ *
+ * The session is private state, which is the honest constraint to assert under: what a
+ * lifter keeps is what the database holds, and a property read would pass against a copy
+ * that was never written down.
+ */
+async function activeWorkout(store: LogbookStore): Promise<WorkoutSession> {
+  const id = await store.readActiveId();
+  if (id === null) throw new Error('Nothing is marked as the workout in progress.');
+  const session = await store.readWorkout(id);
+  if (session === null) throw new Error(`The active pointer names ${id}, which is not stored.`);
+  return session;
+}
+
+/** One exercise by position, which is the order a repeat preserves. */
+function exerciseAt(session: WorkoutSession, index: number): WorkoutExercise {
+  const exercise = session.exercises[index];
+  if (exercise === undefined) throw new Error(`This session has no exercise ${String(index + 1)}.`);
+  return exercise;
+}
+
+/**
+ * What one exercise is planned to lift, by kind, in the order it is written down.
+ *
+ * Weights rather than formatted strings, because the unit is half the assertion: a rung
+ * regenerated against today's rack carries today's plate unit, and a formatter would fold
+ * that into prose to be matched with a substring.
+ */
+function plannedLoads(exercise: WorkoutExercise, kind: 'warmup' | 'working'): Weight[] {
+  return exercise.sets
+    .filter((set) => set.kind === kind)
+    .map((set) => {
+      const load = set.planned?.load;
+      if (load?.kind !== 'implement') {
+        throw new Error(`A ${kind} set of "${exercise.displayName}" with nothing on the bar.`);
+      }
+      return load.weight;
+    });
+}
+
+/**
+ * A store whose sessions cannot be read back one at a time.
+ *
+ * Safe to boot against, which is the whole reason it is written this way: the repository
+ * reads the active pointer first and only reaches a session where there is one, and there
+ * is none in the case this is for. The home screen's list comes from `readWorkouts`, so
+ * the row is drawn as usual and the failure arrives on the press -- which is the order a
+ * lifter meets a record that has gone bad under them.
+ */
+function unreadable(store: LogbookStore): LogbookStore {
+  return {
+    ...store,
+    readWorkout: () => Promise.reject(new Error('this record cannot be read')),
+  };
+}
 
 describe('the training logbook', () => {
   it('opens on a logbook with nothing in it, and says so rather than showing a blank', async () => {
@@ -709,7 +937,10 @@ describe('the training logbook', () => {
     const home = readAll(element);
     expect(home).not.toContain(HOME_NOTES.historyEmpty);
     expect(home).toContain('Squat');
-    expect(home).toContain(HISTORY_NOTES.setsLabel);
+    // The count and its label together, and the singular one: exactly one set was
+    // ticked off above. The bare label would read the same against "1 working sets",
+    // which is what the row said before the plural rule was written.
+    expect(home.replace(/\s+/g, ' ')).toContain(`1 ${HISTORY_NOTES.setsLabelOne}`);
     // The finished session is no longer offered to carry on with.
     expect(home).not.toContain(HOME_NOTES.resumeNote);
   });
@@ -1136,6 +1367,200 @@ describe('the training logbook', () => {
     });
   });
 
+  /**
+   * Section 4.4 and LOG-003, driven from the row a lifter actually presses.
+   *
+   * Every case here runs on the durable store rather than the memory one. Two of them
+   * are about what is *left* in storage -- that the source was not touched, and that the
+   * copy was written -- and `#persist` returns early where the repository is not durable,
+   * so on the memory store both would assert nothing and pass.
+   */
+  describe('doing a workout again', () => {
+    it('starts a new session today, holding the plan and none of the results', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+
+      await repeat(element, await historyRow(element, source.id));
+
+      const copy = await activeWorkout(store);
+      // A new session, and not the old one reopened for editing. Without this the rest
+      // of the case would hold against a tool that handed a lifter their own history to
+      // write over.
+      expect(copy.id).not.toBe(source.id);
+      expect(copy.localDate).toBe(TODAY);
+      expect(copy.status).toBe('active');
+      expect(copy.title).toBe(REPEATED_TITLE);
+
+      // The same lifts, in the same order, for the same working sets.
+      expect(copy.exercises.map((exercise) => exercise.exerciseId)).toEqual(
+        source.exercises.map((exercise) => exercise.exerciseId),
+      );
+      for (const index of [0, 1]) {
+        expect(plannedLoads(exerciseAt(copy, index), 'working')).toEqual(
+          plannedLoads(exerciseAt(source, index), 'working'),
+        );
+      }
+
+      // And nothing performed. Every set of the source was ticked off, so a copy that
+      // carried results across would open as a session the lifter had already done.
+      const sets = copy.exercises.flatMap((exercise) => exercise.sets);
+      expect(sets.length).toBeGreaterThan(0);
+      expect(sets.every((set) => set.performed === null)).toBe(true);
+      expect(sets.every((set) => set.status === 'planned')).toBe(true);
+      expect(sets.every((set) => set.completedAt === null)).toBe(true);
+      // On screen as well as in storage: not one row opens showing an Undo.
+      expect(setRows(element)).toHaveLength(sets.length);
+      expect(setRows(element).some((row) => isDone(row))).toBe(false);
+    });
+
+    it('leaves the workout it copied exactly as it was', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+
+      await repeat(element, await historyRow(element, source.id));
+
+      // Field for field, `updatedAt` included. Repeating is a read, and a source that
+      // came back with a new stamp on it is a history the tool edited in order to start
+      // a session -- which is the one thing the list on the home screen promises it
+      // cannot do.
+      expect(await store.readWorkout(source.id)).toEqual(source);
+      expect(source.status).toBe('completed');
+      // Two records now, not one amended: the source and the copy.
+      const stored = await store.readWorkouts();
+      expect(stored.map((workout) => workout.id).sort()).toEqual(
+        [source.id, (await activeWorkout(store)).id].sort(),
+      );
+    });
+
+    it('builds the ramp again against the rack in front of the lifter', async () => {
+      const { store } = await durableStore();
+      await useRack(store, aPoundRack());
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+
+      await repeat(element, await historyRow(element, source.id));
+
+      const copy = await activeWorkout(store);
+      const copied = exerciseAt(copy, 0);
+      const before = exerciseAt(source, 0);
+
+      // Regenerated and not carried across. The source was ramped on a kilogram rack and
+      // this lifter is standing at a pound one, so a copied ladder would name plates that
+      // are not in the room and name them in the wrong unit.
+      expect(plannedLoads(copied, 'warmup').length).toBeGreaterThan(0);
+      expect(new Set(plannedLoads(copied, 'warmup').map((weight) => weight.unit))).toEqual(
+        new Set(['lb']),
+      );
+      expect(new Set(plannedLoads(before, 'warmup').map((weight) => weight.unit))).toEqual(
+        new Set(['kg']),
+      );
+      expect(plannedLoads(copied, 'warmup')).not.toEqual(plannedLoads(before, 'warmup'));
+      // And the frozen record says which rack it was built for, which is what section
+      // 8.4 stores a snapshot for at all.
+      expect(copied.warmup?.equipment).toEqual(aPoundRack());
+
+      // Loadable, which is the point of regenerating rather than copying: a rung the
+      // plates cannot build draws a sentence where the diagram goes, and this rack is
+      // the only one the diagram is drawn from.
+      const rungs = deepAll(shadow(element), 'li[data-set][data-kind="warmup"]');
+      expect(rungs).toHaveLength(plannedLoads(copied, 'warmup').length);
+      expect(rungs.flatMap((rung) => deepAll(rung, 'p.refusal'))).toHaveLength(0);
+      // The empty bar draws no plate faces and every rung above it does, so this counts
+      // ladders that reached the rack rather than rows that reached the screen.
+      expect(rungs.flatMap((rung) => deepAll(rung, '[role="img"]')).length).toBeGreaterThan(0);
+    });
+
+    it('gives no ramp to a lift that had none, though it could have one', async () => {
+      const { store } = await durableStore();
+      await useRack(store, aPoundRack());
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+
+      await repeat(element, await historyRow(element, source.id));
+
+      const copy = await activeWorkout(store);
+      // The bench press is ramp-capable and was not ramped, so the answer can only have
+      // come from reading the source. The squat beside it proves the rack was there and
+      // the engine was willing, which is what makes this a pairing and not a silence.
+      expect(exerciseAt(source, 1).warmup).toBeNull();
+      expect(exerciseAt(copy, 1).warmup).toBeNull();
+      expect(plannedLoads(exerciseAt(copy, 1), 'warmup')).toEqual([]);
+      expect(plannedLoads(exerciseAt(copy, 0), 'warmup').length).toBeGreaterThan(0);
+    });
+
+    it('announces the copy once, by the identifier it wrote', async () => {
+      const started = record(WORKOUT_STARTED_EVENT);
+
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+
+      await repeat(element, await historyRow(element, source.id));
+
+      // Once, and about the copy. Section 12.5: an identifier and nothing else, so a
+      // page embedding this tool learns that a session started and nothing about it.
+      const copy = await activeWorkout(store);
+      expect(started).toEqual([{ workoutId: copy.id }]);
+      expect(copy.id).not.toBe(source.id);
+    });
+
+    it('offers no row to repeat while a session is open', async () => {
+      const { store, databaseName } = await durableStore();
+      const source = await seedRepeatable(store);
+      const first = await mount(store);
+      await planASquatSession(first);
+      const open = await store.readActiveId();
+
+      // The refresh is not decoration. Nothing on the logging screen goes back, so
+      // reopening the tool mid-session is the only way to stand on the home screen with
+      // a workout still in progress -- which is the state the buttons come out for.
+      first.remove();
+      store.close();
+      const reopened = await reopen(databaseName);
+      const element = await mount(reopened);
+
+      expect(readAll(element)).toContain(HOME_NOTES.resumeNote);
+      await historyRow(element, source.id);
+      // Omitted rather than disabled, and explained once above the list instead of eight
+      // silent dead ends inside it.
+      expect(deepAll(shadow(element), '[data-action="repeat-workout"]')).toHaveLength(0);
+      expect(readAll(element)).toContain(HISTORY_NOTES.repeatBusy);
+
+      // With nothing to press, nothing moved: the session waiting to be resumed is the
+      // one that was there, and the row nobody could copy is unchanged.
+      expect(await reopened.readActiveId()).toBe(open);
+      expect(await reopened.readWorkout(source.id)).toEqual(source);
+    });
+
+    it('says so and stays put when the workout cannot be read back', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(unreadable(store));
+
+      const row = await historyRow(element, source.id);
+      // Not `repeat`: there is no logging screen coming, and waiting for one would time
+      // out rather than report the sentence this case is about.
+      nativeButton(control(row, 'repeat-workout')).click();
+      await vi.waitFor(async () => {
+        await element.updateComplete;
+        expect(readAll(element)).toContain(HOME_NOTES.repeatFailed);
+      });
+
+      // Still on the home screen, with the row that would not open still on it. A tool
+      // that navigated and then apologised would have taken the lifter away from the
+      // only thing they could try again.
+      expect(setRows(element)).toHaveLength(0);
+      expect(deepAll(shadow(element), '[data-action="start-workout"]')).toHaveLength(1);
+      expect(readAll(element)).not.toContain(HOME_NOTES.resumeNote);
+      // And nothing was started or written. The sentence says the workout is still
+      // saved, so it had better be.
+      expect(await store.readActiveId()).toBeNull();
+      expect(await store.readWorkouts()).toHaveLength(1);
+    });
+  });
+
   describe('when the browser will not store anything', () => {
     it('says so before the first set is logged, and still logs it', async () => {
       const element = await mount(memoryLogbookStore());
@@ -1155,19 +1580,6 @@ describe('the training logbook', () => {
   });
 
   describe('the events a host can listen for', () => {
-    /** Every event of one name that reached the page, with its detail. */
-    function record(name: string): unknown[] {
-      const seen: unknown[] = [];
-      const listener = (event: Event): void => {
-        seen.push(event instanceof CustomEvent ? event.detail : null);
-      };
-      document.body.addEventListener(name, listener);
-      teardown.push(() => {
-        document.body.removeEventListener(name, listener);
-      });
-      return seen;
-    }
-
     it('announces the session as it happens, naming it by identifier only', async () => {
       const started = record(WORKOUT_STARTED_EVENT);
       const completed = record(SET_COMPLETED_EVENT);

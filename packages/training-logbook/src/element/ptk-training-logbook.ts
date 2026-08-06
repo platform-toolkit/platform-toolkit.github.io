@@ -27,13 +27,12 @@
  *
  * WHAT IS NOT HERE YET, AND IS NOT PRETENDED TO BE
  *
- * Notes, RPE, repeating a session, custom exercises, the rest timer, editing history,
- * reading a backup back in, Markdown export and the deletion flow are all later
- * milestones. Section 0.4 forbids standing in for them with
- * a disabled control or a "coming soon", so none of them has one: the only thing said
- * about a missing feature is said in prose, where a lifter would otherwise go looking
- * for it -- reading a backup file back in, which is the one a person will hunt for the
- * moment they have downloaded a file.
+ * Notes, RPE, custom exercises, the rest timer, editing history, reading a backup back
+ * in, Markdown export and the deletion flow are all later milestones. Section 0.4
+ * forbids standing in for them with a disabled control or a "coming soon", so none of
+ * them has one: the only thing said about a missing feature is said in prose, where a
+ * lifter would otherwise go looking for it -- reading a backup file back in, which is
+ * the one a person will hunt for the moment they have downloaded a file.
  */
 
 import { convertWeight, formatWeight, type WeightUnit } from '@platform-toolkit/domain';
@@ -51,7 +50,12 @@ import { exerciseOptions, loadFor } from '../core/catalog.js';
 import { createProfile, findProfile, updateProfileEquipment } from '../core/equipment.js';
 import { handoffLifts, workoutFromHandoff } from '../core/handoff.js';
 import type { PreviousPerformance } from '../core/previous.js';
-import { rampLastExercise } from '../core/warmup.js';
+import {
+  rampExercise,
+  rampLastExercise,
+  workingPrescription,
+  type RampOutcome,
+} from '../core/warmup.js';
 // Type-only, so nothing of the storage side reaches this module. The port and the
 // key belong to the shell, which is the only thing that knows the browser has
 // somewhere to leave a record; this element is handed a reader and asks it twice.
@@ -60,6 +64,7 @@ import {
   addExercise,
   createWorkout,
   performance,
+  repeatWorkout,
   startWorkout,
   type PlannedSet,
   type SessionContext,
@@ -75,6 +80,7 @@ import type {
   LogbookId,
   LogbookSettings,
   WarmupHandoff,
+  WorkoutExercise,
   WorkoutSession,
 } from '../types.js';
 
@@ -117,6 +123,7 @@ import {
 } from './ptk-equipment-library.js';
 import type { PlannedExercise } from './plan.js';
 import { WORKOUT_PLANNED_EVENT, type WorkoutPlannedDetail } from './ptk-workout-builder.js';
+import { WORKOUT_REPEAT_EVENT, type WorkoutRepeatDetail } from './ptk-workout-history.js';
 
 /** The tag `defineTrainingLogbook()` registers this under. */
 export const TRAINING_LOGBOOK_TAG = 'ptk-training-logbook';
@@ -309,6 +316,9 @@ export class PtkTrainingLogbook extends LitElement {
   /** Whether the library could be read at all. See {@link #reloadProfiles}. */
   @state() private profilesUnreadable = false;
 
+  /** Whether the last Repeat press failed to read its workout back. */
+  @state() private repeatFailed = false;
+
   /** `null` until the first read has told us whether this browser stores anything. */
   @state() private saveState: SaveState | null = null;
 
@@ -357,6 +367,7 @@ export class PtkTrainingLogbook extends LitElement {
     this.addEventListener(PROFILE_SAVED_EVENT, this.#onProfileSaved);
     this.addEventListener(PROFILE_APPLIED_EVENT, this.#onProfileApplied);
     this.addEventListener(PROFILE_REMOVED_EVENT, this.#onProfileRemoved);
+    this.addEventListener(WORKOUT_REPEAT_EVENT, this.#onRepeat);
     this.addEventListener('click', this.#onClick);
   }
 
@@ -369,6 +380,7 @@ export class PtkTrainingLogbook extends LitElement {
     this.removeEventListener(PROFILE_SAVED_EVENT, this.#onProfileSaved);
     this.removeEventListener(PROFILE_APPLIED_EVENT, this.#onProfileApplied);
     this.removeEventListener(PROFILE_REMOVED_EVENT, this.#onProfileRemoved);
+    this.removeEventListener(WORKOUT_REPEAT_EVENT, this.#onRepeat);
     this.removeEventListener('click', this.#onClick);
     super.disconnectedCallback();
   }
@@ -493,7 +505,11 @@ export class PtkTrainingLogbook extends LitElement {
       </section>
 
       <section class="section">
-        <ptk-workout-history .workouts=${this.history}></ptk-workout-history>
+        <ptk-workout-history
+          .workouts=${this.history}
+          ?busy=${this.active !== null}
+        ></ptk-workout-history>
+        ${this.repeatFailed ? html`<p class="note">${HOME_NOTES.repeatFailed}</p>` : nothing}
       </section>
 
       <section class="section">
@@ -801,6 +817,144 @@ export class PtkTrainingLogbook extends LitElement {
     ).session;
   }
 
+  readonly #onRepeat = (event: CustomEvent<WorkoutRepeatDetail>): void => {
+    stopHere(event);
+    void this.#repeat(event.detail.id);
+  };
+
+  /**
+   * Does a listed workout again, as a fresh session dated today.
+   *
+   * WHY THE PLAN IS READ BACK FROM STORAGE
+   *
+   * The history holds `WorkoutSummary`, which has exercise *names* in it and no sets.
+   * Copying a session needs the sets, so the press is a read -- which is also why this
+   * is the one control on the home screen that can fail at something other than a
+   * write, and the only one with a sentence for it.
+   *
+   * WHY THE RAMP IS REGENERATED RATHER THAN COPIED
+   *
+   * `repeatWorkout` drops the warm-ups on purpose: a stored ramp was built against the
+   * rack the lifter stood at last week, and the plates in the record are the plates
+   * that were on that bar. Regenerating is never worse. On an unchanged rack the engine
+   * is deterministic and rebuilds the same ladder; on a changed one it builds a ladder
+   * that can actually be loaded, where the copy would have named plates that are not
+   * there. A lift that had no ramp last time gets none now -- the copy is of what the
+   * lifter did, not of what the engine would offer.
+   *
+   * The `active` guard is checked twice, before the read and after it. `busy` already
+   * takes the buttons away, but a read is a trip to IndexedDB and a session started in
+   * another tab can land inside it, and the second check is what stops a repeat from
+   * replacing a workout somebody is in the middle of.
+   */
+  async #repeat(id: LogbookId): Promise<void> {
+    const repository = this.repository;
+    if (repository === null || this.#sessionOpen()) return;
+
+    let stored: WorkoutSession | null;
+    try {
+      stored = await repository.getWorkout(id);
+    } catch {
+      this.repeatFailed = true;
+      return;
+    }
+    if (this.#sessionOpen()) return;
+    if (stored === null) {
+      // A row naming a workout storage no longer holds. Reported the same way as a
+      // throw, because to a lifter looking at the row they are the same event, and
+      // told rather than swallowed for the same reason.
+      this.repeatFailed = true;
+      return;
+    }
+    this.repeatFailed = false;
+
+    const source = stored;
+    const context = this.#context();
+    let session = repeatWorkout(source, context, { localDate: this.today });
+    const unramped: string[] = [];
+    // By position, which is `repeatWorkout`'s own contract: it maps the exercises one
+    // for one and in order. The pairing is what says whether *this* lift was ramped
+    // last time -- the copy has no snapshot left to ask.
+    //
+    // The list is the copy's, read once, so `exercise` goes stale as the loop rebuilds
+    // the session around it. That is fine and it is why the loop can be written this
+    // way at all: `session` is threaded through so each ramp lands on the last one, and
+    // the only things read off `exercise` are its identifier and its working sets --
+    // neither of which ramping another lift can touch.
+    session.exercises.forEach((exercise, index) => {
+      if (source.exercises[index]?.warmup == null) return;
+      const outcome = this.#rampCopied(session, exercise, context);
+      session = outcome.session;
+      // Only a refusal is named, exactly as on the handoff: `no-ramp` means there was
+      // never a ladder to build and is not news, while `refused` means the lifter
+      // asked for one and the rack in front of them cannot make it.
+      if (!outcome.ok && outcome.reason === 'refused') unramped.push(exercise.displayName);
+    });
+    session = startWorkout(session, context);
+
+    this.active = session;
+    this.unramped = unramped;
+    this.screen = 'active';
+    this.#emitWorkout(WORKOUT_STARTED_EVENT, session.id);
+    void this.#persist(session, false);
+  }
+
+  /**
+   * Whether a session is open right now.
+   *
+   * A call rather than a bare `this.active !== null`, and not for taste. The second
+   * check in {@link #repeat} happens after an await, by which point the compiler has
+   * narrowed the field to `null` from the first one and `no-unnecessary-condition`
+   * reports the guard as dead code. It is not: `active` is a field another tab's write
+   * reaches through a property, so the await is exactly where it can change. The rule
+   * is right about the types and wrong about the program, and a call it cannot see
+   * through says so without suppressing anything.
+   */
+  #sessionOpen(): boolean {
+    return this.active !== null;
+  }
+
+  /**
+   * The ramp under one copied exercise, worked out from its own sets.
+   *
+   * The counterpart of {@link #ramp} for a session nobody filled a form in for: there
+   * is no `PlannedExercise` to read a weight off, so `workingPrescription` reads it
+   * back out of the copied working sets. Everything after that is the same, including
+   * converting into the rack's plate unit -- section 11.4's mixed-unit lifter repeats
+   * sessions too.
+   *
+   * A lift the catalogue no longer knows is `no-ramp` rather than an error. Its working
+   * sets are in the session either way, which is the lifter's own record, and a
+   * catalogue that dropped a movement between two builds is not something to lose a
+   * session over.
+   */
+  #rampCopied(
+    session: WorkoutSession,
+    exercise: WorkoutExercise,
+    context: SessionContext,
+  ): RampOutcome {
+    const equipment = this.settings.equipment;
+    const option = this.exercises.find((candidate) => candidate.id === exercise.exerciseId);
+    const prescription = workingPrescription(exercise);
+    if (equipment === null || option === undefined || prescription === null) {
+      return { ok: false, session, reason: 'no-ramp' };
+    }
+    const { amount } = convertWeight(prescription.weight, equipment.plateUnit);
+    if (!Number.isFinite(amount) || amount <= 0) return { ok: false, session, reason: 'no-ramp' };
+    return rampExercise(
+      session,
+      exercise.id,
+      option,
+      {
+        equipment,
+        workingWeight: amount,
+        workingSets: prescription.sets,
+        workingReps: prescription.reps,
+      },
+      context,
+    );
+  }
+
   readonly #onChanged = (event: CustomEvent<WorkoutChangedDetail>): void => {
     stopHere(event);
     const { session, completedSetId } = event.detail;
@@ -946,6 +1100,7 @@ export class PtkTrainingLogbook extends LitElement {
         this.screen = 'home';
         this.backupDone = false;
         this.unramped = [];
+        this.repeatFailed = false;
         void this.#reload();
         return;
       case BACKUP_ACTION:

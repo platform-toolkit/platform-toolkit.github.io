@@ -13,7 +13,13 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { SetLoad, SetPerformance, WorkoutSession, WorkoutSet } from '../types.js';
+import type {
+  EquipmentSnapshot,
+  SetLoad,
+  SetPerformance,
+  WorkoutSession,
+  WorkoutSet,
+} from '../types.js';
 
 import { AT_LATER, AT_START, ON_DAY, contextSeries, testContext } from './context.fixture.js';
 import {
@@ -45,8 +51,10 @@ import {
   skipSet,
   startWorkout,
   undoSet,
+  type PlannedSet,
   type SessionContext,
 } from './session.js';
+import { applyWarmup, warmupChange } from './warmup.js';
 
 /** Invented weights. Round numbers so an assertion reads at a glance. */
 function kilograms(amount: number): SetLoad {
@@ -649,6 +657,71 @@ describe('repeatWorkout', () => {
     return finishWorkout(session, 'skip', at(AT_LATER));
   }
 
+  /** An invented rack, in kilograms so the plan above reads in the rack's own unit. */
+  function aGym(): EquipmentSnapshot {
+    return {
+      barWeight: { amount: 20, unit: 'kg' },
+      collarWeight: { amount: 5, unit: 'kg' },
+      plateUnit: 'kg',
+      plates: [
+        { weight: 25, pairs: null, fullDiameter: true },
+        { weight: 10, pairs: null, fullDiameter: true },
+        { weight: 5, pairs: null, fullDiameter: false },
+        { weight: 2.5, pairs: null, fullDiameter: false },
+      ],
+    };
+  }
+
+  /** Invented working weights, rising so the order they come back in can be read off. */
+  const RISING_PLAN: readonly PlannedSet[] = [
+    { kind: 'working', performance: performance(kilograms(100), 5) },
+    { kind: 'working', performance: performance(kilograms(105), 3) },
+    { kind: 'working', performance: performance(kilograms(110), 1) },
+  ];
+
+  /**
+   * A finished workout with a real generated ramp above its working sets.
+   *
+   * Through the engine rather than written by hand, because the snapshot and the
+   * `warmup` rows are two halves of one fact and a fixture that invented either
+   * could hold them out of step -- which is the very state being asserted against.
+   * It also makes the assertion below able to fail: `addExercise` leaves `warmup`
+   * null, so a source built without this generates a passing test either way.
+   */
+  function rampedWorkout(
+    at: (instant: string) => SessionContext = contextSeries(),
+  ): WorkoutSession {
+    let session = createWorkout(at(AT_START), { localDate: ON_DAY });
+    session = addExercise(session, at(AT_START), {
+      exerciseId: 'squat',
+      displayName: 'Squat',
+      loading: 'barbell-total-weight',
+      plan: RISING_PLAN,
+    });
+    const exerciseId = session.exercises[0]?.id ?? '';
+    const change = warmupChange(
+      session,
+      exerciseId,
+      {
+        family: 'squat-press',
+        equipment: aGym(),
+        // The plan's own invented opener, as the bare number in the rack's unit
+        // that `WarmupInput` takes.
+        workingWeight: 100,
+        workingSets: 3,
+        workingReps: 5,
+      },
+      at(AT_START),
+    );
+    if (change?.ok !== true) throw new Error('the fixture produced no ramp');
+    session = applyWarmup(session, exerciseId, change.change, at(AT_START));
+    return finishWorkout(session, 'skip', at(AT_LATER));
+  }
+
+  function kinds(session: WorkoutSession): readonly string[] {
+    return session.exercises.flatMap((exercise) => exercise.sets.map((set) => set.kind));
+  }
+
   it('keeps the plan and drops every result', () => {
     const repeated = repeatWorkout(finishedWorkout(), testContext(AT_LATER), {
       localDate: '2026-03-17',
@@ -674,10 +747,41 @@ describe('repeatWorkout', () => {
   });
 
   it('drops the warm-up snapshot so last month s plates are not shown as today s', () => {
-    const source = finishedWorkout();
+    const source = rampedWorkout();
+    expect(source.exercises[0]?.warmup).not.toBeNull();
+
     const repeated = repeatWorkout(source, testContext(AT_LATER), { localDate: ON_DAY });
 
     expect(repeated.exercises[0]?.warmup).toBeNull();
+  });
+
+  it('drops the warm-up rows the snapshot produced along with it', () => {
+    // A rung with no snapshot behind it is searched against today's rack, so the
+    // row would carry last month's total over this morning's plates -- and where
+    // the rack has changed, over no plates at all. No snapshot, no rows.
+    const source = rampedWorkout();
+    expect(kinds(source)).toContain('warmup');
+
+    const repeated = repeatWorkout(source, testContext(AT_LATER), { localDate: ON_DAY });
+    const sets = repeated.exercises.flatMap((exercise) => exercise.sets);
+
+    expect(kinds(repeated)).toEqual(['working', 'working', 'working']);
+    expect(sets.map((set) => set.planned)).toEqual(RISING_PLAN.map((entry) => entry.performance));
+  });
+
+  it('takes nothing else out of the order the sets were in', () => {
+    // The ramp sits above the working sets, so dropping it takes rows out of the
+    // front of the list rather than off the end.
+    const source = rampedWorkout();
+    expect(source.exercises[0]?.sets[0]?.kind).toBe('warmup');
+
+    const repeated = repeatWorkout(source, testContext(AT_LATER), { localDate: ON_DAY });
+
+    expect(repeated.exercises[0]?.sets.map((set) => set.planned?.load)).toEqual([
+      kilograms(100),
+      kilograms(105),
+      kilograms(110),
+    ]);
   });
 
   it('gives every copied object a new identifier', () => {

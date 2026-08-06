@@ -33,6 +33,9 @@ export const EXERCISE_DATASET_KEY = 'exercise';
 /** Which saved gym a control acts on, by identifier. */
 export const PROFILE_DATASET_KEY = 'profile';
 
+/** Which stored workout a control acts on, by identifier. */
+export const WORKOUT_DATASET_KEY = 'workout';
+
 /** What a button does, where a button does something other than write a field. */
 export const ACTION_DATASET_KEY = 'action';
 
@@ -115,6 +118,11 @@ export function exerciseOf(event: Event): string | null {
 /** The saved gym a control acts on, or `null`. Opaque, so unchecked like {@link setOf}. */
 export function profileOf(event: Event): string | null {
   return attributeOn(event, PROFILE_DATASET_KEY);
+}
+
+/** The stored workout a control acts on, or `null`. Opaque, so unchecked like {@link setOf}. */
+export function workoutOf(event: Event): string | null {
+  return attributeOn(event, WORKOUT_DATASET_KEY);
 }
 
 /**

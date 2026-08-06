@@ -56,6 +56,7 @@ export {
   type ProfileSavedDetail,
   type RackChangedDetail,
 } from './ptk-equipment-library.js';
+export { WORKOUT_REPEAT_EVENT, type WorkoutRepeatDetail } from './ptk-workout-history.js';
 
 export {
   BACKUP_EXPORTED_EVENT,

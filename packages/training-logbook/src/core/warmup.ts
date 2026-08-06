@@ -41,12 +41,14 @@ import {
   WARMUP_ENGINE_VERSION,
   WARMUP_RULESET_VERSION,
   adjustWarmups,
+  convertWeight,
   planWarmup,
   type WarmupAdjustment,
   type WarmupFamily,
   type WarmupPlan,
   type WarmupProblem,
   type WarmupSet,
+  type Weight,
 } from '@platform-toolkit/domain';
 
 import type {
@@ -55,6 +57,7 @@ import type {
   LogbookId,
   SetPerformance,
   WarmupSnapshot,
+  WorkoutExercise,
   WorkoutSession,
   WorkoutSet,
 } from '../types.js';
@@ -69,6 +72,7 @@ import {
   type PlannedSet,
   type SessionContext,
 } from './session.js';
+import { isWorkingSet } from './summary.js';
 
 /** What a ramp is wanted for. Everything section 8.3 says the logbook passes. */
 export interface WarmupInput {
@@ -281,16 +285,111 @@ export function rampLastExercise(
   context: SessionContext,
 ): RampOutcome {
   const added = session.exercises[session.exercises.length - 1];
-  const family = warmupFamilyFor(option);
   // A session with no exercises in it is grouped with the no-family answer rather than
   // given a third reason. Both mean there is nothing to ramp and nothing to say about
   // it, and a caller that reached here with an empty session has a bug the name of a
   // refusal code would not help with.
-  if (added === undefined || family === null) return { ok: false, session, reason: 'no-ramp' };
+  if (added === undefined) return { ok: false, session, reason: 'no-ramp' };
+  return rampExercise(session, added.id, option, input, context);
+}
 
-  const change = warmupChange(session, added.id, { ...input, family }, context);
+/**
+ * Ramps a named exercise that is already in the session.
+ *
+ * The general form of {@link rampLastExercise}, and the reason it is not merely a
+ * convenience is the repeat flow. A repeated session arrives with its exercises and
+ * their identifiers already minted and its warm-ups deliberately dropped -- the copy
+ * carries no snapshot, because last week's ladder was generated against last week's
+ * rack. Rebuilding it means ramping named lifts one at a time, in the middle of a
+ * session that is not being appended to, which the tail-reading form structurally
+ * cannot reach: after the first lift, every later one is not the last.
+ *
+ * The refusals mean exactly what they mean there, including an exercise the session
+ * does not hold being `no-ramp` rather than a third code. A screen holding an
+ * identifier a background reload removed has nothing to tell the lifter either.
+ */
+export function rampExercise(
+  session: WorkoutSession,
+  exerciseId: LogbookId,
+  option: ExerciseOption,
+  input: Omit<WarmupInput, 'family'>,
+  context: SessionContext,
+): RampOutcome {
+  const family = warmupFamilyFor(option);
+  if (family === null || findWorkoutExercise(session, exerciseId) === null) {
+    return { ok: false, session, reason: 'no-ramp' };
+  }
+
+  const change = warmupChange(session, exerciseId, { ...input, family }, context);
   if (change?.ok !== true) return { ok: false, session, reason: 'refused' };
-  return { ok: true, session: applyWarmup(session, added.id, change.change, context) };
+  return { ok: true, session: applyWarmup(session, exerciseId, change.change, context) };
+}
+
+/** What an exercise's own sets say it is working up to. */
+export interface WorkingPrescription {
+  /** In the unit it was recorded in, never converted. Section 11.4. */
+  readonly weight: Weight;
+  readonly sets: number;
+  readonly reps: number;
+}
+
+/**
+ * Reads back the three numbers a ramp is generated from, off the sets themselves.
+ *
+ * A READ OF THE PLAN, NOT A WARM-UP RULE
+ *
+ * Nothing here is a percentage, a cap or a rounding, and the file's header still
+ * holds: this reports what somebody already wrote down. It lives beside the ramp
+ * because the ramp path is its only caller -- {@link rampExercise} wants a
+ * {@link WarmupInput} and a repeated exercise has no snapshot to take one from, so
+ * the prescription has to come back out of the copied sets.
+ *
+ * `null` where there is nothing to work up to, which a caller reads the same way it
+ * reads `no-ramp`: silence.
+ */
+export function workingPrescription(exercise: WorkoutExercise): WorkingPrescription | null {
+  // `isWorkingSet` from `./summary.js` rather than a predicate of our own, and it
+  // excludes more than warm-ups: accessory work is out, backoff and AMRAP sets are
+  // in. Both inclusions are right here. A backoff set is lighter by definition and
+  // so cannot win the weight below, and the count it adds to is work at this lift
+  // that only ever lands in the frozen prescription -- neither `workingSets` nor
+  // `workingReps` reaches the ladder. A second definition of "the work" in this
+  // package is how two screens start disagreeing about what a session was.
+  const working = exercise.sets.filter(isWorkingSet);
+
+  let heaviest: { readonly set: WorkoutSet; readonly weight: Weight } | null = null;
+  let heaviestKilograms = 0;
+  for (const set of working) {
+    // The plan and never the performance. A repeated draft is `performed: null`
+    // everywhere, so reading the result would answer `null` for every session a
+    // lifter had not already done, and the ramp would silently never be offered.
+    const load = set.planned?.load;
+    // Only a barbell total is a thing to work up to. `none`, `added` and `assisted`
+    // are facts about a body rather than about a bar, so flattening the union to
+    // "whatever weight is in there" would ramp somebody to the 20 kg hanging off
+    // their belt on a chin-up.
+    if (load?.kind !== 'implement') continue;
+    // The heaviest working set, not the first. A hand-edited session -- and every
+    // repeat of one -- can hold unequal working sets, and a ramp built to the
+    // lightest of them is a ramp that stops below the work. Compared in one unit
+    // because the sets need not share one, and the winner is still handed back
+    // exactly as it was recorded: section 11.4, a weight is shown in the unit it was
+    // typed in. A tie leaves the earlier set in place, which is the order on screen.
+    const kilograms = convertWeight(load.weight, 'kg').amount;
+    if (heaviest === null || kilograms > heaviestKilograms) {
+      heaviest = { set, weight: load.weight };
+      heaviestKilograms = kilograms;
+    }
+  }
+
+  if (heaviest === null) return null;
+  const reps = heaviest.set.planned?.repetitions ?? null;
+  // A set nobody gave a rep count to cannot answer the whole prescription. Borrowing
+  // a lighter set's count would attach one set's reps to another set's weight and
+  // freeze a prescription nobody wrote, and defaulting to a number is this package
+  // prescribing. So it is the same silence as no working sets at all.
+  if (reps === null) return null;
+  return { weight: heaviest.weight, sets: working.length, reps };
 }
 
 /**
