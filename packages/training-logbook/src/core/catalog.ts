@@ -46,6 +46,7 @@ import {
   type LiftDefinition,
   type WarmupFamily,
   type Weight,
+  type WeightUnit,
 } from '@platform-toolkit/domain';
 
 import type {
@@ -55,6 +56,8 @@ import type {
   SetLoad,
   SetLoadKind,
 } from '../types.js';
+
+import type { SessionContext } from './session.js';
 
 /**
  * What each loading model asks a lifter for.
@@ -270,4 +273,102 @@ export function canGenerateWarmup(exercise: ExerciseOption): boolean {
 /** The warm-up family for an exercise, or `null` where there is not one to use. */
 export function warmupFamilyFor(exercise: ExerciseOption): WarmupFamily | null {
   return canGenerateWarmup(exercise) ? exercise.warmupFamily : null;
+}
+
+/**
+ * What a lifter answered about a movement they invented. Section 6.4.
+ *
+ * No identifier and no timestamps, for the reason `ProfileSavedDetail` has
+ * neither: the screen that collects this has no clock and no id source, and one
+ * that invented either would be minting identity out of a form. The two
+ * constructors below are where a draft becomes a stored exercise.
+ */
+export interface CustomExerciseDraft {
+  readonly name: string;
+  readonly loading: LoadingModel;
+  /** `null` unless the lifter explicitly chose one. Never derived from the name. */
+  readonly warmupFamily: WarmupFamily | null;
+  /** `null` means "whatever the logbook is set to", which is not the same as a unit. */
+  readonly defaultUnit: WeightUnit | null;
+}
+
+/**
+ * A movement the lifter invented, as it should be stored.
+ *
+ * `warmupFamily` is passed through untouched even where {@link canGenerateWarmup}
+ * would refuse it -- a family on a machine exercise is stored and simply never
+ * used. Dropping it here would silently discard an answer the lifter gave, and
+ * then changing the loading model to a barbell later would lose the family they
+ * had already chosen. The refusal belongs at the point of generation, where it
+ * already is, and not at the point of record.
+ */
+export function createCustomExercise(
+  draft: CustomExerciseDraft,
+  context: SessionContext,
+): CustomExercise {
+  return {
+    id: context.nextId(),
+    name: draft.name.trim(),
+    loading: draft.loading,
+    warmupFamily: draft.warmupFamily,
+    defaultUnit: draft.defaultUnit,
+    createdAt: context.at,
+    updatedAt: context.at,
+  };
+}
+
+/**
+ * The same movement, answered again.
+ *
+ * The identifier does not move, which is `renameProfile`'s rule and matters more
+ * here: `WorkoutExercise.exerciseId` points at this row, so a new identifier
+ * would orphan every session that has ever used the movement -- and because the
+ * name is snapshotted onto each session, the orphaning would be invisible until
+ * somebody tried to repeat one.
+ *
+ * A draft that changes nothing returns the exercise it was given, unchanged
+ * object and all. Without that, opening the editor and pressing Save moves the
+ * row's `updatedAt`, and #98's complaint about a dead tap stamping a workout is
+ * the same defect one table over.
+ */
+export function updateCustomExercise(
+  exercise: CustomExercise,
+  draft: CustomExerciseDraft,
+  context: SessionContext,
+): CustomExercise {
+  const name = draft.name.trim();
+  if (
+    name === exercise.name &&
+    draft.loading === exercise.loading &&
+    draft.warmupFamily === exercise.warmupFamily &&
+    draft.defaultUnit === exercise.defaultUnit
+  ) {
+    return exercise;
+  }
+  return {
+    ...exercise,
+    name,
+    loading: draft.loading,
+    warmupFamily: draft.warmupFamily,
+    defaultUnit: draft.defaultUnit,
+    updatedAt: context.at,
+  };
+}
+
+/** The draft an editor opens on when it is editing something that exists. */
+export function draftFrom(exercise: CustomExercise): CustomExerciseDraft {
+  return {
+    name: exercise.name,
+    loading: exercise.loading,
+    warmupFamily: exercise.warmupFamily,
+    defaultUnit: exercise.defaultUnit,
+  };
+}
+
+/** One of the lifter's own movements by id, or `null`. */
+export function findCustomExercise(
+  customs: readonly CustomExercise[],
+  id: string,
+): CustomExercise | null {
+  return customs.find((exercise) => exercise.id === id) ?? null;
 }

@@ -46,7 +46,13 @@ import { LitElement, css, html, nothing, type PropertyValues, type TemplateResul
 import { property, state } from 'lit/decorators.js';
 
 import { backupFilename, serializeBackup } from '../core/backup.js';
-import { exerciseOptions, loadFor } from '../core/catalog.js';
+import {
+  createCustomExercise,
+  exerciseOptions,
+  findCustomExercise,
+  loadFor,
+  updateCustomExercise,
+} from '../core/catalog.js';
 import { createProfile, findProfile, updateProfileEquipment } from '../core/equipment.js';
 import { handoffLifts, workoutFromHandoff } from '../core/handoff.js';
 import type { PreviousPerformance } from '../core/previous.js';
@@ -73,6 +79,7 @@ import { workoutDurationMillis, type WorkoutSummary } from '../core/summary.js';
 import { defaultSettings, type TrainingLogbookRepository } from '../storage/repository.js';
 import type {
   CalendarDay,
+  CustomExercise,
   EffortSetting,
   EquipmentProfile,
   EquipmentSnapshot,
@@ -124,6 +131,12 @@ import {
   type ProfileSavedDetail,
   type RackChangedDetail,
 } from './ptk-equipment-library.js';
+import {
+  EXERCISE_REMOVED_EVENT,
+  EXERCISE_SAVED_EVENT,
+  type ExerciseIdDetail,
+  type ExerciseSavedDetail,
+} from './ptk-exercise-library.js';
 import type { PlannedExercise } from './plan.js';
 import { WORKOUT_PLANNED_EVENT, type WorkoutPlannedDetail } from './ptk-workout-builder.js';
 import { WORKOUT_REPEAT_EVENT, type WorkoutRepeatDetail } from './ptk-workout-history.js';
@@ -330,6 +343,21 @@ export class PtkTrainingLogbook extends LitElement {
   /** Whether the library could be read at all. See {@link #reloadProfiles}. */
   @state() private profilesUnreadable = false;
 
+  /**
+   * The lifter's own movements, as stored.
+   *
+   * Held alongside {@link exercises} rather than filtered back out of it. The options
+   * list is a merge -- catalogue entries and customs mapped into one shape, sorted --
+   * and picking the customs out of it again would mean either an `origin` test that
+   * silently changes meaning if a third source is ever added, or a second mapping back
+   * to a `CustomExercise` from an `ExerciseOption` that has already dropped the
+   * timestamps. The library screen edits the stored rows, so it is handed those.
+   */
+  @state() private customs: readonly CustomExercise[] = [];
+
+  /** Whether those could be read at all. See {@link #reloadExercises}. */
+  @state() private exercisesUnreadable = false;
+
   /** Whether the last Repeat press failed to read its workout back. */
   @state() private repeatFailed = false;
 
@@ -381,6 +409,8 @@ export class PtkTrainingLogbook extends LitElement {
     this.addEventListener(PROFILE_SAVED_EVENT, this.#onProfileSaved);
     this.addEventListener(PROFILE_APPLIED_EVENT, this.#onProfileApplied);
     this.addEventListener(PROFILE_REMOVED_EVENT, this.#onProfileRemoved);
+    this.addEventListener(EXERCISE_SAVED_EVENT, this.#onExerciseSaved);
+    this.addEventListener(EXERCISE_REMOVED_EVENT, this.#onExerciseRemoved);
     this.addEventListener(WORKOUT_REPEAT_EVENT, this.#onRepeat);
     this.addEventListener('click', this.#onClick);
   }
@@ -394,6 +424,8 @@ export class PtkTrainingLogbook extends LitElement {
     this.removeEventListener(PROFILE_SAVED_EVENT, this.#onProfileSaved);
     this.removeEventListener(PROFILE_APPLIED_EVENT, this.#onProfileApplied);
     this.removeEventListener(PROFILE_REMOVED_EVENT, this.#onProfileRemoved);
+    this.removeEventListener(EXERCISE_SAVED_EVENT, this.#onExerciseSaved);
+    this.removeEventListener(EXERCISE_REMOVED_EVENT, this.#onExerciseRemoved);
     this.removeEventListener(WORKOUT_REPEAT_EVENT, this.#onRepeat);
     this.removeEventListener('click', this.#onClick);
     super.disconnectedCallback();
@@ -533,6 +565,13 @@ export class PtkTrainingLogbook extends LitElement {
           ?unreadable=${this.profilesUnreadable}
           ?remembers=${this.repository?.durable ?? true}
         ></ptk-equipment-library>
+      </section>
+
+      <section class="section">
+        <ptk-exercise-library
+          .exercises=${this.customs}
+          ?unreadable=${this.exercisesUnreadable}
+        ></ptk-exercise-library>
       </section>
 
       <section class="section settings">
@@ -703,16 +742,14 @@ export class PtkTrainingLogbook extends LitElement {
   async #reload(): Promise<void> {
     const repository = this.repository;
     if (repository === null) return;
-    const [settings, active, history, customs] = await Promise.all([
+    const [settings, active, history] = await Promise.all([
       repository.loadSettings(),
       repository.loadActiveWorkout(),
       repository.listWorkouts({ limit: HISTORY_LIMIT }),
-      repository.listExercises(),
     ]);
     this.settings = settings;
     this.active = active;
     this.history = history;
-    this.exercises = exerciseOptions(customs);
     this.saveState = repository.durable ? 'saved' : 'unavailable';
     // A resumed session lands on the logging screen rather than behind a button on
     // the home one only when the lifter asks. Section 7.2: reopening the tool
@@ -720,18 +757,18 @@ export class PtkTrainingLogbook extends LitElement {
     // was reopened was to carry on -- somebody checking last week's squats would
     // otherwise be dropped into today's.
     if (active === null && this.screen === 'active') this.screen = 'home';
-    await this.#reloadProfiles();
+    await Promise.all([this.#reloadProfiles(), this.#reloadExercises()]);
   }
 
   /**
    * Reads the saved gyms, on its own and behind a catch.
    *
-   * Deliberately not a fifth entry in the `Promise.all` above, which has no catch and
-   * rejects as a unit. A single corrupt profile row would then take the settings, the
-   * workout in progress, the history and the exercise list with it -- a blank tool at
-   * boot, with the JSON backup a lifter would reach for blocked by the same record.
-   * The library is the one thing here the tool works without, so it fails alone and
-   * says so on screen rather than reading as a library nobody has written to.
+   * Deliberately not a fourth entry in the `Promise.all` above, which has no catch
+   * and rejects as a unit. A single corrupt profile row would then take the settings,
+   * the workout in progress and the history with it -- a blank tool at boot, with the
+   * JSON backup a lifter would reach for blocked by the same record. The library is
+   * one of the two things here the tool works without, so it fails alone and says so
+   * on screen rather than reading as a library nobody has written to.
    */
   async #reloadProfiles(): Promise<void> {
     const repository = this.repository;
@@ -743,6 +780,28 @@ export class PtkTrainingLogbook extends LitElement {
       this.profiles = [];
       this.profilesUnreadable = true;
     }
+  }
+
+  /**
+   * Reads the lifter's own movements, on its own and behind a catch.
+   *
+   * The other thing the tool works without, and out of the boot read for
+   * {@link #reloadProfiles}' reason. `exercises` is set from whatever came back, so a
+   * failed read leaves the built-in catalogue rather than an empty picker: a lifter
+   * whose custom rows will not parse can still plan a squat, which is the difference
+   * between a tool with a gap in it and a tool that has forgotten what a barbell is.
+   */
+  async #reloadExercises(): Promise<void> {
+    const repository = this.repository;
+    if (repository === null) return;
+    try {
+      this.customs = await repository.listExercises();
+      this.exercisesUnreadable = false;
+    } catch {
+      this.customs = [];
+      this.exercisesUnreadable = true;
+    }
+    this.exercises = exerciseOptions(this.customs);
   }
 
   /**
@@ -1080,7 +1139,10 @@ export class PtkTrainingLogbook extends LitElement {
       existing === undefined
         ? createProfile(name, equipment, context)
         : updateProfileEquipment(existing, equipment, context);
-    void this.#writeLibrary((repository) => repository.saveEquipmentProfile(profile));
+    void this.#writeLibrary(
+      (repository) => repository.saveEquipmentProfile(profile),
+      () => this.#reloadProfiles(),
+    );
   };
 
   /**
@@ -1111,14 +1173,68 @@ export class PtkTrainingLogbook extends LitElement {
   readonly #onProfileRemoved = (event: CustomEvent<ProfileIdDetail>): void => {
     stopHere(event);
     const { id } = event.detail;
-    void this.#writeLibrary((repository) => repository.deleteEquipmentProfile(id));
+    void this.#writeLibrary(
+      (repository) => repository.deleteEquipmentProfile(id),
+      () => this.#reloadProfiles(),
+    );
+  };
+
+  /**
+   * The lifter asked to keep a movement they described.
+   *
+   * Two ways in and one way out. An edit names the row it replaces, so it goes
+   * straight to `updateCustomExercise` and keeps the identifier -- which it has to,
+   * because every `WorkoutExercise` planned from it holds that identifier and a new
+   * one would orphan them. An add matches on the trimmed name, case-insensitively, for
+   * `#onProfileSaved`' reason and with more riding on it: two rows called "Belt squat"
+   * are indistinguishable in the picker, and the second is how a lifter loses track of
+   * which one their history is filed under.
+   *
+   * A name typed over a movement that already exists therefore replaces it, which is
+   * what `EXERCISE_NOTES.addOverwrites` promises. Sessions already planned keep
+   * reading correctly either way: section 7.1 snapshots `displayName` onto the row.
+   */
+  readonly #onExerciseSaved = (event: CustomEvent<ExerciseSavedDetail>): void => {
+    stopHere(event);
+    const { id, draft } = event.detail;
+    const context = this.#context();
+    const key = draft.name.trim().toLocaleLowerCase();
+    const existing =
+      id === null
+        ? (this.customs.find((exercise) => exercise.name.toLocaleLowerCase() === key) ?? null)
+        : findCustomExercise(this.customs, id);
+    const exercise =
+      existing === null
+        ? createCustomExercise(draft, context)
+        : updateCustomExercise(existing, draft, context);
+    void this.#writeLibrary(
+      (repository) => repository.saveExercise(exercise),
+      () => this.#reloadExercises(),
+    );
+  };
+
+  /**
+   * The lifter asked to forget one of their own movements.
+   *
+   * Nothing else is touched, including a session in progress that is using it. The
+   * row holds its own `displayName` and `loading`, so the workout goes on asking for
+   * the same boxes and reads the same way afterwards; what is gone is the picker
+   * entry, which is exactly what `EXERCISE_NOTES.removeNote` says.
+   */
+  readonly #onExerciseRemoved = (event: CustomEvent<ExerciseIdDetail>): void => {
+    stopHere(event);
+    const { id } = event.detail;
+    void this.#writeLibrary(
+      (repository) => repository.deleteExercise(id),
+      () => this.#reloadExercises(),
+    );
   };
 
   /**
    * Writes a library change and reads the library back.
    *
-   * Read back rather than patched into `profiles` locally, because the list on screen
-   * has to be the list in the database: a save that was rejected, or that landed under
+   * Read back rather than patched into the local list, because what is on screen has
+   * to be what is in the database: a save that was rejected, or that landed under
    * a name a second tab had already taken, must not leave a row on screen that nothing
    * holds. It costs one read per press on a list that is a handful of rows long.
    *
@@ -1131,6 +1247,7 @@ export class PtkTrainingLogbook extends LitElement {
    */
   async #writeLibrary(
     change: (repository: TrainingLogbookRepository) => Promise<void>,
+    readBack: () => Promise<void>,
   ): Promise<void> {
     const repository = this.repository;
     if (repository === null) return;
@@ -1141,7 +1258,7 @@ export class PtkTrainingLogbook extends LitElement {
       if (repository.durable) this.saveState = 'failed';
       return;
     }
-    await this.#reloadProfiles();
+    await readBack();
     if (repository.durable) this.saveState = 'saved';
   }
 

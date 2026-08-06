@@ -1098,6 +1098,50 @@ const LOGBOOK_LIBRARY_SETTLE = [
 ];
 
 /**
+ * Name a movement the lifter invented.
+ *
+ * Deliberately long and invented (section 5.1). The name is free text and it is
+ * the string that has to wrap rather than push a two-button row sideways in a
+ * 320px column -- the same reason the gym names above are long.
+ */
+const LOGBOOK_EXERCISE_FILL = [
+  {
+    selector: 'ptk-exercise-library ptk-text-field[data-field="exercise-name"] input',
+    value: 'Invented safety bar squat, high handle',
+  },
+];
+
+/** The one press that turns the form into a stored movement. */
+const LOGBOOK_EXERCISE_SAVE = [
+  'ptk-exercise-library ptk-button[data-action="save-exercise"] button',
+];
+
+/**
+ * Tick the warm-up box, which is what puts the form at its widest.
+ *
+ * After the save rather than before it, because saving empties the form. The tick
+ * is the only control on this screen that reveals another one: the family select
+ * does not exist until it is on, so a form measured without it is a form measured
+ * one control short of the tallest thing it draws.
+ */
+const LOGBOOK_EXERCISE_TICK = [
+  'ptk-exercise-library [data-field="exercise-warmup"] ptk-toggle-group input',
+];
+
+/**
+ * A stored row and the revealed select, which no single selector proves.
+ *
+ * The row alone would pass against a form that never opened the family select,
+ * and the select alone would pass against an empty library. Both together are the
+ * state this route exists for: the widest form the screen draws, above a list with
+ * a name and two quiet buttons sharing a line.
+ */
+const LOGBOOK_EXERCISE_SETTLE = [
+  'ptk-exercise-library li[data-exercise] ptk-button[data-action="remove-exercise"] button',
+  'ptk-exercise-library ptk-select[data-field="exercise-family"] select',
+];
+
+/**
  * Open the planner and put two lifts in it.
  *
  * Two, and specifically these two. One row measures a row; two measure the gap
@@ -2227,6 +2271,22 @@ const ROUTES = [
     fillAfter: LOGBOOK_LIBRARY_FILL_AFTER,
     clickLast: LOGBOOK_LIBRARY_SAVE,
     settle: LOGBOOK_LIBRARY_SETTLE,
+  },
+  {
+    // The exercise library with something in it and its form fully open, which no
+    // other route reaches: every one of them leaves this section holding the
+    // "nothing added yet" line above a four-question form with one question
+    // hidden. The stored row is the same two-quiet-buttons shape the gym row has,
+    // and the form above it is the only place a select, a segmented control and a
+    // list-layout tick stack in one column.
+    path: '/logbook/',
+    label: '/logbook/ (saved exercise)',
+    click: [],
+    reveal: [],
+    fill: LOGBOOK_EXERCISE_FILL,
+    clickAfter: LOGBOOK_EXERCISE_SAVE,
+    clickLast: LOGBOOK_EXERCISE_TICK,
+    settle: LOGBOOK_EXERCISE_SETTLE,
   },
   {
     // Its own entry rather than a seed on the home row, because the offer sits

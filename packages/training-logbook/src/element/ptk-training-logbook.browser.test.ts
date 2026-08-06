@@ -1149,7 +1149,9 @@ describe('the training logbook', () => {
     const { store, databaseName } = await durableStore();
     const first = await mount(store);
 
-    await choose(first, 'ptk-segmented', 'kg');
+    // Named rather than "the first segmented on the screen", which the home screen
+    // stopped having exactly one of when the exercise library grew a unit control.
+    await chooseSetting(first, UNIT_SETTING_FIELD, 'kg');
     // Awaited through the storage the setting actually went to, and not through the
     // control: a segmented that only moved its own property would satisfy any
     // assertion made against the screen it is on, and lose the answer at the refresh.
@@ -1285,7 +1287,7 @@ describe('the training logbook', () => {
       const element = await mount(store, source);
       expect(calls.peeks).toBe(1);
 
-      await choose(element, 'ptk-segmented', 'kg');
+      await chooseSetting(element, UNIT_SETTING_FIELD, 'kg');
       await press(element, 'backup');
       await vi.waitFor(async () => {
         await element.updateComplete;

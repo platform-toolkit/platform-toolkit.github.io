@@ -15,13 +15,19 @@ import {
   CATALOG_EXERCISES,
   PRIMARY_EXERCISES,
   canGenerateWarmup,
+  createCustomExercise,
+  draftFrom,
   exerciseOptions,
+  findCustomExercise,
   findExercise,
   loadFor,
   loadKindFor,
   takesWeight,
+  updateCustomExercise,
   warmupFamilyFor,
+  type CustomExerciseDraft,
 } from './catalog.js';
+import { AT_LATER, testContext } from './context.fixture.js';
 
 const AT = '2026-03-10T17:00:00.000Z';
 
@@ -245,5 +251,131 @@ describe('loadFor', () => {
     // are opposite facts, so the shapes have to differ even though the numbers do
     // not -- every summary and export downstream reads the shape.
     expect(assisted).not.toStrictEqual(added);
+  });
+});
+
+describe('createCustomExercise', () => {
+  const DRAFT: CustomExerciseDraft = {
+    name: 'Sled Push',
+    loading: 'custom-weight-reps',
+    warmupFamily: null,
+    defaultUnit: null,
+  };
+
+  it('takes its identifier and both stamps from the context', () => {
+    expect(createCustomExercise(DRAFT, testContext())).toStrictEqual(
+      custom({ id: 'id-1', createdAt: AT, updatedAt: AT }),
+    );
+  });
+
+  it('trims the name it is given', () => {
+    // A leading space is invisible in the list and decisive in the sort, so a
+    // movement typed with one sits above every other movement forever.
+    const padded = createCustomExercise({ ...DRAFT, name: '  Sled Push  ' }, testContext());
+
+    expect(padded.name).toBe('Sled Push');
+  });
+
+  it('keeps a family the engine would refuse', () => {
+    // Deliberate, and the docblock's reason: dropping it here would discard an
+    // answer the lifter gave, so switching this to a barbell later would lose a
+    // family they had already chosen. The refusal stays where it already is, and
+    // the describe above proves it still refuses this one.
+    const machine = createCustomExercise(
+      { ...DRAFT, loading: 'machine-or-cable-weight', warmupFamily: 'squat-press' },
+      testContext(),
+    );
+
+    expect(machine.warmupFamily).toBe('squat-press');
+  });
+});
+
+describe('updateCustomExercise', () => {
+  const SAVED = custom({ id: 'exercise-1' });
+
+  it('never moves the identifier', () => {
+    // WorkoutExercise.exerciseId points here, and because the name is snapshotted
+    // onto each session the orphaning would stay invisible until a repeat.
+    const renamed = updateCustomExercise(
+      SAVED,
+      { ...draftFrom(SAVED), name: 'Prowler Push' },
+      testContext(AT_LATER),
+    );
+
+    expect(renamed.id).toBe(SAVED.id);
+    expect(renamed.name).toBe('Prowler Push');
+  });
+
+  it('stamps only the second timestamp', () => {
+    const renamed = updateCustomExercise(
+      SAVED,
+      { ...draftFrom(SAVED), name: 'Prowler Push' },
+      testContext(AT_LATER),
+    );
+
+    expect(renamed.createdAt).toBe(AT);
+    expect(renamed.updatedAt).toBe(AT_LATER);
+  });
+
+  it('returns the exercise it was handed when the draft changes nothing', () => {
+    // #98 one table over: opening the editor and pressing Save with nothing typed
+    // would otherwise re-stamp the row, and updatedAt is what history sorts on.
+    expect(updateCustomExercise(SAVED, draftFrom(SAVED), testContext(AT_LATER))).toBe(SAVED);
+  });
+
+  it('reads that sameness through the trim', () => {
+    // Otherwise the identity check is defeated by a space nobody can see, which is
+    // the one way a lifter reliably produces a no-op save.
+    const padded = { ...draftFrom(SAVED), name: `  ${SAVED.name}  ` };
+
+    expect(updateCustomExercise(SAVED, padded, testContext(AT_LATER))).toBe(SAVED);
+  });
+
+  it.each([
+    ['loading', { loading: 'barbell-total-weight' }],
+    ['warm-up family', { warmupFamily: 'squat-press' }],
+    ['unit', { defaultUnit: 'lb' }],
+  ] as const)('counts a changed %s as a change', (_what, change) => {
+    const updated = updateCustomExercise(
+      SAVED,
+      { ...draftFrom(SAVED), ...change },
+      testContext(AT_LATER),
+    );
+
+    expect(updated).not.toBe(SAVED);
+    expect(updated.updatedAt).toBe(AT_LATER);
+  });
+});
+
+describe('draftFrom', () => {
+  it('round-trips through an update that changes nothing', () => {
+    // The pair is the contract: what an editor opens on has to be what a save of
+    // an untouched form sends back, or every open-and-close is an edit.
+    const saved = custom({ id: 'exercise-1', warmupFamily: 'olympic', defaultUnit: 'kg' });
+
+    expect(updateCustomExercise(saved, draftFrom(saved), testContext(AT_LATER))).toBe(saved);
+  });
+
+  it('carries no identifier and no stamps', () => {
+    expect(Object.keys(draftFrom(custom())).sort()).toStrictEqual([
+      'defaultUnit',
+      'loading',
+      'name',
+      'warmupFamily',
+    ]);
+  });
+});
+
+describe('findCustomExercise', () => {
+  const LIBRARY = [custom({ id: 'exercise-1' }), custom({ id: 'exercise-2', name: 'Yoke Walk' })];
+
+  it('finds one by identifier', () => {
+    expect(findCustomExercise(LIBRARY, 'exercise-2')?.name).toBe('Yoke Walk');
+  });
+
+  it('answers null for an identifier nothing has', () => {
+    // Not undefined, and not a throw: the callers are event handlers holding an id
+    // from a row that may have been removed between the render and the tap.
+    expect(findCustomExercise(LIBRARY, 'exercise-9')).toBeNull();
   });
 });

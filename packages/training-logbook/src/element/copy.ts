@@ -25,7 +25,7 @@
  * are rendered, so a sentence cannot silently acquire a rounding rule.
  */
 
-import type { WeightUnit } from '@platform-toolkit/domain';
+import type { WarmupFamily, WeightUnit } from '@platform-toolkit/domain';
 
 import type { FinishDisposition } from '../core/session.js';
 import type {
@@ -94,6 +94,23 @@ export const LOADING_LABELS: Readonly<Record<LoadingModel, string>> = {
   'machine-or-cable-weight': 'Machine or cable',
   'repetitions-only': 'Reps only',
   'custom-weight-reps': 'Other',
+};
+
+/**
+ * Which ramp a movement follows, said as movements rather than as family names.
+ *
+ * The identifiers are the calculator's vocabulary and two of them are wrong as
+ * English: `pull` is rows and shrugs and not chin-ups, `assistance` is a jump
+ * pattern and not a category of exercise. A lifter picking one is answering "what
+ * does this warm up like?", so every label names lifts they can compare theirs to
+ * -- which is the only way to answer it without reading section 8.2.
+ */
+export const WARMUP_FAMILY_LABELS: Readonly<Record<WarmupFamily, string>> = {
+  'squat-press': 'Squat, bench or overhead press',
+  deadlift: 'Deadlift',
+  pull: 'Row or shrug',
+  olympic: 'Clean, snatch or jerk',
+  assistance: 'Curl, extension or good morning',
 };
 
 /** What a set is for. Section 7.3. */
@@ -628,6 +645,110 @@ export const EQUIPMENT_NOTES = {
    * into each session at the time, which is exactly so that this button cannot reach it.
    */
   removeNote: 'Removing a gym leaves every workout you did there exactly as it is.',
+} as const;
+
+/**
+ * The lifter's own movements. Section 6.4.
+ *
+ * The section that has to explain the most for the fewest controls, because two of
+ * the four questions it asks are questions no other screen asks. A loading model is
+ * jargon by any name -- "what does this exercise weigh?" has no good short answer for
+ * an assisted chin-up -- and warm-up generation is offered as a tick precisely
+ * because it must never be inferred, which is the opposite of how every other tool
+ * behaves and therefore needs saying.
+ */
+export const EXERCISE_NOTES = {
+  heading: 'Your exercises',
+
+  /**
+   * Says what this is for before the form, because the catalogue is not obviously
+   * incomplete until a lifter goes looking for something specific.
+   */
+  intro: 'Anything the list does not already have. Yours appear alongside the built-in ones.',
+
+  libraryHeading: 'Saved exercises',
+
+  /** An empty library reads as a failed read rather than a thing not done yet. */
+  libraryEmpty: 'Nothing added yet. The built-in list is still there either way.',
+
+  /**
+   * The other reason the list can be empty, said rather than drawn as the first one.
+   *
+   * Identical on screen and different in what it means for the next press: a name
+   * already taken is invisible, so adding one may quietly replace a movement that is
+   * still attached to old sessions.
+   */
+  libraryUnreadable:
+    'Your exercises could not be read on this device. The built-in list still works. Anything you add now may replace one you cannot see.',
+
+  nameLabel: 'Name',
+  namePlaceholder: 'Belt squat',
+
+  /** Named for what it is, because a picker is the only place it will ever be read. */
+  nameHint: 'What you would look for in the list.',
+
+  /**
+   * The loading model, asked as what gets typed in rather than as a category.
+   *
+   * Section 6.3 requires it declared and never guessed, so this is the one answer
+   * with no sensible default beyond the commonest case. The label asks the question
+   * from the entry box's side -- that is what the answer actually decides.
+   */
+  loadingLabel: 'What gets recorded',
+  loadingHint:
+    'This decides the boxes you fill in when you log a set. It cannot be guessed from the name.',
+
+  unitLabel: 'Weights typed in',
+
+  /** The third option, which is the default and is not a unit. */
+  unitFollows: 'Follow the setting',
+  unitHint: 'Leave it following the setting unless this one exercise is always in the other unit.',
+
+  /** The group the tick sits in, so it is not read out as a question with no subject. */
+  warmupLegend: 'Warm-ups',
+
+  warmupLabel: 'Build warm-ups for this',
+
+  /**
+   * Why the tick exists at all, which is section 6.4's rule turned outward.
+   *
+   * A lifter reasonably expects a tool to work this out. It will not, and the
+   * sentence says so plainly rather than leaving the tick looking like a shortcut
+   * somebody forgot to automate.
+   */
+  warmupNote:
+    'Off unless you say otherwise. Nothing is worked out from the name, so pick the movement it ramps like.',
+
+  familyLabel: 'Ramps like',
+
+  /** Only barbell movements can be ramped, and the tick has to say why it went. */
+  warmupBarbellOnly:
+    'Warm-ups are built on a barbell, so this is offered for barbell exercises only.',
+
+  add: 'Add this exercise',
+  saveEdit: 'Save changes',
+  cancelEdit: 'Cancel',
+  edit: 'Edit',
+  remove: 'Remove',
+
+  /** Pressing add with an empty box has to say why nothing happened. */
+  nameRequired: 'Give the exercise a name first.',
+
+  /** The same bound, and the same reasoning, as a gym name. */
+  nameTooLong: 'That is too long for a name. A word or two is enough.',
+
+  /** Adding under a name already used is the ordinary case, not an error. */
+  addOverwrites: 'Adding one under a name you have used replaces that exercise.',
+
+  /**
+   * Removing is the destructive control here and it reaches further than the gym one.
+   *
+   * A session snapshots the movement's name onto itself when it is planned, so old
+   * workouts keep reading correctly. What does go is the ability to plan it again --
+   * worth saying, because "Remove" beside a list of movements reads as tidying.
+   */
+  removeNote:
+    'Removing one leaves every workout that used it exactly as it is. You just cannot plan it again.',
 } as const;
 
 /** What a history row says about a workout with nothing recorded in it. */

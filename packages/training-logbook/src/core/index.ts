@@ -37,11 +37,16 @@ export {
   CATALOG_EXERCISES,
   PRIMARY_EXERCISES,
   canGenerateWarmup,
+  createCustomExercise,
+  draftFrom,
   exerciseOptions,
+  findCustomExercise,
   findExercise,
   loadKindFor,
   takesWeight,
+  updateCustomExercise,
   warmupFamilyFor,
+  type CustomExerciseDraft,
 } from './catalog.js';
 
 export {
