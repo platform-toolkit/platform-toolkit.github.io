@@ -14,7 +14,14 @@ import { describe, expect, it } from 'vitest';
 
 import type { SetLoad, SetPerformance } from '../types.js';
 
-import { ASSIST_SUFFIX, NOT_SET, formatLoad, formatPerformance, formatVolume } from './format.js';
+import {
+  ASSIST_SUFFIX,
+  NOT_SET,
+  formatLoad,
+  formatPerformance,
+  formatSetRun,
+  formatVolume,
+} from './format.js';
 
 // Invented numbers throughout. Nothing here is a federation figure; 60 and 20 are
 // chosen because they are distinguishable from each other and from a rep count.
@@ -130,5 +137,105 @@ describe('formatVolume', () => {
     const logged = formatPerformance(performed({ kind: 'implement', weight: SIXTY_KG }, 5));
 
     expect(logged).toContain(afterTheCount(formatVolume(3, 5)));
+  });
+});
+
+describe('formatSetRun', () => {
+  it('says nothing for a run with no sets in it', () => {
+    expect(formatSetRun([])).toBe('');
+  });
+
+  it('collapses straight sets across one weight', () => {
+    // The shape this function exists for, and the reason is width: this line sits in an
+    // exercise card on a phone, and spelling the weight out three times is three times
+    // the room for a fact the lifter already read once.
+    expect(
+      formatSetRun([
+        performed({ kind: 'implement', weight: SIXTY_KG }, 5),
+        performed({ kind: 'implement', weight: SIXTY_KG }, 5),
+        performed({ kind: 'implement', weight: SIXTY_KG }, 4),
+      ]),
+    ).toBe('60 kg for 5, 5, 4');
+  });
+
+  it('hangs the unit off the rep list where there is no weight to hang it off', () => {
+    // "5, 5, 4" alone is three of something unnamed. The bodyweight run has no weight to
+    // put in front of it, so the word has to go on the end or the line means nothing.
+    expect(
+      formatSetRun([
+        performed({ kind: 'none' }, 5),
+        performed({ kind: 'none' }, 5),
+        performed({ kind: 'none' }, 4),
+      ]),
+    ).toBe('5, 5, 4 reps');
+  });
+
+  it('spells every set out once two weights differ', () => {
+    // The shared-weight form has one slot for a weight, so the moment there are two it
+    // would have to drop one of them to stay short.
+    expect(
+      formatSetRun([
+        performed({ kind: 'implement', weight: SIXTY_KG }, 5),
+        performed({ kind: 'implement', weight: TWENTY_KG }, 5),
+      ]),
+    ).toBe('60 kg x 5, 20 kg x 5');
+  });
+
+  it('never collapses a counterweight into a line with added weight', () => {
+    // The case a run comparing recorded weights gets wrong and looks right doing: both
+    // of these are 20 kg, and one line reading "20 kg for 6, 6" would say a lifter both
+    // carried the weight and was carried by it. Section 6.2's four shapes already print
+    // differently, which is why the test for "one weight" is on the printed string.
+    expect(
+      formatSetRun([
+        performed({ kind: 'added', weight: TWENTY_KG }, 6),
+        performed({ kind: 'assisted', weight: TWENTY_KG }, 6),
+      ]),
+    ).toBe(`+20 kg x 6, 20 kg ${ASSIST_SUFFIX} x 6`);
+  });
+
+  it('never collapses two weights that differ only in the unit they were typed in', () => {
+    // Same reason, one step subtler: nothing here converts (section 11.4), so 100 kg and
+    // 100 lb are two weights and a run that collapsed them would print whichever unit
+    // happened to be first over sets lifted in the other.
+    expect(
+      formatSetRun([
+        performed({ kind: 'implement', weight: { amount: 100, unit: 'kg' } }, 3),
+        performed({ kind: 'implement', weight: { amount: 100, unit: 'lb' } }, 3),
+      ]),
+    ).toBe('100 kg x 3, 100 lb x 3');
+  });
+
+  it('spells the run out when a set has no rep count yet', () => {
+    // There is no honest slot for a half-filled set in "60 kg for 5, ?", and the long
+    // form already has an answer for one.
+    expect(
+      formatSetRun([
+        performed({ kind: 'implement', weight: SIXTY_KG }, 5),
+        performed({ kind: 'implement', weight: SIXTY_KG }, null),
+      ]),
+    ).toBe('60 kg x 5, 60 kg');
+  });
+
+  it('collapses a run of one', () => {
+    expect(formatSetRun([performed({ kind: 'implement', weight: SIXTY_KG }, 5)])).toBe(
+      '60 kg for 5',
+    );
+  });
+
+  it('spells a run of one out when it has no rep count', () => {
+    expect(formatSetRun([performed({ kind: 'implement', weight: SIXTY_KG }, null)])).toBe('60 kg');
+  });
+
+  it('keeps a zero in the rep list rather than reading it as nothing recorded', () => {
+    // The same fact `formatPerformance` guards: the lifter got under the bar and it did
+    // not move. A run that tested rep counts for truthiness would drop the set here and
+    // print a two-set session.
+    expect(
+      formatSetRun([
+        performed({ kind: 'implement', weight: SIXTY_KG }, 5),
+        performed({ kind: 'implement', weight: SIXTY_KG }, 0),
+      ]),
+    ).toBe('60 kg for 5, 0');
   });
 });

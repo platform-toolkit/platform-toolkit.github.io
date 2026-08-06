@@ -26,12 +26,14 @@ import type { Weight } from '@platform-toolkit/domain';
 
 import { findExercise, loadFor } from '../core/catalog.js';
 import { AT_LATER, AT_START, ON_DAY } from '../core/context.fixture.js';
+import { previousPerformanceIn, type PreviousPerformance } from '../core/previous.js';
 import {
   addExercise,
   completeSet,
   createWorkout,
   finishWorkout,
   performance,
+  recordSet,
   startWorkout,
   type PlannedSet,
   type SessionContext,
@@ -59,6 +61,12 @@ const SQUAT_WEIGHT: Weight = { amount: 100, unit: 'kg' };
 
 /** An invented bench weight, deliberately not the squat's. */
 const BENCH_WEIGHT: Weight = { amount: 70, unit: 'kg' };
+
+/** Last week's squat, lighter than this week's by one plate change either side. */
+const EARLIER_SQUAT_WEIGHT: Weight = { amount: 95, unit: 'kg' };
+
+/** Seven days before {@link A_TRAINING_DAY}. A literal, for the same reason. */
+const A_WEEK_EARLIER: CalendarDay = '2026-03-03';
 
 /**
  * A counter like `contextSeries`, but stamping a prefix onto every identifier.
@@ -229,6 +237,64 @@ export function aSparseRack(): EquipmentSnapshot {
       { weight: 15, pairs: null, fullDiameter: true },
     ],
   };
+}
+
+/**
+ * A week earlier, five kilograms lighter, so the last-time line has something to say.
+ *
+ * A different day *and* different weights. Repeating today's numbers would render a line
+ * that agrees with every row beneath it, and a reviewer cannot tell a working lookup from
+ * one that is echoing the session it is sitting on.
+ *
+ * The last squat set drops a rep, which is the part worth seeing: three sets across one
+ * weight collapse to a single load and a list of counts, and a run that is not flat is
+ * the only way to check the list is a list.
+ */
+function aPreviousSquatDay(): WorkoutSession {
+  const at = series('last-time');
+  let session = createWorkout(at(AT_START), { localDate: A_WEEK_EARLIER, title: 'Squat day' });
+  session = addExercise(session, at(AT_START), {
+    exerciseId: SQUAT.id,
+    displayName: SQUAT.name,
+    loading: SQUAT.loading,
+    plan: plan(SQUAT, 3, 5, EARLIER_SQUAT_WEIGHT),
+  });
+  session = startWorkout(session, at(AT_START));
+
+  const squat = session.exercises[0];
+  if (squat === undefined) throw new Error('the fixture lost its first exercise');
+  const [first, second, third] = squat.sets;
+  if (first === undefined || second === undefined || third === undefined) {
+    throw new Error('the fixture lost a set');
+  }
+  session = completeSet(session, first.id, at(AT_LATER));
+  session = completeSet(session, second.id, at(AT_LATER));
+  // The last set at the same weight for one rep fewer, recorded rather than ticked, which
+  // is the ordinary end of a set of three and the thing a flat list would hide.
+  session = recordSet(
+    session,
+    third.id,
+    performance(loadFor(SQUAT.loading, EARLIER_SQUAT_WEIGHT), 4),
+    at(AT_LATER),
+  );
+  return finishWorkout(session, 'leave', at(AT_LATER));
+}
+
+/**
+ * What {@link aStartedSession}'s squat was last done for, keyed the way the screen reads it.
+ *
+ * Through `previousPerformanceIn` rather than typed out, for this file's usual reason: a
+ * hand-written map is free to hold a shape the query would never return -- a planned set, a
+ * set from an unfinished session, an entry with an empty list -- and those are exactly the
+ * pages a reviewer would trust.
+ *
+ * The bench press is deliberately absent. Section 7.8 shows nothing where there is no
+ * history, and one exercise with a line beside one without it is the only arrangement that
+ * proves the absent case is absent rather than merely blank.
+ */
+export function lastTimeForSquat(): ReadonlyMap<string, PreviousPerformance> {
+  const previous = aPreviousSquatDay();
+  return previousPerformanceIn(previous, new Set([SQUAT.id]));
 }
 
 /**

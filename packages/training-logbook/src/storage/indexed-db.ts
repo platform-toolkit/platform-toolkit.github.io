@@ -65,13 +65,21 @@ export const DATABASE_NAME = 'platform-toolkit-training-logbook';
  * Section 11.6's third number, and not the same as the package version or the
  * backup's `schemaVersion`. It changes when the *stores and indexes* change, which
  * is a different event from the persisted shape changing and rarer than either.
+ *
+ * Version 2 added {@link BY_LOCAL_DATE} to the workouts store. No record changed
+ * shape, which is exactly why the number had to move anyway: an index is not
+ * visible in a record, so a build reading a version 1 database would find the
+ * store it expected and no index to scan.
  */
-export const DATABASE_VERSION = 1;
+export const DATABASE_VERSION = 2;
 
 const WORKOUTS = 'workouts';
 const EXERCISES = 'exercises';
 const PROFILES = 'profiles';
 const STATE = 'state';
+
+/** The workouts index behind {@link LogbookStore.scanWorkouts}. Section 9.3. */
+const BY_LOCAL_DATE = 'by-local-date';
 
 const SETTINGS_KEY = 'settings';
 const ACTIVE_KEY = 'active-workout-id';
@@ -145,7 +153,12 @@ function transactionDone(transaction: IDBTransaction, store: string): Promise<vo
 }
 
 /** Narrows a stored record, or throws. See the header for why it is not skipped. */
-function decode<T>(schema: v.GenericSchema<T>, value: unknown, store: string, key: string): T {
+function decode<T>(
+  schema: v.GenericSchema<T>,
+  value: unknown,
+  store: string,
+  key: string | null,
+): T {
   if (!v.is(schema, value)) {
     throw new LogbookStorageError('corrupt-record', store, key);
   }
@@ -169,7 +182,22 @@ function decodeAll<T>(schema: v.GenericSchema<T>, values: unknown, store: string
   return values.map((value, index) => decode(schema, value, store, String(index)));
 }
 
-function createStores(database: IDBDatabase): void {
+/**
+ * The whole of `onupgradeneeded`, for every version a phone might be holding.
+ *
+ * It takes the *request* rather than the database because an index cannot be
+ * reached from the database at all. Every step below is written idempotently, so
+ * on an upgrade from version 1 the workouts store already exists,
+ * `createObjectStore` is never called, and there is no returned store to hang the
+ * index on. `request.transaction` is the versionchange transaction, and it is the
+ * only handle to a store that was created by an earlier version. A fresh version 2
+ * database and an upgraded version 1 one therefore come out identical, which is
+ * the property the whole function is arranged around -- the alternative is a
+ * migration ladder whose rungs are only ever exercised by the lifter it breaks.
+ */
+function createStores(request: IDBOpenDBRequest): void {
+  const database = request.result;
+
   // `keyPath: 'id'` rather than out-of-line keys, so a record and its identity
   // cannot disagree -- an out-of-line key lets a workout be filed under one id
   // while carrying another, and the two only diverge under a bug nobody sees.
@@ -183,6 +211,21 @@ function createStores(database: IDBDatabase): void {
   // the two have to move together.
   if (!database.objectStoreNames.contains(STATE)) {
     database.createObjectStore(STATE);
+  }
+
+  // Unreachable: the property is null only outside a version change, and this
+  // function runs from `onupgradeneeded` and nowhere else. Thrown rather than
+  // cast, because a cast would also silence the day someone calls this from
+  // somewhere it is not true, and an upgrade that quietly skipped the index would
+  // leave `scanWorkouts` failing on one lifter's phone and nowhere in testing.
+  const upgrade = request.transaction;
+  if (upgrade === null) throw new LogbookStorageError('operation-failed', WORKOUTS);
+
+  const workouts = upgrade.objectStore(WORKOUTS);
+  // Not unique: several workouts share a calendar day, which is the ordinary case
+  // rather than the edge one.
+  if (!workouts.indexNames.contains(BY_LOCAL_DATE)) {
+    workouts.createIndex(BY_LOCAL_DATE, 'localDate');
   }
 }
 
@@ -220,7 +263,7 @@ async function openDatabase(options: OpenDatabaseOptions): Promise<IDBDatabase |
     return await new Promise<IDBDatabase | null>((resolve, reject) => {
       const request = factory.open(options.databaseName ?? DATABASE_NAME, DATABASE_VERSION);
       request.onupgradeneeded = () => {
-        createStores(request.result);
+        createStores(request);
       };
       request.onsuccess = () => {
         const database = request.result;
@@ -327,6 +370,63 @@ function storeOver(database: IDBDatabase): LogbookStore {
 
     readWorkout: (id: LogbookId) => readOne(WORKOUTS, id, WorkoutSessionSchema),
     readWorkouts: () => readAll(WORKOUTS, WorkoutSessionSchema),
+
+    scanWorkouts: (visit) =>
+      // A `new Promise` rather than the `async` shape the rest of this file uses,
+      // and that is the header's rule holding: each step of the walk is issued from
+      // the previous request's own success handler, so the transaction stays alive.
+      // An `async` loop awaiting each `onsuccess` would drain the microtask queue
+      // between rungs, commit the transaction under the cursor, and fail on the
+      // second record of a history long enough to matter.
+      new Promise<void>((resolve, reject) => {
+        const transaction = database.transaction(WORKOUTS, 'readonly');
+        const request = transaction
+          .objectStore(WORKOUTS)
+          .index(BY_LOCAL_DATE)
+          // `prev` over an index on `localDate` is newest day first. Section 9.3's
+          // whole point: the records after the visitor stops are never read, never
+          // deserialised, and never cost the lifter anything.
+          .openCursor(null, 'prev');
+
+        request.onsuccess = () => {
+          const cursor = request.result;
+          // Exhausted, and an empty store arrives here on the first callback.
+          if (cursor === null) {
+            resolve();
+            return;
+          }
+
+          const value: unknown = cursor.value;
+          // `primaryKey` is an `IDBValidKey`; this store's key path is `id`, which
+          // is a string. Narrowed rather than stringified, because the only way a
+          // non-string arrives is a record this build did not write -- and that is
+          // what the error about to be thrown already says.
+          const key = typeof cursor.primaryKey === 'string' ? cursor.primaryKey : null;
+          let workout: WorkoutSession;
+          try {
+            workout = decode(WorkoutSessionSchema, value, WORKOUTS, key);
+          } catch {
+            // Rejected rather than allowed to propagate. A throw out of an
+            // IndexedDB event handler aborts the transaction and surfaces as an
+            // unhandled error on the window -- the caller's scan would hang rather
+            // than fail. The error is rebuilt rather than re-raised because the
+            // caught value is `unknown` and narrowing it back would be less honest
+            // than restating the one thing `decode` throws.
+            reject(new LogbookStorageError('corrupt-record', WORKOUTS, key));
+            return;
+          }
+
+          if (visit(workout) === 'stop') {
+            resolve();
+            return;
+          }
+          cursor.continue();
+        };
+
+        request.onerror = () => {
+          reject(new LogbookStorageError('operation-failed', WORKOUTS));
+        };
+      }),
 
     writeWorkout: async (workout: WorkoutSession, active: ActiveWorkoutPointer) => {
       const transaction = database.transaction([WORKOUTS, STATE], 'readwrite');

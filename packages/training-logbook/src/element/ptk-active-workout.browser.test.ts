@@ -23,6 +23,14 @@
  * Every weight, plate and bar here is invented (section 5.1). The pound rack has no
  * 2.5s on purpose: it makes an unbuildable weight easy to ask for and hard to reach by
  * accident.
+ *
+ * SECTION 7.8'S LINE IS THE FILE'S SECOND SUBJECT
+ *
+ * `previous` is the other thing this screen is handed and never works out for itself,
+ * and it fails the same silent way the rack does: an exercise with no history is meant
+ * to draw nothing, so a line that always renders looks exactly like a correct screen
+ * to anybody whose logbook is empty. The block below therefore asserts on the absence
+ * as a count of elements rather than as a run of empty text.
  */
 
 // Without the stylesheet every declaration reading a custom property is dropped, so the
@@ -34,6 +42,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { findExercise } from '../core/catalog.js';
 import { AT_START, ON_DAY, contextSeries } from '../core/context.fixture.js';
+import type { PreviousPerformance } from '../core/previous.js';
 import { addExercise, createWorkout, performance, startWorkout } from '../core/session.js';
 import { memoryLogbookStore } from '../storage/memory.js';
 import type { LogbookStore } from '../storage/port.js';
@@ -44,12 +53,14 @@ import type {
   ExerciseOption,
   Instant,
   LogbookId,
+  SetPerformance,
   WorkoutSession,
 } from '../types.js';
 
-import { LOADING_NOTES, SAVE_STATES } from './copy.js';
+import { ACTIVE_NOTES, LOADING_NOTES, SAVE_STATES } from './copy.js';
+import { formatSetRun } from './format.js';
 import { defineTrainingLogbook } from './index.js';
-import type { PtkActiveWorkout } from './ptk-active-workout.js';
+import { WORKOUT_CHANGED_EVENT, type PtkActiveWorkout } from './ptk-active-workout.js';
 import type { PtkTrainingLogbook } from './ptk-training-logbook.js';
 
 const TODAY: CalendarDay = ON_DAY;
@@ -135,10 +146,26 @@ function aSession(
   return startWorkout(session, at(AT_START));
 }
 
+/** Two lifts in one started session, one set each, so a line can be shown to be absent. */
+function aPairedSession(first: ExerciseOption, second: ExerciseOption): WorkoutSession {
+  const at = contextSeries();
+  let session = createWorkout(at(AT_START), { localDate: ON_DAY, title: 'Squat day' });
+  for (const exercise of [first, second]) {
+    session = addExercise(session, at(AT_START), {
+      exerciseId: exercise.id,
+      displayName: exercise.name,
+      loading: exercise.loading,
+      plan: [{ kind: 'working' as const, performance: performance({ kind: 'none' }, 5) }],
+    });
+  }
+  return startWorkout(session, at(AT_START));
+}
+
 interface MountOptions {
   readonly session: WorkoutSession;
   readonly equipment?: EquipmentSnapshot | null;
   readonly unit?: 'kg' | 'lb';
+  readonly previous?: ReadonlyMap<string, PreviousPerformance>;
 }
 
 async function mount(options: MountOptions): Promise<PtkActiveWorkout> {
@@ -146,6 +173,7 @@ async function mount(options: MountOptions): Promise<PtkActiveWorkout> {
   element.session = options.session;
   element.equipment = options.equipment ?? null;
   element.unit = options.unit ?? 'lb';
+  element.previous = options.previous ?? new Map();
   element.now = (): Instant => AT_START;
   document.body.append(element);
   teardown.push(() => {
@@ -196,13 +224,94 @@ function barOnlyRows(element: Element): string[] {
   });
 }
 
-/** Every sentence under a diagram, in row order. */
+/**
+ * Every sentence under a diagram, in row order.
+ *
+ * `.loading-note` and not "every paragraph in the row": section 7.8's line is a
+ * paragraph in the same card, and a selector loose enough to collect both would make
+ * every assertion in this file's first half depend on a history it never sets.
+ */
 function notes(element: Element): string[] {
   return deepAll(shadow(element), '.loading-note').map((note) => note.textContent.trim());
 }
 
+/** Section 7.8's line, wherever it has been drawn below the given root. */
+function previousLines(root: DocumentFragment | HTMLElement): HTMLElement[] {
+  return deepAll(root, 'p.previous');
+}
+
+/** The first of them, or a failure rather than an assertion made against nothing. */
+function previousLine(root: DocumentFragment | HTMLElement): HTMLElement {
+  const first = previousLines(root)[0];
+  if (first === undefined) throw new Error('This screen says nothing about last time.');
+  return first;
+}
+
+/** One card per exercise, in the order the session holds them. */
+function exerciseCards(element: Element): HTMLElement[] {
+  return deepAll(shadow(element), 'section.exercise');
+}
+
+/** The card at a position, or a failure naming the exercise nobody drew. */
+function exerciseCard(element: Element, index: number): HTMLElement {
+  const card = exerciseCards(element)[index];
+  if (card === undefined) throw new Error(`There is no exercise ${String(index + 1)} on screen.`);
+  return card;
+}
+
+/** A rendered paragraph as one line, with the template's own indentation taken out. */
+function oneLine(node: HTMLElement): string {
+  return node.textContent.replace(/\s+/g, ' ').trim();
+}
+
+/** The set rows, in the order they are shown. */
+function setRows(element: Element): HTMLElement[] {
+  return deepAll(shadow(element), 'li[data-set]');
+}
+
+function setRow(element: Element, index: number): HTMLElement {
+  const row = setRows(element)[index];
+  if (row === undefined) throw new Error(`There is no set ${String(index + 1)} on this screen.`);
+  return row;
+}
+
+/** Presses a control inside a row, the inner button rather than the host. */
+async function tap(element: PtkActiveWorkout, row: HTMLElement, action: string): Promise<void> {
+  const host = deepAll(row, `[data-action="${action}"]`)[0];
+  if (host === undefined) throw new Error(`This row has no "${action}" control.`);
+  const button = shadow(host).querySelector('button');
+  if (button === null) throw new Error(`The "${action}" control has no button in it.`);
+  button.click();
+  await element.updateComplete;
+}
+
 const SQUAT = catalogExercise('squat');
 const CHIN_UP = catalogExercise('chin-up');
+const BENCH = catalogExercise('bench-press');
+
+/**
+ * The day the history entries below were done on. Invented, and a week before
+ * {@link TODAY} -- a line that printed the session's own date would otherwise read
+ * as correct on every screen in this file.
+ */
+const LAST_TIME_DAY: CalendarDay = '2026-03-03';
+
+/** One recorded set at a weight. Every number invented, section 5.1. */
+function lifted(amount: number, reps: number): SetPerformance {
+  return performance({ kind: 'implement', weight: { amount, unit: 'lb' } }, reps);
+}
+
+function lastTime(exercise: ExerciseOption, sets: readonly SetPerformance[]): PreviousPerformance {
+  return { exerciseId: exercise.id, localDate: LAST_TIME_DAY, sets };
+}
+
+/** The map the root hands down, keyed the way the element looks entries up. */
+function previousMap(...entries: readonly PreviousPerformance[]): Map<string, PreviousPerformance> {
+  return new Map(entries.map((entry) => [entry.exerciseId, entry]));
+}
+
+/** Three sets across, with the last one short. What a real entry looks like. */
+const SQUAT_LAST_TIME: readonly SetPerformance[] = [lifted(225, 5), lifted(225, 5), lifted(225, 4)];
 
 describe('the plates under a set row', () => {
   it('draws nothing at all until a rack has been chosen', async () => {
@@ -354,6 +463,97 @@ describe('the diagram in the page', () => {
     // here against whatever background the test page happens to have.
     const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
     expect(results.violations).toEqual([]);
+  });
+});
+
+describe('what the lift was last done for', () => {
+  it('prints the day it was done and the numbers it was done for', async () => {
+    const element = await mount({
+      session: aSession(SQUAT, [225]),
+      previous: previousMap(lastTime(SQUAT, SQUAT_LAST_TIME)),
+    });
+
+    expect(previousLines(shadow(element))).toHaveLength(1);
+    // The date is asserted as the stored `YYYY-MM-DD` and not as anything a `Date`
+    // would print: this is a day the lifter trained on, and reformatting it through a
+    // zone is how it becomes the day before for everybody west of Greenwich.
+    //
+    // The run is composed rather than typed out because `format.test.ts` owns the
+    // shorthand; the weight below is typed out, because it is this fixture's own
+    // number and the point is that it survived the trip.
+    const line = oneLine(previousLine(shadow(element)));
+    expect(line).toBe(
+      `${ACTIVE_NOTES.lastTime} ${LAST_TIME_DAY}: ${formatSetRun(SQUAT_LAST_TIME)}`,
+    );
+    expect(line).toContain('225 lb');
+  });
+
+  it('draws no line at all under an exercise with nothing to show', async () => {
+    // A map with somebody else's answer in it rather than an empty one, so the
+    // absence is about the lookup and not about there being no history anywhere.
+    const element = await mount({
+      session: aSession(SQUAT, [225]),
+      previous: previousMap(lastTime(BENCH, SQUAT_LAST_TIME)),
+    });
+
+    // Counted, not read. Section 7.8 asks for nothing rather than an empty panel, and
+    // an empty panel has empty text -- so an assertion on the text passes against the
+    // one screen this case exists to catch.
+    expect(previousLines(exerciseCard(element, 0))).toHaveLength(0);
+    expect(previousLines(shadow(element))).toHaveLength(0);
+  });
+
+  it('draws it under the lift with a history and under no other', async () => {
+    const element = await mount({
+      session: aPairedSession(SQUAT, BENCH),
+      // The second lift, so a line hard-wired to the first card cannot pass.
+      previous: previousMap(lastTime(BENCH, SQUAT_LAST_TIME)),
+    });
+
+    expect(previousLines(shadow(element))).toHaveLength(1);
+    expect(previousLines(exerciseCard(element, 0))).toHaveLength(0);
+    expect(previousLines(exerciseCard(element, 1))).toHaveLength(1);
+  });
+
+  it('sits between the exercise and its sets, where a lifter reads it first', async () => {
+    const element = await mount({
+      session: aSession(SQUAT, [225]),
+      previous: previousMap(lastTime(SQUAT, SQUAT_LAST_TIME)),
+    });
+
+    // On the order of the elements and not on the order of the text. A card that
+    // rendered the line under the last set would read correctly in `textContent` and
+    // put it off the bottom of a phone, which is the whole of the placement decision.
+    const card = exerciseCard(element, 0);
+    const children = [...card.children];
+    const heading = card.querySelector('h3');
+    const list = card.querySelector('ul');
+    if (heading === null || list === null) throw new Error('This card has no heading or no sets.');
+    const line = previousLine(card);
+
+    expect(children.indexOf(heading)).toBeLessThan(children.indexOf(line));
+    expect(children.indexOf(line)).toBeLessThan(children.indexOf(list));
+  });
+
+  it('stays exactly as it is when a set is ticked', async () => {
+    const element = await mount({
+      session: aSession(SQUAT, [225, 225]),
+      previous: previousMap(lastTime(SQUAT, SQUAT_LAST_TIME)),
+    });
+    // The root's part of the one-tap flow, played here: the screen hands up a whole
+    // next session and renders the one it is given back. Without this the property
+    // never changes and the case proves nothing about a re-render.
+    element.addEventListener(WORKOUT_CHANGED_EVENT, (event) => {
+      element.session = event.detail.session;
+    });
+    const before = oneLine(previousLine(shadow(element)));
+
+    await tap(element, setRow(element, 0), 'complete');
+
+    // The tick landed, or the assertions below are about a screen nothing happened to.
+    expect(deepAll(setRow(element, 0), '[data-action="undo"]')).toHaveLength(1);
+    expect(previousLines(shadow(element))).toHaveLength(1);
+    expect(oneLine(previousLine(shadow(element)))).toBe(before);
   });
 });
 

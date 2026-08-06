@@ -24,6 +24,7 @@ import {
   aKilogramRack,
   aSparseRack,
   aStartedSession,
+  lastTimeForSquat,
 } from './story.fixture.js';
 
 // Through the package entry and behind an explicit call. See the note in the history
@@ -44,6 +45,10 @@ const meta: Meta<PtkActiveWorkout> = {
     // most people first meet it -- no diagram at all, which is the correct answer to a
     // rack nobody has described.
     equipment: null,
+    // Empty by default rather than populated, so the stories below document the screen a
+    // lifter meets on their first session -- which has no history behind it and therefore
+    // no line. `LastTime` is the one that adds it.
+    previous: new Map(),
     // Pinned. A story that read the clock would stamp a different instant on every set
     // completed in it, and two reviewers would be looking at different pages.
     now: () => AT_LATER,
@@ -53,6 +58,7 @@ const meta: Meta<PtkActiveWorkout> = {
       .session=${args.session}
       .unit=${args.unit}
       .equipment=${args.equipment}
+      .previous=${args.previous}
       .now=${args.now}
     ></ptk-active-workout>
   `,
@@ -156,6 +162,25 @@ export const NotLoadable: Story = {
 };
 
 /**
+ * What the squat was last done for, above the sets about to be done again. Section 7.8.
+ *
+ * One line, above the rows rather than below them: it is context for the numbers a lifter
+ * is about to type, and on a phone anything after the last set is off the bottom of the
+ * screen by the time it would matter.
+ *
+ * Both halves are on the page at once, which is the point of the story. The squat carries
+ * a line and the bench press carries none, because the bench has no completed history and
+ * section 7.8 asks for nothing rather than an empty panel -- a state that is impossible to
+ * review against a page where every exercise has an answer.
+ *
+ * Nothing on the line compares the two days. 95 kg for 5, 5, 4 sits above a plan for 100,
+ * and the tool says only what happened; the lifter draws the conclusion. Section 15.3.
+ */
+export const LastTime: Story = {
+  args: { previous: lastTimeForSquat() },
+};
+
+/**
  * The narrowest phone still in use (section 5.7), constrained by a wrapper rather than by
  * a viewport parameter -- the wrapper is what the element responds to, and a viewport
  * setting would document a screen the component never sees.
@@ -170,6 +195,10 @@ export const Narrow: Story = {
   args: {
     session: aStartedSession({ completed: 1, prefix: 'narrow' }),
     equipment: aKilogramRack(),
+    // Carried here as well as in `LastTime`, because the last-time line is the longest
+    // unbreakable-looking run of text on the screen and 320 pixels is where it either
+    // wraps or takes the page sideways with it.
+    previous: lastTimeForSquat(),
   },
   render: (args) => html`
     <div style="width: 320px; outline: 1px dashed currentColor;">
@@ -177,6 +206,7 @@ export const Narrow: Story = {
         .session=${args.session}
         .unit=${args.unit}
         .equipment=${args.equipment}
+        .previous=${args.previous}
         .now=${args.now}
       ></ptk-active-workout>
     </div>

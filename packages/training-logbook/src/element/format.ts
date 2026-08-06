@@ -82,3 +82,44 @@ export function formatPerformance(performance: SetPerformance | null): string {
   if (load === null) return reps === null ? NOT_SET : `${String(reps)} reps`;
   return reps === null ? load : `${load} ${TIMES} ${String(reps)}`;
 }
+
+/** The word between one weight and the several rep counts lifted at it. */
+const FOR = 'for';
+
+/**
+ * A run of sets on one line, the way a lifter reads their own last entry.
+ *
+ * Two shapes, chosen by the sets rather than by the caller. Straight sets across one
+ * weight collapse to "225 lb for 5, 5, 4", which is how that session would be written
+ * on paper and is a third of the width of the alternative -- and width is the whole
+ * constraint, because this sits inside an exercise card on a phone. Anything else
+ * spells every set out, "225 lb x 5, 225 lb x 5, 220 lb x 5", because the moment two
+ * loads differ the shared-weight form has to drop one of them to stay short.
+ *
+ * The test for "one weight" is the *formatted* load and not the recorded one. Section
+ * 6.2's four load shapes already print differently, and comparing the strings is what
+ * keeps 20 kg of assistance from collapsing into a line with 20 kg of added weight.
+ *
+ * A set with no rep count forces the long form even where every weight matches. There
+ * is no honest place for it in "225 lb for 5, 5, ?", and {@link formatPerformance}
+ * already has an answer for a half-filled set.
+ */
+export function formatSetRun(sets: readonly SetPerformance[]): string {
+  const long = (): string => sets.map((set) => formatPerformance(set)).join(', ');
+  if (sets.length === 0) return '';
+
+  const reps: number[] = [];
+  for (const set of sets) {
+    if (set.repetitions === null) return long();
+    reps.push(set.repetitions);
+  }
+
+  const loads = sets.map((set) => formatLoad(set.load));
+  const [first] = loads;
+  if (first === undefined || loads.some((load) => load !== first)) return long();
+
+  const counts = reps.map((count) => String(count)).join(', ');
+  // Bodyweight: no weight to hang the reps off, so the unit goes on the list itself.
+  // "5, 5, 4" alone reads as three of something unnamed.
+  return first === null ? `${counts} reps` : `${first} ${FOR} ${counts}`;
+}

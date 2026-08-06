@@ -90,7 +90,14 @@ export {
   type SaveState,
 } from './copy.js';
 
-export { ASSIST_SUFFIX, NOT_SET, formatLoad, formatPerformance, formatVolume } from './format.js';
+export {
+  ASSIST_SUFFIX,
+  NOT_SET,
+  formatLoad,
+  formatPerformance,
+  formatSetRun,
+  formatVolume,
+} from './format.js';
 
 export {
   MAX_PLANNED_REPS,

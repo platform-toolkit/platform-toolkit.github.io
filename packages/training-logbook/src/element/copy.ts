@@ -352,6 +352,20 @@ export const ACTIVE_NOTES = {
   /** A count with no unit reads as a percentage. */
   setsDone: 'sets done',
 
+  /**
+   * Section 7.8's line, and the day it happened is part of it rather than a detail.
+   *
+   * "Last time" with no date is a claim the lifter cannot check. Last time could be
+   * Tuesday or it could be March, and those two are the same three numbers on screen
+   * with opposite meanings. The date follows this word, so the fragment ends without
+   * punctuation.
+   *
+   * No word for how it went. Section 15.3: this tool records and does not score, and
+   * the forbidden vocabulary list exists because "up on last time" is one small step
+   * from a tool that has an opinion about a lifter's Tuesday.
+   */
+  lastTime: 'Last time,',
+
   finish: 'Finish the workout',
   finishHeading: 'Finish the workout',
   /** The question section 7.12 makes a step rather than a preference. */

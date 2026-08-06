@@ -87,6 +87,36 @@ export interface LogbookStore {
   readWorkout(id: LogbookId): Promise<WorkoutSession | null>;
   /** Every stored workout, in no guaranteed order. Ordering is the repository's job. */
   readWorkouts(): Promise<readonly WorkoutSession[]>;
+  /**
+   * Every stored workout, newest calendar day first, until the visitor stops.
+   *
+   * Section 9.3's bounded read. {@link readWorkouts} pulls whole records -- frozen
+   * warm-up plans, every set of every exercise -- into one array before the caller
+   * has said how many it wants, so "your last ten workouts" costs a lifter with
+   * three years of training all three years. This walks an ordered index instead
+   * and stops where the caller says stop.
+   *
+   * THE VISITOR IS SYNCHRONOUS ON PURPOSE
+   *
+   * A backing store may implement this with a cursor, and a cursor's transaction
+   * commits the moment the microtask queue drains with no request outstanding. A
+   * visitor returning a promise would therefore be awaited into a transaction that
+   * has already ended, and the read after it fails -- intermittently, under load,
+   * on a phone. A synchronous signature makes that unwritable rather than merely
+   * discouraged. A caller with asynchronous work to do collects what it needs here
+   * and does that work after this resolves.
+   *
+   * THE ORDER IS `localDate` DESCENDING AND NOTHING FURTHER
+   *
+   * Two workouts on one day is ordinary -- squats in the morning, bench in the
+   * evening -- and the order *between* those two is deliberately unspecified. An
+   * index is on the day, so a same-day tie-break is not something a store can
+   * deliver without the full sort this method exists to avoid, and promising
+   * `updatedAt` here would be promising it anyway and paying for it somewhere
+   * else. A caller that needs the tie broken must take the whole of that day and
+   * break it itself.
+   */
+  scanWorkouts(visit: (workout: WorkoutSession) => 'continue' | 'stop'): Promise<void>;
   /** Writes the workout and moves the active pointer, in one transaction. */
   writeWorkout(workout: WorkoutSession, active: ActiveWorkoutPointer): Promise<void>;
   /**

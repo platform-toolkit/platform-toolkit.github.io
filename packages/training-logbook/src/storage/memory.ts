@@ -51,6 +51,21 @@ function copy<T>(value: T): T {
   return structuredClone(value);
 }
 
+/**
+ * Newest calendar day first, and deliberately nothing beyond that.
+ *
+ * Not `byMostRecent` from `../core/summary.js`, which breaks a same-day tie on
+ * `updatedAt`. The port promises the day and only the day, because an index on
+ * `localDate` is all the IndexedDB store can walk. Sorting further here would be
+ * free in memory and would teach a caller to rely on an order the durable store
+ * cannot give -- passing every Node test and coming apart on a phone, which is the
+ * one failure a second implementation of a port exists to prevent.
+ */
+function byLocalDateDescending(a: WorkoutSession, b: WorkoutSession): number {
+  if (a.localDate === b.localDate) return 0;
+  return a.localDate < b.localDate ? 1 : -1;
+}
+
 /** Builds an in-memory store. Everything in it is gone when the page is. */
 export function memoryLogbookStore(): LogbookStore {
   let settings: LogbookSettings | null = null;
@@ -85,6 +100,17 @@ export function memoryLogbookStore(): LogbookStore {
       return Promise.resolve(found === undefined ? null : copy(found));
     },
     readWorkouts: () => Promise.resolve([...workouts.values()].map(copy)),
+    scanWorkouts: (visit) => {
+      // Copied and ordered in full before the first visit, rather than iterated
+      // live. The visitor is the caller's code and may write, and a `Map` edited
+      // mid-iteration re-visits a moved entry -- where the cursor this stands in
+      // for is reading a transaction's own snapshot and cannot.
+      const ordered = [...workouts.values()].map(copy).sort(byLocalDateDescending);
+      for (const workout of ordered) {
+        if (visit(workout) === 'stop') break;
+      }
+      return Promise.resolve();
+    },
     writeWorkout: (workout, active) => {
       workouts.set(workout.id, copy(workout));
       applyPointer(workout, active);

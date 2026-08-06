@@ -51,6 +51,7 @@ import { property, state } from 'lit/decorators.js';
 
 import { loadFor, takesWeight } from '../core/catalog.js';
 import { sessionLoadings, type SetLoading } from '../core/loading.js';
+import type { PreviousPerformance } from '../core/previous.js';
 import {
   completeSet,
   finishWorkout,
@@ -73,7 +74,7 @@ import type {
 
 import { ACTIVE_NOTES, FINISH_DISPOSITIONS, FINISH_DISPOSITION_NOTES, SET_KINDS } from './copy.js';
 import { DONE_REPS_FIELD, DONE_WEIGHT_FIELD, actionOf, fieldOf, setOf } from './dataset.js';
-import { formatPerformance } from './format.js';
+import { formatPerformance, formatSetRun } from './format.js';
 import { renderLoading } from './loading-view.js';
 
 /** The plates for every set of the session on screen, or none because there is no rack. */
@@ -152,6 +153,17 @@ export class PtkActiveWorkout extends LitElement {
 
     .exercise + .exercise {
       margin-top: var(--ptk-space-lg);
+    }
+
+    /*
+     * Section 7.8's line. Muted like the notes above, but deliberately not shrunk to
+     * their smaller size: this one is numbers, read at arm's length between two sets,
+     * which is the furthest this screen ever gets from a lifter's eyes.
+     */
+    .previous {
+      margin: var(--ptk-space-xs) 0 0;
+      color: var(--ptk-color-text-muted);
+      overflow-wrap: anywhere;
     }
 
     ul {
@@ -296,6 +308,16 @@ export class PtkActiveWorkout extends LitElement {
    */
   @property({ attribute: false }) now: () => Instant = () => new Date().toISOString();
 
+  /**
+   * What each exercise here was last done for, keyed by `exerciseId`. Section 7.8.
+   *
+   * Handed down rather than read here, because reading it means walking the history
+   * and this element re-renders on every keystroke in the weight box. An exercise
+   * missing from the map has no comparable history and gets no line at all -- section
+   * 7.8 again, which asks for nothing rather than an empty panel.
+   */
+  @property({ attribute: false }) previous: ReadonlyMap<string, PreviousPerformance> = new Map();
+
   /** The one set whose editor is open, or `null`. */
   @state() private editing: LogbookId | null = null;
 
@@ -390,10 +412,33 @@ export class PtkActiveWorkout extends LitElement {
   #exercise(exercise: WorkoutExercise, loadings: Loadings): TemplateResult {
     return html`<section class="exercise">
       <h3>${exercise.displayName}</h3>
+      ${this.#previousLine(exercise)}
       <ul>
         ${exercise.sets.map((set) => this.#set(exercise, set, loadings))}
       </ul>
     </section>`;
+  }
+
+  /**
+   * The one line of history section 7.8 puts on the logging screen.
+   *
+   * Above the sets rather than below them. It is context for the numbers about to be
+   * typed, and a lifter reading down the card should meet it before the first row
+   * rather than after the last -- which on a phone is off the bottom of the screen by
+   * the time it would matter.
+   *
+   * A class of its own. `.note` is the tool talking about itself and this is the
+   * lifter's own record read back to them, and the layout check needs to be able to
+   * name one without matching the other.
+   */
+  #previousLine(exercise: WorkoutExercise): TemplateResult | typeof nothing {
+    const last = this.previous.get(exercise.exerciseId);
+    if (last === undefined) return nothing;
+    // The day as it was stored. `../element/ptk-workout-history.ts` explains at
+    // length why a `YYYY-MM-DD` is shown as one here and not handed to `Date`.
+    return html`<p class="previous">
+      ${ACTIVE_NOTES.lastTime} ${last.localDate}: ${formatSetRun(last.sets)}
+    </p>`;
   }
 
   /**

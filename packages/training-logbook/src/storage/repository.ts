@@ -27,6 +27,7 @@
  */
 
 import { createBackup, type LogbookSnapshot, type TrainingLogbookBackup } from '../core/backup.js';
+import { searchPreviousPerformance, type PreviousPerformance } from '../core/previous.js';
 import { byMostRecent, summarize, type WorkoutSummary } from '../core/summary.js';
 import { SCHEMA_VERSION } from '../core/session.js';
 import type {
@@ -97,6 +98,19 @@ export interface TrainingLogbookRepository {
 
   listWorkouts(query?: WorkoutHistoryQuery): Promise<readonly WorkoutSummary[]>;
   getWorkout(id: LogbookId): Promise<WorkoutSession | null>;
+  /**
+   * What each of these exercises was last performed for. Section 7.8, LOG-011.
+   *
+   * Keyed by `exerciseId` and never by display name, which is snapshotted per session
+   * and so differs between two records of the same lift. An exercise with nothing to
+   * report is **absent** from the map rather than present with an empty list.
+   *
+   * Bounded: it walks the history newest day first and stops as soon as every id is
+   * answered, so a lifter with three years of sessions pays for the recent ones.
+   */
+  lastPerformance(
+    exerciseIds: readonly string[],
+  ): Promise<ReadonlyMap<string, PreviousPerformance>>;
   /** Saves a workout without touching the active marker. Editing history. */
   saveWorkout(workout: WorkoutSession): Promise<void>;
   deleteWorkout(id: LogbookId): Promise<void>;
@@ -208,6 +222,18 @@ export function createRepository(
 
     async getWorkout(id) {
       return store.readWorkout(id);
+    },
+
+    async lastPerformance(exerciseIds) {
+      // Short-circuited before touching the store. `scanWorkouts` opens a
+      // transaction and the search would refuse the first session anyway, so the
+      // empty case is a database read with a guaranteed empty answer -- and it is
+      // the ordinary case, because the screen calls this for a session that has no
+      // exercises in it yet.
+      if (exerciseIds.length === 0) return new Map();
+      const search = searchPreviousPerformance(exerciseIds);
+      await store.scanWorkouts((workout) => (search.consider(workout) ? 'continue' : 'stop'));
+      return search.found();
     },
 
     async saveWorkout(workout) {

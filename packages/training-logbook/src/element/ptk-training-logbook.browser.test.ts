@@ -41,9 +41,18 @@ import { formatWeight } from '@platform-toolkit/domain';
 import axe from 'axe-core';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CATALOG_EXERCISES } from '../core/catalog.js';
+import { CATALOG_EXERCISES, findExercise } from '../core/catalog.js';
 import { AT_LATER, AT_START, ON_DAY } from '../core/context.fixture.js';
 import { createHandoff } from '../core/handoff.js';
+import {
+  addExercise,
+  completeSet,
+  createWorkout,
+  finishWorkout,
+  performance,
+  startWorkout,
+  type SessionContext,
+} from '../core/session.js';
 import type { HandoffSource } from '../handoff.js';
 import { indexedDbLogbookStore } from '../storage/indexed-db.js';
 import { memoryLogbookStore } from '../storage/memory.js';
@@ -52,6 +61,7 @@ import { createRepository, defaultSettings } from '../storage/repository.js';
 import type {
   CalendarDay,
   EquipmentSnapshot,
+  ExerciseOption,
   HandoffExercise,
   Instant,
   LogbookId,
@@ -425,6 +435,151 @@ function aSource(record: WarmupHandoff | null): {
 function offerRows(element: PtkTrainingLogbook): HTMLElement[] {
   return deepAll(shadow(element), '.offer li');
 }
+
+/*
+ * ---------------------------------------------------------------------------
+ * A history to read back. Section 7.8.
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * The day the seeded session was trained on, and the instant it was written at.
+ *
+ * A different day from {@link TODAY}, so a line printing the day of the session
+ * the lifter is *in* cannot pass as the day of the one they are being reminded of.
+ */
+const LAST_TIME_DAY: CalendarDay = '2026-03-03';
+const LAST_TIME_AT: Instant = '2026-03-03T17:00:00.000Z';
+
+/** What it was lifted for. Invented, and not the 100 every live session here plans. */
+const LAST_TIME_WEIGHT = 225;
+
+function catalogExercise(id: string): ExerciseOption {
+  const found = findExercise(id);
+  if (found === null) throw new Error(`no such catalogue exercise: ${id}`);
+  return found;
+}
+
+/**
+ * A finished session, written straight into the store.
+ *
+ * Through the store rather than through the controls, for the same reason the rack
+ * two cases above is: what is under test is the read on the way back out, and a
+ * history assembled by planning and ticking thirty sets would put the builder, the
+ * clock and the finish flow between the numbers and the assertion. The session is
+ * still built by the core rather than typed out, so it cannot hold a shape
+ * `startWorkout` would never produce.
+ */
+async function seedHistory(store: LogbookStore, exercise: ExerciseOption): Promise<void> {
+  let next = 0;
+  // Its own prefix rather than the shared `id-N` counter: `mount` hands the element a
+  // sequence starting at one as well, and a seeded workout sharing an identifier with
+  // the live one is overwritten by that session's first save -- leaving a case that
+  // proves the tool says nothing about a history the test deleted.
+  const context: SessionContext = {
+    at: LAST_TIME_AT,
+    nextId: (): LogbookId => {
+      next += 1;
+      return `last-${String(next)}`;
+    },
+  };
+  let session = createWorkout(context, { localDate: LAST_TIME_DAY });
+  session = addExercise(session, context, {
+    exerciseId: exercise.id,
+    displayName: exercise.name,
+    loading: exercise.loading,
+    plan: Array.from({ length: 3 }, () => ({
+      kind: 'working' as const,
+      performance: performance(
+        { kind: 'implement', weight: { amount: LAST_TIME_WEIGHT, unit: UNIT } },
+        5,
+      ),
+    })),
+  });
+  session = startWorkout(session, context);
+  // Ticked rather than left planned: only a performed working set of a completed
+  // session is a previous performance, and a seeded plan nobody did would leave this
+  // whole block asserting that the tool correctly says nothing.
+  for (const set of session.exercises.flatMap((exercised) => exercised.sets)) {
+    session = completeSet(session, set.id, context);
+  }
+  await store.writeWorkout(finishWorkout(session, 'leave', context), { kind: 'unchanged' });
+}
+
+/**
+ * A store that counts the read section 7.8 costs, and the boot read it hides behind.
+ *
+ * `scanWorkouts` is the subject: `lastPerformance` reaches the history through that
+ * method alone, so the count is exactly the number of times the tool went looking for
+ * what a lift was last done for.
+ *
+ * `readProfiles` is the sync point for the other one. Going home restarts the whole
+ * boot read, which lands asynchronously and assigns `active` from what it found -- so
+ * a session planned before it lands is wiped by an answer taken before it existed.
+ * Profiles are read last, after those assignments, which makes this counter the only
+ * observable "the boot read is over" the tool offers.
+ */
+function counting(store: LogbookStore): {
+  store: LogbookStore;
+  calls: { scans: number; profiles: number };
+} {
+  const calls = { scans: 0, profiles: 0 };
+  return {
+    calls,
+    store: {
+      ...store,
+      scanWorkouts: (visit) => {
+        calls.scans += 1;
+        return store.scanWorkouts(visit);
+      },
+      readProfiles: () => {
+        calls.profiles += 1;
+        return store.readProfiles();
+      },
+    },
+  };
+}
+
+/** Section 7.8's line, wherever the logging screen has drawn one. */
+function previousLines(root: DocumentFragment | HTMLElement): HTMLElement[] {
+  return deepAll(root, 'p.previous');
+}
+
+/** One card per exercise on the logging screen, in the order they are shown. */
+function exerciseCard(element: PtkTrainingLogbook, index: number): HTMLElement {
+  const card = deepAll(shadow(element), 'section.exercise')[index];
+  if (card === undefined) throw new Error(`There is no exercise ${String(index + 1)} on screen.`);
+  return card;
+}
+
+/**
+ * The line, once the read behind it has landed.
+ *
+ * `settle` waits for the write the tool reports on and says nothing whatever about
+ * this read, which is started in `willUpdate` and awaited nowhere a test can see. It
+ * is also the sync point every assertion about an *absent* line needs: waiting for
+ * the one line that should be there is the only honest way to know the reads for
+ * that session are done.
+ */
+async function previousLine(element: PtkTrainingLogbook): Promise<string> {
+  await vi.waitFor(async () => {
+    await element.updateComplete;
+    expect(previousLines(shadow(element)).length).toBeGreaterThan(0);
+  });
+  const line = previousLines(shadow(element))[0];
+  if (line === undefined) throw new Error('This screen says nothing about last time.');
+  return line.textContent.replace(/\s+/g, ' ').trim();
+}
+
+/** Adds one of section 6.1's four by name, rather than whichever tile comes first. */
+async function addPrimary(element: PtkTrainingLogbook, exerciseId: string): Promise<void> {
+  const tile = deepAll(shadow(element), `[data-exercise="${exerciseId}"]`)[0];
+  if (tile === undefined) throw new Error(`The builder offers no one-tap "${exerciseId}".`);
+  nativeButton(tile).click();
+  await settle(element);
+}
+
+const SQUAT = catalogExercise('squat');
 
 describe('the training logbook', () => {
   it('opens on a logbook with nothing in it, and says so rather than showing a blank', async () => {
@@ -872,6 +1027,112 @@ describe('the training logbook', () => {
 
       await settle(element);
       expect((await store.readSettings())?.equipment).toStrictEqual(mine);
+    });
+  });
+
+  /**
+   * Section 7.8, end to end.
+   *
+   * The leaf suite drives `previous` as a property, which proves what the line looks
+   * like and nothing about where it comes from. Everything under test here is between
+   * a completed session in IndexedDB and that property: the repository's walk, the
+   * root's state, and the one guard that decides how often the walk happens.
+   */
+  describe('what each lift was last done for', () => {
+    it('puts the last session on the logging screen of the next one', async () => {
+      const { store } = await durableStore();
+      await seedHistory(store, SQUAT);
+      const element = await mount(store);
+
+      await planASquatSession(element);
+
+      const line = await previousLine(element);
+      expect(line).toContain(ACTIVE_NOTES.lastTime);
+      expect(line).toContain(LAST_TIME_DAY);
+      expect(line).toContain(formatWeight({ amount: LAST_TIME_WEIGHT, unit: UNIT }));
+      // Last session's numbers and not this one's. The live plan is 100, so a line
+      // rendered from the session on screen would read as a history nobody has.
+      expect(line).not.toContain('100');
+    });
+
+    it('says nothing at all under a lift with no completed history', async () => {
+      const { store } = await durableStore();
+      await seedHistory(store, SQUAT);
+      const element = await mount(store);
+
+      await press(element, 'start-workout');
+      await addPrimary(element, 'squat');
+      await addPrimary(element, 'bench-press');
+      await press(element, 'start');
+
+      // The squat's line is the sync point: once it is there, the read for this
+      // session has finished and the bench press's silence is an answer rather than
+      // a screen that has not caught up.
+      await previousLine(element);
+      expect(previousLines(shadow(element))).toHaveLength(1);
+      expect(previousLines(exerciseCard(element, 1))).toHaveLength(0);
+    });
+
+    /**
+     * The guard on the read, which is the only reason `#previousKey` exists.
+     *
+     * `willUpdate` runs on every tick of every set, and the walk behind this line
+     * reads the history out of the database. Without the key it would run again for
+     * each of a session's forty taps -- section 9.3's bounded read undone on the one
+     * screen a lifter holds between sets, and undone invisibly, because the answer
+     * would be identical every time.
+     */
+    it('does not read the history again when a set is ticked', async () => {
+      const { store } = await durableStore();
+      await seedHistory(store, SQUAT);
+      const { store: counted, calls } = counting(store);
+      const element = await mount(counted);
+      await planASquatSession(element);
+      await previousLine(element);
+
+      const before = calls.scans;
+      // Or the assertion below holds against a tool that never read anything.
+      expect(before).toBeGreaterThan(0);
+
+      await press(element, 'complete', setRow(element, 0));
+      expect(isDone(setRow(element, 0))).toBe(true);
+      expect(saveLine(element)).toBe(SAVE_STATES.saved);
+
+      expect(calls.scans).toBe(before);
+    });
+
+    it('reads it again for the next session, which the last one is now part of', async () => {
+      const { store } = await durableStore();
+      const { store: counted, calls } = counting(store);
+      const element = await mount(counted);
+
+      // Nothing is seeded: the first session is the history the second one reads,
+      // which is the case the session id is in the key for. Keyed on the lifts alone,
+      // a lifter squatting twice in a day would be shown nothing the second time.
+      await planASquatSession(element);
+      expect(previousLines(shadow(element))).toHaveLength(0);
+      const before = calls.scans;
+
+      await press(element, 'complete', setRow(element, 0));
+      await press(element, 'finish');
+      await choose(element, 'ptk-choice-group', 'skip');
+      await press(element, 'finish-confirm');
+      const booted = calls.profiles;
+      await press(element, 'home');
+      // Going home restarts the boot read, and nothing on screen reports it. Planning
+      // the next session while it is still in flight loses that session to an answer
+      // read before it existed -- which is a race in the test and not in the tool, a
+      // lifter needing four taps to get where this arrives in four milliseconds.
+      await vi.waitFor(() => {
+        expect(calls.profiles).toBeGreaterThan(booted);
+      });
+
+      await planASquatSession(element);
+
+      expect(calls.scans).toBeGreaterThan(before);
+      const line = await previousLine(element);
+      expect(line).toContain(TODAY);
+      expect(line).toContain(formatWeight({ amount: 100, unit: UNIT }));
     });
   });
 

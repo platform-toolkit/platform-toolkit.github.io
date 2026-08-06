@@ -111,6 +111,13 @@ export {
 export { sessionLoadings, type SetLoading } from './loading.js';
 
 export {
+  previousPerformanceIn,
+  searchPreviousPerformance,
+  type PreviousPerformance,
+  type PreviousPerformanceSearch,
+} from './previous.js';
+
+export {
   byMostRecent,
   isWorkingSet,
   loadWeight,

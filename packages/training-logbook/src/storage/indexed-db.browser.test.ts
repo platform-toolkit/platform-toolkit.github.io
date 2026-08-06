@@ -99,11 +99,17 @@ let counter = 0;
 const open: LogbookStore[] = [];
 const created: string[] = [];
 
-/** A database nothing else in this file touches. */
-async function freshStore(): Promise<{ readonly store: LogbookStore; readonly name: string }> {
+/** A database name nothing else in this file touches, registered for teardown. */
+function freshName(): string {
   counter += 1;
   const name = `${DATABASE_NAME}-test-${String(counter)}`;
   created.push(name);
+  return name;
+}
+
+/** A database nothing else in this file touches. */
+async function freshStore(): Promise<{ readonly store: LogbookStore; readonly name: string }> {
+  const name = freshName();
   const store = await openLogbookStore({ databaseName: name });
   open.push(store);
   return { store, name };
@@ -158,6 +164,78 @@ function putRaw(name: string, storeName: string, value: unknown, key?: string): 
       };
     };
   });
+}
+
+/**
+ * A database exactly as version 1 of this adapter left it.
+ *
+ * The store names and the key paths are written out here rather than imported,
+ * and that is the point of the fixture: version 1's schema is frozen history, so
+ * reading it from today's constants would make it follow whatever the adapter is
+ * changed to next and the upgrade would then be tested against itself.
+ */
+function createVersion1(name: string, workouts: readonly WorkoutSession[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(name, 1);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      for (const storeName of ['workouts', 'exercises', 'profiles']) {
+        database.createObjectStore(storeName, { keyPath: 'id' });
+      }
+      database.createObjectStore('state');
+    };
+    request.onerror = () => {
+      reject(new Error('could not create the version 1 test database'));
+    };
+    request.onsuccess = () => {
+      const database = request.result;
+      const transaction = database.transaction('workouts', 'readwrite');
+      const target = transaction.objectStore('workouts');
+      for (const workout of workouts) target.put(workout);
+      transaction.oncomplete = () => {
+        database.close();
+        resolve();
+      };
+      transaction.onerror = () => {
+        database.close();
+        reject(new Error('could not seed the version 1 test database'));
+      };
+    };
+  });
+}
+
+/**
+ * Asks the database itself, rather than inferring the index from a read working.
+ *
+ * Opened with no version, which is the whole reason this is not `putRaw`. Naming
+ * {@link DATABASE_VERSION} against a version 1 database triggers an upgrade with
+ * no `onupgradeneeded` of its own -- so the observation would bump the database to
+ * version 2 without an index, and the upgrade under test would then never run.
+ */
+function hasLocalDateIndex(name: string): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(name);
+    request.onerror = () => {
+      reject(new Error('could not open the test database'));
+    };
+    request.onsuccess = () => {
+      const database = request.result;
+      const transaction = database.transaction('workouts', 'readonly');
+      const found = transaction.objectStore('workouts').indexNames.contains('by-local-date');
+      database.close();
+      resolve(found);
+    };
+  });
+}
+
+/** Runs a scan to exhaustion and collects the days it visited, in order. */
+async function scanDays(store: LogbookStore): Promise<readonly string[]> {
+  const days: string[] = [];
+  await store.scanWorkouts((workout) => {
+    days.push(workout.localDate);
+    return 'continue';
+  });
+  return days;
 }
 
 afterEach(async () => {
@@ -259,6 +337,136 @@ describe('round trips', () => {
     expect(first).toEqual(second);
     expect(first).not.toBe(second);
     expect(first).not.toBe(workout);
+  });
+});
+
+describe('scanning history newest first', () => {
+  it('visits the newest calendar day first', async () => {
+    const { store } = await freshStore();
+    const at = contextSeries();
+    // Written in an order that is neither the answer nor its reverse. Identifiers
+    // count up, so insertion order *is* primary-key order, and a scan that read
+    // the store rather than the index would hand back exactly this sequence.
+    await store.writeWorkout(finished('2026-01-05', at), { kind: 'unchanged' });
+    await store.writeWorkout(finished('2026-03-11', at), { kind: 'unchanged' });
+    await store.writeWorkout(finished('2026-02-14', at), { kind: 'unchanged' });
+
+    expect(await scanDays(store)).toEqual(['2026-03-11', '2026-02-14', '2026-01-05']);
+  });
+
+  it('stops where the visitor says, without reading the rest', async () => {
+    // The count is the assertion. Section 9.3 is about what a bounded query costs
+    // with thousands of workouts behind it, and a scan that walked to the end and
+    // discarded the tail would satisfy every assertion about the values.
+    const { store } = await freshStore();
+    const at = contextSeries();
+    await store.writeWorkout(finished('2026-01-05', at), { kind: 'unchanged' });
+    await store.writeWorkout(finished('2026-03-11', at), { kind: 'unchanged' });
+    await store.writeWorkout(finished('2026-02-14', at), { kind: 'unchanged' });
+
+    const seen: string[] = [];
+    await store.scanWorkouts((workout) => {
+      seen.push(workout.localDate);
+      return seen.length === 2 ? 'stop' : 'continue';
+    });
+
+    expect(seen).toEqual(['2026-03-11', '2026-02-14']);
+  });
+
+  it('resolves when the visitor stops on the very first record', async () => {
+    // The cursor is never advanced at all here, so the transaction commits with
+    // nothing outstanding. An implementation that resolved from the exhaustion
+    // branch alone would leave this promise pending for ever.
+    const { store } = await freshStore();
+    await store.writeWorkout(finished(), { kind: 'unchanged' });
+
+    let visited = 0;
+    await store.scanWorkouts(() => {
+      visited += 1;
+      return 'stop';
+    });
+
+    expect(visited).toBe(1);
+  });
+
+  it('resolves without visiting anything over an empty store', async () => {
+    const { store } = await freshStore();
+
+    let visited = 0;
+    await store.scanWorkouts(() => {
+      visited += 1;
+      return 'continue';
+    });
+
+    expect(visited).toBe(0);
+  });
+
+  it('visits both of a day, in an order the port does not promise', async () => {
+    // Asserted as a count and a set rather than a sequence, on purpose. The index
+    // key is the day, so two workouts sharing one have no order the adapter can
+    // promise, and a test that pinned today's happens to be the specification the
+    // port explicitly declines to give.
+    const { store } = await freshStore();
+    const at = contextSeries();
+    const morning = finished('2026-03-11', at);
+    const evening = finished('2026-03-11', at);
+    await store.writeWorkout(morning, { kind: 'unchanged' });
+    await store.writeWorkout(evening, { kind: 'unchanged' });
+    await store.writeWorkout(finished('2026-02-14', at), { kind: 'unchanged' });
+
+    const ids: string[] = [];
+    await store.scanWorkouts((workout) => {
+      ids.push(workout.id);
+      return 'continue';
+    });
+
+    expect(ids).toHaveLength(3);
+    expect(ids.slice(0, 2).sort()).toEqual([morning.id, evening.id].sort());
+    expect(await scanDays(store)).toEqual(['2026-03-11', '2026-03-11', '2026-02-14']);
+  });
+
+  it('throws on a record this build does not understand, like every other read', async () => {
+    const { store, name } = await freshStore();
+    await store.writeWorkout(finished(), { kind: 'unchanged' });
+    await putRaw(name, 'workouts', { id: 'from-another-build', localDate: '2026-04-01' });
+
+    await expect(scanDays(store)).rejects.toThrow(LogbookStorageError);
+  });
+});
+
+describe('upgrading a database written by version 1', () => {
+  it('gains the index and keeps every workout', async () => {
+    // The case that matters most: version 1 shipped, so a real phone is holding a
+    // database with the workouts store and no index on it. `createStores` is
+    // idempotent, which means the store already existing is the path where nothing
+    // creates it and nothing would hang the index on it either -- so the index has
+    // to be reached through the upgrade transaction, and this is what proves it was.
+    const name = freshName();
+    const at = contextSeries();
+    const january = finished('2026-01-05', at);
+    const march = finished('2026-03-11', at);
+    await createVersion1(name, [january, march]);
+
+    expect(await hasLocalDateIndex(name)).toBe(false);
+
+    const store = await openLogbookStore({ databaseName: name });
+    open.push(store);
+
+    expect(await hasLocalDateIndex(name)).toBe(true);
+    expect(await store.readWorkout(january.id)).toEqual(january);
+    expect(await scanDays(store)).toEqual(['2026-03-11', '2026-01-05']);
+  });
+
+  it('leaves a fresh version 2 database indistinguishable from an upgraded one', async () => {
+    const { store: fresh, name: freshDatabase } = await freshStore();
+    const upgraded = freshName();
+    await createVersion1(upgraded, []);
+    const store = await openLogbookStore({ databaseName: upgraded });
+    open.push(store);
+
+    expect(await hasLocalDateIndex(freshDatabase)).toBe(true);
+    expect(await hasLocalDateIndex(upgraded)).toBe(true);
+    expect(fresh.durable).toBe(store.durable);
   });
 });
 

@@ -50,6 +50,7 @@ import { backupFilename, serializeBackup } from '../core/backup.js';
 import { exerciseOptions, loadFor } from '../core/catalog.js';
 import { createProfile, findProfile, updateProfileEquipment } from '../core/equipment.js';
 import { handoffLifts, workoutFromHandoff } from '../core/handoff.js';
+import type { PreviousPerformance } from '../core/previous.js';
 import { rampLastExercise } from '../core/warmup.js';
 // Type-only, so nothing of the storage side reaches this module. The port and the
 // key belong to the shell, which is the only thing that knows the browser has
@@ -139,6 +140,15 @@ const HANDOFF_DISCARD_ACTION = 'discard-handoff';
 
 /** How many history rows the home screen reads. Section 17.2's budget, applied. */
 const HISTORY_LIMIT = 20;
+
+/**
+ * The one empty answer to "what was this lifted for last time".
+ *
+ * A shared instance and not a fresh `new Map()` per assignment, because Lit compares
+ * state by identity: a new empty map written on each update is a change, which is a
+ * re-render, which writes another one. That is not a slow render, it is a loop.
+ */
+const NO_PREVIOUS: ReadonlyMap<string, PreviousPerformance> = new Map();
 
 const UNIT_CHOICES: readonly Choice[] = [
   { value: 'lb', label: UNIT_LABELS.lb },
@@ -317,6 +327,26 @@ export class PtkTrainingLogbook extends LitElement {
    */
   @state() private unramped: readonly string[] = [];
 
+  /**
+   * What the lifts in the live session were last done for. Section 7.8.
+   *
+   * Empty until the read finishes, and empty is a complete state rather than a
+   * loading one: an exercise with no history renders nothing either way, so there is
+   * no moment where the screen shows a placeholder for a line that will never come.
+   */
+  @state() private previous: ReadonlyMap<string, PreviousPerformance> = NO_PREVIOUS;
+
+  /**
+   * The session the {@link previous} map was read for, as id plus exercise ids.
+   *
+   * A string and not the session object, because `active` is replaced whole on every
+   * tick of every set -- identity would re-read the entire history each time a lifter
+   * pressed Done, which is section 9.3's read on a render path wearing a different
+   * hat. What actually changes the answer is which exercises are in the session, and
+   * that is what this compares. `null` before the first read.
+   */
+  #previousKey: string | null = null;
+
   override connectedCallback(): void {
     super.connectedCallback();
     this.addEventListener(WORKOUT_PLANNED_EVENT, this.#onPlanned);
@@ -353,6 +383,44 @@ export class PtkTrainingLogbook extends LitElement {
     // it on every keystroke of a session -- and would answer differently halfway
     // through one, because another tab can write the key at any time.
     if (changed.has('handoff')) this.#readHandoff();
+    // Unconditional, because `changed` is keyed by the public properties and the
+    // session lives in private state it cannot name. The guard is inside instead,
+    // and it is a better one than a dirty check would be: `active` is replaced whole
+    // on every tick of every set, so watching it would re-read the history on each
+    // one anyway.
+    void this.#reloadPrevious();
+  }
+
+  /**
+   * Reads what the live session's lifts were last done for, at most once per session.
+   *
+   * Behind its own catch for `#reloadProfiles`' reason: this walks the whole history
+   * and section 7.8's line is the one thing on the screen a lifter can do without.
+   * A record from an older build that no longer parses would otherwise take the
+   * session they are in the middle of with it.
+   */
+  async #reloadPrevious(): Promise<void> {
+    const repository = this.repository;
+    const session = this.active;
+    if (repository === null || session === null) {
+      this.#previousKey = null;
+      this.previous = NO_PREVIOUS;
+      return;
+    }
+
+    const ids = session.exercises.map((exercise) => exercise.exerciseId);
+    // The id is in the key as well as the exercises, so that starting a second
+    // session with the same lifts in it still re-reads -- the first session is by
+    // then part of the history and is the answer.
+    const key = [session.id, ...ids].join('\n');
+    if (key === this.#previousKey) return;
+    this.#previousKey = key;
+
+    try {
+      this.previous = await repository.lastPerformance(ids);
+    } catch {
+      this.previous = NO_PREVIOUS;
+    }
   }
 
   /**
@@ -544,6 +612,7 @@ export class PtkTrainingLogbook extends LitElement {
         .session=${this.active}
         .unit=${this.settings.displayUnit}
         .equipment=${this.settings.equipment}
+        .previous=${this.previous}
         .now=${this.now}
       ></ptk-active-workout>
     `;
