@@ -28,6 +28,7 @@ import {
   findSet,
   findWorkoutExercise,
   finishWorkout,
+  insertSets,
   markSetIncomplete,
   moveExercise,
   outstandingSets,
@@ -469,6 +470,57 @@ describe('addSet and duplicateSet', () => {
 
     expect(trimmed.exercises[0]?.sets).toHaveLength(1);
     expect(findSet(trimmed, id)).toBeNull();
+  });
+});
+
+describe('insertSets', () => {
+  it('puts several sets at a position without disturbing what is there', () => {
+    const session = twoSetWorkout();
+    const exerciseId = session.exercises[0]?.id ?? '';
+    const before = session.exercises[0]?.sets.map((set) => set.id);
+    const inserted = insertSets(
+      session,
+      exerciseId,
+      1,
+      [
+        { kind: 'warmup', performance: performance(kilograms(40), 5) },
+        { kind: 'warmup', performance: performance(kilograms(60), 3) },
+      ],
+      testContext(AT_LATER),
+    );
+    const sets = inserted.exercises[0]?.sets ?? [];
+
+    expect(sets.map((set) => set.kind)).toEqual(['working', 'warmup', 'warmup', 'working']);
+    expect([sets[0]?.id, sets[3]?.id]).toEqual(before);
+  });
+
+  it('reads an index outside the list as one of its two ends', () => {
+    // A negative index is the one that has to be clamped rather than passed
+    // through: `slice` would read it from the far end, so a caller off by one
+    // below zero would land the sets one from the *back* of the list -- a warm-up
+    // ramp inserted between the last two working sets. Past the end there is
+    // nothing to get wrong, and it is asserted so that stays true.
+    const session = twoSetWorkout();
+    const exerciseId = session.exercises[0]?.id ?? '';
+    const planned = [{ kind: 'backoff' as const, performance: performance(kilograms(70), 8) }];
+
+    expect(
+      insertSets(session, exerciseId, 99, planned, testContext()).exercises[0]?.sets.map(
+        (set) => set.kind,
+      ),
+    ).toEqual(['working', 'working', 'backoff']);
+    expect(
+      insertSets(session, exerciseId, -1, planned, testContext()).exercises[0]?.sets.map(
+        (set) => set.kind,
+      ),
+    ).toEqual(['backoff', 'working', 'working']);
+  });
+
+  it('leaves the session alone when there is nothing to insert', () => {
+    const session = twoSetWorkout();
+    const exerciseId = session.exercises[0]?.id ?? '';
+
+    expect(insertSets(session, exerciseId, 0, [], testContext(AT_LATER))).toBe(session);
   });
 });
 

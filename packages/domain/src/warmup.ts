@@ -52,6 +52,34 @@ import { roundToIncrement } from './rounding.js';
 import type { WeightUnit } from './weight.js';
 
 /**
+ * The code that builds a ramp.
+ *
+ * Two constants rather than one, because a stored plan is asked two different
+ * questions later and a single number answers neither well. This one moves when
+ * the *shape* of the output can change for unchanged rules -- a fixed search, a
+ * new stage, a different tie-break -- and {@link WARMUP_RULESET_VERSION} moves
+ * when a percentage, a cap, a share or a rep scheme changes. A lifter looking at
+ * a plan generated last spring wants to know which of those happened: the second
+ * means the recommendation itself was revised, the first means it was not.
+ *
+ * Whichever one an edit here touches, move it in the same commit. A stored plan
+ * that claims a version it was not produced under is worse than one claiming
+ * none, because it will be believed.
+ */
+export const WARMUP_ENGINE_VERSION = 'warmup-engine-2026.1';
+
+/**
+ * The numbers the ramp is built from.
+ *
+ * Every named constant below this line is in scope: the family caps, the shares,
+ * the ramp bounds, the step, the rep schemes and the defaults. They are product
+ * decisions rather than measurements -- see the header -- so a change to one of
+ * them changes what the tool recommends, and a consumer that froze a plan is
+ * entitled to know that its advice is no longer the current advice.
+ */
+export const WARMUP_RULESET_VERSION = 'warmup-rules-2026.1';
+
+/**
  * Which ramp a lift uses.
  *
  * Families rather than per-lift formulas, because the sources do not publish a

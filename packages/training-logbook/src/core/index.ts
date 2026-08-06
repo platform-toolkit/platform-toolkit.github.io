@@ -71,6 +71,7 @@ export {
   findSet,
   findWorkoutExercise,
   finishWorkout,
+  insertSets,
   markSetIncomplete,
   moveExercise,
   outstandingSets,
@@ -105,3 +106,15 @@ export {
   type WorkoutProgress,
   type WorkoutSummary,
 } from './summary.js';
+
+export {
+  applyWarmup,
+  clearWarmup,
+  warmupChange,
+  warmupIsCurrent,
+  warmupMatchesEquipment,
+  warmupSets,
+  type WarmupChange,
+  type WarmupChangeResult,
+  type WarmupInput,
+} from './warmup.js';

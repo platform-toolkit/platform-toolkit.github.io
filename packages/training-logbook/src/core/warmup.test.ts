@@ -1,0 +1,529 @@
+// Copyright 2026 Jason Smathers
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * Two claims, and the second one is the reason this file is long.
+ *
+ * The first is that the ramp is the calculator's ramp -- the numbers below are
+ * not restated rules, they are what `planWarmup` answers for the default rack,
+ * and a test that pinned its own arithmetic instead would pass through exactly
+ * the fork section 8.1 forbids.
+ *
+ * The second is section 8.5: a warm-up regenerated mid-session must never
+ * silently alter a set somebody performed. Most of what follows is that one
+ * sentence taken apart -- what survives, what goes, what order it ends up in,
+ * and what a screen is told before any of it happens.
+ */
+
+import { WARMUP_ENGINE_VERSION, WARMUP_RULESET_VERSION } from '@platform-toolkit/domain';
+import { describe, expect, it } from 'vitest';
+
+import type { EquipmentSnapshot, SetPerformance, WorkoutSession, WorkoutSet } from '../types.js';
+
+import { AT_LATER, AT_START, ON_DAY, testContext } from './context.fixture.js';
+import { DEFAULT_EQUIPMENT } from './equipment.js';
+import {
+  addExercise,
+  completeSet,
+  createWorkout,
+  performance,
+  planSet,
+  recordSet,
+  skipSet,
+  type SessionContext,
+} from './session.js';
+import {
+  applyWarmup,
+  clearWarmup,
+  warmupChange,
+  warmupIsCurrent,
+  warmupMatchesEquipment,
+  warmupSets,
+  type WarmupChange,
+  type WarmupInput,
+} from './warmup.js';
+
+/**
+ * A squat at 225 on the rack the tool opens with.
+ *
+ * Round enough that the ramp below reads at a glance, and heavy enough that the
+ * engine produces every stage: two bar-only sets, a first, two middles and a
+ * final. A lighter number would collapse the ramp and quietly stop testing the
+ * ordering.
+ */
+function squatInput(overrides: Partial<WarmupInput> = {}): WarmupInput {
+  return {
+    family: 'squat-press',
+    equipment: DEFAULT_EQUIPMENT,
+    workingWeight: 225,
+    workingSets: 3,
+    workingReps: 5,
+    ...overrides,
+  };
+}
+
+/** What `planWarmup` answers for {@link squatInput}, as totals in pounds. */
+const RAMP = [45, 45, 105, 145, 175, 205];
+
+/** A rack that is nobody's default, so nothing can pass by resembling one. */
+function aGym(): EquipmentSnapshot {
+  return {
+    barWeight: { amount: 20, unit: 'kg' },
+    collarWeight: { amount: 5, unit: 'kg' },
+    plateUnit: 'kg',
+    plates: [
+      { weight: 25, pairs: null, fullDiameter: true },
+      { weight: 10, pairs: null, fullDiameter: true },
+      { weight: 5, pairs: null, fullDiameter: false },
+      { weight: 2.5, pairs: null, fullDiameter: false },
+    ],
+  };
+}
+
+/** A draft holding one squat of two planned working sets, and nothing else. */
+function aSquatWorkout(context: SessionContext): WorkoutSession {
+  const draft = createWorkout(context, { localDate: ON_DAY });
+  return addExercise(draft, context, {
+    exerciseId: 'squat',
+    displayName: 'Squat',
+    loading: 'barbell-total-weight',
+    plan: [
+      { kind: 'working', performance: workingSet() },
+      { kind: 'working', performance: workingSet() },
+    ],
+  });
+}
+
+function workingSet() {
+  return performance({ kind: 'implement', weight: { amount: 225, unit: 'lb' } }, 5);
+}
+
+/** The only exercise in the session. */
+function onlyExercise(session: WorkoutSession) {
+  const exercise = session.exercises[0];
+  if (exercise === undefined) throw new Error('the fixture lost its exercise');
+  return exercise;
+}
+
+/** The change for {@link squatInput}, unwrapped, or a failure that says why. */
+function changeFor(
+  session: WorkoutSession,
+  context: SessionContext,
+  input: WarmupInput = squatInput(),
+): WarmupChange {
+  const exercise = onlyExercise(session);
+  const result = warmupChange(session, exercise.id, input, context);
+  if (result === null) throw new Error('the fixture lost its exercise');
+  if (!result.ok) throw new Error(`no plan: ${result.problems.map((p) => p.code).join(', ')}`);
+  return result.change;
+}
+
+/** A session with the generated ramp written into it. */
+function withRamp(session: WorkoutSession, context: SessionContext): WorkoutSession {
+  return applyWarmup(session, onlyExercise(session).id, changeFor(session, context), context);
+}
+
+function totals(sets: readonly WorkoutSet[]): readonly number[] {
+  return sets.map((set) => {
+    const load = set.planned?.load ?? set.performed?.load;
+    return load !== undefined && load.kind !== 'none' ? load.weight.amount : Number.NaN;
+  });
+}
+
+describe('warmupSets', () => {
+  it('expands the engine’s repeat count into sets a lifter can tick off', () => {
+    // The engine collapses the two bar-only sets into one entry with a count of
+    // two, which is right for a calculator and wrong for a logbook: somebody who
+    // has done the first and not the second has a fact to record, and a row with
+    // a multiplier on it has nowhere to put it. Section 8.4.
+    const context = testContext();
+    const change = changeFor(aSquatWorkout(context), context);
+    expect(change.snapshot.plan.warmups).toHaveLength(5);
+    expect(change.sets).toHaveLength(6);
+  });
+
+  it('is the calculator’s ramp and not one of its own', () => {
+    const context = testContext();
+    const change = changeFor(aSquatWorkout(context), context);
+    expect(change.sets.map((set) => weightOf(set.performance))).toEqual(RAMP);
+  });
+
+  it('writes every row in the plate unit rather than the display unit', () => {
+    // This total is about to be built out of the plates printed beside it.
+    // Converting it would put a number on the card that its own per-side list
+    // does not add up to.
+    const context = testContext();
+    const change = changeFor(
+      aSquatWorkout(context),
+      context,
+      squatInput({ equipment: aGym(), workingWeight: 100 }),
+    );
+    expect(change.sets.every((set) => unitOf(set.performance) === 'kg')).toBe(true);
+  });
+
+  it('leaves effort alone, because a generated set has none', () => {
+    // Section 7.10: effort is entered. A ramp arriving with an RPE on it would be
+    // this package deciding how hard a warm-up ought to feel.
+    const context = testContext();
+    const change = changeFor(aSquatWorkout(context), context);
+    expect(change.sets.every((set) => set.performance.effort === null)).toBe(true);
+  });
+
+  it('marks every row as a warm-up', () => {
+    const context = testContext();
+    const change = changeFor(aSquatWorkout(context), context);
+    expect(change.sets.every((set) => set.kind === 'warmup')).toBe(true);
+  });
+
+  it('can be read off a stored plan without regenerating it', () => {
+    const context = testContext();
+    const change = changeFor(aSquatWorkout(context), context);
+    expect(warmupSets(change.snapshot.plan, change.snapshot.equipment)).toEqual(change.sets);
+  });
+});
+
+describe('warmupChange', () => {
+  it('answers nothing for an exercise that is no longer there', () => {
+    const context = testContext();
+    expect(warmupChange(aSquatWorkout(context), 'id-gone', squatInput(), context)).toBe(null);
+  });
+
+  it('hands back the engine’s problems rather than inventing a plan', () => {
+    const context = testContext();
+    const session = aSquatWorkout(context);
+    const result = warmupChange(
+      session,
+      onlyExercise(session).id,
+      squatInput({ workingWeight: 0 }),
+      context,
+    );
+    expect(result?.ok).toBe(false);
+    expect(result?.ok === false && result.problems.map((problem) => problem.code)).toEqual([
+      'working-weight-not-positive',
+    ]);
+  });
+
+  it('freezes the engine and the ruleset that produced the plan', () => {
+    // Section 8.4's reason, in one assertion: a percentage changed next year must
+    // alter what the calculator suggests tomorrow and alter nothing already done.
+    const context = testContext();
+    const change = changeFor(aSquatWorkout(context), context);
+    expect(change.snapshot.engineVersion).toBe(WARMUP_ENGINE_VERSION);
+    expect(change.snapshot.rulesetVersion).toBe(WARMUP_RULESET_VERSION);
+    expect(change.snapshot.generatedAt).toBe(AT_START);
+  });
+
+  it('freezes the rack it was generated against', () => {
+    const context = testContext();
+    const change = changeFor(aSquatWorkout(context), context, squatInput({ equipment: aGym() }));
+    expect(change.snapshot.equipment).toEqual(aGym());
+    expect(change.snapshot.plan.setup.bar).toEqual({ amount: 20, unit: 'kg' });
+    expect(change.snapshot.plan.setup.collars).toEqual({ amount: 5, unit: 'kg' });
+  });
+
+  it('keeps the working prescription exactly as it was entered', () => {
+    const context = testContext();
+    const change = changeFor(aSquatWorkout(context), context, squatInput({ workingWeight: 227 }));
+    expect(change.snapshot.plan.working.total).toBe(227);
+    expect(change.snapshot.plan.working.sets).toBe(3);
+    expect(change.snapshot.plan.working.reps).toBe(5);
+  });
+
+  it('reports a weight the rack cannot make instead of rounding it away', () => {
+    // Section 8.6's last clause, seen from the other end: the tool may say what it
+    // could load either side of the number, and may not quietly replace it. A
+    // rounded working weight would propagate into the performed record as though
+    // the lifter had chosen it.
+    const context = testContext();
+    const change = changeFor(aSquatWorkout(context), context, squatInput({ workingWeight: 226.1 }));
+    expect(change.snapshot.plan.working.total).toBe(226.1);
+    expect(change.snapshot.plan.working.load.kind).toBe('not-loadable');
+  });
+
+  it('writes nothing and spends no identifiers', () => {
+    // The preview is what a confirmation dialog reads, and a lifter who opens one
+    // and cancels must leave no trace. Identifiers are the trace that would be
+    // hardest to see: the next set added would be numbered as though six sets had
+    // been created and thrown away.
+    const context = testContext();
+    const session = aSquatWorkout(context);
+    changeFor(session, context);
+    expect(context.nextId()).toBe('id-5');
+    expect(session).toEqual(aSquatWorkout(testContext()));
+  });
+
+  it('has nothing to preserve or replace on an exercise with no warm-up', () => {
+    const context = testContext();
+    const change = changeFor(aSquatWorkout(context), context);
+    expect(change.preserved).toEqual([]);
+    expect(change.replaced).toEqual([]);
+    expect(change.changesPlan).toBe(true);
+  });
+
+  it('marks untouched warm-up sets for replacement', () => {
+    const context = testContext();
+    const ramped = withRamp(aSquatWorkout(context), context);
+    const change = changeFor(ramped, context, squatInput({ workingWeight: 315 }));
+    expect(change.replaced).toHaveLength(6);
+    expect(change.preserved).toEqual([]);
+  });
+
+  it('preserves a warm-up set that was done, skipped, or half-done', () => {
+    // Three statuses, one rule. Section 8.5 says preserve completed sets as
+    // performed history, and a skipped set is a decision the lifter made -- a
+    // recalculation that swept it away would be answering for them.
+    const context = testContext();
+    const ramped = withRamp(aSquatWorkout(context), context);
+    const warmups = onlyExercise(ramped).sets.filter((set) => set.kind === 'warmup');
+    const [first, second, third] = warmups;
+    if (first === undefined || second === undefined || third === undefined) {
+      throw new Error('the fixture lost its ramp');
+    }
+    const done = skipSet(
+      recordSet(
+        completeSet(ramped, first.id, context),
+        second.id,
+        performance(first.planned?.load ?? { kind: 'none' }, 3),
+        context,
+      ),
+      third.id,
+      context,
+    );
+    const change = changeFor(done, context, squatInput({ workingWeight: 315 }));
+    expect(change.preserved.map((set) => set.id)).toEqual([first.id, second.id, third.id]);
+    expect(change.replaced).toHaveLength(3);
+  });
+
+  it('says nothing changed when only the working sets did', () => {
+    // Neither the set count nor the rep count reaches the ramp -- they land in the
+    // working prescription. A tool that warned "6 warm-up sets will be replaced"
+    // before replacing six sets with the same six would teach lifters to dismiss
+    // the warning that matters.
+    const context = testContext();
+    const ramped = withRamp(aSquatWorkout(context), context);
+    const change = changeFor(ramped, context, squatInput({ workingSets: 5, workingReps: 3 }));
+    expect(change.replaced).toHaveLength(6);
+    expect(change.changesPlan).toBe(false);
+    expect(change.snapshot.plan.working.sets).toBe(5);
+  });
+
+  it('says the plan changed when the weight did', () => {
+    const context = testContext();
+    const ramped = withRamp(aSquatWorkout(context), context);
+    expect(changeFor(ramped, context, squatInput({ workingWeight: 315 })).changesPlan).toBe(true);
+  });
+
+  it('says the plan changed when the rack did', () => {
+    const context = testContext();
+    const ramped = withRamp(aSquatWorkout(context), context);
+    expect(changeFor(ramped, context, squatInput({ equipment: aGym() })).changesPlan).toBe(true);
+  });
+
+  it('says the plan changed when the reps on the card no longer match it', () => {
+    // A lifter who retyped a warm-up's reps and then asked for a fresh ramp is
+    // about to lose that edit, and the weights alone cannot tell them so. Reps are
+    // half of what a warm-up row says; comparing only the loads would make this
+    // the one recalculation that overwrites something deliberate without a word.
+    const context = testContext();
+    const ramped = withRamp(aSquatWorkout(context), context);
+    const first = onlyExercise(ramped).sets[0];
+    const planned = first?.planned;
+    if (first === undefined || planned == null) throw new Error('the fixture lost its ramp');
+    const edited = planSet(ramped, first.id, { ...planned, repetitions: 8 }, context);
+    expect(changeFor(edited, context).changesPlan).toBe(true);
+  });
+});
+
+describe('applyWarmup', () => {
+  it('puts the ramp above the working sets', () => {
+    const context = testContext();
+    const ramped = withRamp(aSquatWorkout(context), context);
+    const sets = onlyExercise(ramped).sets;
+    expect(sets.map((set) => set.kind)).toEqual([
+      'warmup',
+      'warmup',
+      'warmup',
+      'warmup',
+      'warmup',
+      'warmup',
+      'working',
+      'working',
+    ]);
+    expect(totals(sets)).toEqual([...RAMP, 225, 225]);
+  });
+
+  it('attaches the snapshot to the exercise', () => {
+    const context = testContext();
+    const ramped = withRamp(aSquatWorkout(context), context);
+    expect(onlyExercise(ramped).warmup?.plan.family).toBe('squat-press');
+  });
+
+  it('gives every generated set its own identity', () => {
+    // Section 11.3. Six rows sharing an identifier is six rows that tick off
+    // together, and the first tap would look like the tool completing the ramp.
+    const context = testContext();
+    const ramped = withRamp(aSquatWorkout(context), context);
+    const ids = onlyExercise(ramped).sets.map((set) => set.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('keeps a performed warm-up set exactly as it was performed', () => {
+    // The sentence section 8.5 ends on: never silently alter a completed set.
+    const context = testContext();
+    const ramped = withRamp(aSquatWorkout(context), context);
+    const first = onlyExercise(ramped).sets[0];
+    if (first === undefined) throw new Error('the fixture lost its ramp');
+    const done = completeSet(ramped, first.id, context);
+    const before = onlyExercise(done).sets[0];
+
+    const later = testContext(AT_LATER);
+    const after = applyWarmup(
+      done,
+      onlyExercise(done).id,
+      changeFor(done, later, squatInput({ workingWeight: 315 })),
+      later,
+    );
+    expect(onlyExercise(after).sets[0]).toEqual(before);
+  });
+
+  it('puts a regenerated ramp after the sets already done', () => {
+    // Read down the card in the order the lifter will walk it: what they did,
+    // then the new ladder, then their working sets.
+    const context = testContext();
+    const ramped = withRamp(aSquatWorkout(context), context);
+    const first = onlyExercise(ramped).sets[0];
+    if (first === undefined) throw new Error('the fixture lost its ramp');
+    const done = completeSet(ramped, first.id, context);
+
+    const later = testContext(AT_LATER);
+    const change = changeFor(done, later, squatInput({ workingWeight: 135 }));
+    const after = applyWarmup(done, onlyExercise(done).id, change, later);
+    const sets = onlyExercise(after).sets;
+    expect(sets[0]?.id).toBe(first.id);
+    expect(sets).toHaveLength(1 + change.sets.length + 2);
+    expect(sets.slice(0, -2).every((set) => set.kind === 'warmup')).toBe(true);
+    expect(sets.slice(-2).every((set) => set.kind === 'working')).toBe(true);
+  });
+
+  it('starts the new ramp from the bar even where the lifter is past it', () => {
+    // Trimming it to "what you still need" is the tool deciding how somebody
+    // should warm up from a weight change it knows nothing about. The lifter skips
+    // the rungs they have done; the record keeps both facts.
+    const context = testContext();
+    const ramped = withRamp(aSquatWorkout(context), context);
+    const third = onlyExercise(ramped).sets[2];
+    if (third === undefined) throw new Error('the fixture lost its ramp');
+    const done = completeSet(ramped, third.id, context);
+
+    const later = testContext(AT_LATER);
+    const after = applyWarmup(
+      done,
+      onlyExercise(done).id,
+      changeFor(done, later, squatInput({ workingWeight: 315 })),
+      later,
+    );
+    const fresh = onlyExercise(after).sets.filter((set) => set.status === 'planned');
+    expect(totals(fresh)[0]).toBe(45);
+  });
+
+  it('leaves another exercise’s sets alone', () => {
+    const context = testContext();
+    const session = addExercise(aSquatWorkout(context), context, {
+      exerciseId: 'bench-press',
+      displayName: 'Bench Press',
+      loading: 'barbell-total-weight',
+      plan: [{ kind: 'working', performance: workingSet() }],
+    });
+    const after = applyWarmup(
+      session,
+      onlyExercise(session).id,
+      changeFor(session, context),
+      context,
+    );
+    expect(after.exercises[1]?.sets).toEqual(session.exercises[1]?.sets);
+    expect(after.exercises[1]?.warmup).toBe(null);
+  });
+
+  it('moves the workout’s own timestamp', () => {
+    const context = testContext();
+    const session = aSquatWorkout(context);
+    const later = testContext(AT_LATER);
+    const after = applyWarmup(session, onlyExercise(session).id, changeFor(session, later), later);
+    expect(after.updatedAt).toBe(AT_LATER);
+  });
+});
+
+describe('clearWarmup', () => {
+  it('drops the snapshot and the rows nobody performed', () => {
+    const context = testContext();
+    const ramped = withRamp(aSquatWorkout(context), context);
+    const cleared = clearWarmup(ramped, onlyExercise(ramped).id, context);
+    expect(onlyExercise(cleared).warmup).toBe(null);
+    expect(onlyExercise(cleared).sets.map((set) => set.kind)).toEqual(['working', 'working']);
+  });
+
+  it('keeps a warm-up set that was performed', () => {
+    // The snapshot is a claim about how a ramp was generated; the sets are a
+    // record of what somebody lifted. Retracting the first does not undo the
+    // second.
+    const context = testContext();
+    const ramped = withRamp(aSquatWorkout(context), context);
+    const first = onlyExercise(ramped).sets[0];
+    if (first === undefined) throw new Error('the fixture lost its ramp');
+    const done = completeSet(ramped, first.id, context);
+    const cleared = clearWarmup(done, onlyExercise(done).id, context);
+    expect(onlyExercise(cleared).sets.map((set) => set.id)).toEqual([
+      first.id,
+      ...onlyExercise(done)
+        .sets.filter((set) => set.kind === 'working')
+        .map((set) => set.id),
+    ]);
+  });
+
+  it('leaves a session it cannot find the exercise in exactly as it was', () => {
+    const context = testContext();
+    const ramped = withRamp(aSquatWorkout(context), context);
+    expect(clearWarmup(ramped, 'id-gone', context)).toBe(ramped);
+  });
+});
+
+describe('warmupMatchesEquipment', () => {
+  it('recognises the rack the plan was generated on', () => {
+    const context = testContext();
+    const change = changeFor(aSquatWorkout(context), context);
+    expect(warmupMatchesEquipment(change.snapshot, DEFAULT_EQUIPMENT)).toBe(true);
+  });
+
+  it('notices a lifter who has walked into a different gym', () => {
+    const context = testContext();
+    const change = changeFor(aSquatWorkout(context), context);
+    expect(warmupMatchesEquipment(change.snapshot, aGym())).toBe(false);
+  });
+});
+
+describe('warmupIsCurrent', () => {
+  it('recognises a plan this build produced', () => {
+    const context = testContext();
+    expect(warmupIsCurrent(changeFor(aSquatWorkout(context), context).snapshot)).toBe(true);
+  });
+
+  it('notices a plan from an older ruleset', () => {
+    const context = testContext();
+    const snapshot = changeFor(aSquatWorkout(context), context).snapshot;
+    expect(warmupIsCurrent({ ...snapshot, rulesetVersion: 'warmup-rules-2019.1' })).toBe(false);
+  });
+
+  it('notices a plan from an older engine', () => {
+    const context = testContext();
+    const snapshot = changeFor(aSquatWorkout(context), context).snapshot;
+    expect(warmupIsCurrent({ ...snapshot, engineVersion: 'warmup-engine-2019.1' })).toBe(false);
+  });
+});
+
+function weightOf(entry: SetPerformance): number {
+  return entry.load.kind === 'none' ? Number.NaN : entry.load.weight.amount;
+}
+
+function unitOf(entry: SetPerformance): string {
+  return entry.load.kind === 'none' ? '' : entry.load.weight.unit;
+}

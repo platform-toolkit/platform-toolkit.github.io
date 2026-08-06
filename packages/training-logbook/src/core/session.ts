@@ -252,11 +252,17 @@ export function moveExercise(
   return touch({ ...session, exercises }, context.at);
 }
 
-/** Attaches a generated warm-up to an exercise, replacing any previous one. */
+/**
+ * Attaches a generated warm-up to an exercise, replacing any previous one.
+ *
+ * `null` takes it off. The snapshot is the claim "this ramp was generated, by
+ * this engine, from this rack", and retracting the claim is a different act from
+ * deleting the sets underneath it -- so this touches no set either way.
+ */
 export function attachWarmup(
   session: WorkoutSession,
   exerciseId: LogbookId,
-  warmup: WarmupSnapshot,
+  warmup: WarmupSnapshot | null,
   context: SessionContext,
 ): WorkoutSession {
   return mapExercises(session, context.at, (exercise) =>
@@ -276,6 +282,40 @@ export function addSet(
       ? { ...exercise, sets: [...exercise.sets, buildSet(context, planned)] }
       : exercise,
   );
+}
+
+/**
+ * Puts several sets into an exercise at a position, keeping what is there.
+ *
+ * `addSet` appends, which is right for a lifter adding one more and wrong for a
+ * regenerated warm-up: a ramp belongs above the working sets it leads into, and
+ * appending one would have somebody walk out to the bar after their top set.
+ *
+ * The index is floored rather than rejected. `slice` reads a negative index from
+ * the far end, so a caller computing "after the sets already done" from a
+ * filtered array and landing one below zero would put the ramp one from the
+ * *back* of the list -- between the last two working sets, which is a
+ * plausible-looking card and a wrong one. There is no matching ceiling because
+ * `slice` already treats an index past the end as the end, and a second clamp
+ * would be a line no test could distinguish from its absence.
+ */
+export function insertSets(
+  session: WorkoutSession,
+  exerciseId: LogbookId,
+  index: number,
+  planned: readonly PlannedSet[],
+  context: SessionContext,
+): WorkoutSession {
+  if (planned.length === 0) return session;
+  return mapExercises(session, context.at, (exercise) => {
+    if (exercise.id !== exerciseId) return exercise;
+    const at = Math.max(index, 0);
+    const built = planned.map((entry) => buildSet(context, entry));
+    return {
+      ...exercise,
+      sets: [...exercise.sets.slice(0, at), ...built, ...exercise.sets.slice(at)],
+    };
+  });
 }
 
 /**

@@ -503,6 +503,8 @@ export {
   type ParsedKilograms,
 } from './units.js';
 export {
+  WARMUP_ENGINE_VERSION,
+  WARMUP_RULESET_VERSION,
   planWarmup,
   type WarmupAdvisory,
   type WarmupAdvisoryCode,
