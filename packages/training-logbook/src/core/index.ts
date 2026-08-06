@@ -59,6 +59,19 @@ export {
 } from './equipment.js';
 
 export {
+  HANDOFF_VERSION,
+  createHandoff,
+  handoffLifts,
+  parseHandoff,
+  serializeHandoff,
+  workoutFromHandoff,
+  type HandoffContent,
+  type HandoffLanding,
+  type HandoffLandingOptions,
+  type HandoffLift,
+} from './handoff.js';
+
+export {
   SCHEMA_VERSION,
   addExercise,
   addSet,

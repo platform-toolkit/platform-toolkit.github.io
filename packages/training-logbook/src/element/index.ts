@@ -75,6 +75,7 @@ export {
   EQUIPMENT_NOTES,
   FINISH_DISPOSITIONS,
   FINISH_DISPOSITION_NOTES,
+  HANDOFF_NOTES,
   HISTORY_NOTES,
   HOME_NOTES,
   LOADING_LABELS,
@@ -88,7 +89,7 @@ export {
   type SaveState,
 } from './copy.js';
 
-export { ASSIST_SUFFIX, NOT_SET, formatLoad, formatPerformance } from './format.js';
+export { ASSIST_SUFFIX, NOT_SET, formatLoad, formatPerformance, formatVolume } from './format.js';
 
 export {
   MAX_PLANNED_REPS,

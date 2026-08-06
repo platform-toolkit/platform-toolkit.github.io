@@ -160,10 +160,18 @@ if (mayPreselect('spelled') !== false) throw new Error('mayPreselect disagrees w
   type WorkoutEventDetail,
 } from '@platform-toolkit/training-logbook/element';
 import {
+  DEFAULT_EQUIPMENT,
   createWorkout,
   emptyPerformance,
   workoutProgress,
 } from '@platform-toolkit/training-logbook/core';
+import {
+  HANDOFF_STORAGE_KEY,
+  createHandoffSource,
+  offerHandoff,
+  type HandoffSource,
+  type HandoffStorage,
+} from '@platform-toolkit/training-logbook/handoff';
 import {
   createRepository,
   memoryLogbookStore,
@@ -196,6 +204,23 @@ export function consumeTrainingLogbook(): string {
   });
   const save: SaveState = repository.durable ? 'saved' : 'unavailable';
   const started: WorkoutEventDetail = { workoutId: workout.id };
+  // The handoff seam, and the only entry point here that a *different* tool
+  // imports -- the warm-up calculator writes the record and has no use for the
+  // rest of the package. \`HandoffStorage\` is the port it supplies, so a build
+  // that shipped this subpath without its declarations would leave that tool
+  // implementing a shape it cannot see. Annotated for the same reason as the two
+  // above: an inferred type would compile against nothing.
+  const carrier: HandoffStorage = {
+    read: () => null,
+    write: () => undefined,
+    remove: () => undefined,
+  };
+  const handoff: HandoffSource = createHandoffSource(carrier, { now: () => 0 });
+  const offered = offerHandoff(
+    carrier,
+    { equipment: DEFAULT_EQUIPMENT, exercises: [] },
+    '2026-01-01T09:00:00.000Z',
+  );
   return [
     TRAINING_LOGBOOK_TAG,
     WORKOUT_STARTED_EVENT,
@@ -206,14 +231,20 @@ export function consumeTrainingLogbook(): string {
     typeof define,
     save,
     started.workoutId,
+    HANDOFF_STORAGE_KEY,
+    offered,
+    String(handoff.peek() === null),
   ].join(' ');
 }
 `,
-    // Core and storage, because the in-memory adapter is the one a host with no
-    // IndexedDB is handed and it therefore has to work with no browser at all. That
-    // is also the assertion worth making here: if \`./storage\` ever drags the DOM in
-    // behind it, this is the only test in the repository that would notice.
-    smoke: `import { createWorkout, workoutProgress } from '@platform-toolkit/training-logbook/core';
+    // Core, storage and the handoff, because none of the three may need a browser.
+    // The in-memory adapter is what a host with no IndexedDB is handed; the handoff
+    // is written by another tool entirely and read through a port that host
+    // supplies. That is the assertion worth making here: if either subpath ever
+    // drags the DOM in behind it, this is the only test in the repository that
+    // would notice.
+    smoke: `import { DEFAULT_EQUIPMENT, createWorkout, workoutProgress } from '@platform-toolkit/training-logbook/core';
+import { createHandoffSource, offerHandoff } from '@platform-toolkit/training-logbook/handoff';
 import { createRepository, memoryLogbookStore } from '@platform-toolkit/training-logbook/storage';
 
 const context = { nextId: () => 'invented-id', at: '2026-01-01T09:00:00.000Z' };
@@ -230,6 +261,30 @@ await repository.saveActiveWorkout(workout);
 const reread = await repository.loadActiveWorkout();
 if (reread === null) throw new Error('the repository lost the workout it was handed');
 if (reread.id !== workout.id) throw new Error('the repository returned a different workout');
+
+const written = new Map();
+const carrier = {
+  read: (key) => written.get(key) ?? null,
+  write: (key, value) => {
+    written.set(key, value);
+  },
+  remove: (key) => {
+    written.delete(key);
+  },
+};
+const content = {
+  equipment: DEFAULT_EQUIPMENT,
+  exercises: [
+    { exerciseId: 'squat', bar: null, workingWeight: 135, workingSets: 3, workingReps: 5, adjustments: [] },
+  ],
+};
+if (offerHandoff(carrier, content, '2026-01-01T09:00:00.000Z') !== 'offered') {
+  throw new Error('the handoff would not write to a store that accepts everything');
+}
+const waiting = createHandoffSource(carrier, {
+  now: () => Date.parse('2026-01-01T09:05:00.000Z'),
+}).peek();
+if (waiting === null) throw new Error('the handoff could not read back its own record');
 `,
   },
 ];

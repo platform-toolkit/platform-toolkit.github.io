@@ -43,6 +43,7 @@
       "@platform-toolkit/training-logbook/element": [
         "./packages/training-logbook/src/element/index.ts"
       ],
+      "@platform-toolkit/training-logbook/handoff": ["./packages/training-logbook/src/handoff.ts"],
       "@platform-toolkit/training-logbook/storage": [
         "./packages/training-logbook/src/storage/index.ts"
       ],

@@ -42,15 +42,29 @@ const workspaceSource = [
   replacement: fileURLToPath(new URL(`./packages/${name}/src/index.ts`, import.meta.url)),
 }));
 
-// The one subpath a test reaches through. It exists so that `session.ts` -- pure,
-// and run in a bare Node project on purpose -- can have the field parsers without
-// pulling the element barrel, which calls `customElements.define` on import. Left
-// to the `exports` map it would resolve to `dist`, which is the stale-output trap
-// the block above exists to close, so it is aliased to source like the rest.
-workspaceSource.push({
-  find: /^@platform-toolkit\/ui\/field-reading$/,
-  replacement: fileURLToPath(new URL('./packages/ui/src/field-reading.ts', import.meta.url)),
-});
+// The two subpaths a test reaches through. Left to the `exports` map either one
+// resolves to `dist`, which is the stale-output trap the block above exists to
+// close, so both are aliased to source like the rest.
+//
+// `ui/field-reading` exists so that `session.ts` -- pure, and run in a bare Node
+// project on purpose -- can have the field parsers without pulling the element
+// barrel, which calls `customElements.define` on import. `training-logbook/
+// handoff` is the one module of tool 2 that imports the logbook at all, and it
+// is the seam where a shape written on one side is read on the other: tested
+// against `dist` it would go on passing for as long as nobody rebuilt, which is
+// the one place a stale answer is indistinguishable from agreement.
+workspaceSource.push(
+  {
+    find: /^@platform-toolkit\/ui\/field-reading$/,
+    replacement: fileURLToPath(new URL('./packages/ui/src/field-reading.ts', import.meta.url)),
+  },
+  {
+    find: /^@platform-toolkit\/training-logbook\/handoff$/,
+    replacement: fileURLToPath(
+      new URL('./packages/training-logbook/src/handoff.ts', import.meta.url),
+    ),
+  },
+);
 
 /**
  * One project per workspace package.

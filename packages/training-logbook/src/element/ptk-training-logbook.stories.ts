@@ -28,6 +28,11 @@
  * Every weight is invented (section 5.1).
  */
 import { defineTrainingLogbook } from '@platform-toolkit/training-logbook/element';
+import {
+  createHandoff,
+  type HandoffSource,
+  type WarmupHandoff,
+} from '@platform-toolkit/training-logbook/handoff';
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 
@@ -35,7 +40,14 @@ import type { Instant } from '../types.js';
 
 import { SAVE_STATES } from './copy.js';
 import type { PtkTrainingLogbook } from './ptk-training-logbook.js';
-import { AT_START, A_TRAINING_DAY, aFreshTool, anUnstoredRepository } from './story.fixture.js';
+import {
+  AT_START,
+  A_TRAINING_DAY,
+  aFreshTool,
+  aKilogramRack,
+  aStartedSession,
+  anUnstoredRepository,
+} from './story.fixture.js';
 
 // Through the package entry and behind an explicit call, not a side-effecting relative
 // import. A relative import here would load the source copy of every element and define
@@ -165,6 +177,74 @@ async function startASquatSession(canvasElement: HTMLElement): Promise<PtkTraini
   return element;
 }
 
+/**
+ * A session set up in the warm-up calculator: two lifts on a kilogram rack.
+ *
+ * The identifiers are real catalogue ones because the offer is drawn from this
+ * build's catalogue and drops anything it does not recognise -- an invented id
+ * would produce a card with an empty list, and a card with an empty list is a
+ * story that renders nothing for `smoke-stories.mjs` to find. The warm-ups are
+ * absent on purpose: a record carries what the lifter chose and the ramp is
+ * worked out on landing, which is what the card's second sentence promises.
+ *
+ * Every weight is the fixture's own invented 100 and 70 (section 5.1).
+ */
+const A_HANDOFF: WarmupHandoff = createHandoff(
+  {
+    equipment: aKilogramRack(),
+    exercises: [
+      {
+        exerciseId: 'squat',
+        bar: null,
+        workingWeight: 100,
+        workingSets: 3,
+        workingReps: 5,
+        adjustments: [],
+      },
+      {
+        exerciseId: 'bench-press',
+        bar: null,
+        workingWeight: 70,
+        workingSets: 3,
+        workingReps: 5,
+        adjustments: [],
+      },
+    ],
+  },
+  AT_START,
+);
+
+/**
+ * The record held in a variable, and one of these per story.
+ *
+ * `createHandoffSource` over the real `localStorage` is the obvious thing and it
+ * would make what these stories show depend on what the reviewer opened before
+ * them: Discard in one empties the next, and a calculator tab open on the same
+ * origin writes a third thing into both. The same reason `aFreshTool` builds a
+ * store per story, applied to the other place this tool reads from.
+ *
+ * Nothing here checks the record's age. That is `createHandoffSource`'s job and
+ * not this port's, which is what keeps a pinned clock out of these stories.
+ */
+function aWaitingHandoff(): HandoffSource {
+  let record: WarmupHandoff | null = A_HANDOFF;
+  return {
+    peek: () => record,
+    clear: () => {
+      record = null;
+    },
+  };
+}
+
+/**
+ * The one tool here whose store is written to before the element is mounted.
+ *
+ * Named at module scope so that the story's `args` and its loader are talking about
+ * the same repository -- a second `aFreshTool()` call inside the loader would seed a
+ * store nothing renders, and the story would pass while showing the wrong screen.
+ */
+const HANDOFF_MID_WORKOUT = aFreshTool('handoff-busy');
+
 const meta: Meta<PtkTrainingLogbook> = {
   title: 'Training logbook/The tool',
   component: 'ptk-training-logbook',
@@ -174,6 +254,10 @@ const meta: Meta<PtkTrainingLogbook> = {
     today: A_TRAINING_DAY,
     now: (): Instant => AT_START,
     applicationVersion: '0.0.0-story',
+    // Spelled out rather than left off. The property is read the moment it changes
+    // and `undefined` is not `null`, so an arg the render binds but the meta never
+    // declares would have the tool asking an absent reader what is waiting.
+    handoff: null,
   },
   render: (args) => html`
     <ptk-training-logbook
@@ -182,6 +266,7 @@ const meta: Meta<PtkTrainingLogbook> = {
       .now=${args.now}
       .nextId=${args.nextId}
       .applicationVersion=${args.applicationVersion}
+      .handoff=${args.handoff}
     ></ptk-training-logbook>
   `,
 };
@@ -314,10 +399,87 @@ export const Narrow: Story = {
         .now=${args.now}
         .nextId=${args.nextId}
         .applicationVersion=${args.applicationVersion}
+        .handoff=${args.handoff}
       ></ptk-training-logbook>
     </div>
   `,
   play: async ({ canvasElement }) => {
     await startASquatSession(canvasElement);
   },
+};
+
+/**
+ * A session handed over by the warm-up calculator, waiting at the top of the home
+ * screen.
+ *
+ * The list is what would be logged and not what the record says, which is a
+ * difference only visible when the two disagree: a record can name a lift added to
+ * the catalogue after this page was built, and a card counting the record's own
+ * entries would offer two lifts and log one -- found at the rack, with the bar
+ * loaded. The sets and reps are here and the warm-ups are not, because the ramp is
+ * this build's answer rather than the calculator's.
+ */
+export const HandedOverFromTheCalculator: Story = {
+  args: { ...aFreshTool('handoff'), handoff: aWaitingHandoff() },
+};
+
+/**
+ * The same offer with a workout already open, where Start is gone and a sentence
+ * says why.
+ *
+ * The one screen in this file that is seeded rather than pressed, and the exception
+ * is the rule's own reasoning rather than a hole in it: the home screen only shows
+ * an open workout to somebody who has *come back* to it, so no sequence of taps
+ * inside one visit reaches this. A store that already holds a session, booted from,
+ * is what coming back is. The session itself still comes from the core through
+ * `aStartedSession` and is not typed out.
+ *
+ * Landing over an open workout would replace training a lifter has done with
+ * training they have not, so there is nothing for a Start control to do and it is
+ * absent rather than disabled. Discard stays: the record expiring quietly in an hour
+ * is not an answer to somebody looking at the card now.
+ */
+export const HandedOverMidWorkout: Story = {
+  args: { ...HANDOFF_MID_WORKOUT, handoff: aWaitingHandoff() },
+  loaders: [
+    async () => {
+      await HANDOFF_MID_WORKOUT.repository.saveActiveWorkout(
+        aStartedSession({ prefix: 'handoff-open' }),
+      );
+    },
+  ],
+  play: async ({ canvasElement }) => {
+    const element = await logbook(canvasElement);
+    // The positive control the other stories get from pressing something. A seed
+    // that silently did nothing would publish the story above under a name saying a
+    // workout is open, and the two pages differ by one sentence.
+    if (deepAll(shadow(element), '[data-action="start-handoff"]').length > 0) {
+      throw new Error('No workout is open: the offer still has a Start on it.');
+    }
+  },
+};
+
+/**
+ * The offer at the narrowest phone still in use (section 5.7), wrapped rather than
+ * scrolled.
+ *
+ * Its own story because the offer list is the one place on the home screen where a
+ * name and a set of numbers compete for a line, and 320 px is where they stop
+ * fitting on one. Constrained by a wrapper for the same reason `Narrow` is: a
+ * viewport parameter would document a width the element never sees.
+ */
+export const NarrowWithAHandoff: Story = {
+  args: { ...aFreshTool('handoff-narrow'), handoff: aWaitingHandoff() },
+  render: (args) => html`
+    <div style="width: 320px; outline: 1px dashed currentColor;">
+      <ptk-training-logbook
+        .repository=${args.repository}
+        .today=${args.today}
+        .now=${args.now}
+        .nextId=${args.nextId}
+        .applicationVersion=${args.applicationVersion}
+        .handoff=${args.handoff}
+      ></ptk-training-logbook>
+    </div>
+  `,
 };

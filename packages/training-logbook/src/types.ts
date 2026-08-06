@@ -45,6 +45,7 @@
 
 import type {
   PlateDenomination,
+  WarmupAdjustment,
   WarmupFamily,
   WarmupPlan,
   Weight,
@@ -364,4 +365,60 @@ export interface ExerciseOption {
   readonly defaultSets: number;
   readonly defaultReps: number;
   readonly origin: 'catalog' | 'custom';
+}
+
+/**
+ * One lift as the warm-up calculator handed it over. Section 4.3.
+ *
+ * Inputs, and deliberately not the ramp the calculator drew. Section 8.1 has
+ * both tools importing one engine so that the same input gives the same result
+ * in each, and a record carrying a computed plan would be a second copy of the
+ * answer -- one written by whichever build wrote the record, which is not
+ * necessarily the build that reads it. What cannot be recomputed is what the
+ * lifter typed over the top of the ramp, so the adjustments travel and the
+ * plan does not.
+ */
+export interface HandoffExercise {
+  /**
+   * A catalogue identifier.
+   *
+   * Both tools' catalogues are built from the domain package's `LIFTS`, which
+   * is what makes an identifier -- rather than a name -- the thing that
+   * crosses. See `core/catalog.ts`.
+   */
+  readonly exerciseId: string;
+  /**
+   * This lift's own bar, where it is not the rack's default.
+   *
+   * Separate for `snapshotFrom`'s reason: the bar belongs to the lift and not
+   * to the gym, and somebody squats with a specialty bar and benches with a
+   * standard one. `null` means the rack's.
+   */
+  readonly bar: Weight | null;
+  /** The planned total in the rack's plate unit, bar and collars included. */
+  readonly workingWeight: number;
+  readonly workingSets: number;
+  readonly workingReps: number;
+  /** Warm-up sets the lifter gave their own weight for, by ramp position. */
+  readonly adjustments: readonly WarmupAdjustment[];
+}
+
+/**
+ * A session a lifter asked to log, left where the logbook will find it.
+ *
+ * WHY THERE IS NO FREE TEXT IN IT
+ *
+ * Not a name, not a note, not a title. The logbook looks every exercise up in
+ * its own catalogue and writes its own wording, so a record cannot put a string
+ * of somebody else's choosing onto a screen -- which is what this would
+ * otherwise be, since the carrier is storage any script on the origin can
+ * write. A lift the lifter named themselves therefore cannot cross, and the
+ * calculator says so rather than dropping it quietly.
+ */
+export interface WarmupHandoff {
+  /** The record format. A reader that does not know this number ignores the record. */
+  readonly version: number;
+  readonly createdAt: Instant;
+  readonly equipment: EquipmentSnapshot;
+  readonly exercises: readonly HandoffExercise[];
 }

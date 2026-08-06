@@ -22,6 +22,10 @@
       "types": "./dist/element/index.d.ts",
       "default": "./dist/element/index.js"
     },
+    "./handoff": {
+      "types": "./dist/handoff.d.ts",
+      "default": "./dist/handoff.js"
+    },
     "./storage": {
       "types": "./dist/storage/index.d.ts",
       "default": "./dist/storage/index.js"

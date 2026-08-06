@@ -1199,6 +1199,81 @@ const LOGBOOK_FINISH_SETTLE = [
 ];
 
 /**
+ * A session left on the origin by the warm-up calculator, as if a lifter had
+ * just walked over from it.
+ *
+ * There is no control anywhere on the site that produces this screen -- the
+ * record arrives from another page, through storage -- so a `click` list cannot
+ * reach it and the offer card would be the one surface in the tool measured at
+ * no width at all. Hence a `seed`, which is an init script rather than a
+ * post-`goto` evaluate: the element reads the key once, when the page entry hands
+ * it a reader, and a write that landed after that read would be a write the tool
+ * never sees.
+ *
+ * The key and the version are written out here rather than imported. This file
+ * is plain `.mjs` and the package is TypeScript, so the only importable copy is
+ * a build output -- and the same contract is already spelled out in this file as
+ * a list of `data-action` names. Renaming either is a compile-visible edit in
+ * that package and this check failing is the correct answer to it.
+ *
+ * Every figure is invented (§5.1). The two lifts are chosen the way the planner's
+ * are: the longest name the catalogue holds beside the shortest, so the list is
+ * measured at both extremes, and a decimal weight because a decimal is a
+ * character wider. The stamp is taken at page load because the reader refuses a
+ * record over an hour old, and a fixed one would make this route start passing
+ * for the wrong reason the first time nobody noticed.
+ */
+const LOGBOOK_HANDOFF_SEED = `
+  localStorage.setItem(
+    'ptk.logbook.warmup-handoff',
+    JSON.stringify({
+      version: 1,
+      createdAt: new Date().toISOString(),
+      equipment: {
+        barWeight: { amount: 20, unit: 'kg' },
+        collarWeight: { amount: 2.5, unit: 'kg' },
+        plateUnit: 'kg',
+        plates: [
+          { weight: 25, pairs: null, fullDiameter: true },
+          { weight: 10, pairs: null, fullDiameter: true },
+          { weight: 5, pairs: null, fullDiameter: false },
+          { weight: 2.5, pairs: null, fullDiameter: false },
+        ],
+      },
+      exercises: [
+        {
+          exerciseId: 'overhead-press',
+          bar: null,
+          workingWeight: 62.5,
+          workingSets: 3,
+          workingReps: 5,
+          adjustments: [],
+        },
+        {
+          exerciseId: 'squat',
+          bar: null,
+          workingWeight: 142.5,
+          workingSets: 5,
+          workingReps: 3,
+          adjustments: [],
+        },
+      ],
+    }),
+  );
+`;
+
+/**
+ * The offer's own list, and the storage line under everything.
+ *
+ * The list item and not the section: the card's heading and its two buttons are
+ * drawn from constants and would be there against a record that parsed into
+ * nothing, so settling on the section would measure an empty card and call the
+ * screen covered. A row exists only where a lift in the record is one this build
+ * can land.
+ */
+const LOGBOOK_HANDOFF_SETTLE = ['ptk-training-logbook .offer li', 'ptk-training-logbook p.save'];
+
+/**
  * The routes, and what has to happen before each is worth measuring.
  *
  * A path may appear more than once. Platform Targets shows one of two whole
@@ -1628,6 +1703,18 @@ const ROUTES = [
     // waits on anything: it is drawn from the repository, and the repository is
     // an IndexedDB open away.
     settle: LOGBOOK_HOME_SETTLE,
+  },
+  {
+    // Its own entry rather than a seed on the home row, because the offer sits
+    // above everything that row exists to measure and would push the rack fold
+    // off the screen it was measured on.
+    path: '/logbook/',
+    label: '/logbook/ (handoff)',
+    seed: LOGBOOK_HANDOFF_SEED,
+    click: [],
+    reveal: [],
+    fill: [],
+    settle: LOGBOOK_HANDOFF_SETTLE,
   },
   {
     path: '/logbook/',
@@ -2231,6 +2318,10 @@ async function main() {
           hasTouch: true,
         });
         const page = await context.newPage();
+        // Before the navigation, and not after it: a route seeded this way is one
+        // whose screen is produced by state the site itself has no control for,
+        // and the page reads that state while it boots.
+        if (route.seed !== undefined) await page.addInitScript(route.seed);
         await page.goto(origin + route.path, { waitUntil: 'networkidle' });
 
         // Before anything is pressed, so every fold this route opens is laid out

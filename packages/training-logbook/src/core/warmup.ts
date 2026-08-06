@@ -40,7 +40,9 @@
 import {
   WARMUP_ENGINE_VERSION,
   WARMUP_RULESET_VERSION,
+  adjustWarmups,
   planWarmup,
+  type WarmupAdjustment,
   type WarmupFamily,
   type WarmupPlan,
   type WarmupProblem,
@@ -81,6 +83,25 @@ export interface WarmupInput {
   readonly workingWeight: number;
   readonly workingSets: number;
   readonly workingReps: number;
+  /**
+   * Rungs the lifter gave a weight of their own, by position in the ramp.
+   *
+   * Not a rule and not an exception to the one at the top of this file. A rule
+   * is the engine's answer to "what should this person lift"; this is a person
+   * saying what they are going to lift instead, which is the one input the
+   * engine has no opinion about. `adjustWarmups` recomputes the plate changes
+   * around it and drops an adjustment naming a rung that is no longer there.
+   *
+   * Optional because every caller inside the logbook has none: the ramp is
+   * generated and then edited set by set, through the ordinary set editor, and
+   * those edits are already in the session. It is here for
+   * {@link ../handoff.js}, where the lifter did their editing in the other tool
+   * and the ramp has not been drawn on this side yet. Applying them through
+   * this function rather than in the handoff is what keeps `planWarmup` called
+   * from exactly one place in the package -- two call sites is how the two
+   * tools start disagreeing about a ramp, one snapshot at a time.
+   */
+  readonly adjustments?: readonly WarmupAdjustment[];
 }
 
 /**
@@ -146,14 +167,20 @@ export function warmupChange(
   });
   if (!result.ok) return { ok: false, problems: result.problems };
 
+  // Adjusted before it is frozen, so the snapshot is the ramp the lifter is
+  // about to walk rather than the one they overrode. Storing the engine's
+  // version of it and the overrides separately would leave the card and the
+  // record disagreeing, and section 8.4 froze the plan precisely so that what
+  // is stored is what was on the screen.
+  const plan = adjustWarmups(result.plan, input.adjustments ?? []);
   const snapshot: WarmupSnapshot = {
-    plan: result.plan,
+    plan,
     equipment: input.equipment,
     engineVersion: WARMUP_ENGINE_VERSION,
     rulesetVersion: WARMUP_RULESET_VERSION,
     generatedAt: context.at,
   };
-  const sets = warmupSets(result.plan, input.equipment);
+  const sets = warmupSets(plan, input.equipment);
   const warmups = exercise.sets.filter((set) => set.kind === 'warmup');
   const preserved = warmups.filter(isSettled);
   const replaced = warmups.filter((set) => !isSettled(set));

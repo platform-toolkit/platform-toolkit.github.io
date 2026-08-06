@@ -249,6 +249,53 @@ export const BUILDER_NOTES = {
 } as const;
 
 /**
+ * The sentences the offer from the warm-up calculator says. Section 4.3.
+ *
+ * The offer has to answer three questions before a lifter presses anything: where
+ * this came from, what it will log, and what it will not. The third is the one a
+ * card like this usually leaves out -- a record names lifts by identifier, and an
+ * identifier this build's catalogue does not know lands nothing -- so the list under
+ * the heading is built from what would actually land rather than from what the record
+ * says, and the copy around it makes no claim the list does not support.
+ *
+ * Nothing here says the session is a good one, or that the ramp is the right one.
+ * Section 15.3 applies to a session that arrived from another tool exactly as it
+ * applies to one typed in here.
+ */
+export const HANDOFF_NOTES = {
+  heading: 'From the warm-up calculator',
+
+  /**
+   * Says where it came from and that the ramp is worked out here.
+   *
+   * The second half matters more than it reads: the record carries what the lifter
+   * chose and not the ramp the other tool drew, so the warm-up sets on the logging
+   * screen are this build's answer. A lifter who saw a different set count here than
+   * in the calculator tab still open beside them would otherwise have found a bug.
+   */
+  intro:
+    'A session you set up in the warm-up calculator is waiting. The warm-ups are worked out again here, from the same rules.',
+
+  start: 'Log this session',
+  discard: 'Discard it',
+
+  /**
+   * Why Start is not offered while something is already open.
+   *
+   * Landing a handed-over session over a workout in progress would replace training
+   * a lifter has done with training they have not, and no amount of confirmation
+   * makes that a thing worth offering at a rack. Discard stays, because the record
+   * expiring on its own an hour later is not an answer to somebody looking at it now.
+   */
+  busy: 'You have a workout in progress, so this one cannot be started. Finish that one first, and it will still be here.',
+
+  /** A lift on the logging screen with no ramp under it reads as a fault. */
+  unrampedLead: 'No warm-up was worked out for',
+  unrampedNote:
+    'Their working sets are logged as you set them. The rest of the session is unaffected.',
+} as const;
+
+/**
  * The sentences the logging screen says.
  *
  * This is the screen somebody reads between sets with a belt on, and the copy is

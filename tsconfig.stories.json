@@ -46,6 +46,7 @@
       "@platform-toolkit/training-logbook/element": [
         "./packages/training-logbook/src/element/index.ts"
       ],
+      "@platform-toolkit/training-logbook/handoff": ["./packages/training-logbook/src/handoff.ts"],
       "@platform-toolkit/ui": ["./packages/ui/src/index.ts"]
     }
   },

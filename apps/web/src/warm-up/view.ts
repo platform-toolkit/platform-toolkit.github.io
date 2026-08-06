@@ -32,6 +32,11 @@ import {
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
 
+// Type-only, and it has to stay that way. This module is on both routes, so a
+// runtime import here would put the logbook's package into the embed bundle --
+// the one page that must not offer the handoff at all. `handoff.ts` builds it
+// and `standalone.ts` is the only thing that asks for one.
+import type { LogbookHandoff } from './handoff.js';
 import './ptk-warm-up-calculator.js';
 import type { PtkWarmUpCalculator } from './ptk-warm-up-calculator.js';
 
@@ -43,6 +48,15 @@ export interface WarmUpViewOptions {
   readonly settings?: PreferenceStore;
   /** Defaults to this tab's storage. Injected in tests. */
   readonly marks?: PreferenceStore;
+  /**
+   * Where today's session can be handed to the training logbook.
+   *
+   * No default, unlike the two above, and that asymmetry is the point: the two
+   * routes want different answers. `standalone.ts` supplies one and `embed.ts`
+   * deliberately does not -- see the note there -- so a default would quietly
+   * put the action on the one page that must not have it.
+   */
+  readonly logbook?: LogbookHandoff;
 }
 
 /**
@@ -59,5 +73,6 @@ export function createWarmUpView(options: WarmUpViewOptions = {}): PtkWarmUpCalc
   const element = document.createElement('ptk-warm-up-calculator');
   element.settings = options.settings ?? createPreferenceStore(browserPreferenceStorage());
   element.marks = options.marks ?? createPreferenceStore(browserSessionStorage());
+  element.logbook = options.logbook ?? null;
   return element;
 }

@@ -14,6 +14,7 @@ import {
   convertEntryWeights,
   loadCompletion,
   loadEntries,
+  loggableSession,
   markKey,
   moveEntry,
   planFor,
@@ -215,6 +216,92 @@ describe('setupFor', () => {
     const first = (result: ReturnType<typeof planFor>): number | null =>
       result?.ok === true ? (result.plan.warmups[0]?.loading.total ?? null) : null;
     expect(first(light)).not.toBe(first(heavy));
+  });
+});
+
+describe('loggableSession', () => {
+  /** A finished row for a lift the lifter named, which is the case with two answers. */
+  function named(overrides: Partial<LiftEntry> = {}): LiftEntry {
+    const [entry] = addCustomLift([], 'Zercher Squat', 'squat-press');
+    if (entry === undefined) throw new Error('A named lift should have been added.');
+    return { ...entry, weight: '95', ...overrides };
+  }
+
+  it('carries a finished row over with the numbers typed into it', () => {
+    // The adjustments travel too, and they are the only field here the far side
+    // cannot work out for itself: everything else is an input its own engine
+    // re-derives the ramp from, so a dropped adjustment silently puts the
+    // calculated weight back under a rung the lifter had overridden.
+    const [lift] = loggableSession(
+      [squat({ sets: '3', reps: '5', adjustments: [{ index: 2, total: 65 }] })],
+      DEFAULT_EQUIPMENT,
+    ).lifts;
+    expect(lift).toEqual({
+      liftId: 'squat',
+      name: 'Squat',
+      bar: null,
+      weight: 100,
+      sets: 3,
+      reps: 5,
+      adjustments: [{ index: 2, total: 65 }],
+    });
+  });
+
+  it('leaves a half-typed row out of both lists', () => {
+    // Out of `withheld` as well, which is the part that is a decision. Every row
+    // on this screen starts empty, so naming them would tell a lifter on their
+    // way out which of their own blank rows will not be logged.
+    const half = loggableSession(
+      [squat({ weight: '' }), squat({ weight: '1o5' }), squat({ sets: '' }), squat({ reps: 'x' })],
+      DEFAULT_EQUIPMENT,
+    );
+    expect(half.lifts).toEqual([]);
+    expect(half.withheld).toEqual([]);
+  });
+
+  it('names a finished row the lifter titled themselves rather than logging it', () => {
+    // It has no catalogue identifier to travel under, and the receiving tool has
+    // deliberately nowhere to put a name -- so a sentence before the lifter
+    // leaves is the only place the fact is any use to them.
+    const session = loggableSession([squat(), named()], DEFAULT_EQUIPMENT);
+    expect(session.withheld).toEqual(['Zercher Squat']);
+    expect(session.lifts.map((lift) => lift.name)).toEqual(['Squat']);
+  });
+
+  it('says nothing at all about a half-typed row the lifter titled', () => {
+    // The case that needs both guards in the order they are written. Ask for the
+    // identifier first and every empty custom row a session ever held is read
+    // back as something left behind; ask whether the row is finished first and
+    // only a lift that would genuinely have gone is named.
+    const session = loggableSession([named({ weight: '' })], DEFAULT_EQUIPMENT);
+    expect(session.lifts).toEqual([]);
+    expect(session.withheld).toEqual([]);
+  });
+
+  it('carries no bar for a row that never chose one', () => {
+    // `null`, and not the rack's own figure. Both would ramp identically today,
+    // and only `null` keeps the row following the default afterwards -- the same
+    // thing the empty `barId` buys on this side.
+    const [lift] = loggableSession([squat()], DEFAULT_EQUIPMENT).lifts;
+    expect(lift?.bar).toBe(null);
+  });
+
+  it('resolves a bar the row did choose to a weight', () => {
+    // Resolved rather than sent as an identifier: the receiving tool stores a
+    // rack as weights and has never heard of a bar preset. The bar keeps its own
+    // unit, so a 25 kg squat bar on a pound rack is still 25 kg.
+    const [lift] = loggableSession([squat({ barId: 'squat-25' })], DEFAULT_EQUIPMENT).lifts;
+    expect(lift?.bar).toEqual({ amount: 25, unit: 'kg' });
+  });
+
+  it('hands the typed figure over unconverted, in whatever unit the plates are in', () => {
+    // 102.5 off a kilogram rack, not 226. The number travels beside the rack it
+    // was typed against, so a conversion here would be a second opinion about a
+    // weight the lifter has already stated -- and `plateUnit` is what the far
+    // side reads it in.
+    const metric: Equipment = { ...DEFAULT_EQUIPMENT, plateUnit: 'kg', barId: 'olympic-20' };
+    const [lift] = loggableSession([squat({ weight: '102.5' })], metric).lifts;
+    expect(lift?.weight).toBe(102.5);
   });
 });
 

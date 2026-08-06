@@ -4,7 +4,19 @@
 import { initializeTheme } from '@platform-toolkit/ui';
 
 import { registerServiceWorker } from '../pwa.js';
+import { browserLogbookHandoff } from './handoff.js';
 import { createWarmUpView } from './view.js';
+
+/**
+ * Where "Log this workout" goes, relative to this page.
+ *
+ * Relative and resolved by the browser, so it survives the site moving under a
+ * base path -- which it does: the production deployment and a local preview do
+ * not agree about the prefix, and an absolute `/logbook/` would be right in one
+ * and a 404 in the other. Section 5.7's rule holds either way, because nothing
+ * reads `window.location` to work it out; the anchor does the resolving.
+ */
+const LOGBOOK_HREF = '../logbook/';
 
 const app = document.querySelector<HTMLElement>('#app');
 if (app === null) {
@@ -21,4 +33,10 @@ initializeTheme();
 // costs nothing here.
 registerServiceWorker();
 
-app.replaceChildren(createWarmUpView());
+// The handoff is supplied here and deliberately not in `embed.ts`. This route is
+// the toolkit's own page, where the logbook is one of its siblings; the embed is
+// somebody else's page, and replacing the contents of their frame with a
+// different tool is not a thing they agreed to when they embedded a warm-up
+// calculator. The storage would also be partitioned there, so the record would
+// be left where the logbook's own page could never read it.
+app.replaceChildren(createWarmUpView({ logbook: browserLogbookHandoff(LOGBOOK_HREF) }));

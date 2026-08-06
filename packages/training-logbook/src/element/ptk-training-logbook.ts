@@ -36,7 +36,7 @@
  * moment they have downloaded a file.
  */
 
-import type { WeightUnit } from '@platform-toolkit/domain';
+import { formatWeight, type WeightUnit } from '@platform-toolkit/domain';
 import {
   SEGMENTED_CHANGE_EVENT,
   type Choice,
@@ -49,6 +49,11 @@ import { property, state } from 'lit/decorators.js';
 import { backupFilename, serializeBackup } from '../core/backup.js';
 import { exerciseOptions, loadFor } from '../core/catalog.js';
 import { createProfile, findProfile, updateProfileEquipment } from '../core/equipment.js';
+import { handoffLifts, workoutFromHandoff } from '../core/handoff.js';
+// Type-only, so nothing of the storage side reaches this module. The port and the
+// key belong to the shell, which is the only thing that knows the browser has
+// somewhere to leave a record; this element is handed a reader and asks it twice.
+import type { HandoffSource } from '../handoff.js';
 import {
   addExercise,
   createWorkout,
@@ -62,15 +67,18 @@ import { defaultSettings, type TrainingLogbookRepository } from '../storage/repo
 import type {
   CalendarDay,
   EquipmentProfile,
+  EquipmentSnapshot,
   ExerciseOption,
   Instant,
   LogbookId,
   LogbookSettings,
+  WarmupHandoff,
   WorkoutSession,
 } from '../types.js';
 
 import {
   DONE_NOTES,
+  HANDOFF_NOTES,
   HOME_NOTES,
   SAVE_STATES,
   SAVE_STATE_NOTES,
@@ -79,6 +87,7 @@ import {
   type SaveState,
 } from './copy.js';
 import { actionOf } from './dataset.js';
+import { formatVolume } from './format.js';
 import {
   BACKUP_EXPORTED_EVENT,
   SET_COMPLETED_EVENT,
@@ -123,6 +132,8 @@ const RESUME_ACTION = 'resume-workout';
 const CANCEL_PLAN_ACTION = 'cancel-plan';
 const BACKUP_ACTION = 'backup';
 const HOME_ACTION = 'home';
+const HANDOFF_START_ACTION = 'start-handoff';
+const HANDOFF_DISCARD_ACTION = 'discard-handoff';
 
 /** How many history rows the home screen reads. Section 17.2's budget, applied. */
 const HISTORY_LIMIT = 20;
@@ -210,6 +221,32 @@ export class PtkTrainingLogbook extends LitElement {
       display: grid;
       gap: var(--ptk-space-sm);
     }
+
+    .offer ul {
+      list-style: none;
+      margin: 0 0 var(--ptk-space-sm);
+      padding: 0;
+    }
+
+    /*
+     * Name and numbers on one line where there is room and two where there is
+     * not. A lift the lifter named is as long as they made it, and this is the
+     * one list on the home screen whose text comes from another tool.
+     */
+    .offer li {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: var(--ptk-space-xs) var(--ptk-space-md);
+      padding: var(--ptk-space-xs) 0;
+      border-top: 1px solid var(--ptk-color-border);
+      overflow-wrap: anywhere;
+    }
+
+    .offer .volume {
+      color: var(--ptk-color-text-muted);
+      font-size: var(--ptk-font-size-sm);
+    }
   `;
 
   /**
@@ -239,6 +276,16 @@ export class PtkTrainingLogbook extends LitElement {
   /** The build stamped into a backup file, for a human reading it later. */
   @property({ attribute: false }) applicationVersion = '0.0.0';
 
+  /**
+   * Where a session handed over by the warm-up calculator would be found.
+   *
+   * Supplied for the same reason the repository is: this package constructs no
+   * storage. `null` is the ordinary answer on a page that has no sibling
+   * calculator, in a frame whose storage is partitioned away from the one the
+   * calculator wrote to, and in every story and test that does not care.
+   */
+  @property({ attribute: false }) handoff: HandoffSource | null = null;
+
   @state() private screen: Screen = 'home';
   @state() private settings: LogbookSettings = defaultSettings();
   @state() private active: WorkoutSession | null = null;
@@ -255,6 +302,18 @@ export class PtkTrainingLogbook extends LitElement {
 
   /** Set after a file is handed to the browser, so nobody presses it twice. */
   @state() private backupDone = false;
+
+  /** The record waiting to be offered, or `null` when there is nothing to offer. */
+  @state() private offer: WarmupHandoff | null = null;
+
+  /**
+   * Lifts that landed from a handoff with no ramp under them.
+   *
+   * Deliberately not kept anywhere. It describes one landing, and a note about
+   * what a press did an hour ago, still on screen after a reload, would read as a
+   * claim about the session rather than a report of what happened.
+   */
+  @state() private unramped: readonly string[] = [];
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -287,6 +346,33 @@ export class PtkTrainingLogbook extends LitElement {
     // wires the repository a tick after upgrade is the ordinary case and a one-shot
     // read would leave that host on an empty logbook forever.
     if (changed.has('repository')) void this.#reload();
+    // Read once, when the reader arrives, and never during a render. `peek` goes
+    // to storage and parses a document, and a render path that did that would do
+    // it on every keystroke of a session -- and would answer differently halfway
+    // through one, because another tab can write the key at any time.
+    if (changed.has('handoff')) this.#readHandoff();
+  }
+
+  /**
+   * Asks the reader what is waiting, and decides whether it is worth offering.
+   *
+   * A record naming nothing this build's catalogue knows is dropped here rather
+   * than drawn as an empty card. It is also *forgotten* rather than left: the
+   * lifter cannot act on it, and a record that is refused silently on every visit
+   * is a key that never clears itself until it expires.
+   */
+  #readHandoff(): void {
+    const source = this.handoff;
+    this.offer = null;
+    if (source === null) return;
+
+    const record = source.peek();
+    if (record === null) return;
+    if (handoffLifts(record).length === 0) {
+      source.clear();
+      return;
+    }
+    this.offer = record;
   }
 
   /** Waits for the screens as well as for this element. Section 5.8. */
@@ -314,7 +400,7 @@ export class PtkTrainingLogbook extends LitElement {
 
   #homeScreen(): TemplateResult {
     return html`
-      ${this.#saveLine()}
+      ${this.#saveLine()} ${this.#handoffCard()}
       <section class="section">
         <p class="note">${HOME_NOTES.intro}</p>
         <p class="note">${HOME_NOTES.localOnly}</p>
@@ -373,6 +459,57 @@ export class PtkTrainingLogbook extends LitElement {
     `;
   }
 
+  /**
+   * The offer, at the top of the home screen because it is why the lifter is here.
+   *
+   * The list is `handoffLifts` and not the record's own entries, so the card
+   * promises exactly what pressing it produces. A record can name a lift added to
+   * the catalogue after this page was built, and a card counting the record would
+   * offer four lifts and log three -- discovered at the rack, with the bar loaded.
+   *
+   * Start is absent, rather than disabled, while a workout is open. Landing over
+   * one would replace work a lifter has done with work they have not, so there is
+   * nothing for the control to do and section 0.4 says it should not be drawn.
+   * Discard stays either way: an hour of waiting for the record to expire is not
+   * an answer to somebody looking at the card now.
+   */
+  #handoffCard(): TemplateResult | typeof nothing {
+    const record = this.offer;
+    if (record === null) return nothing;
+    const busy = this.active !== null;
+
+    return html`
+      <section class="section offer">
+        <h2>${HANDOFF_NOTES.heading}</h2>
+        <p class="note">${HANDOFF_NOTES.intro}</p>
+        <ul>
+          ${handoffLifts(record).map(
+            (lift) =>
+              html`<li>
+                <span>${lift.name}</span>
+                <span class="volume"
+                  >${formatVolume(lift.sets, lift.reps)} ${formatWeight(lift.weight)}</span
+                >
+              </li>`,
+          )}
+        </ul>
+        ${busy ? html`<p class="note">${HANDOFF_NOTES.busy}</p>` : nothing}
+        <div class="actions">
+          ${
+            busy
+              ? nothing
+              : html`<ptk-button variant="primary" data-action=${HANDOFF_START_ACTION}
+                  >${HANDOFF_NOTES.start}</ptk-button
+                >`
+          }
+          <ptk-button variant="quiet" data-action=${HANDOFF_DISCARD_ACTION}
+            >${HANDOFF_NOTES.discard}</ptk-button
+          >
+        </div>
+      </section>
+    `;
+  }
+
   #buildScreen(): TemplateResult {
     return html`
       ${this.#saveLine()}
@@ -392,6 +529,14 @@ export class PtkTrainingLogbook extends LitElement {
   #activeScreen(): TemplateResult {
     return html`
       ${this.#saveLine()}
+      ${
+        this.unramped.length === 0
+          ? nothing
+          : html`<p class="note">
+              ${HANDOFF_NOTES.unrampedLead} ${listNames(this.unramped)}.
+              ${HANDOFF_NOTES.unrampedNote}
+            </p>`
+      }
       <ptk-active-workout
         .session=${this.active}
         .unit=${this.settings.displayUnit}
@@ -684,15 +829,81 @@ export class PtkTrainingLogbook extends LitElement {
       case HOME_ACTION:
         this.screen = 'home';
         this.backupDone = false;
+        this.unramped = [];
         void this.#reload();
         return;
       case BACKUP_ACTION:
         void this.#backup();
         return;
+      case HANDOFF_START_ACTION:
+        this.#startHandoff();
+        return;
+      case HANDOFF_DISCARD_ACTION:
+        this.handoff?.clear();
+        this.offer = null;
+        return;
       default:
         return;
     }
   };
+
+  /**
+   * Turns the waiting record into a workout and starts it.
+   *
+   * The record is forgotten whatever happens, including when nothing lands. It
+   * was written for one press and there is no second thing to do with it, and a
+   * record left behind after a press is one the tool offers again on the next
+   * visit -- to a lifter who has already answered it.
+   *
+   * `today` and not a day derived from the record. The record's stamp is an
+   * instant written by another page, possibly in another time zone the same
+   * device has since left, and the day a session is filed under is the lifter's
+   * own. It is also the day they are training, not the day they pressed the
+   * button in the calculator, which for a session set up the night before are
+   * two different answers and only one of them is right.
+   */
+  #startHandoff(): void {
+    const record = this.offer;
+    const source = this.handoff;
+    if (record === null || source === null || this.active !== null) return;
+
+    const landing = workoutFromHandoff(record, {
+      localDate: this.today,
+      context: this.#context(),
+    });
+    source.clear();
+    this.offer = null;
+    if (landing === null) return;
+
+    this.active = landing.session;
+    this.unramped = landing.unramped;
+    this.screen = 'active';
+    this.#emitWorkout(WORKOUT_STARTED_EVENT, landing.session.id);
+    void this.#writeLanding(landing.session, record.equipment);
+  }
+
+  /**
+   * Writes what a landing produced: a rack, if this device has none, then the
+   * session.
+   *
+   * **The rack is adopted only where `settings.equipment` is `null`.** A lifter
+   * who has set one up here chose it on this screen, and a record arriving from
+   * another tab must not overwrite that -- the calculator's rack is where they
+   * warmed up, which is not a statement about where the logbook thinks they
+   * train. Where there is none, the record is strictly better than nothing: it is
+   * the only rack this device has been told about, and #13b's plate diagrams draw
+   * nothing without one.
+   *
+   * Sequential and rack-first, so that the save line ends on the session's own
+   * answer. That is the write section 18.9 makes a promise about; a settings
+   * write finishing second would report "Saved" over a session that was not.
+   */
+  async #writeLanding(session: WorkoutSession, equipment: EquipmentSnapshot): Promise<void> {
+    if (this.settings.equipment === null) {
+      await this.#saveSettings({ ...this.settings, equipment });
+    }
+    await this.#persist(session, false);
+  }
 
   /**
    * Writes the session and says on screen how it went.
@@ -777,6 +988,19 @@ export class PtkTrainingLogbook extends LitElement {
       }),
     );
   }
+}
+
+/**
+ * Names, as a sentence reads them.
+ *
+ * The sentence around it is written so that one name and four read the same way.
+ * These are catalogue names rather than anything a lifter typed -- nothing a
+ * record carries reaches a screen -- but the count is not knowable, so a plural
+ * agreement written into the copy would be a second string to get wrong.
+ */
+function listNames(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1] ?? ''}`;
 }
 
 declare global {

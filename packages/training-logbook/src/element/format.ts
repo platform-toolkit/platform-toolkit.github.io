@@ -59,6 +59,17 @@ export function formatLoad(load: SetLoad): string | null {
 }
 
 /**
+ * A count of sets across a count of reps, the way a plan is written down.
+ *
+ * Here rather than at its one call site so that the multiplication sign has one
+ * definition in the package. Two files each choosing their own would eventually
+ * disagree, and the disagreement would be between a plan and the sets it produced.
+ */
+export function formatVolume(sets: number, reps: number): string {
+  return `${String(sets)} ${TIMES} ${String(reps)}`;
+}
+
+/**
  * A whole set as one line: what was on it and how many times.
  *
  * Reps with no weight is a complete answer -- that is every bodyweight set -- so the

@@ -23,6 +23,10 @@
  * - `.` -- this file: the core plus the vocabulary.
  * - `./core` -- the pure rules. No Lit, no DOM, no storage, no clock.
  * - `./element` -- the Lit elements and `defineTrainingLogbook()`.
+ * - `./handoff` -- the warm-up calculator's record and the storage key it
+ *   travels in. Its own entry point rather than a corner of `./core`, because
+ *   the tool that writes a handoff is not this one and has no use for the rest
+ *   of the package; see the file's header.
  * - `./storage` -- the repository port, an IndexedDB adapter, and an in-memory
  *   one. The only part of the package that touches a database.
  * - `./types` -- the persisted vocabulary, importable on its own by a consumer

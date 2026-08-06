@@ -37,22 +37,33 @@
 // screen renders with no padding, no gaps and no tap-target floor -- a layout that never
 // ships, and one that would pass and fail for the wrong reasons.
 import '@platform-toolkit/ui/tokens.css';
+import { formatWeight } from '@platform-toolkit/domain';
 import axe from 'axe-core';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CATALOG_EXERCISES } from '../core/catalog.js';
 import { AT_LATER, AT_START, ON_DAY } from '../core/context.fixture.js';
+import { createHandoff } from '../core/handoff.js';
+import type { HandoffSource } from '../handoff.js';
 import { indexedDbLogbookStore } from '../storage/indexed-db.js';
 import { memoryLogbookStore } from '../storage/memory.js';
 import type { LogbookStore } from '../storage/port.js';
-import { createRepository } from '../storage/repository.js';
-import type { CalendarDay, Instant, LogbookId } from '../types.js';
+import { createRepository, defaultSettings } from '../storage/repository.js';
+import type {
+  CalendarDay,
+  EquipmentSnapshot,
+  HandoffExercise,
+  Instant,
+  LogbookId,
+  WarmupHandoff,
+} from '../types.js';
 
 import {
   ACTIVE_NOTES,
   BUILDER_NOTES,
   DONE_NOTES,
   FINISH_DISPOSITIONS,
+  HANDOFF_NOTES,
   HISTORY_NOTES,
   HOME_NOTES,
   SAVE_STATES,
@@ -139,13 +150,14 @@ async function reopen(databaseName: string): Promise<LogbookStore> {
   return store;
 }
 
-async function mount(store: LogbookStore): Promise<PtkTrainingLogbook> {
+async function mount(store: LogbookStore, handoff?: HandoffSource): Promise<PtkTrainingLogbook> {
   const element = document.createElement('ptk-training-logbook');
   let next = 0;
   element.repository = createRepository(store, {
     now: () => clock,
     applicationVersion: VERSION,
   });
+  element.handoff = handoff ?? null;
   element.today = TODAY;
   element.now = (): Instant => clock;
   // Sequential rather than random: a failing assertion naming `id-4` can be traced to
@@ -323,6 +335,95 @@ async function planASquatSession(element: PtkTrainingLogbook): Promise<void> {
   await press(element, 'add-primary'); // The first of section 6.1's four is the squat.
   await type(element, field(shadow(element), 'weight'), '100');
   await press(element, 'start');
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * A record left by the warm-up calculator. Section 4.3.
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * The night before, in kilograms, on a rack nothing defaults to.
+ *
+ * Both halves are chosen so that a wrong answer cannot pass by resembling a
+ * right one: the stamp is on a different calendar day from {@link TODAY}, so a
+ * session filed from the record's own instant is visibly not the lifter's day,
+ * and the tool's untouched unit is pounds, so a weight printed in kilograms can
+ * only have come from the record's rack.
+ */
+const HANDED_OVER_AT: Instant = '2026-03-09T22:00:00.000Z';
+
+/** Every plate and bar here is invented. Section 5.1. */
+function aGym(): EquipmentSnapshot {
+  return {
+    barWeight: { amount: 20, unit: 'kg' },
+    collarWeight: { amount: 0, unit: 'kg' },
+    plateUnit: 'kg',
+    plates: [
+      { weight: 25, pairs: null, fullDiameter: true },
+      { weight: 10, pairs: null, fullDiameter: true },
+      { weight: 5, pairs: null, fullDiameter: false },
+      { weight: 2.5, pairs: null, fullDiameter: false },
+    ],
+  };
+}
+
+function anExercise(overrides: Partial<HandoffExercise> = {}): HandoffExercise {
+  return {
+    exerciseId: 'squat',
+    bar: null,
+    workingWeight: 100,
+    workingSets: 3,
+    workingReps: 5,
+    adjustments: [],
+    ...overrides,
+  };
+}
+
+function aRecord(
+  exercises: readonly HandoffExercise[] = [anExercise()],
+  equipment: EquipmentSnapshot = aGym(),
+): WarmupHandoff {
+  return createHandoff({ equipment, exercises }, HANDED_OVER_AT);
+}
+
+/**
+ * A reader over one record, counting what the element asked it.
+ *
+ * The counts are the point of the fake. `peek` goes to storage and parses a
+ * document, so the number of times it is called is the difference between a
+ * property read once and a render path that re-reads on every keystroke -- and
+ * the latter would also answer differently halfway through a session, because
+ * another tab can write the key at any moment.
+ *
+ * It forgets on `clear`, like the real one, so a case that discards an offer and
+ * looks again finds nothing rather than finding the record still there.
+ */
+function aSource(record: WarmupHandoff | null): {
+  source: HandoffSource;
+  calls: { peeks: number; clears: number };
+} {
+  const calls = { peeks: 0, clears: 0 };
+  let held = record;
+  return {
+    calls,
+    source: {
+      peek: () => {
+        calls.peeks += 1;
+        return held;
+      },
+      clear: () => {
+        calls.clears += 1;
+        held = null;
+      },
+    },
+  };
+}
+
+/** The lines of the offer card, which is one per lift that would actually land. */
+function offerRows(element: PtkTrainingLogbook): HTMLElement[] {
+  return deepAll(shadow(element), '.offer li');
 }
 
 describe('the training logbook', () => {
@@ -514,6 +615,264 @@ describe('the training logbook', () => {
     expect(text).toContain(planProblem({ row: 0, field: 'sets', code: 'unreadable' }));
     expect(text).toContain(planProblem({ row: 0, field: 'reps', code: 'not-positive' }));
     expect(deepAll(shadow(element), '.error').length).toBe(2);
+  });
+
+  /**
+   * Section 4.3, from the receiving end.
+   *
+   * What is under test here is not the landing -- `core/handoff.test.ts` owns the
+   * ramp and the validation -- but the four decisions the element makes around it:
+   * when to draw the offer, what the offer is allowed to promise, what a press
+   * does to the record, and what a landing is allowed to overwrite. Each of those
+   * is invisible to a core test, and three of the four are only wrong at a rack.
+   */
+  describe('a session handed over by the warm-up calculator', () => {
+    it('offers the session at the top of the home screen, naming what it would log', async () => {
+      const { store } = await durableStore();
+      const { source } = aSource(aRecord());
+      const element = await mount(store, source);
+
+      const text = readAll(element);
+      expect(text).toContain(HANDOFF_NOTES.heading);
+      expect(text).toContain(HANDOFF_NOTES.intro);
+      expect(text).toContain('Squat');
+      // Three by five at a hundred, in the record's own unit and not the tool's.
+      expect(text).toContain('3 x 5');
+      expect(text).toContain(formatWeight({ amount: 100, unit: 'kg' }));
+    });
+
+    it('draws nothing at all on a page that supplied no reader', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+
+      expect(readAll(element)).not.toContain(HANDOFF_NOTES.heading);
+    });
+
+    /**
+     * The card promises exactly what pressing it produces.
+     *
+     * A record can name a lift added to the catalogue after this page was built --
+     * a tab left open across a deploy, or an embedded calculator on somebody
+     * else's page. A card counting the record's own entries would offer two lifts
+     * and log one, and the lifter would find out at the rack with the bar loaded.
+     */
+    it('lists only the lifts this build can actually land', async () => {
+      const { store } = await durableStore();
+      const { source } = aSource(
+        aRecord([anExercise(), anExercise({ exerciseId: 'a-lift-this-build-has-never-heard-of' })]),
+      );
+      const element = await mount(store, source);
+
+      expect(offerRows(element).length).toBe(1);
+
+      await press(element, 'start-handoff');
+      expect((await store.readWorkouts())[0]?.exercises.length).toBe(1);
+    });
+
+    /**
+     * A record worth nothing is forgotten rather than drawn as an empty card.
+     *
+     * Forgotten and not merely refused: the lifter cannot act on it, and a record
+     * silently declined on every visit is a key that never clears itself until the
+     * hour is up.
+     */
+    it('forgets a record naming nothing it knows, rather than offering an empty card', async () => {
+      const { store } = await durableStore();
+      const { source, calls } = aSource(aRecord([anExercise({ exerciseId: 'not-a-lift' })]));
+      const element = await mount(store, source);
+
+      expect(readAll(element)).not.toContain(HANDOFF_NOTES.heading);
+      expect(calls.clears).toBe(1);
+    });
+
+    /**
+     * Read when the reader arrives, and never during a render.
+     *
+     * `peek` parses a document out of storage, so a render path that did it would
+     * do it on every keystroke of a session -- and, worse, could answer
+     * differently mid-session, because the key is writable by anything else on the
+     * origin.
+     */
+    it('asks the reader once, not on every repaint', async () => {
+      const { store } = await durableStore();
+      const { source, calls } = aSource(aRecord());
+      const element = await mount(store, source);
+      expect(calls.peeks).toBe(1);
+
+      await choose(element, 'ptk-segmented', 'kg');
+      await press(element, 'backup');
+      await vi.waitFor(async () => {
+        await element.updateComplete;
+        expect(readAll(element)).toContain(HOME_NOTES.backupDone);
+      });
+
+      expect(calls.peeks).toBe(1);
+    });
+
+    it('lands the session on the logging screen, with a ramp under the working sets', async () => {
+      const { store } = await durableStore();
+      const { source, calls } = aSource(aRecord());
+      const element = await mount(store, source);
+
+      await press(element, 'start-handoff');
+
+      // The three working sets the lifter chose, and warm-ups this build worked
+      // out. Section 8.1: the ramp is not carried in the record, so any row above
+      // the working sets can only have come from this build's own engine.
+      expect(setRows(element).length).toBeGreaterThan(3);
+      expect(readAll(element)).toContain(`100 kg x 5`);
+      expect(saveLine(element)).toBe(SAVE_STATES.saved);
+
+      // Written once and forgotten. A record left behind is one the tool offers
+      // again on the next visit, to a lifter who has already answered it.
+      expect(calls.clears).toBe(1);
+      expect((await store.readWorkouts()).length).toBe(1);
+    });
+
+    /**
+     * The lifter's day, not the record's stamp.
+     *
+     * The stamp is an instant written by another page, possibly in a time zone
+     * this device has since left, and the day a session is filed under is the day
+     * the lifter is training -- which for a session set up the night before is a
+     * different answer from the one the button was pressed on.
+     */
+    it('files the session under the day the lifter is training, not the day it was handed over', async () => {
+      const { store } = await durableStore();
+      const { source } = aSource(aRecord());
+      const element = await mount(store, source);
+
+      await press(element, 'start-handoff');
+
+      expect((await store.readWorkouts())[0]?.localDate).toBe(TODAY);
+      // The assertion above only means anything while these two differ.
+      expect(TODAY).not.toBe(HANDED_OVER_AT.slice(0, 10));
+    });
+
+    it('discards the record without starting anything', async () => {
+      const { store } = await durableStore();
+      const { source, calls } = aSource(aRecord());
+      const element = await mount(store, source);
+
+      await press(element, 'discard-handoff');
+
+      expect(readAll(element)).not.toContain(HANDOFF_NOTES.heading);
+      expect(calls.clears).toBe(1);
+      // Still on the home screen, with nothing started and nothing written.
+      expect(readAll(element)).toContain(HOME_NOTES.historyEmpty);
+      expect((await store.readWorkouts()).length).toBe(0);
+    });
+
+    /**
+     * Nothing lands over a workout in progress.
+     *
+     * Start is absent rather than disabled, because there is nothing for it to do
+     * -- landing here would replace training a lifter has done with training they
+     * have not, and no confirmation makes that worth offering at a rack. Discard
+     * stays, because the record expiring on its own in an hour is not an answer to
+     * somebody looking at the card now.
+     */
+    it('will not land over a workout already in progress, and says why', async () => {
+      const { store, databaseName } = await durableStore();
+      const first = await mount(store);
+      await planASquatSession(first);
+
+      // The record arrives on the next visit rather than mid-session, because that is
+      // the only way to reach the home screen with a workout open: Milestone 1 has no
+      // route off the logging screen except finishing, so a lifter meeting this card
+      // has closed the tab between warming up and coming back.
+      first.remove();
+      store.close();
+      const reopened = await reopen(databaseName);
+      const { source, calls } = aSource(aRecord());
+      const element = await mount(reopened, source);
+
+      const text = readAll(element);
+      expect(text).toContain(HOME_NOTES.resumeNote);
+      expect(text).toContain(HANDOFF_NOTES.heading);
+      expect(text).toContain(HANDOFF_NOTES.busy);
+      expect(deepAll(shadow(element), '[data-action="start-handoff"]').length).toBe(0);
+
+      await press(element, 'discard-handoff');
+      expect(calls.clears).toBe(1);
+      // The workout the lifter was in the middle of is untouched by the refusal: one
+      // session in the database, still the squat they planned, not the record's.
+      const kept = await reopened.readWorkouts();
+      expect(kept.length).toBe(1);
+      expect(kept[0]?.exercises.length).toBe(1);
+      await press(element, 'resume-workout');
+      expect(readAll(element)).toContain(`100 ${UNIT} x 5`);
+    });
+
+    /**
+     * A lift with no ramp under it reads as a fault unless the screen says
+     * otherwise.
+     *
+     * The working sets still land, because those are the lifter's own numbers and
+     * losing the session over a warm-up would be the wrong trade. Named rather
+     * than counted: the sentence somebody needs at a rack is which lift.
+     */
+    it('lands a lift the engine will not ramp, and names it on the logging screen', async () => {
+      const { store } = await durableStore();
+      // Zero is inside what the record format allows and outside what the engine
+      // will plan for, which is the one way a lift with a ramp available arrives
+      // without one. The lift still travels; only the warm-up does not.
+      const { source } = aSource(
+        aRecord([anExercise(), anExercise({ exerciseId: 'bench-press', workingWeight: 0 })]),
+      );
+      const element = await mount(store, source);
+
+      await press(element, 'start-handoff');
+
+      const text = readAll(element);
+      expect(text).toContain(HANDOFF_NOTES.unrampedLead);
+      expect(text).toContain('Bench Press');
+      expect(text).toContain(HANDOFF_NOTES.unrampedNote);
+      expect((await store.readWorkouts())[0]?.exercises.length).toBe(2);
+    });
+
+    /**
+     * The rack is adopted only where this device has none.
+     *
+     * A lifter who set one up on the equipment screen chose it here, and a record
+     * arriving from another tab must not overwrite it: the calculator's rack is
+     * where they warmed up, which is not a statement about where the logbook
+     * thinks they train. Where there is none, the record is strictly better than
+     * nothing -- it is the only rack this device has been told about.
+     */
+    it('adopts the record rack on a device that has never chosen one', async () => {
+      const { store } = await durableStore();
+      const { source } = aSource(aRecord());
+      const element = await mount(store, source);
+      expect((await store.readSettings())?.equipment ?? null).toBeNull();
+
+      await press(element, 'start-handoff');
+
+      await vi.waitFor(async () => {
+        expect((await store.readSettings())?.equipment).toStrictEqual(aGym());
+      });
+    });
+
+    it('leaves a rack the lifter set up here alone', async () => {
+      const { store } = await durableStore();
+      const mine: EquipmentSnapshot = {
+        ...aGym(),
+        // An invented pound rack, so nothing about the outcome is ambiguous.
+        barWeight: { amount: 45, unit: 'lb' },
+        plateUnit: 'lb',
+        plates: [{ weight: 45, pairs: null, fullDiameter: true }],
+      };
+      // Written before the mount, so the element boots holding it. Set through the
+      // store rather than the equipment screen because what is under test is the
+      // guard on a rack that is already there, not how it got there.
+      await store.writeSettings({ ...defaultSettings(), equipment: mine });
+      const element = await mount(store, aSource(aRecord()).source);
+
+      await press(element, 'start-handoff');
+
+      await settle(element);
+      expect((await store.readSettings())?.equipment).toStrictEqual(mine);
+    });
   });
 
   describe('when the browser will not store anything', () => {

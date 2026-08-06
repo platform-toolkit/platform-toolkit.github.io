@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { SetLoad, SetPerformance } from '../types.js';
 
-import { ASSIST_SUFFIX, NOT_SET, formatLoad, formatPerformance } from './format.js';
+import { ASSIST_SUFFIX, NOT_SET, formatLoad, formatPerformance, formatVolume } from './format.js';
 
 // Invented numbers throughout. Nothing here is a federation figure; 60 and 20 are
 // chosen because they are distinguishable from each other and from a rep count.
@@ -108,5 +108,27 @@ describe('formatPerformance', () => {
     expect(formatPerformance(performed({ kind: 'added', weight: TWENTY_KG }, 6))).toBe(
       '+20 kg x 6',
     );
+  });
+});
+
+/** Everything after the set count: the sign, and the reps it multiplies. */
+function afterTheCount(volume: string): string {
+  return volume.slice(volume.indexOf(' ') + 1);
+}
+
+describe('formatVolume', () => {
+  it('writes a plan the way it is written on paper', () => {
+    expect(formatVolume(3, 5)).toBe('3 x 5');
+  });
+
+  it('multiplies with the same sign a logged set is written with', () => {
+    // The reason the function is in this file rather than at its one call site. A
+    // plan and the sets it produced are read inches apart, and two callers each
+    // picking their own sign would put them in two notations. Neither side is
+    // compared against a literal here, so moving `TIMES` keeps this green and
+    // forking it does not.
+    const logged = formatPerformance(performed({ kind: 'implement', weight: SIXTY_KG }, 5));
+
+    expect(logged).toContain(afterTheCount(formatVolume(3, 5)));
   });
 });

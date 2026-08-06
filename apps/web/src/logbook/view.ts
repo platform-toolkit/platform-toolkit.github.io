@@ -1,6 +1,7 @@
 // Copyright 2026 Jason Smathers
 // SPDX-License-Identifier: Apache-2.0
 
+import { browserPreferenceStorage } from '@platform-toolkit/preferences';
 import {
   LogbookStorageError,
   createRepository,
@@ -13,6 +14,10 @@ import {
   defineTrainingLogbook,
   type PtkTrainingLogbook,
 } from '@platform-toolkit/training-logbook/element';
+import {
+  createHandoffSource,
+  type HandoffSource,
+} from '@platform-toolkit/training-logbook/handoff';
 
 import { localCalendarDay, systemClock, type Clock } from '../clock.js';
 
@@ -34,6 +39,36 @@ export interface TrainingLogbookViewOptions {
    * view has to return an element before it finishes -- see below.
    */
   readonly openStore?: () => Promise<LogbookStore>;
+
+  /**
+   * Where a session handed over by the warm-up calculator would be waiting.
+   *
+   * No default, unlike the two above, and the asymmetry is the point: the two
+   * routes want different answers. `standalone.ts` supplies one, `embed.ts`
+   * deliberately does not, and a default here would quietly give the framed copy
+   * a reader for a key it can never see -- a third-party frame's storage is
+   * partitioned away from the origin the calculator's own page writes to.
+   */
+  readonly handoff?: HandoffSource;
+}
+
+/**
+ * The handoff reader over this device's own storage.
+ *
+ * `browserPreferenceStorage()` goes straight in with no adapter, because
+ * `HandoffStorage` is the three methods it already has, and its `null` for an
+ * origin that refuses access travels through unchanged -- a logbook that cannot
+ * read storage simply never finds a record, which is correct, because a
+ * calculator on that origin could not have written one either.
+ *
+ * Its own `systemClock()` rather than the view's, matching `browserLogbookHandoff`
+ * on the writing side. The clock is read once, to ask how old a record is; sharing
+ * one instance would buy nothing and would put a clock in the signature of the one
+ * page entry that has no other use for it.
+ */
+export function browserHandoffSource(): HandoffSource {
+  const clock = systemClock();
+  return createHandoffSource(browserPreferenceStorage(), { now: () => clock.now() });
 }
 
 /**
@@ -59,6 +94,12 @@ export interface TrainingLogbookViewOptions {
  * settings that would otherwise belong in `packages/preferences` are part of the
  * logbook's own document, because a backup that restored a year of training and
  * not the unit it was typed in would be a backup with a hole in it.
+ *
+ * The one thing that does reach `packages/preferences` is the *storage*, and not
+ * the store: `browserHandoffSource` below borrows `browserPreferenceStorage()` to
+ * read the key the warm-up calculator leaves a session under. That is a document
+ * this tool validates like a backup file, not a setting, so it deliberately does
+ * not go through a preference store -- see the package's `handoff.ts`.
  */
 export function createTrainingLogbookView(
   options: TrainingLogbookViewOptions = {},
@@ -69,6 +110,7 @@ export function createTrainingLogbookView(
 
   element.now = () => new Date(clock.now()).toISOString();
   element.applicationVersion = __PTK_APPLICATION_VERSION__;
+  element.handoff = options.handoff ?? null;
 
   startToday(element, clock);
   startStorage(element, clock, options.openStore ?? (() => openLogbookStore()));

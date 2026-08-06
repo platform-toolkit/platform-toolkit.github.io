@@ -56,6 +56,7 @@ import {
   type WarmupPlanResult,
   type WarmupStage,
   type WarmupStep,
+  type Weight,
   type WeightUnit,
 } from '@platform-toolkit/domain';
 import {
@@ -75,7 +76,13 @@ import {
 // custom elements.
 import { MAX_COUNT, MAX_WEIGHT, parseCount, parseWeight } from '@platform-toolkit/ui/field-reading';
 
-import { BAR_PRESETS, CUSTOM_BAR_ID, toBarbellSetup, type Equipment } from './equipment.js';
+import {
+  BAR_PRESETS,
+  CUSTOM_BAR_ID,
+  barWeight,
+  toBarbellSetup,
+  type Equipment,
+} from './equipment.js';
 
 /** One lift on today's list, with whatever has been typed against it. */
 export interface LiftEntry {
@@ -268,6 +275,91 @@ export function planFor(entry: LiftEntry, equipment: Equipment): WarmupPlanResul
 /** The barbell for one row: the lift's own bar when it has one, the default otherwise. */
 export function setupFor(entry: LiftEntry, equipment: Equipment): BarbellSetup {
   return toBarbellSetup(equipment, entry.barId === '' ? equipment.barId : entry.barId);
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * What of today's session another tool could log.
+ * ---------------------------------------------------------------------------
+ */
+
+/** One lift of today's session, in the terms a logbook can read it in. */
+export interface LoggableLift {
+  /** The catalogue identifier. A lift the lifter named has none and never reaches here. */
+  readonly liftId: string;
+  readonly name: string;
+  /**
+   * This lift's own bar, resolved to a weight, or `null` where it follows the rack's.
+   *
+   * Resolved rather than carried as an identifier, and `null` rather than the
+   * rack's own figure: the receiving tool stores a rack as resolved weights and
+   * has never heard of a bar preset, and a row that never chose a bar has to go
+   * on following the default rather than freezing today's -- the same reason
+   * `barId` holds an empty string here.
+   */
+  readonly bar: Weight | null;
+  readonly weight: number;
+  readonly sets: number;
+  readonly reps: number;
+  readonly adjustments: readonly WarmupAdjustment[];
+}
+
+/** Today's session, split into what can travel and what cannot. */
+export interface LoggableSession {
+  readonly lifts: readonly LoggableLift[];
+  /**
+   * Names of finished rows that have no identifier to travel under.
+   *
+   * Named and not counted, because the sentence a lifter needs before they leave
+   * is which lift they will have to add again on the other side. Only rows that
+   * would otherwise have gone: a half-typed custom row is not a thing anybody was
+   * about to log, and reporting it would make the message noise on a screen where
+   * every row starts empty.
+   */
+  readonly withheld: readonly string[];
+}
+
+/**
+ * The session as another tool could log it, and what it would have to leave behind.
+ *
+ * Here rather than beside the handoff itself because the decision is this tool's:
+ * which rows are finished enough to be a lift, read out of the same fields and
+ * with the same parsers the cards use. What the record then looks like belongs to
+ * the tool receiving it, and `handoff.ts` is the only file that knows that shape.
+ *
+ * The adjustments travel with each row. They are the one thing the far side cannot
+ * recompute -- everything else is an input its own engine will re-derive the ramp
+ * from -- so dropping them would silently replace a weight the lifter chose with
+ * the one they overrode.
+ */
+export function loggableSession(
+  entries: readonly LiftEntry[],
+  equipment: Equipment,
+): LoggableSession {
+  const lifts: LoggableLift[] = [];
+  const withheld: string[] = [];
+
+  for (const entry of entries) {
+    const weight = parseWeight(entry.weight, equipment.plateUnit);
+    const sets = parseCount(entry.sets, 'sets');
+    const reps = parseCount(entry.reps, 'reps');
+    if (!weight.ok || !sets.ok || !reps.ok) continue;
+    if (entry.liftId === null) {
+      withheld.push(entry.name);
+      continue;
+    }
+    lifts.push({
+      liftId: entry.liftId,
+      name: entry.name,
+      bar: entry.barId === '' ? null : barWeight(equipment, entry.barId),
+      weight: weight.value,
+      sets: sets.value,
+      reps: reps.value,
+      adjustments: entry.adjustments,
+    });
+  }
+
+  return { lifts, withheld };
 }
 
 /*

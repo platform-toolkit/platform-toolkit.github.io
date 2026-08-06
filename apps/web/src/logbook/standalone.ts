@@ -4,7 +4,7 @@
 import { initializeTheme } from '@platform-toolkit/ui';
 
 import { registerServiceWorker } from '../pwa.js';
-import { createTrainingLogbookView } from './view.js';
+import { browserHandoffSource, createTrainingLogbookView } from './view.js';
 
 const app = document.querySelector<HTMLElement>('#app');
 if (app === null) {
@@ -29,4 +29,10 @@ initializeTheme();
 // failing at exactly the moment it exists for.
 registerServiceWorker();
 
-app.replaceChildren(createTrainingLogbookView());
+// The handoff reader is supplied here and deliberately not on the embed route. The
+// warm-up calculator leaves a session under a key on this origin, and only a page
+// served from this origin can read it -- a third-party frame gets storage
+// partitioned to the embedding site, where the key has never existed and never
+// will. Offering the framed copy a reader would give it one that always answers
+// nothing, which is the same screen with a moving part behind it.
+app.replaceChildren(createTrainingLogbookView({ handoff: browserHandoffSource() }));

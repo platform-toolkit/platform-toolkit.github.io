@@ -34,6 +34,7 @@ import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 
 import { DEFAULT_EQUIPMENT, loadEquipment, saveEquipment, type Equipment } from './equipment.js';
+import type { LogbookHandoff } from './handoff.js';
 import {
   LIFT_CHANGE_EVENT,
   LIFT_MOVE_EVENT,
@@ -58,6 +59,7 @@ import {
   convertEntryWeights,
   loadCompletion,
   loadEntries,
+  loggableSession,
   markKey,
   moveEntry,
   removeEntry,
@@ -136,6 +138,26 @@ export class PtkWarmUpCalculator extends LitElement {
       display: flex;
       flex-wrap: wrap;
       gap: var(--ptk-space-sm);
+      margin-top: var(--ptk-space-md);
+    }
+
+    .log {
+      display: inline-flex;
+      align-items: center;
+      min-height: var(--ptk-tap-target-min);
+      /* Its own line and not part of a sentence, because an inline link is as
+         tall as its line box and no amount of padding grows the hit area
+         without overlapping the prose above it -- section 5.7. The accent is
+         set here for the reason tool 4's citation gives: tokens.css styles
+         links at document level and cannot reach inside a shadow root, so this
+         would otherwise be the UA blue, which is poor contrast in the dark
+         theme. The underline stays; colour is never the only signal. */
+      color: var(--ptk-color-accent);
+    }
+
+    .note {
+      margin: var(--ptk-space-sm) 0 0;
+      color: var(--ptk-color-text-muted);
     }
   `;
 
@@ -158,6 +180,18 @@ export class PtkWarmUpCalculator extends LitElement {
    */
   @property({ attribute: false }) marks: PreferenceStore = createPreferenceStore(null);
 
+  /**
+   * Somewhere to hand today's session, or `null` for a page that offers none.
+   *
+   * Null by default and null in the embed, so the action simply is not drawn --
+   * a framed calculator on somebody else's page has no business replacing their
+   * frame's contents with a different tool. `import type` on the interface is
+   * deliberate: this element must not pull the logbook's package into a story,
+   * a browser test or an embed that will never use it. `handoff.ts` is the only
+   * file in the tool with a runtime import of it.
+   */
+  @property({ attribute: false }) logbook: LogbookHandoff | null = null;
+
   @state() private equipment: Equipment = DEFAULT_EQUIPMENT;
 
   @state() private entries: readonly LiftEntry[] = [];
@@ -165,6 +199,9 @@ export class PtkWarmUpCalculator extends LitElement {
   @state() private completion: Completion = new Set<string>();
 
   @state() private pending: PendingConversion | null = null;
+
+  /** Set by a press that could not leave a record. Cleared by the next edit. */
+  @state() private handoffRefused = false;
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -248,7 +285,57 @@ export class PtkWarmUpCalculator extends LitElement {
                 )}
               </div>`
         }
+        ${this.#renderHandoff()}
       </section>
+    `;
+  }
+
+  /**
+   * The offer to log today's session somewhere else.
+   *
+   * Drawn only where a page supplied somewhere to hand it to *and* something is
+   * finished enough to log, rather than always and disabled: a control that
+   * cannot do anything is root section 0.4's dead control, and on this screen it
+   * would be dead for the whole of the time before a lifter has typed a weight,
+   * which is the state the tool opens in.
+   *
+   * The list is read again here rather than remembered from the last press,
+   * because it decides what the sentence under the link names -- and the whole
+   * point of naming those lifts is that the lifter reads it before pressing.
+   */
+  #renderHandoff(): TemplateResult | typeof nothing {
+    const logbook = this.logbook;
+    if (logbook === null) return nothing;
+    const { lifts, withheld } = loggableSession(this.entries, this.equipment);
+    if (lifts.length === 0) return nothing;
+
+    return html`
+      <div class="actions">
+        <a
+          class="log"
+          data-action="log-workout"
+          href=${logbook.href}
+          @click=${this.#onLog}
+          @auxclick=${this.#onLog}
+          >Log this workout</a
+        >
+      </div>
+      ${
+        withheld.length === 0
+          ? nothing
+          : html`<p class="note">
+              The logbook logs from its own list of lifts, so ${listNames(withheld)} will not
+              travel.
+            </p>`
+      }
+      ${
+        this.handoffRefused
+          ? html`<p class="note" role="alert">
+              This browser will not let the two tools share a session, so nothing was handed over.
+              The plan above is unchanged.
+            </p>`
+          : nothing
+      }
     `;
   }
 
@@ -309,10 +396,15 @@ export class PtkWarmUpCalculator extends LitElement {
   #setEquipment(equipment: Equipment): void {
     this.equipment = equipment;
     saveEquipment(this.settings, equipment);
+    this.handoffRefused = false;
   }
 
   #setEntries(entries: readonly LiftEntry[]): void {
     this.entries = entries;
+    // The refusal was about a press, and the press is over. Leaving the sentence
+    // up while the lifter goes on editing would turn a report of what happened
+    // into a claim about what the tool can do.
+    this.handoffRefused = false;
     saveEntries(this.settings, entries, this.equipment.plateUnit);
     // Re-derived rather than carried: a weight that changed invalidates the ticks
     // made against it, and that rule lives in `loadCompletion` so there is one
@@ -365,6 +457,30 @@ export class PtkWarmUpCalculator extends LitElement {
     this.#setEntries(removeEntry(this.entries, event.detail.key));
   };
 
+  /**
+   * Leaves the record, and lets the link do the navigating.
+   *
+   * `auxclick` as well as `click` so that a middle-click writes the record too.
+   * Without it the one thing an anchor is chosen for -- that it behaves like a
+   * link -- would open the logbook in a new tab with nothing waiting in it, and
+   * the tab would look exactly like an ordinary visit. The right button is left
+   * alone: a context menu is not a press.
+   *
+   * On failure the press stops here. Following the link would put the lifter in
+   * front of an empty logbook with nothing on screen saying why, which is the
+   * one outcome worse than the action not being there at all.
+   */
+  readonly #onLog = (event: MouseEvent): void => {
+    const logbook = this.logbook;
+    if (logbook === null || event.button > 1) return;
+    if (logbook.offer(this.entries, this.equipment) === 'offered') {
+      this.handoffRefused = false;
+      return;
+    }
+    event.preventDefault();
+    this.handoffRefused = true;
+  };
+
   readonly #onToggle = (event: CustomEvent<SetToggleDetail>): void => {
     const key = markKey(event.detail.key, event.detail.index);
     this.completion = toggleMark(this.completion, key);
@@ -390,6 +506,19 @@ function example(from: WeightUnit): string {
 
 function converted(from: WeightUnit, to: WeightUnit): string {
   return formatWeight(convertWeight({ amount: EXAMPLE_AMOUNT, unit: from }, to));
+}
+
+/**
+ * Names, as a sentence reads them.
+ *
+ * The sentence around it is written so that one name and four read the same way,
+ * which is worth more here than it looks: these are lifts the lifter typed the
+ * names of themselves, so there is no fixed list to write copy against and every
+ * plural agreement would be a second string to get wrong.
+ */
+function listNames(names: readonly string[]): string {
+  if (names.length <= 1) return names[0] ?? '';
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1] ?? ''}`;
 }
 
 declare global {

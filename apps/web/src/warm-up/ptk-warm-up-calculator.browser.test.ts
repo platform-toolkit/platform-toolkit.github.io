@@ -5,6 +5,7 @@ import {
   createPreferenceStore,
   memoryPreferenceStorage,
   PREFERENCE_KEY_PREFIX,
+  type PreferenceStore,
 } from '@platform-toolkit/preferences';
 import type { PtkButton, PtkChoiceGroup } from '@platform-toolkit/ui';
 // Without the stylesheet every declaration reading a custom property is
@@ -15,10 +16,11 @@ import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { DEFAULT_EQUIPMENT, saveEquipment, type Equipment } from './equipment.js';
+import type { LogbookHandoff } from './handoff.js';
 import type { PtkLiftCard } from './ptk-lift-card.js';
 import type { PtkWarmUpCalculator } from './ptk-warm-up-calculator.js';
 import './ptk-warm-up-calculator.js';
-import { addLift, saveEntries, SESSION_PREFERENCES } from './session.js';
+import { addLift, saveEntries, SESSION_PREFERENCES, type LiftEntry } from './session.js';
 
 /**
  * The two storage keys, built the way the store builds them.
@@ -65,7 +67,7 @@ afterEach(() => {
 });
 
 async function mount(
-  properties: Partial<Pick<PtkWarmUpCalculator, 'settings' | 'marks'>> = {},
+  properties: Partial<Pick<PtkWarmUpCalculator, 'settings' | 'marks' | 'logbook'>> = {},
 ): Promise<PtkWarmUpCalculator> {
   const element = document.createElement('ptk-warm-up-calculator');
   Object.assign(element, properties);
@@ -111,13 +113,13 @@ async function choose(
   await element.updateComplete;
 }
 
-/** Types a working weight into the first card, three shadow roots down. */
-async function typeWeight(element: PtkWarmUpCalculator, text: string): Promise<void> {
-  const field = cards(element)[0]?.shadowRoot?.querySelector(
+/** Types a working weight into a card, three shadow roots down. */
+async function typeWeight(element: PtkWarmUpCalculator, text: string, card = 0): Promise<void> {
+  const field = cards(element)[card]?.shadowRoot?.querySelector(
     'ptk-number-field[data-field="weight"]',
   );
   const input = field?.shadowRoot?.querySelector('input');
-  if (!(input instanceof HTMLInputElement)) throw new Error('No weight field on the first card.');
+  if (!(input instanceof HTMLInputElement)) throw new Error(`No weight field on card ${card}.`);
   input.value = text;
   input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
   await element.updateComplete;
@@ -135,6 +137,111 @@ function unitGroup(element: PtkWarmUpCalculator): PtkChoiceGroup {
 
 function conversionPrompt(element: PtkWarmUpCalculator): PtkChoiceGroup | null {
   return element.shadowRoot?.querySelector<PtkChoiceGroup>('.convert ptk-choice-group') ?? null;
+}
+
+/** A handoff that records what it was offered and answers the same way every time. */
+interface RecordedHandoff extends LogbookHandoff {
+  readonly calls: readonly (readonly LiftEntry[])[];
+}
+
+/**
+ * Somewhere to hand a session to, built by hand rather than imported.
+ *
+ * The element takes the port as a property so that a story, an embed and this
+ * file never pull the logbook's package into their module graph -- `handoff.ts`
+ * is the one file in the tool that does. Reaching for the real thing to build a
+ * fixture would spend exactly what that arrangement buys.
+ */
+function handoffAnswering(answer: 'offered' | 'unavailable'): RecordedHandoff {
+  const calls: (readonly LiftEntry[])[] = [];
+  return {
+    // A fragment, because an anchor runs its activation behaviour on a
+    // dispatched click as readily as on a real one, and a path here would
+    // navigate the runner's own page out from under the suite. What is asserted
+    // is that the element used the href it was handed, which a fragment carries
+    // as well as anything else.
+    href: '#logbook',
+    calls,
+    offer: (entries) => {
+      calls.push(entries);
+      return answer;
+    },
+  };
+}
+
+function logAction(element: PtkWarmUpCalculator): HTMLAnchorElement | null {
+  return (
+    element.shadowRoot?.querySelector<HTMLAnchorElement>('a[data-action="log-workout"]') ?? null
+  );
+}
+
+function refusalNote(element: PtkWarmUpCalculator): Element | null {
+  return element.shadowRoot?.querySelector('[role="alert"]') ?? null;
+}
+
+/**
+ * Presses the handoff link with one mouse button and answers the event.
+ *
+ * Dispatched rather than really clicked, because the question every one of
+ * these asks is whether the element stopped a navigation -- and a real press
+ * that was not stopped would take the test page with it. `auxclick` for
+ * anything but the primary button, which is both what a browser fires and what
+ * the element listens for.
+ */
+async function pressLog(element: PtkWarmUpCalculator, button = 0): Promise<MouseEvent> {
+  const action = logAction(element);
+  if (action === null) throw new Error('No handoff action on screen.');
+  const event = new MouseEvent(button === 0 ? 'click' : 'auxclick', {
+    bubbles: true,
+    cancelable: true,
+    button,
+  });
+  action.dispatchEvent(event);
+  await element.updateComplete;
+  return event;
+}
+
+/**
+ * A session with one lift finished enough to log.
+ *
+ * `addLift` leaves the weight empty, so a fixture without this line draws no
+ * action at all and every assertion under it holds over a screen with nothing
+ * on it. An invented figure; nothing reads it back.
+ */
+function finishedSquat(): readonly LiftEntry[] {
+  return addLift([], 'squat').map((entry) => ({ ...entry, weight: '135' }));
+}
+
+/**
+ * Adds a lift the lifter named themselves, through the picker's own form.
+ *
+ * Driven rather than seeded, and that is forced rather than stylistic: a custom
+ * lift is deliberately never written to the store -- its name is free text and
+ * there is nowhere to put it -- so a fixture handed to `saveEntries` comes back
+ * from the reload with the row gone and the sentence this proves has nothing
+ * left to name.
+ */
+async function nameOwnLift(element: PtkWarmUpCalculator, name: string): Promise<void> {
+  const picker = element.shadowRoot?.querySelector('ptk-lift-picker');
+  const field = picker?.shadowRoot?.querySelector('#custom-name');
+  if (!(field instanceof HTMLInputElement)) throw new Error('No custom-lift name field.');
+  field.value = name;
+  field.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+  await element.updateComplete;
+
+  // The one button in that form, and the only `ptk-button` in the tool with no
+  // accessible name of its own, so `press` cannot reach it.
+  const add = picker?.shadowRoot?.querySelector<PtkButton>('.named ptk-button');
+  const inner = add?.shadowRoot?.querySelector('button');
+  if (!(inner instanceof HTMLButtonElement)) throw new Error('No button to add a custom lift.');
+  inner.click();
+  await element.updateComplete;
+}
+
+function storeWith(entries: readonly LiftEntry[]): PreferenceStore {
+  const settings = createPreferenceStore(memoryPreferenceStorage());
+  saveEntries(settings, entries, DEFAULT_EQUIPMENT.plateUnit);
+  return settings;
 }
 
 describe('ptk-warm-up-calculator', () => {
@@ -275,6 +382,104 @@ describe('ptk-warm-up-calculator', () => {
     await press(element, 'Add Squat');
     const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
     expect(results.violations).toEqual([]);
+  });
+
+  it('draws no logbook action on a page that supplied nowhere to hand a session', async () => {
+    // A finished lift is on the list, so the absence is attributable to the
+    // missing port and not to there being nothing to log. This is the embed: a
+    // calculator in somebody else's frame has no business replacing their
+    // frame's contents with a different tool.
+    const element = await mount({ settings: storeWith(finishedSquat()) });
+    expect(logAction(element)).toBe(null);
+  });
+
+  it('withholds the logbook action until a lift is finished enough to log', async () => {
+    // Absent rather than drawn and disabled: a control that can do nothing is a
+    // dead control, and this one would be dead for the whole of the time before
+    // a weight is typed -- which is the state the tool opens in.
+    const logbook = handoffAnswering('offered');
+    const element = await mount({
+      settings: createPreferenceStore(memoryPreferenceStorage()),
+      logbook,
+    });
+    expect(logAction(element)).toBe(null);
+
+    await press(element, 'Add Squat');
+    expect(logAction(element)).toBe(null);
+
+    await typeWeight(element, '135');
+    expect(logAction(element)?.getAttribute('href')).toBe(logbook.href);
+  });
+
+  it('names the custom lift that will not travel to the logbook', async () => {
+    // The logbook logs against its own catalogue, so a lift the lifter named
+    // themselves has nowhere to land. Naming it is the point of the sentence:
+    // it is read before the press, not discovered after arriving.
+    const element = await mount({
+      settings: storeWith(finishedSquat()),
+      logbook: handoffAnswering('offered'),
+    });
+    await nameOwnLift(element, 'Zercher carry');
+    await typeWeight(element, '95', 1);
+
+    // The catalogue lift still travels, so the action stays: one lift the
+    // logbook cannot take is not a reason to refuse the session.
+    expect(logAction(element)).not.toBe(null);
+    expect(element.shadowRoot?.querySelector('.note')?.textContent).toContain('Zercher carry');
+  });
+
+  it('leaves the link to do the navigating once the record is written', async () => {
+    const logbook = handoffAnswering('offered');
+    const element = await mount({ settings: storeWith(finishedSquat()), logbook });
+
+    const event = await pressLog(element);
+    expect(logbook.calls).toHaveLength(1);
+    // Unprevented, so an ordinary link follows itself. A script navigation
+    // instead would give up everything the anchor was chosen for, on the one
+    // screen somebody uses with chalk on their hands.
+    expect(event.defaultPrevented).toBe(false);
+    expect(refusalNote(element)).toBe(null);
+  });
+
+  it('writes the record on a middle click and leaves none on a right click', async () => {
+    // Without the `auxclick` binding a middle click opens the logbook in a new
+    // tab with nothing waiting in it, and that tab looks exactly like an
+    // ordinary visit. A context menu is not a press, so the right button is
+    // left alone.
+    const logbook = handoffAnswering('offered');
+    const element = await mount({ settings: storeWith(finishedSquat()), logbook });
+
+    await pressLog(element, 1);
+    expect(logbook.calls).toHaveLength(1);
+
+    await pressLog(element, 2);
+    expect(logbook.calls).toHaveLength(1);
+  });
+
+  it('stops the press and says so when nothing could be handed over', async () => {
+    const logbook = handoffAnswering('unavailable');
+    const element = await mount({ settings: storeWith(finishedSquat()), logbook });
+
+    const event = await pressLog(element);
+    // Following the link would put the lifter in front of an empty logbook with
+    // nothing on screen saying why, which is worse than the action never having
+    // been there.
+    expect(event.defaultPrevented).toBe(true);
+    expect(refusalNote(element)?.textContent).toContain('nothing was handed over');
+  });
+
+  it('clears the refusal as soon as the plan is edited again', async () => {
+    const element = await mount({
+      settings: storeWith(finishedSquat()),
+      logbook: handoffAnswering('unavailable'),
+    });
+    await pressLog(element);
+    expect(refusalNote(element)).not.toBe(null);
+
+    // The sentence reported one press. Standing while the lifter goes on
+    // editing, it turns into a claim about what the tool can do.
+    await typeWeight(element, '145');
+    expect(refusalNote(element)).toBe(null);
   });
 
   it('fits a phone-width column with the whole tool on screen', async () => {

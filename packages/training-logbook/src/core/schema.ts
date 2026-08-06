@@ -56,8 +56,16 @@ import type {
   WorkoutSet,
 } from '../types.js';
 
+/*
+ * The pieces below are exported for the same reason `WorkoutSessionSchema` is:
+ * a shape that crosses a boundary is composed where that boundary is described
+ * -- the backup envelope in `backup.ts`, the calculator's record in
+ * `handoff.ts` -- and both need the vocabulary spelled once. Redeclaring "an
+ * instant" in three files is how two of them end up disagreeing about it.
+ */
+
 /** A non-empty opaque identifier. Never parsed; only compared. */
-const IdentifierSchema = v.pipe(v.string(), v.minLength(1));
+export const IdentifierSchema = v.pipe(v.string(), v.minLength(1));
 
 /**
  * A calendar day as `YYYY-MM-DD`.
@@ -76,17 +84,17 @@ const CalendarDaySchema = v.pipe(v.string(), v.regex(/^\d{4}-\d{2}-\d{2}$/u));
  * the strictness here would buy nothing and would reject a file another tool
  * wrote with a slightly different serialiser.
  */
-const InstantSchema = v.pipe(v.string(), v.minLength(1));
+export const InstantSchema = v.pipe(v.string(), v.minLength(1));
 
 /** A finite number. Rejects `NaN` and both infinities, which JSON cannot carry anyway. */
-const FiniteSchema = v.pipe(v.number(), v.finite());
+export const FiniteSchema = v.pipe(v.number(), v.finite());
 
 /** A count of things: whole, and not negative. */
-const CountSchema = v.pipe(v.number(), v.integer(), v.minValue(0));
+export const CountSchema = v.pipe(v.number(), v.integer(), v.minValue(0));
 
 const WeightUnitSchema = v.picklist(['kg', 'lb'] as const);
 
-const WeightSchema: v.GenericSchema<Weight> = v.object({
+export const WeightSchema: v.GenericSchema<Weight> = v.object({
   amount: FiniteSchema,
   unit: WeightUnitSchema,
 });
@@ -200,7 +208,7 @@ const WarmupPlanSchema: v.GenericSchema<WarmupPlan> = v.object({
   ),
 });
 
-const EquipmentSnapshotSchema: v.GenericSchema<EquipmentSnapshot> = v.object({
+export const EquipmentSnapshotSchema: v.GenericSchema<EquipmentSnapshot> = v.object({
   barWeight: WeightSchema,
   collarWeight: WeightSchema,
   plateUnit: WeightUnitSchema,
