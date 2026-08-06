@@ -45,6 +45,20 @@ export {
 } from './catalog.js';
 
 export {
+  DEFAULT_EQUIPMENT,
+  createProfile,
+  describeEquipment,
+  equipmentFrom,
+  findProfile,
+  findProfileFor,
+  renameProfile,
+  sameEquipment,
+  snapshotFrom,
+  toBarbellSetup,
+  updateProfileEquipment,
+} from './equipment.js';
+
+export {
   SCHEMA_VERSION,
   addExercise,
   addSet,
