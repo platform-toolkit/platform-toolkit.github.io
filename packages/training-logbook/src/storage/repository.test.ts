@@ -25,12 +25,14 @@ import {
   performance,
   startWorkout,
   type PlannedSet,
+  type SessionContext,
 } from '../core/session.js';
 import { loadWeight } from '../core/summary.js';
 import type {
   CalendarDay,
   CustomExercise,
   EquipmentProfile,
+  Instant,
   SetLoad,
   WorkoutSession,
 } from '../types.js';
@@ -238,9 +240,15 @@ describe('listWorkouts', () => {
   });
 
   it('treats a limit of zero as none rather than as no limit', async () => {
-    const { logbook } = await withHistory();
+    const watcher = watched();
+    const logbook = repository(watcher.store);
+    await withDays(logbook, 3);
 
     expect(await logbook.listWorkouts({ limit: 0 })).toEqual([]);
+    // And reads nothing to say so. Slicing an empty answer off the end of a full
+    // walk gives the same rows for the whole cost, which is the shape this method
+    // was rewritten to stop having.
+    expect(watcher.visited()).toEqual([]);
   });
 
   it('treats a negative limit as none rather than as counting from the end', async () => {
@@ -259,6 +267,104 @@ describe('listWorkouts', () => {
     await logbook.saveActiveWorkout(finished());
 
     expect(await logbook.listWorkouts()).toHaveLength(1);
+  });
+
+  /**
+   * The same identifier series, stamped five hours later.
+   *
+   * `contextSeries` hands out one fixed instant, so two sessions built from it
+   * share an `updatedAt` and the tie this case is about does not exist. Shifting
+   * the clock rather than the day is what makes them a morning and an evening.
+   */
+  function inTheEvening(
+    at: (instant: Instant) => SessionContext,
+  ): (instant: Instant) => SessionContext {
+    const evening: Record<string, Instant> = {
+      [AT_START]: '2026-03-10T22:00:00.000Z',
+      [AT_LATER]: '2026-03-10T22:20:00.000Z',
+    };
+    return (instant) => at(evening[instant] ?? instant);
+  }
+
+  /** `2026-01-01` onwards, one real calendar day at a time. */
+  function dayAfter(start: string, offset: number): CalendarDay {
+    const date = new Date(`${start}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + offset);
+    return date.toISOString().slice(0, 10);
+  }
+
+  /** One session a day for `days` days, written oldest first. */
+  async function withDays(logbook: TrainingLogbookRepository, days: number): Promise<void> {
+    const at = contextSeries();
+    for (let index = 0; index < days; index += 1) {
+      await logbook.saveWorkout(finished(dayAfter('2026-01-01', index), at));
+    }
+  }
+
+  it('reads about as many workouts as the limit asks for, not the whole history', async () => {
+    // Section 9.3, and the reason this method walks an ordered index rather than
+    // pulling every record and sorting. Sixty sessions is a year of training twice
+    // a week; the screen wants ten.
+    //
+    // Counting records is the assertion, not timing anything. A timing test on
+    // sixty in-memory objects measures the machine it runs on -- it would pass on
+    // this laptop while the phone it is for still read three years to draw ten
+    // rows.
+    const watcher = watched();
+    const logbook = repository(watcher.store);
+    await withDays(logbook, 60);
+
+    const rows = await logbook.listWorkouts({ limit: 10 });
+
+    expect(rows).toHaveLength(10);
+    // One past the tenth, which is the record that proves the tenth's day is over.
+    expect(watcher.visited()).toHaveLength(11);
+  });
+
+  it('stops at the near end of a date range rather than filtering the far end', async () => {
+    const watcher = watched();
+    const logbook = repository(watcher.store);
+    await withDays(logbook, 60);
+
+    // The last six days of the sixty written.
+    const rows = await logbook.listWorkouts({ from: dayAfter('2026-01-01', 54) });
+
+    expect(rows).toHaveLength(6);
+    // One past the range, which is the record that proves the range is over.
+    expect(watcher.visited()).toHaveLength(7);
+  });
+
+  it('finishes the day that filled the limit before it stops', async () => {
+    // Two sessions on one day is ordinary -- squats in the morning, bench in the
+    // evening -- and the walk's order within a day is unspecified, so the second
+    // one may be the one that belongs in the answer. Stopping the moment the count
+    // is reached would drop it on whichever of the two the store happened to
+    // iterate second, which is a bug that reproduces on one device in two.
+    const at = contextSeries();
+    const logbook = repository();
+    const eleventh = finished('2026-03-11', at);
+    const morning = finished('2026-03-10', at);
+    const evening = finished('2026-03-10', inTheEvening(at));
+    for (const workout of [eleventh, morning, evening]) await logbook.saveWorkout(workout);
+
+    const rows = await logbook.listWorkouts({ limit: 2 });
+
+    // `evening` was built last and so carries the later `updatedAt`, which is what
+    // breaks the tie. It can only be chosen by a walk that saw both.
+    expect(rows.map((row) => row.id)).toEqual([eleventh.id, evening.id]);
+  });
+
+  it('counts only rows the query kept towards the limit', async () => {
+    // A status the history is mostly not would otherwise fill the limit with rows
+    // that are then filtered away, and answer three of the ten asked for.
+    const logbook = repository();
+    const at = contextSeries();
+    for (const day of ['2026-03-11', '2026-03-10', '2026-03-09']) {
+      await logbook.saveWorkout(finished(day, at));
+      await logbook.saveWorkout(createWorkout(at(AT_START), { localDate: day }));
+    }
+
+    expect(await logbook.listWorkouts({ status: 'completed', limit: 3 })).toHaveLength(3);
   });
 
   it('is empty for a logbook nothing has been written to', async () => {
@@ -296,7 +402,10 @@ function watched(store: LogbookStore = memoryLogbookStore()): {
       },
     },
     scans: () => scans,
-    visited: () => visited,
+    // A copy. Handing out the buffer means a later walk -- `listWorkouts` is one
+    // now -- rewrites an answer a caller has already taken, which reads as the
+    // first walk having gone further than it did.
+    visited: () => [...visited],
   };
 }
 
@@ -519,12 +628,16 @@ describe('lastPerformance', () => {
     }
 
     const found = await logbook.lastPerformance(['squat', 'bench-press']);
+    // Captured before the count is read, because `listWorkouts` walks the same
+    // store and would otherwise be measured as part of this question.
+    const walked = watcher.visited();
+    const scans = watcher.scans();
     const stored = await logbook.listWorkouts();
 
-    expect(watcher.visited()).toEqual(['2026-03-10', '2026-03-08']);
-    expect(watcher.visited().length).toBeLessThan(stored.length);
+    expect(walked).toEqual(['2026-03-10', '2026-03-08']);
+    expect(walked.length).toBeLessThan(stored.length);
     // One walk for the whole question, not one per exercise.
-    expect(watcher.scans()).toBe(1);
+    expect(scans).toBe(1);
     expect(amounts(found.get('squat'))).toEqual([110]);
     expect(amounts(found.get('bench-press'))).toEqual([70]);
   });

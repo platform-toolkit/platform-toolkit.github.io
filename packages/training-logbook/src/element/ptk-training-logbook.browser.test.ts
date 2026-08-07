@@ -948,9 +948,9 @@ function plannedLoads(exercise: WorkoutExercise, kind: 'warmup' | 'working'): We
  *
  * Safe to boot against, which is the whole reason it is written this way: the repository
  * reads the active pointer first and only reaches a session where there is one, and there
- * is none in the case this is for. The home screen's list comes from `readWorkouts`, so
- * the row is drawn as usual and the failure arrives on the press -- which is the order a
- * lifter meets a record that has gone bad under them.
+ * is none in the case this is for. The home screen's list is a walk and not a series of
+ * key reads, so the row is drawn as usual and the failure arrives on the press -- which is
+ * the order a lifter meets a record that has gone bad under them.
  */
 function unreadable(store: LogbookStore): LogbookStore {
   return {
@@ -960,18 +960,33 @@ function unreadable(store: LogbookStore): LogbookStore {
 }
 
 /**
- * A store whose bounded read fails, which is the one above's sibling and not the same
- * thing.
+ * A store whose walk over the history can be broken partway through a case, which is the
+ * one above's sibling and not the same thing.
  *
  * An exercise's history is `scanWorkouts` and never `readWorkout`, so {@link unreadable}
  * leaves it working perfectly -- a case that used it would open a full history and prove
- * nothing about the failure it named. Boot survives this for the reason boot survives
- * that one: nothing is scanned until a lifter presses something.
+ * nothing about the failure it named.
+ *
+ * Broken on demand rather than from the start, because boot is a walk now: the home
+ * list is `listWorkouts`, which stops at the tenth row instead of reading everything but
+ * is still a scan. A store that refused every scan could not be mounted, so a case built
+ * on one would be measuring the boot path and not the screen it names. Breaking it after
+ * the element is up is also the truer story, and the same one {@link unreadable} tells --
+ * a record goes bad under a lifter who already has the tool open.
  */
-function unscannable(store: LogbookStore): LogbookStore {
+function unscannable(store: LogbookStore): { store: LogbookStore; breakTheWalk: () => void } {
+  let broken = false;
   return {
-    ...store,
-    scanWorkouts: () => Promise.reject(new Error('the history cannot be walked')),
+    store: {
+      ...store,
+      scanWorkouts: (visit) =>
+        broken
+          ? Promise.reject(new Error('the history cannot be walked'))
+          : store.scanWorkouts(visit),
+    },
+    breakTheWalk: () => {
+      broken = true;
+    },
   };
 }
 
@@ -2463,8 +2478,11 @@ describe('the training logbook', () => {
     it('says the history could not be read, instead of drawing a lift with nothing in it', async () => {
       const { store } = await durableStore();
       const source = await seedRepeatable(store);
-      const element = await mount(unscannable(store));
+      const walk = unscannable(store);
+      const element = await mount(walk.store);
       const workout = await open(element, await historyRow(element, source.id));
+      // Only now, so the history the lifter opened this from is the real one.
+      walk.breakTheWalk();
 
       const screen = await openHistory(element, shadow(workout));
 

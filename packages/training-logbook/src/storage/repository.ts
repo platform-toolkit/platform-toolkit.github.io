@@ -79,7 +79,13 @@ export interface WorkoutHistoryQuery {
   /** Inclusive. */
   readonly to?: CalendarDay;
   readonly status?: WorkoutStatus;
-  /** At most this many rows, taken after ordering. */
+  /**
+   * At most this many rows, taken after ordering.
+   *
+   * Also bounds the read. The walk stops once the limit is filled and the calendar
+   * day that filled it is finished, so this is a cost as well as a count -- ten
+   * rows out of three years reads roughly ten workouts, not the three years.
+   */
   readonly limit?: number;
 }
 
@@ -101,6 +107,13 @@ export interface TrainingLogbookRepository {
   /** Saves a finished workout and clears the active marker, in one transaction. */
   completeWorkout(workout: WorkoutSession): Promise<void>;
 
+  /**
+   * The history, newest first, narrowed by the query. Section 9.3.
+   *
+   * Bounded by `limit`, and by `from` where one is given: both are stopping
+   * conditions on an ordered walk rather than filters over everything. A screen
+   * asking for the last ten pays for the last ten.
+   */
   listWorkouts(query?: WorkoutHistoryQuery): Promise<readonly WorkoutSummary[]>;
   getWorkout(id: LogbookId): Promise<WorkoutSession | null>;
   /**
@@ -227,15 +240,42 @@ export function createRepository(
     },
 
     async listWorkouts(query = {}) {
-      const workouts = await store.readWorkouts();
-      const rows = workouts
-        .filter((workout) => withinQuery(workout, query))
-        .map(summarize)
-        .sort(byMostRecent);
-      // Sliced after ordering, never before. A limit applied to whatever the
-      // database iterated first would give a lifter "your last ten workouts" made
-      // of ten arbitrary ones, which reads as correct and is not.
-      return query.limit === undefined ? rows : rows.slice(0, Math.max(0, query.limit));
+      const { limit } = query;
+      if (limit !== undefined && !(limit > 0)) return [];
+
+      const rows: WorkoutSummary[] = [];
+      // The day on which the limit was filled, or null while still short of it.
+      // Set once and then only read; see the stop condition below.
+      let filledOn: CalendarDay | null = null;
+
+      await store.scanWorkouts((workout) => {
+        // Older than the range asked for. The walk is newest day first, so every
+        // workout after this one is older still and the answer cannot change.
+        if (query.from !== undefined && workout.localDate < query.from) return 'stop';
+
+        // Past the day that filled the limit. `byMostRecent` orders on `localDate`
+        // before anything else, so a workout from an earlier day cannot outrank any
+        // of the rows already held -- but one from the *same* day can, since the
+        // walk leaves same-day order unspecified and `updatedAt` breaks the tie
+        // below. So the day that filled the limit is finished before stopping.
+        if (filledOn !== null && workout.localDate < filledOn) return 'stop';
+
+        if (withinQuery(workout, query)) {
+          rows.push(summarize(workout));
+          if (limit !== undefined && filledOn === null && rows.length >= limit) {
+            filledOn = workout.localDate;
+          }
+        }
+        return 'continue';
+      });
+
+      // Sorted and sliced after ordering, never before. A limit applied to whatever
+      // the database iterated first would give a lifter "your last ten workouts"
+      // made of ten arbitrary ones, which reads as correct and is not. What the
+      // walk buys is not the ordering -- it is not having read the other three
+      // years to produce it.
+      rows.sort(byMostRecent);
+      return limit === undefined ? rows : rows.slice(0, limit);
     },
 
     async getWorkout(id) {
