@@ -23,6 +23,9 @@
  *   - every shortcut points at a page of this collection, relatively
  *   - the hub and the tool page link the manifest and an apple-touch-icon, and
  *     the embed route links neither
+ *   - every installable page offers the affordance that starts an install, and
+ *     no embed route does
+ *   - the fallback document's own links follow the deployed base
  *   - the worker registers, activates, takes control, and fills its precache
  *   - with the network switched off, both pages still render -- including the
  *     tool page, which needs published data as well as its own code
@@ -44,6 +47,15 @@ import { chromium } from 'playwright';
 import { serveDirectory } from './lib/static-server.mjs';
 
 const OUTPUT_DIRECTORY = fileURLToPath(new URL('../apps/web/dist', import.meta.url));
+
+/**
+ * The base the build was given, which is the base its output has to name.
+ *
+ * Read from the same variable the build reads, because the two run in one
+ * environment -- CI sets it once for `pnpm run verify`. Anything derived from
+ * the output instead would be checking the output against itself.
+ */
+const BASE_PATH = process.env['PTK_BASE_PATH'] ?? '/';
 
 /** Manifest members without which a browser will not offer to install. */
 const REQUIRED_MANIFEST_MEMBERS = [
@@ -334,13 +346,13 @@ async function checkPrecache(failures) {
   }
   const precache = new Set(JSON.parse(listed[1]));
 
-  // The offline fallback is the one entry the build does not contribute: it is a
-  // fixed name copied out of `public/`, and the worker adds it to its own
-  // install. Folding it in here rather than exempting the file from the sweep
-  // below means the document still has to exist and still has to be precached --
-  // the check is the same, it is just satisfied from the other end. Reading the
-  // constant rather than hard-coding the path is what makes renaming it a
-  // failure instead of a silently unprecached page.
+  // The offline fallback is now a build input like every other page, so the
+  // substituted list already holds it and adding it here changes nothing on a
+  // healthy build. It is still read, because the worker is the only thing that
+  // has to find that document *by name* -- an input renamed or dropped from the
+  // list leaves the constant pointing at a file the build no longer emits, which
+  // fails every install and shows up nowhere else. Reading the constant rather
+  // than hard-coding the path is what makes that a failure here.
   const fallback = /const OFFLINE_FALLBACK_PATH = '([^']+)';/.exec(worker);
   if (fallback === null) {
     failures.push('sw.js names no offline fallback document');
@@ -387,6 +399,120 @@ async function checkPrecache(failures) {
     if (!precache.has(expected)) {
       failures.push(`the precache list is missing ${expected}`);
     }
+  }
+}
+
+/**
+ * The fallback document, which is the one page whose links nothing else checks.
+ *
+ * Every other document in the build is written by a page that links its assets
+ * relatively or has them rewritten by the bundler. This one is a standalone
+ * document served under *any* address the deployment cannot resolve, so a
+ * relative link resolves differently every time it is shown and the base has to
+ * be written into it. That is why it is a build input rather than a file in
+ * `public/`, and this is the assertion that it stayed one: a copied file would
+ * pass every other check here while sending a lost visitor to the origin root.
+ *
+ * @param {string[]} failures
+ */
+async function checkFallbackDocument(failures) {
+  let html;
+  try {
+    html = await readFile(join(OUTPUT_DIRECTORY, '404.html'), 'utf8');
+  } catch {
+    failures.push('the build produced no 404.html');
+    return;
+  }
+
+  // Both of the document's outbound URLs, by different mechanisms: the anchor is
+  // written as an environment placeholder and replaced, the icon is written
+  // root-absolute and rewritten by the asset pipeline. Either can stop happening
+  // on its own -- the placeholder if the file leaves the input list, the icon if
+  // it is moved out of `public/` -- so both are named.
+  const home = /<a href="([^"]*)">Go to Platform Toolkit<\/a>/.exec(html);
+  if (home === null) {
+    failures.push('404.html has no link back to the collection');
+  } else if (home[1] !== BASE_PATH) {
+    failures.push(
+      `404.html links home to "${home[1]}", and the deployed base is "${BASE_PATH}" -- a visitor who was already lost is sent out of the deployment`,
+    );
+  }
+
+  const icon = /<link rel="icon" href="([^"]*)"/.exec(html);
+  if (icon !== null && !icon[1].startsWith(BASE_PATH)) {
+    failures.push(`404.html names its icon "${icon[1]}", which is not under "${BASE_PATH}"`);
+  }
+
+  // A page shown because a request failed must not depend on a second request,
+  // so its styling stays inline. It also keeps its own policy: two policies on
+  // one document are enforced as their intersection, and the site's
+  // `style-src 'self'` alongside this document's `'unsafe-inline'` allows
+  // neither -- an unstyled fallback, in the built output only.
+  if (!html.includes('<style>')) failures.push('404.html no longer carries its own styles');
+  if (/<link[^>]+rel="stylesheet"/.test(html)) {
+    failures.push('404.html links a stylesheet, so it needs a second request to render');
+  }
+  const policies = html.match(/http-equiv="Content-Security-Policy"/g) ?? [];
+  if (policies.length !== 1) {
+    failures.push(
+      `404.html carries ${String(policies.length)} content security policies, and the intersection of two would block its own inline styles`,
+    );
+  }
+}
+
+/**
+ * The offer to install, on every page that can be installed and on no other.
+ *
+ * It is built by script rather than written into the documents, so nothing above
+ * can see it -- `checkDocuments` matches strings in the emitted HTML, where this
+ * does not appear at all. Hence a browser, and hence all fifteen routes rather
+ * than a sample.
+ *
+ * The absent half is the one that has to hold: a widget on somebody else's page
+ * must never offer to install anything on their visitor. It holds because the
+ * embed entries do not import the module, which is invisible at every layer
+ * except this one.
+ *
+ * @param {string[]} failures
+ * @param {import('playwright').Browser} browser
+ * @param {string} origin
+ */
+async function checkInstallAffordance(failures, browser, origin) {
+  // The fold, not the section around it. An installed page still builds the
+  // empty section -- it returns early, hidden, before adding anything to it --
+  // so a selector naming only the container cannot tell "offered" from "already
+  // installed, nothing to offer", and would pass on a page that offers nothing.
+  const offer = '.install-prompt ptk-disclosure[label="Install the toolkit"]';
+
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 720 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  try {
+    const page = await context.newPage();
+    for (const entry of PAGES) {
+      await page.goto(`${origin}${entry.path}`, { waitUntil: 'load' });
+      // Booted first, or an absence proves nothing: every route mounts its view
+      // and the offer in one call, so a page measured before that call has
+      // neither and reads as a pass.
+      try {
+        await page.locator('#app > *').first().waitFor({ timeout: 10000 });
+      } catch {
+        failures.push(`${entry.path} rendered nothing, so its install affordance is unmeasured`);
+        continue;
+      }
+
+      const offered = await page.locator(offer).count();
+      if (entry.installable && offered === 0) {
+        failures.push(`${entry.path} is installable and offers no way to install`);
+      }
+      if (!entry.installable && offered > 0) {
+        failures.push(`${entry.path} offers to install the toolkit on an embedder's visitor`);
+      }
+    }
+  } finally {
+    await context.close();
   }
 }
 
@@ -453,12 +579,19 @@ async function main() {
   const failures = [];
   const manifest = await checkManifest(failures);
   await checkDocuments(failures, manifest);
+  await checkFallbackDocument(failures);
   await checkPrecache(failures);
 
   const { server, origin } = await serveDirectory(OUTPUT_DIRECTORY);
   const browser = await chromium.launch();
 
   try {
+    // First, and in a context of its own, because it is the only pass that
+    // opens every route: the offline pass below switches the network off part
+    // way through, and a page loaded after that would be measuring the cache
+    // rather than the build.
+    await checkInstallAffordance(failures, browser, origin);
+
     // A phone-shaped context, because that is the device this feature is for and
     // a service worker is the one thing that behaves the same on both.
     const context = await browser.newContext({

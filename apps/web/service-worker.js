@@ -61,11 +61,13 @@ const DATA_BASE = /* @__PTK_DATA_BASE__ */ '/data/';
 /**
  * The document shown when a navigation has nowhere left to go.
  *
- * Not a placeholder and not part of the substituted list. `public/` is copied
- * verbatim, so this filename is fixed rather than content-hashed, and it is the
- * one precache entry the worker needs by name -- everything else it only has to
- * store. The build does not list it, so it is added below; `scripts/check-pwa.mjs`
- * reads this constant and holds the build's own output to it.
+ * Not a placeholder, and named here even though the build now lists it. It is a
+ * build input rather than a copied file, so that its home link can follow the
+ * deployed base -- but its name is fixed rather than content-hashed, and it is
+ * the one precache entry the worker has to *find* by name; everything else it
+ * only has to store. Naming it is also what makes it independent of the
+ * substituted list: a renamed input takes the fallback out of the precache, and
+ * `scripts/check-pwa.mjs` reads this constant and holds the build's output to it.
  *
  * GitHub Pages serves the same file for an address it cannot resolve, so a
  * mistyped URL and an uncached one land on one page, which is why its wording
@@ -96,11 +98,11 @@ const DATA_CACHE_NAME = 'ptk-data';
 const MAX_DATA_ENTRIES = 60;
 
 const dataBaseUrl = new URL(DATA_BASE, self.location.href);
-// Deduplicated after resolution, not before. `cache.addAll` rejects outright
-// when two of its requests name the same URL, so the day the build starts
-// listing the fallback itself, an unguarded concatenation would fail every
-// install -- and an install that fails leaves the previous worker serving, which
-// is the failure that looks like nothing happening.
+// Deduplicated after resolution, not before, and it is load-bearing now rather
+// than defensive: the build lists the fallback, so an unguarded concatenation
+// names it twice. `cache.addAll` rejects outright when two of its requests name
+// the same URL, and an install that fails leaves the previous worker serving --
+// the failure that looks like nothing happening.
 const precacheUrls = [
   ...new Set(
     [...PRECACHE_PATHS, OFFLINE_FALLBACK_PATH].map(

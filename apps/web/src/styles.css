@@ -99,9 +99,9 @@
  * How to install the toolkit: a fold that is always there, and above it a real
  * button on the browsers that offer one.
  *
- * Below the tools rather than above them -- somebody who arrived to look up a
- * record should reach the record first -- and last in the document, where the
- * button appearing pushes nothing down.
+ * Last on every installable page, hub and tool alike -- somebody who arrived to
+ * look up a record should reach the record first, and at the end of the document
+ * the button appearing pushes nothing down. The embed routes never build it.
  *
  * No card chrome here, deliberately. The fold draws its own border and raised
  * surface, and wrapping it in a second bordered box is two frames around one
@@ -118,7 +118,7 @@
  * The button is sized by its label, not by the column.
  *
  * A grid item stretches by default, which would run "Install" the full width of
- * the hub -- a stripe of accent colour above the fold that reads as a banner
+ * the page -- a stripe of accent colour above the fold that reads as a banner
  * rather than as something to press.
  */
 .install-prompt ptk-button {
@@ -196,5 +196,15 @@ body[data-embedded='true'] > main {
   .page {
     max-width: none;
     padding: 0;
+  }
+
+  /*
+   * The offer to install goes with the header, and started mattering when it
+   * stopped being hub-only: the meet-day pack is the one screen in the collection
+   * printed on purpose, and a folded "Install the toolkit" at the foot of it is a
+   * line of chrome on a sheet carried to the platform.
+   */
+  .install-prompt {
+    display: none;
   }
 }

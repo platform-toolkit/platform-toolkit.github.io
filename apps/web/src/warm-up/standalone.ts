@@ -3,6 +3,7 @@
 
 import { initializeTheme } from '@platform-toolkit/ui';
 
+import { createInstallPrompt } from '../install.js';
 import { registerServiceWorker } from '../pwa.js';
 import { browserLogbookHandoff } from './handoff.js';
 import { createWarmUpView } from './view.js';
@@ -39,4 +40,13 @@ registerServiceWorker();
 // different tool is not a thing they agreed to when they embedded a warm-up
 // calculator. The storage would also be partitioned there, so the record would
 // be left where the logbook's own page could never read it.
-app.replaceChildren(createWarmUpView({ logbook: browserLogbookHandoff(LOGBOOK_HREF) }));
+
+// The install affordance, last and on this route only. A link shared between
+// training partners lands on a tool page rather than the hub, so hub-only
+// placement meant seven of the eight installable pages offered nothing. It is
+// absent from `embed.ts` for the same reason the handoff above is: a widget must
+// never offer to install anything on an embedder's visitor.
+app.replaceChildren(
+  createWarmUpView({ logbook: browserLogbookHandoff(LOGBOOK_HREF) }),
+  createInstallPrompt(),
+);

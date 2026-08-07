@@ -15,21 +15,35 @@
       those apart and does not need to: in both cases the address they asked for
       is not going to load and the collection they installed still will.
 
-      WHY IT IS SELF-CONTAINED
+      WHY IT IS A BUILD INPUT AND NOT IN `public/`
 
-      `public/` is copied verbatim, so nothing here is rewritten by the build:
-      no hashed stylesheet to link, no injected policy, and no substituted base.
-      A page that exists to be shown when a request has already failed is also
-      the wrong place for a second request, so the small amount of styling it
-      needs is inline. The policy below is written by hand for that: this
-      document runs no script, reads no input and has no injection point, so an
-      inline stylesheet is the whole of what it needs to be allowed.
+      It used to be copied verbatim out of `public/`, which meant no step could
+      substitute anything into it -- and the home link below was root-absolute
+      as a result. That is correct for the deployment this project targets, an
+      organisation user site served from the origin root, and wrong under
+      PTK_BASE_PATH, where it sent a visitor who was already lost out of the
+      subpath and on to somebody else's site root.
 
-      The one thing the build cannot fix is the link. It is root-absolute, which
-      is correct for the deployment this project targets -- an organisation user
-      site served from the origin root -- and wrong under PTK_BASE_PATH, where
-      it would leave the subpath entirely. Making it follow the base means
-      putting this file through Vite as a build input rather than copying it.
+      As a Vite input it goes through the same HTML pipeline as every other
+      page: the base placeholder in the link at the foot of this document is
+      replaced with the deployed base, and the icon's root-absolute URL is
+      rewritten to sit under it. `scripts/check-pwa.mjs` reads the built copy and
+      fails if either still names the source form. Note that the replacement is
+      textual and does not respect comments -- writing the placeholder out in
+      prose here would substitute it too, which is why this paragraph does not.
+
+      WHY IT IS STILL SELF-CONTAINED
+
+      A page that exists to be shown when a request has already failed is the
+      wrong place for a second request, so the styling stays inline rather than
+      linking the hashed sheet the pipeline could now give it. The policy below
+      is written by hand for that, and `vite.config.ts` excludes this document
+      from the injected site policy: two policies are enforced as an
+      intersection, and the site's `style-src 'self'` would block the styles
+      below and leave a bare unstyled page at the one moment nothing else is
+      going right. This document runs no script, reads no input and has no
+      injection point, so an inline stylesheet is the whole of what it needs to
+      be allowed.
     -->
     <meta
       http-equiv="Content-Security-Policy"
@@ -134,7 +148,11 @@
         Every tool here works offline once the toolkit is installed, so the ones you have already
         opened will still load.
       </p>
-      <a href="/">Go to Platform Toolkit</a>
+      <!-- Not "./", which would resolve against whatever address failed: this
+           document answers for every unresolvable URL under the deployment, so
+           the only href that reaches the hub from all of them is the deployed
+           base, written out. -->
+      <a href="%BASE_URL%">Go to Platform Toolkit</a>
     </main>
   </body>
 </html>

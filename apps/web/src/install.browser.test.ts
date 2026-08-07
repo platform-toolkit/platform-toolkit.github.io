@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 // rewritten for was the second beating the first. Loading one without the other
 // would test a page that does not exist.
 import '@platform-toolkit/ui/tokens.css';
-import '../styles.css';
+import './styles.css';
 
 import { createInstallPrompt, type InstallHost } from './install.js';
 

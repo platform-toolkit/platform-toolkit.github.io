@@ -881,13 +881,26 @@ const PLATFORM_TARGETS_SETTLE = [
 ];
 
 /**
- * The hub's one fold: how to install the toolkit.
+ * The install fold, which is now on all eight installable pages and not just the
+ * hub.
  *
  * Shut it is a single row and measures nothing. Open it is two sentences naming
- * four separate menu items, which is the longest unbroken prose the hub renders
- * and the only thing on it with a real chance of overflowing a 320px column.
+ * four separate menu items -- the longest unbroken prose the hub renders, and the
+ * only thing on it with a real chance of overflowing a 320px column. That prose
+ * did not get shorter when it was copied to the tool pages, so every route that
+ * grew the fold has to open it: a fold this list does not name is measured as the
+ * one line of its summary, at every width, which is how a check quietly stops
+ * covering what it claims to.
+ *
+ * `click` and not `reveal`. The `reveal` driver is Playwright's `check()`, which
+ * refuses anything that is not a checkbox or a radio, so a `<summary>` named
+ * there could not be opened at all.
+ *
+ * One route entry per path carries it, not all of them. The fold is the same
+ * element with the same contents wherever it appears, so a second entry over the
+ * same path would re-measure one row of prose and cost a browser context.
  */
-const HUB_CLICK = ['ptk-disclosure[label="Install the toolkit"] summary'];
+const INSTALL_CLICK = ['ptk-disclosure[label="Install the toolkit"] summary'];
 
 /**
  * One competition result, typed the way a lifter reads it off an archive page.
@@ -2209,11 +2222,11 @@ const LOGBOOK_RESTING_SETTLE = [
  * the report, since the path no longer identifies one.
  */
 const ROUTES = [
-  { path: '/', click: HUB_CLICK, reveal: [], fill: [] },
+  { path: '/', click: INSTALL_CLICK, reveal: [], fill: [] },
   {
     path: '/platform-targets/',
     label: '/platform-targets/ (setup)',
-    click: [],
+    click: INSTALL_CLICK,
     reveal: PLATFORM_TARGETS_REVEAL,
     choose: PLATFORM_TARGETS_CHOOSE,
     fill: [],
@@ -2252,7 +2265,7 @@ const ROUTES = [
   },
   {
     path: '/warm-up/',
-    click: WARM_UP_CLICK,
+    click: [...WARM_UP_CLICK, ...INSTALL_CLICK],
     reveal: [],
     fill: WARM_UP_FILL,
     clickAfter: WARM_UP_CLICK_AFTER,
@@ -2278,7 +2291,7 @@ const ROUTES = [
   },
   {
     path: '/convert/',
-    click: CONVERT_CLICK,
+    click: [...CONVERT_CLICK, ...INSTALL_CLICK],
     reveal: [],
     fill: CONVERT_FILL,
     // An option card, not the field just typed into: a filled field says the
@@ -2295,7 +2308,7 @@ const ROUTES = [
   },
   {
     path: '/one-rep-max/',
-    click: ONE_REP_MAX_CLICK,
+    click: [...ONE_REP_MAX_CLICK, ...INSTALL_CLICK],
     reveal: [],
     fill: ONE_REP_MAX_FILL,
     clickAfter: ONE_REP_MAX_CLICK_AFTER,
@@ -2315,7 +2328,7 @@ const ROUTES = [
   {
     path: '/meet-day/',
     label: '/meet-day/ (plan)',
-    click: MEET_DAY_CLICK,
+    click: [...MEET_DAY_CLICK, ...INSTALL_CLICK],
     reveal: [],
     fill: MEET_DAY_FILL,
     clickAfter: [...MEET_DAY_CLICK_AFTER, ...MEET_DAY_RECORD_CLICK],
@@ -2588,7 +2601,7 @@ const ROUTES = [
   },
   {
     path: '/qualify/',
-    click: [],
+    click: INSTALL_CLICK,
     reveal: [],
     fill: QUALIFY_FILL,
     clickAfter: QUALIFY_CLICK_AFTER,
@@ -2619,7 +2632,7 @@ const ROUTES = [
     // at 320px, inside a section that is itself inside a card. Measuring the
     // summary and calling the section covered is how a two-plate row would reach
     // a phone sideways.
-    click: LOGBOOK_RACK_CLICK,
+    click: [...LOGBOOK_RACK_CLICK, ...INSTALL_CLICK],
     reveal: [],
     fill: [],
     // The storage line is the last thing to arrive and the only thing here that

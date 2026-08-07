@@ -2,7 +2,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The "install" affordance, on the hub only.
+ * The "install" affordance, on every page that can be installed.
+ *
+ * WHY IT IS NOT ONLY ON THE HUB
+ *
+ * It used to be, and that put the offer on one of the eight installable pages.
+ * A shared link does not land on the hub: somebody sent `/warm-up/` by a
+ * training partner has no reason to go looking for an index, and the affordance
+ * they never saw is the one that would have made the tool work in a gym with no
+ * signal. An install begun from a tool page installs the collection either way
+ * -- there is one `start_url` and one icon, not one per tool -- so the only
+ * thing hub-only placement changed was how many visitors were offered it.
+ *
+ * The embed routes get none of this, and that is a correctness rule rather than
+ * a preference: a widget on somebody else's page must never offer to install
+ * anything on their visitor. It holds because the embed entries never call this
+ * -- see `scripts/check-pwa.mjs`, which asserts the absence on every one.
  *
  * WHY IT IS NOT SIMPLY A BUTTON
  *

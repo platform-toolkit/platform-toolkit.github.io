@@ -4,6 +4,7 @@
 import { initializeTheme } from '@platform-toolkit/ui';
 
 import { FEDERATION_ATTRIBUTE, parseFederationId } from '../federation.js';
+import { createInstallPrompt } from '../install.js';
 import { registerServiceWorker } from '../pwa.js';
 import { createConverterView } from './view.js';
 
@@ -27,4 +28,7 @@ initializeTheme();
 // costs nothing here.
 registerServiceWorker();
 
-app.replaceChildren(createConverterView({ federationId }));
+// The install affordance, last and on this route only. A shared link lands on a
+// tool page rather than the hub, and a widget must never offer to install
+// anything on an embedder's visitor -- so it is absent from `embed.ts`.
+app.replaceChildren(createConverterView({ federationId }), createInstallPrompt());

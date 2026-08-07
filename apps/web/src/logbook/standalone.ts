@@ -3,6 +3,7 @@
 
 import { initializeTheme } from '@platform-toolkit/ui';
 
+import { createInstallPrompt } from '../install.js';
 import { registerServiceWorker } from '../pwa.js';
 import {
   browserHandoffSource,
@@ -46,10 +47,14 @@ registerServiceWorker();
 // `pageTitled` for the third instance of the same asymmetry: the header above
 // `#app` in this document already says "Training Logbook", and the embed route
 // has no header at all.
+// The install affordance is the fourth: last and on this route only. A shared
+// link lands on a tool page rather than the hub, and a widget must never offer to
+// install anything on an embedder's visitor.
 app.replaceChildren(
   createTrainingLogbookView({
     handoff: browserHandoffSource(),
     persistence: browserStoragePersistence(),
     pageTitled: true,
   }),
+  createInstallPrompt(),
 );

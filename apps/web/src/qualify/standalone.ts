@@ -4,6 +4,7 @@
 import { initializeTheme } from '@platform-toolkit/ui';
 
 import { FEDERATION_ATTRIBUTE, parseFederationId } from '../federation.js';
+import { createInstallPrompt } from '../install.js';
 import { registerServiceWorker } from '../pwa.js';
 import { createQualificationCheckView } from './view.js';
 
@@ -26,4 +27,8 @@ initializeTheme();
 // standalone route being embeddable costs nothing here.
 registerServiceWorker();
 
-app.replaceChildren(createQualificationCheckView({ federationId }));
+// Offered from here as well as the hub, for the same reason the worker is: this
+// is a page somebody opens directly, so hub-only placement meant the offer never
+// reached them. Absent from `embed.ts` -- a widget must never offer to install
+// anything on an embedder's visitor.
+app.replaceChildren(createQualificationCheckView({ federationId }), createInstallPrompt());

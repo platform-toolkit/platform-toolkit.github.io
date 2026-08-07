@@ -3,10 +3,9 @@
 
 import { initializeTheme } from '@platform-toolkit/ui';
 
+import { createInstallPrompt } from '../install.js';
 import { registerServiceWorker } from '../pwa.js';
 import { TOOLS } from '../tools.js';
-
-import { createInstallPrompt } from './install.js';
 
 const app = document.querySelector<HTMLElement>('#app');
 if (app === null) {

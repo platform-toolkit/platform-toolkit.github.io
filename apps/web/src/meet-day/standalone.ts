@@ -3,6 +3,7 @@
 
 import { initializeTheme } from '@platform-toolkit/ui';
 
+import { createInstallPrompt } from '../install.js';
 import { registerServiceWorker } from '../pwa.js';
 import { browserMeetStore } from './meet-store.js';
 import { createPlannerView } from './view.js';
@@ -33,4 +34,7 @@ registerServiceWorker();
 // or storage blocked outright -- rather than to nothing, because a lifter in a
 // private window still has a meet to run and the screen says plainly which of
 // the two they have.
-app.replaceChildren(createPlannerView({ store: browserMeetStore() }));
+// The install affordance, last and on this route only. A shared link lands on a
+// tool page rather than the hub, and a widget must never offer to install
+// anything on an embedder's visitor -- so it is absent from `embed.ts`.
+app.replaceChildren(createPlannerView({ store: browserMeetStore() }), createInstallPrompt());

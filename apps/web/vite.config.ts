@@ -37,6 +37,18 @@ function buildContentSecurityPolicy(connectSrc: string): string {
 }
 
 /**
+ * The one document that writes its own policy, and must keep it.
+ *
+ * `404.html` styles itself inline, because it is shown when a request has
+ * already failed and is the wrong place to depend on a second one. Two policies
+ * on one document are enforced as their intersection, so injecting the site's
+ * `style-src 'self'` alongside its own `'unsafe-inline'` allows neither: the
+ * fallback page would render unstyled, and only in the built output, and only
+ * for somebody who was already lost or offline.
+ */
+const SELF_POLICED_DOCUMENT = '404.html';
+
+/**
  * Injects the Content Security Policy into built HTML only.
  *
  * The dev server serves CSS by injecting style elements from JavaScript, which a
@@ -51,7 +63,12 @@ function contentSecurityPolicy(policy: string): Plugin {
     apply: 'build',
     transformIndexHtml: {
       order: 'pre',
-      handler(html) {
+      handler(html, context) {
+        // `path` is the document's URL within the build, so it carries the base
+        // and a bare `endsWith` is what identifies the file under either
+        // deployment.
+        if (context.path.endsWith(`/${SELF_POLICED_DOCUMENT}`)) return html;
+
         return {
           html,
           tags: [
@@ -279,6 +296,13 @@ export default defineConfig({
         'qualify-embed': here('qualify/embed/uspa/index.html'),
         logbook: here('logbook/index.html'),
         'logbook-embed': here('logbook/embed/index.html'),
+        // The fallback page, and the reason it is an input rather than a file in
+        // `public/`: a copied document has nothing substituted into it, so its
+        // home link could not follow the base and sent a visitor who was already
+        // lost to the origin root. See the note at the top of `404.html`. It
+        // carries no script -- the pipeline is wanted here only for `%BASE_URL%`
+        // and the icon's URL.
+        'not-available': here('404.html'),
       },
     },
   },
