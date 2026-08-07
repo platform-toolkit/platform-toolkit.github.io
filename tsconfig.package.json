@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+
+  // The base, minus source maps, for the projects that get packed.
+  //
+  // A tarball carries `dist` and no `src` -- section 15's `files` field is what
+  // makes that true -- so a shipped `.js.map` or `.d.ts.map` names
+  // `../src/index.ts` at a path the consumer does not have. `declarationMap` is
+  // the pointed one: it exists so that "go to definition" lands in source, and
+  // landing nowhere is worse than landing on the `.d.ts`. The repository is
+  // public, so a consumer who wants the source loses nothing.
+  //
+  // It lives here rather than in `tsconfig.base.json` because the base is also
+  // what `apps/web` extends, and the site is checked rather than packed -- Vite
+  // decides what it ships, and already ships no maps.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "declarationMap": false,
+    "sourceMap": false
+  }
+}
