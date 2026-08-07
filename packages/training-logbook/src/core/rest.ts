@@ -95,6 +95,41 @@ export function restSecondsFor(settings: RestTimerSettings, exerciseId: string):
   return clampRestSeconds(specific ?? settings.defaultSeconds);
 }
 
+/**
+ * The settings a lifter leaves behind by choosing a rest for one lift.
+ *
+ * Section 7.11's exercise-specific duration is the only part of the rest timer that
+ * had nowhere to be written from. It is kept here beside the default rather than on the
+ * exercise because it is a preference and an exercise is a movement: it has to apply to
+ * catalogue entries nobody owns, and forgetting a custom lift must not be a way of
+ * quietly rewriting how long the next one rests.
+ *
+ * Choosing the default length **removes** the entry rather than storing a copy of it.
+ * A stored duplicate is a lift that stops following the default the day the default
+ * moves, and it comes apart silently -- the picker goes on reading the number the
+ * lifter chose, so nothing on screen ever says the two parted.
+ */
+export function withRestSecondsFor(
+  settings: RestTimerSettings,
+  exerciseId: string,
+  seconds: number,
+): RestTimerSettings {
+  // A lift with no identifier is a lift no lookup will ever ask about, so an entry
+  // under one would be a number stored forever and read never.
+  if (exerciseId === '') return settings;
+  const wanted = clampRestSeconds(seconds);
+  // Rebuilt without this lift rather than copied and deleted from, which is the same
+  // answer and the one the record's `readonly` says out loud.
+  const others = Object.fromEntries(
+    Object.entries(settings.perExerciseSeconds).filter(([id]) => id !== exerciseId),
+  );
+  const perExerciseSeconds =
+    wanted === clampRestSeconds(settings.defaultSeconds)
+      ? others
+      : { ...others, [exerciseId]: wanted };
+  return { ...settings, perExerciseSeconds };
+}
+
 /** A rest of this length, starting now. */
 export function startRest(seconds: number, at: Instant): RestTimer {
   const totalSeconds = clampRestSeconds(seconds);
@@ -211,6 +246,36 @@ export function adjustRest(timer: RestTimer, deltaSeconds: number, at: Instant):
     endsAt: new Date(from + remaining).toISOString(),
     totalSeconds: timer.totalSeconds,
   };
+}
+
+/**
+ * The rest a lifter has just decided the length of, keeping the time already spent.
+ *
+ * The counterpart to {@link adjustRest} and deliberately not the same operation. A step
+ * is about today, so it moves the end and leaves `totalSeconds` alone -- reset still
+ * goes back to the rest that was configured. This is the lifter saying what a rest
+ * after this lift *is*, so the total moves with it and a reset afterwards goes back to
+ * the new answer.
+ *
+ * Time already spent is kept rather than given back: somebody forty seconds into a
+ * three minute rest who decides on five minutes has four minutes and twenty left. A
+ * restart would hand back the forty seconds they have already stood there for, which
+ * makes lengthening a rest and pressing Start again the same button.
+ *
+ * A rest extended past its own total has spent a negative amount of time by that
+ * subtraction. It counts as none, and the new length starts from the top.
+ */
+export function retimeRest(timer: RestTimer, seconds: number, at: Instant): RestTimer {
+  const totalSeconds = clampRestSeconds(seconds);
+  if (totalSeconds === timer.totalSeconds) return timer;
+  const spent = Math.max(0, timer.totalSeconds * 1000 - restRemainingMillis(timer, at));
+  const remaining = Math.max(0, totalSeconds * 1000 - spent);
+  if (timer.kind === 'paused') {
+    return { kind: 'paused', remainingMillis: remaining, totalSeconds };
+  }
+  const from = millis(at);
+  if (from === null) return timer;
+  return { kind: 'running', endsAt: new Date(from + remaining).toISOString(), totalSeconds };
 }
 
 /** An instant as milliseconds, or `null` where this runtime cannot read it. */

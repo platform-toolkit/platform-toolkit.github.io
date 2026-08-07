@@ -42,7 +42,7 @@ import { SEGMENTED_CHANGE_EVENT, type SegmentedChangeDetail } from '@platform-to
 import axe from 'axe-core';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CATALOG_EXERCISES, findExercise } from '../core/catalog.js';
+import { CATALOG_EXERCISES, PRIMARY_EXERCISES, findExercise } from '../core/catalog.js';
 import { AT_LATER, AT_START, ON_DAY } from '../core/context.fixture.js';
 import { createHandoff } from '../core/handoff.js';
 import {
@@ -94,6 +94,7 @@ import {
   DONE_EFFORT_FIELD,
   EFFORT_SETTING_FIELD,
   REST_DURATION_FIELD,
+  REST_LIFT_DURATION_FIELD,
   REST_SETTING_FIELD,
   UNIT_SETTING_FIELD,
   WORKOUT_NOTE_KEY,
@@ -1214,6 +1215,40 @@ async function chooseRestDuration(element: PtkTrainingLogbook, seconds: number):
   // event `ptk-select` listens for.
   select.dispatchEvent(new Event('change', { bubbles: true }));
   await settle(element);
+}
+
+/**
+ * The squat, which is what `planASquatSession` puts in the session.
+ *
+ * Read from the catalogue rather than written out, because the name below is compared
+ * against a label the tool builds from the same place -- a literal here would pass a
+ * test that no longer describes the screen the day somebody rewords the entry.
+ */
+function theSquat(): { readonly id: string; readonly name: string } {
+  const found = PRIMARY_EXERCISES[0];
+  if (found === undefined) throw new Error('The catalogue has no primary lifts.');
+  return { id: found.id, name: found.name };
+}
+
+/** The picker on the band, which is offered only for a rest the root can name. */
+function liftRestPickers(element: PtkTrainingLogbook): HTMLElement[] {
+  return deepAll(
+    shadow(restTimer(element)),
+    `[data-field="${REST_LIFT_DURATION_FIELD}"] ptk-select`,
+  );
+}
+
+/** Answers the band's picker the way the platform's own list does. */
+async function chooseLiftRest(element: PtkTrainingLogbook, seconds: number): Promise<void> {
+  await restBand(element);
+  const host = liftRestPickers(element)[0];
+  if (host === undefined) throw new Error('The band is offering no duration for this lift.');
+  const select = shadow(host).querySelector('select');
+  if (select === null) throw new Error('The band picker has not rendered.');
+  select.value = String(seconds);
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  await settle(element);
+  await restTimer(element).updateComplete;
 }
 
 /** Switches the timer on and waits for the answer to reach storage. */
@@ -2892,6 +2927,9 @@ describe('the training logbook', () => {
       await pressRest(element, 'dismiss');
 
       expect(await restBand(element)).toBeNull();
+      // Including this lift's duration picker, which goes with the band it is printed
+      // on rather than becoming a setting stranded on the logging screen.
+      expect(liftRestPickers(element)).toHaveLength(0);
       // The set stays done. Dismissing a rest is not taking back the set that began it,
       // and the two controls sit one card apart.
       expect(isDone(setRow(element, 0))).toBe(true);
@@ -2928,6 +2966,85 @@ describe('the training logbook', () => {
 
       expect(isDone(workingRow(element, 0))).toBe(true);
       expect(await restBand(element)).toBeNull();
+    });
+
+    it('offers the lift its own rest, named after the lift and not after the setting', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await useRestTimer(element, store);
+      await planASquatSession(element);
+
+      // Nothing before a set is done, because there is no rest and so no lift to store
+      // one against -- and a picker under no countdown is a setting hiding on whichever
+      // screen the lifter happened to leave open.
+      expect(liftRestPickers(element)).toHaveLength(0);
+
+      await press(element, 'complete', setRow(element, 0));
+
+      const picker = liftRestPickers(element)[0];
+      if (picker === undefined) throw new Error('The band is offering no duration.');
+      // The lift in the visible label. The settings screen's picker reads "Rest for",
+      // and two identically worded controls that change different things is the whole
+      // reason this one says which.
+      expect(picker.getAttribute('label')).toBe(REST_NOTES.liftDurationLabel(theSquat().name));
+      expect(readAll(element)).toContain(REST_NOTES.liftDurationNote);
+    });
+
+    it('keeps a length chosen on the band for that lift and for no other', async () => {
+      const { store, databaseName } = await durableStore();
+      const first = await mount(store);
+      await useRestTimer(first, store);
+      await planASquatSession(first);
+      await press(first, 'complete', setRow(first, 0));
+      await waitOut(first, 60);
+
+      await chooseLiftRest(first, 300);
+
+      // Retimed rather than restarted. The lifter has already stood there for a minute
+      // and choosing five is not a way of asking for that minute back -- which is what
+      // Start again is for, one button to the left.
+      expect(await restDigits(first)).toBe('4:00');
+      await vi.waitFor(async () => {
+        expect((await store.readSettings())?.restTimer.perExerciseSeconds).toStrictEqual({
+          [theSquat().id]: 300,
+        });
+      });
+      // And the default is untouched, which is the difference between this picker and
+      // the one on the home screen.
+      expect((await store.readSettings())?.restTimer.defaultSeconds).toBe(180);
+
+      // The refresh. A preference is first read in the next session, so one that only
+      // moved a property is a preference nobody ever had.
+      first.remove();
+      store.close();
+      const second = await mount(await reopen(databaseName));
+      // Back into the same session, and the next set of it. The rest itself is
+      // deliberately not persisted -- a countdown read back tomorrow would be describing
+      // a rest that ended yesterday -- so this is the stored length being read for the
+      // first time rather than the timer surviving.
+      await press(second, 'resume-workout');
+      await press(second, 'complete', setRow(second, 1));
+
+      expect(await restDigits(second)).toBe('5:00');
+    });
+
+    it('puts the lift back on the default rather than storing a copy of it', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await useRestTimer(element, store);
+      await planASquatSession(element);
+      await press(element, 'complete', setRow(element, 0));
+
+      await chooseLiftRest(element, 300);
+      await chooseLiftRest(element, 180);
+
+      // Empty and not `{ squat: 180 }`. A stored copy follows the default until the day
+      // it moves and then quietly stops, with the picker still reading the number the
+      // lifter chose.
+      await vi.waitFor(async () => {
+        expect((await store.readSettings())?.restTimer.perExerciseSeconds).toStrictEqual({});
+      });
+      expect(await restDigits(element)).toBe('3:00');
     });
 
     /*

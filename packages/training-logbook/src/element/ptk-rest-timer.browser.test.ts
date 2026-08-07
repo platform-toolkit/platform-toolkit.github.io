@@ -27,6 +27,7 @@
 
 // Without the stylesheet every declaration reading a custom property is dropped, and the
 // accessibility pass measures a screen that never ships.
+import { SELECT_CHANGE_EVENT, type SelectChangeDetail } from '@platform-toolkit/ui';
 import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -35,12 +36,14 @@ import { REST_STEP_SECONDS, startRest, type RestTimer } from '../core/rest.js';
 import type { Instant } from '../types.js';
 
 import { REST_NOTES } from './copy.js';
+import { REST_LIFT_DURATION_FIELD } from './dataset.js';
 import { defineTrainingLogbook } from './index.js';
 import {
   REST_ACTION_EVENT,
   type PtkRestTimer,
   type RestAction,
   type RestActionDetail,
+  type RestLift,
 } from './ptk-rest-timer.js';
 
 /** An invented instant, and an invented rest that a step either way lands clear of. */
@@ -251,6 +254,101 @@ describe('the controls', () => {
     if (shorten === null) throw new Error('the shorten control is not on screen.');
     expect(shorten.getAttribute('accessible-name')).toBe(REST_NOTES.shortenName(REST_STEP_SECONDS));
     expect(shorten.textContent.trim()).toBe(REST_NOTES.shorten(REST_STEP_SECONDS));
+  });
+});
+
+describe('the length this lift rests for', () => {
+  /** An invented lift and three invented lengths to choose between. Section 5.1. */
+  function aLift(overrides: Partial<RestLift> = {}): RestLift {
+    return {
+      name: 'Back squat',
+      seconds: REST_SECONDS,
+      options: [
+        { value: '120', label: '2 min' },
+        { value: String(REST_SECONDS), label: '3 min' },
+        { value: '300', label: '5 min' },
+      ],
+      ...overrides,
+    };
+  }
+
+  /** The picker, or `null` where the band is not offering one. */
+  function picker(element: PtkRestTimer): Element | null {
+    return shadow(element).querySelector(`[data-field="${REST_LIFT_DURATION_FIELD}"] ptk-select`);
+  }
+
+  it('offers nothing where the root named no lift', async () => {
+    // The ordinary case for a consumer mounting this on its own, and the root's answer
+    // for a rest whose lift it could not identify. A picker that would write a
+    // preference against nothing is worse than no picker.
+    const clock = clockAt(AT_START);
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock);
+    expect(picker(element)).toBeNull();
+  });
+
+  it('offers nothing where the root has no lengths to offer', async () => {
+    // Section 0.4 forbids a disabled control standing in for a feature, and an empty
+    // picker is the same thing with a better excuse.
+    const clock = clockAt(AT_START);
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock);
+    element.lift = aLift({ options: [] });
+    await element.updateComplete;
+    expect(picker(element)).toBeNull();
+  });
+
+  it('names the lift and shows what it currently rests for', async () => {
+    const clock = clockAt(AT_START);
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock);
+    element.lift = aLift({ seconds: 300 });
+    await element.updateComplete;
+
+    const control = picker(element);
+    if (control === null) throw new Error('the band is offering no duration.');
+    expect(control.getAttribute('label')).toBe(REST_NOTES.liftDurationLabel('Back squat'));
+    expect(shadow(control).querySelector('select')?.value).toBe('300');
+    // Said under it, because storing a preference is not what a countdown looks like it
+    // does.
+    expect(shadow(element).querySelector('.duration .note')?.textContent.trim()).toBe(
+      REST_NOTES.liftDurationNote,
+    );
+  });
+
+  it('hands the chosen length up under its own field and computes nothing', async () => {
+    // The same contract the buttons have. A band that retimed the rest itself would be
+    // a second place that knows what choosing a length means, and the root -- which is
+    // the only thing holding the settings -- would find out second.
+    const clock = clockAt(AT_START);
+    const before = startRest(REST_SECONDS, clock.now());
+    const element = await mount(before, clock);
+    element.lift = aLift();
+    await element.updateComplete;
+
+    const control = picker(element);
+    if (control === null) throw new Error('the band is offering no duration.');
+    const select = shadow(control).querySelector('select');
+    if (select === null) throw new Error('the picker has not rendered.');
+
+    let reported: SelectChangeDetail | null = null;
+    const listen = (event: Event): void => {
+      reported = (event as CustomEvent<SelectChangeDetail>).detail;
+    };
+    element.addEventListener(SELECT_CHANGE_EVENT, listen);
+    select.value = '300';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    element.removeEventListener(SELECT_CHANGE_EVENT, listen);
+    await element.updateComplete;
+
+    expect(reported).toStrictEqual({ value: '300' });
+    expect(element.timer).toStrictEqual(before);
+  });
+
+  it('has no accessibility violations with the picker on it', async () => {
+    const clock = clockAt(AT_START);
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock);
+    element.lift = aLift();
+    await element.updateComplete;
+    const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
+    expect(results.violations).toStrictEqual([]);
   });
 });
 

@@ -146,8 +146,10 @@ export {
   restRemainingMillis,
   restSecondsFor,
   resumeRest,
+  retimeRest,
   startRest,
   startRestFor,
+  withRestSecondsFor,
   type RestTimer,
 } from './rest.js';
 

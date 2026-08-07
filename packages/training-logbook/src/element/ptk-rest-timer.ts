@@ -35,6 +35,7 @@
  * seconds left" instead of "zero colon forty five", and is told it only when it asks.
  */
 
+import type { SelectOption } from '@platform-toolkit/ui';
 import '@platform-toolkit/ui';
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from 'lit';
 import { property, state } from 'lit/decorators.js';
@@ -43,7 +44,7 @@ import { REST_STEP_SECONDS, restRemainingMillis, type RestTimer } from '../core/
 import type { Instant } from '../types.js';
 
 import { REST_NOTES, formatRest, formatRestSpoken } from './copy.js';
-import { actionOf } from './dataset.js';
+import { REST_LIFT_DURATION_FIELD, actionOf } from './dataset.js';
 
 /** The tag `defineTrainingLogbook()` registers this under. */
 export const REST_TIMER_TAG = 'ptk-rest-timer';
@@ -63,6 +64,31 @@ export type RestAction = 'pause' | 'resume' | 'extend' | 'shorten' | 'reset' | '
 
 export interface RestActionDetail {
   readonly action: RestAction;
+}
+
+/**
+ * The lift a rest belongs to, where the lifter may say how long it should be.
+ *
+ * Section 7.11's exercise-specific duration, offered on the band because the band is
+ * where a lifter is standing when they find out the rest is wrong. The alternative
+ * homes are all worse: the exercise library holds only the movements a lifter invented,
+ * so the big lifts -- the ones that want five minutes -- could never get an entry, and a
+ * list of every exercise in the settings is a screen nobody would open twice.
+ *
+ * Handed down whole and nullable, so this element decides nothing about when to offer
+ * it. Only the root knows which lift the running rest came from and what the settings
+ * currently say, and `options` is the root's preset list rather than one invented here
+ * -- two lists of the rests worth offering is how they come apart.
+ *
+ * The picker is deliberately not the same press as `+30s`. A step is about today and
+ * leaves the configured length alone; this changes what a rest after this lift *is*.
+ */
+export interface RestLift {
+  /** As it read on the day, which is what the session snapshotted. */
+  readonly name: string;
+  /** What the settings say this lift rests for now, in seconds. */
+  readonly seconds: number;
+  readonly options: readonly SelectOption[];
 }
 
 /**
@@ -155,6 +181,22 @@ export class PtkRestTimer extends LitElement {
     }
 
     /*
+     * Under the controls and separated from them, because it is the one thing here that
+     * outlives the rest on screen. A picker sitting in the button row would be read as a
+     * seventh control over the next three minutes.
+     */
+    .duration {
+      padding-top: var(--ptk-space-xs);
+      border-top: 1px solid var(--ptk-color-border);
+    }
+
+    .duration .note {
+      margin: var(--ptk-space-xs) 0 0;
+      font-size: var(--ptk-font-size-sm);
+      color: var(--ptk-color-text-muted);
+    }
+
+    /*
      * The usual clip rectangle rather than display:none, which would take the text out
      * of the accessibility tree along with the pixels -- and the text is the entire
      * reason it exists.
@@ -173,6 +215,15 @@ export class PtkRestTimer extends LitElement {
 
   /** The rest to draw, or `null` for no rest at all -- which draws nothing. */
   @property({ attribute: false }) timer: RestTimer | null = null;
+
+  /**
+   * The lift to offer a stored duration for, or `null` to offer none. See {@link RestLift}.
+   *
+   * `null` is the ordinary case for a consumer mounting this on its own, and it is also
+   * what the root hands down for a rest whose lift it could not identify -- a picker
+   * that would write a preference against nothing is worse than no picker.
+   */
+  @property({ attribute: false }) lift: RestLift | null = null;
 
   /**
    * What time it is.
@@ -268,7 +319,34 @@ export class PtkRestTimer extends LitElement {
           ${this.#control(SHORTEN_ACTION)} ${this.#control(EXTEND_ACTION)}
           ${this.#control(RESET_ACTION)} ${this.#control(DISMISS_ACTION)}
         </div>
+        ${this.#duration()}
       </section>
+    `;
+  }
+
+  /**
+   * The stored rest for this lift, where there is a lift to store one against.
+   *
+   * No event of its own: the select's own change bubbles, and `data-field` says which
+   * of the tool's three pickers it came from. Every other named change in this element
+   * goes up as an action because there is no control that already carries a value; this
+   * one has one, and inventing a second event to repeat it is how the two get to
+   * disagree about what was chosen.
+   */
+  #duration(): TemplateResult | typeof nothing {
+    const lift = this.lift;
+    // An empty list is a root that has nothing to offer, not a picker with no options:
+    // section 0.4 forbids a control that stands in for a feature without providing it.
+    if (lift === null || lift.options.length === 0) return nothing;
+    return html`
+      <div class="duration" data-field=${REST_LIFT_DURATION_FIELD}>
+        <ptk-select
+          label=${REST_NOTES.liftDurationLabel(lift.name)}
+          .options=${lift.options}
+          .value=${String(lift.seconds)}
+        ></ptk-select>
+        <p class="note">${REST_NOTES.liftDurationNote}</p>
+      </div>
     `;
   }
 

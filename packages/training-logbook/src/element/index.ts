@@ -72,7 +72,12 @@ export {
   type RackChangedDetail,
 } from './ptk-equipment-library.js';
 export { EXERCISE_HISTORY_EVENT, type ExerciseHistoryOpenDetail } from './ptk-exercise-history.js';
-export { REST_ACTION_EVENT, type RestAction, type RestActionDetail } from './ptk-rest-timer.js';
+export {
+  REST_ACTION_EVENT,
+  type RestAction,
+  type RestActionDetail,
+  type RestLift,
+} from './ptk-rest-timer.js';
 export {
   EXERCISE_REMOVED_EVENT,
   EXERCISE_SAVED_EVENT,

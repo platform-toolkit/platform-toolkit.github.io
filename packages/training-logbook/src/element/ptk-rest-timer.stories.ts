@@ -12,7 +12,8 @@
  *
  * What is worth reviewing is whether five controls in a row still work at 320px, and
  * whether the timer reads as part of the tool rather than as a notification that landed
- * on top of it.
+ * on top of it. And, where the picker is on, whether the one control that outlives the
+ * countdown reads as separate from the five that do not.
  *
  * Every duration here is invented (section 5.1).
  */
@@ -21,7 +22,7 @@ import { defineTrainingLogbook } from '@platform-toolkit/training-logbook/elemen
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 
-import type { PtkRestTimer } from './ptk-rest-timer.js';
+import type { PtkRestTimer, RestLift } from './ptk-rest-timer.js';
 
 // Through the package entry and behind an explicit call, for the reason spelled out in
 // `ptk-workout-history.stories.ts`: a relative import would define every tag twice.
@@ -42,12 +43,38 @@ function running(elapsed: number, seconds = REST_SECONDS): RestTimer {
   return startRest(seconds, at(-elapsed));
 }
 
+/**
+ * An invented lift, and the lengths the root offers for it.
+ *
+ * The list is the root's in the tool. Here it is written out, because a story that
+ * imported the root's private preset list would be reviewing the list rather than the
+ * band.
+ */
+function aLift(seconds = REST_SECONDS): RestLift {
+  return {
+    name: 'Back squat',
+    seconds,
+    options: [60, 90, 120, 150, 180, 240, 300].map((value) => ({
+      value: String(value),
+      label:
+        value % 60 === 0
+          ? `${String(value / 60)} min`
+          : `${String(Math.floor(value / 60))} min ${String(value % 60)} s`,
+    })),
+  };
+}
+
 const meta: Meta<PtkRestTimer> = {
   title: 'Training logbook/Rest timer',
   component: 'ptk-rest-timer',
   tags: ['autodocs'],
-  args: { timer: running(60), now: () => AT_START },
-  render: (args) => html`<ptk-rest-timer .timer=${args.timer} .now=${args.now}></ptk-rest-timer>`,
+  args: { timer: running(60), now: () => AT_START, lift: null },
+  render: (args) =>
+    html`<ptk-rest-timer
+      .timer=${args.timer}
+      .now=${args.now}
+      .lift=${args.lift}
+    ></ptk-rest-timer>`,
 };
 
 export default meta;
@@ -106,9 +133,35 @@ export const ALongRest: Story = {
  * that scrolls sideways and hides the last one.
  */
 export const Narrow: Story = {
+  args: { lift: aLift() },
   render: (args) => html`
     <div style="width: 320px; outline: 1px dashed currentColor;">
-      <ptk-rest-timer .timer=${args.timer} .now=${args.now}></ptk-rest-timer>
+      <ptk-rest-timer .timer=${args.timer} .now=${args.now} .lift=${args.lift}></ptk-rest-timer>
     </div>
   `,
+};
+
+/**
+ * The rest this lift keeps, offered under the controls. Section 7.11.
+ *
+ * The one thing on the band that outlives the three minutes on screen, which is why it
+ * is below a rule and carries a sentence saying so. Worth reviewing: that it does not
+ * read as a sixth control, and that the label names the lift -- the settings screen has
+ * a picker worded "Rest for" that changes every lift at once, and the two must not be
+ * mistakable for each other.
+ */
+export const ChoosingThisLiftsRest: Story = {
+  args: { lift: aLift() },
+};
+
+/**
+ * The same picker on a lift already carrying its own length.
+ *
+ * Five minutes, chosen at some earlier session, read back rather than defaulted. Setting
+ * it to whatever the default happens to be is how a lift goes back to following it --
+ * there is deliberately no separate "use the default" option, because an option that
+ * duplicates one already in the list is a second way to say the same thing.
+ */
+export const ALiftWithItsOwnRest: Story = {
+  args: { timer: running(15, 300), lift: aLift(300) },
 };

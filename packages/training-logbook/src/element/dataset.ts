@@ -88,6 +88,16 @@ export const REST_SETTING_FIELD = 'rest-setting';
 export const REST_DURATION_FIELD = 'rest-duration';
 
 /**
+ * The picker on the rest band, which is the day above arriving.
+ *
+ * A third `ptk-select` reachable by the same listener, and the one the note above was
+ * written for: it carries a value that is a number of seconds in exactly the format the
+ * settings picker uses, so a handler routing on "it is the select" would write a rest
+ * for one lift into the default for all of them.
+ */
+export const REST_LIFT_DURATION_FIELD = 'rest-lift-duration';
+
+/**
  * The innermost `data-` value of one key on an event's path, or `null`.
  *
  * Innermost rather than outermost, because a set row sits inside an exercise block and

@@ -66,8 +66,11 @@ import {
   clampRestSeconds,
   pauseRest,
   resetRest,
+  restSecondsFor,
   resumeRest,
+  retimeRest,
   startRestFor,
+  withRestSecondsFor,
   type RestTimer,
 } from '../core/rest.js';
 import {
@@ -132,6 +135,7 @@ import {
 import {
   EFFORT_SETTING_FIELD,
   REST_DURATION_FIELD,
+  REST_LIFT_DURATION_FIELD,
   REST_SETTING_FIELD,
   UNIT_SETTING_FIELD,
   actionOf,
@@ -167,7 +171,7 @@ import {
   type RackChangedDetail,
 } from './ptk-equipment-library.js';
 import { EXERCISE_HISTORY_EVENT, type ExerciseHistoryOpenDetail } from './ptk-exercise-history.js';
-import { REST_ACTION_EVENT, type RestActionDetail } from './ptk-rest-timer.js';
+import { REST_ACTION_EVENT, type RestActionDetail, type RestLift } from './ptk-rest-timer.js';
 import {
   EXERCISE_REMOVED_EVENT,
   EXERCISE_SAVED_EVENT,
@@ -508,6 +512,16 @@ export class PtkTrainingLogbook extends LitElement {
    */
   @state() private rest: RestTimer | null = null;
 
+  /**
+   * Which lift the rest above is for, so its length can be chosen from the band.
+   *
+   * Separate from the timer rather than a field on it, because `core/rest.ts` is
+   * arithmetic about time and a lift's name is neither. It is also not cleared when a
+   * rest ends: `#restLift` reads it only alongside a timer, so a leftover is invisible,
+   * and `#startRest` is the one place that writes it.
+   */
+  @state() private restExercise: { readonly id: string; readonly name: string } | null = null;
+
   @state() private records: ExerciseHistory | null = null;
 
   /**
@@ -693,7 +707,11 @@ export class PtkTrainingLogbook extends LitElement {
    */
   override render(): TemplateResult {
     return html`
-      <ptk-rest-timer .timer=${this.rest} .now=${this.now}></ptk-rest-timer>
+      <ptk-rest-timer
+        .timer=${this.rest}
+        .now=${this.now}
+        .lift=${this.#restLift()}
+      ></ptk-rest-timer>
       ${this.#screen()}
     `;
   }
@@ -1569,21 +1587,28 @@ export class PtkTrainingLogbook extends LitElement {
   };
 
   /**
-   * The rest duration, which is the settings section's only picker.
+   * A rest duration: the default on the settings screen, or one lift's on the band.
    *
    * Routed on `data-field` like the segmented controls beside it, for the reason
    * `dataset.ts` gives: "it is the select" stops being a routing rule the moment there
-   * are two. A value that is not a number is dropped rather than clamped -- the options
-   * are this element's own and anything else came from a consumer firing the event by
-   * hand, which is not a number to guess at.
+   * are two, and there are now two carrying the same kind of value -- a number of
+   * seconds -- so the one that got it wrong would write a rest for squats into the
+   * default for everything. A value that is not a number is dropped rather than clamped
+   * -- the options are this element's own and anything else came from a consumer firing
+   * the event by hand, which is not a number to guess at.
    */
   readonly #onSelectSetting = (event: CustomEvent<SelectChangeDetail>): void => {
     stopHere(event);
-    if (fieldOf(event) !== REST_DURATION_FIELD) return;
+    const field = fieldOf(event);
+    if (field !== REST_DURATION_FIELD && field !== REST_LIFT_DURATION_FIELD) return;
     const { value } = event.detail;
     if (value === null) return;
     const seconds = Number.parseInt(value, 10);
     if (!Number.isInteger(seconds)) return;
+    if (field === REST_LIFT_DURATION_FIELD) {
+      this.#setLiftRest(seconds);
+      return;
+    }
     const defaultSeconds = clampRestSeconds(seconds);
     if (defaultSeconds === this.settings.restTimer.defaultSeconds) return;
     // The running rest is deliberately left alone. This says how long the *next* rest
@@ -1609,6 +1634,54 @@ export class PtkTrainingLogbook extends LitElement {
     const found = findSet(session, completedSetId);
     if (found === null) return;
     this.rest = startRestFor(this.settings.restTimer, found.exercise.exerciseId, this.now());
+    // The name as the session snapshotted it, which is the one the lifter is looking at
+    // -- a custom exercise renamed since is a different word for the same movement, and
+    // the picker names the rest they are taking rather than the row in the library.
+    this.restExercise = {
+      id: found.exercise.exerciseId,
+      name: found.exercise.displayName,
+    };
+  }
+
+  /**
+   * What the band offers for choosing this lift's own rest, or `null` for nothing.
+   *
+   * Computed here because only this element knows the settings, and offered only while
+   * a rest is actually on screen: a picker under no countdown would be a setting hiding
+   * on whichever screen the lifter happened to leave open.
+   */
+  #restLift(): RestLift | null {
+    const lift = this.restExercise;
+    // The timer half of that guard is not covered by any test and cannot be: the band
+    // draws nothing at all without a rest, so a leftover lift handed down after a
+    // dismiss is invisible either way. It is here so that what this element hands down
+    // is true rather than merely unread, which is what `restExercise` is allowed to go
+    // stale on the strength of. Do not delete it on a green run.
+    if (this.rest === null || lift === null) return null;
+    const seconds = restSecondsFor(this.settings.restTimer, lift.id);
+    return { name: lift.name, seconds, options: restDurationOptions(seconds) };
+  }
+
+  /**
+   * How long this lift rests, from now on. Section 7.11's exercise-specific duration.
+   *
+   * The running rest is retimed, which is the opposite of what the settings picker does
+   * and for the opposite reason: that one is three screens away and says what the
+   * *next* rest is, while this one is printed on the countdown it describes. Leaving it
+   * alone would be a lifter choosing five minutes and watching three run out.
+   *
+   * `withRestSecondsFor` takes the entry away again for a length that matches the
+   * default, so the picker is also how a lift goes back to following it.
+   */
+  #setLiftRest(seconds: number): void {
+    const lift = this.restExercise;
+    const timer = this.rest;
+    if (lift === null || timer === null) return;
+    const restTimer = withRestSecondsFor(this.settings.restTimer, lift.id, seconds);
+    const wanted = restSecondsFor(restTimer, lift.id);
+    if (wanted === restSecondsFor(this.settings.restTimer, lift.id)) return;
+    void this.#saveSettings({ ...this.settings, restTimer });
+    this.rest = retimeRest(timer, wanted, this.now());
   }
 
   /**

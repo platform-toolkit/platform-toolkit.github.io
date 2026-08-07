@@ -1023,6 +1023,24 @@ export const REST_NOTES = {
 
   durationLabel: 'Rest for',
 
+  /**
+   * The same picker again, on the band, naming the lift it is about.
+   *
+   * The lift is in the visible label rather than only in an accessible name, because
+   * the two pickers are worded identically otherwise and the one on the band is the
+   * one that changes a single movement. A lifter who read "Rest for" on a countdown
+   * would reasonably take it for the setting they last saw on the home screen.
+   */
+  liftDurationLabel: (name: string): string => `Rest for ${name}`,
+
+  /**
+   * Said under it, because storing a preference is not what a countdown looks like it
+   * does. Section 7.11 wants the exercise-specific duration optional, so the sentence
+   * has to make clear that choosing one is a decision about every future session and
+   * not about the three minutes on screen.
+   */
+  liftDurationNote: 'Kept for this lift from now on.',
+
   /** A duration as an option label: "3 min", "2 min 30 s". */
   duration: (seconds: number): string => {
     const minutes = Math.floor(seconds / 60);
