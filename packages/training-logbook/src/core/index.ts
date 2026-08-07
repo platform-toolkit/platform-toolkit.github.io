@@ -33,6 +33,8 @@ export {
   type TrainingLogbookBackup,
 } from './backup.js';
 
+export { calendarDayOf } from './calendar.js';
+
 export {
   CATALOG_EXERCISES,
   PRIMARY_EXERCISES,

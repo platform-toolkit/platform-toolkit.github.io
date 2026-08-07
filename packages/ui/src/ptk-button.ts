@@ -150,6 +150,49 @@ export class PtkButton extends LitElement {
    */
   @property({ type: Boolean }) expanded: boolean | null = null;
 
+  /**
+   * What a `focus()` call that arrived before the first render is still owed.
+   *
+   * `null` when nothing is owed, which is every button nobody has reached for.
+   * See {@link focus}.
+   */
+  #owed: FocusOptions | null = null;
+
+  /**
+   * Moves focus to the real button.
+   *
+   * The host is not focusable, so `focus()` on it does nothing at all -- and a
+   * caller that has just re-rendered a row and wants the thumb still on the
+   * control has no other way in, because the `<button>` is behind a shadow root
+   * it does not own. `ptk-disclosure.focusToggle` reaches for its `<summary>` the
+   * same way.
+   *
+   * An override rather than `delegatesFocus`, which would fix the call and also
+   * pull focus in on a click anywhere in the host box -- including the padding
+   * around a quiet button, which is most of it.
+   *
+   * A call before the first render is honoured at that render rather than
+   * dropped, and that is the case this was written for rather than an edge of
+   * it. The caller is a parent restoring focus to the control that replaced the
+   * one just destroyed, and it acts from its own `updated()` -- which the
+   * platform runs when the *parent's* template has committed, one microtask
+   * before any button in it has drawn a thing. Dropping the call there makes the
+   * override look correct and work nowhere, which is what it did until a focus
+   * assertion asked. The wait is bounded by that same microtask.
+   */
+  override focus(options?: FocusOptions): void {
+    const button = this.renderRoot.querySelector('button');
+    if (button === null) this.#owed = options ?? {};
+    else button.focus(options);
+  }
+
+  protected override firstUpdated(): void {
+    const owed = this.#owed;
+    if (owed === null) return;
+    this.#owed = null;
+    this.focus(owed);
+  }
+
   override render(): TemplateResult {
     return html`
       <button

@@ -50,6 +50,7 @@ import {
   type RestoreProblemCode,
   type TrainingLogbookBackup,
 } from '../core/backup.js';
+import { calendarDayOf } from '../core/calendar.js';
 import { PRIMARY_EXERCISES, findExercise } from '../core/catalog.js';
 import { AT_LATER, AT_START, ON_DAY } from '../core/context.fixture.js';
 import { createCustomExercise } from '../core/catalog.js';
@@ -109,6 +110,7 @@ import {
   REST_NOTES,
   SAVE_STATES,
   SAVE_STATE_NOTES,
+  SCREEN_NOTES,
   UNIT_LABELS,
 } from './copy.js';
 import {
@@ -294,6 +296,79 @@ function nativeButton(host: HTMLElement): HTMLButtonElement {
   const button = shadow(host).querySelector('button');
   if (button === null) throw new Error(`<${host.localName}> is not a button.`);
   return button;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Where focus is. Nothing else in this repository asks, so this is the pattern.
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * The node that really has focus, walked down through every shadow root.
+ *
+ * `document.activeElement` stops at the outermost host, so with the whole tool inside
+ * shadow roots it answers `<ptk-training-logbook>` whatever is focused -- an assertion
+ * against it passes for every control on the screen and so distinguishes none of them.
+ * Each root answers the same question for its own tree, and the walk down is what turns
+ * that into a control.
+ */
+function deepActiveElement(): Element | null {
+  let node: Element | null = document.activeElement;
+  for (;;) {
+    const inner = node?.shadowRoot?.activeElement ?? null;
+    if (inner === null) return node;
+    node = inner;
+  }
+}
+
+/**
+ * The `data-action` of the focused control, read off whichever ancestor carries it.
+ *
+ * The name is on the host and focus is on the `<button>` inside its shadow root, so the
+ * walk back up has to step over the boundary the same way the walk down stepped into
+ * it. Asserting a control by its action rather than by its position is what stops a
+ * case from passing because a row happens to draw its buttons in the order assumed.
+ */
+function focusedAction(): string | null {
+  let node: Node | null = deepActiveElement();
+  while (node !== null) {
+    if (node instanceof HTMLElement) {
+      const action = node.dataset['action'];
+      if (action !== undefined) return action;
+    }
+    const parent: Node | null = node.parentNode;
+    node = parent instanceof ShadowRoot ? parent.host : parent;
+  }
+  return null;
+}
+
+/** The accessible name of the focused node: its `aria-label`, else the text in it. */
+function focusedName(): string {
+  const node = deepActiveElement();
+  if (node === null) return '';
+  return (node.getAttribute('aria-label') ?? node.textContent).trim();
+}
+
+/**
+ * Presses a control the way a pointer does, with focus landing on it first.
+ *
+ * `press` dispatches a click and nothing else, which is the right default for every
+ * other case here and the wrong one for these: a real press focuses the control, and
+ * the whole of what these cases are about is what happens to that focus when the
+ * control is replaced. Without the focus call the row's restoration is asked to move
+ * focus that was never there, which it declines to do -- correctly, and the case would
+ * be measuring the decline.
+ */
+async function pressWithFocus(
+  element: PtkTrainingLogbook,
+  action: string,
+  within: DocumentFragment | HTMLElement,
+): Promise<void> {
+  const button = nativeButton(control(within, action));
+  button.focus();
+  button.click();
+  await settle(element);
 }
 
 /**
@@ -1739,6 +1814,33 @@ describe('the training logbook', () => {
    * does to the record, and what a landing is allowed to overwrite. Each of those
    * is invisible to a core test, and three of the four are only wrong at a rack.
    */
+  /**
+   * The property a host is most likely to forget, and the one nothing refuses.
+   *
+   * `today` is structurally a string, so an unset host is not a type error, not a
+   * validation failure and not a visible fault -- it is every session filed under
+   * the empty day and every export named after nothing. There is no way to notice
+   * from inside the tool, which is what makes it worth a case of its own now that
+   * mounting this element directly is a supported thing to do.
+   */
+  describe('a host that never said what day it is', () => {
+    it('files the session under the real day rather than under nothing', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      // Exactly what never setting the property leaves behind. Set after the mount
+      // rather than by a second fixture, because the day is resolved at each use and
+      // not once at construction -- the two arrangements are the same arrangement.
+      element.today = '';
+      await settle(element);
+
+      await planASquatSession(element);
+      await settle(element);
+
+      const [stored] = await store.readWorkouts();
+      expect(stored?.localDate).toBe(calendarDayOf(clock));
+    });
+  });
+
   describe('a session handed over by the warm-up calculator', () => {
     it('offers the session at the top of the home screen, naming what it would log', async () => {
       const { store } = await durableStore();
@@ -4187,12 +4289,346 @@ describe('the training logbook', () => {
     });
   });
 
+  /*
+   * -------------------------------------------------------------------------
+   * What is said without the screen changing. Section 33's second half.
+   * -------------------------------------------------------------------------
+   */
+  /*
+   * -------------------------------------------------------------------------
+   * The outline a framed copy has to carry on its own. Axe cannot see this:
+   * `page-has-heading-one` and the landmark rules are document-scoped, and the
+   * axe cases here run at element scope.
+   * -------------------------------------------------------------------------
+   */
+  describe('heading outline', () => {
+    it('carries its own top-level heading, for the route with no page around it', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+
+      const headings = shadow(element).querySelectorAll('h1');
+      expect(headings).toHaveLength(1);
+      expect(headings[0]?.textContent).toBe(SCREEN_NOTES.title);
+    });
+
+    it('clips that heading rather than hiding it', async () => {
+      // The distinction the whole thing turns on: `display: none` takes the text out
+      // of the accessibility tree along with the pixels, and the text is the entire
+      // point -- the standalone page draws a title of its own, so this one exists for
+      // the framed route and for a reader moving by heading.
+      const { store } = await durableStore();
+      const element = await mount(store);
+      const heading = shadow(element).querySelector('h1');
+      if (!(heading instanceof HTMLElement)) throw new Error('The tool drew no heading.');
+
+      const drawn = getComputedStyle(heading);
+      expect(drawn.display).not.toBe('none');
+      expect(drawn.visibility).toBe('visible');
+      expect(heading.getBoundingClientRect().width).toBeLessThan(2);
+    });
+
+    it('wraps whichever screen is up in a region that says which one it is', async () => {
+      // A named `section` is a landmark, which is what gives a framed copy something
+      // to jump to. The name moving with the screen is the same fact focus management
+      // needs, so the two are one attribute rather than two.
+      const { store } = await durableStore();
+      const element = await mount(store);
+      const region = shadow(element).querySelector('.screen');
+      if (!(region instanceof HTMLElement)) throw new Error('The tool drew no screen region.');
+
+      expect(region.tagName).toBe('SECTION');
+      expect(region.getAttribute('aria-label')).toBe(SCREEN_NOTES.home);
+
+      await press(element, 'start-workout');
+
+      expect(shadow(element).querySelector('.screen')?.getAttribute('aria-label')).toBe(
+        BUILDER_NOTES.heading,
+      );
+    });
+
+    it('drops it when the page around it already says the same thing', async () => {
+      // The standalone route draws a visible `<h1>` of its own, and two of them is the
+      // outline saying it twice. Only the host knows which route this is, so the host
+      // says -- and unset draws the heading, because a bare mount with none is worse
+      // than a page with two.
+      const { store } = await durableStore();
+      const element = await mount(store);
+      element.pageTitled = true;
+      await element.updateComplete;
+
+      expect(shadow(element).querySelectorAll('h1')).toHaveLength(0);
+      // The screen region is what a reader jumps to instead, so it has to survive.
+      expect(shadow(element).querySelector('.screen')?.getAttribute('aria-label')).toBe(
+        SCREEN_NOTES.home,
+      );
+    });
+  });
+
+  describe('live regions', () => {
+    /** The one region matching a selector, or a failure naming the region nobody drew. */
+    function liveRegion(element: PtkTrainingLogbook, selector: string): HTMLElement {
+      const found = shadow(element).querySelectorAll(selector);
+      if (found.length !== 1) {
+        throw new Error(`Expected one "${selector}" region, found ${String(found.length)}.`);
+      }
+      const region = found[0];
+      if (!(region instanceof HTMLElement)) throw new Error(`"${selector}" is not an element.`);
+      return region;
+    }
+
+    /**
+     * The storage line is one node for the life of the tool.
+     *
+     * It has to be. A live region created at the moment its sentence appears is
+     * announced by roughly half the engines and reliably by none -- the paragraph is
+     * allowed to come and go, the region around it is not. That is also why the region
+     * sits in `render()` above the screen rather than inside each of the nine: a node
+     * redrawn by every screen change is a node that was created with its sentence.
+     */
+    it('says how storage stands through one region that outlives every screen', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      const storage = liveRegion(element, '.storage');
+
+      expect(storage.getAttribute('role')).toBe('status');
+      expect(saveLine(element)).toBe(SAVE_STATES.saved);
+
+      await planASquatSession(element);
+      await press(element, 'complete', setRow(element, 0));
+
+      expect(liveRegion(element, '.storage')).toBe(storage);
+      expect(saveLine(element)).toBe(SAVE_STATES.saved);
+    });
+
+    /**
+     * Two of the four storage states interrupt and two do not.
+     *
+     * This line changes twice on every set ticked off. A region that reads "Saving.
+     * Saved on this device." over the top of whatever else is being spoken, three times
+     * a minute for an hour, is a region that gets the tool turned off -- so ordinary
+     * saving is polite, and only the two states that mean a lifter has to do something
+     * about it are allowed to cut in.
+     */
+    it('interrupts only for the storage states a lifter has to act on', async () => {
+      const { store } = await durableStore();
+      const saving = await mount(store);
+      expect(liveRegion(saving, '.storage').getAttribute('aria-live')).toBe('polite');
+
+      const memory = await mount(memoryLogbookStore());
+      expect(saveLine(memory)).toContain(SAVE_STATES.unavailable);
+      expect(liveRegion(memory, '.storage').getAttribute('aria-live')).toBe('assertive');
+    });
+
+    /**
+     * A refusal is the one outcome that changes nothing but its own paragraph.
+     *
+     * Choosing a file the validator will not accept leaves the lifter on the screen
+     * they were already on, with no screen change to carry the news -- which makes this
+     * the case the pre-existing region exists for, rather than an illustration of it.
+     */
+    it('puts a refused backup file into a region that was already in the document', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      const alerts = liveRegion(element, '.outcome.trouble');
+      expect(alerts.getAttribute('role')).toBe('alert');
+      expect(alerts.textContent.trim()).toBe('');
+
+      await chooseFile(element, fileOf('this is a sentence, not a document'));
+      await waitForText(element, RESTORE_REFUSALS['not-json']);
+
+      expect(liveRegion(element, '.outcome.trouble')).toBe(alerts);
+      expect(alerts.querySelectorAll('p.trouble')).toHaveLength(1);
+    });
+
+    /**
+     * The split that matters most, because both sentences follow the same press.
+     *
+     * A restore that landed is polite: the home screen it lands on is the evidence. A
+     * restore whose read-back disagreed is the one thing in this tool a lifter must not
+     * miss -- they are holding a device they believe is their training and it is not,
+     * and the only useful answer is to take a backup before anything else touches it.
+     */
+    it('reads a restore that landed politely and one that did not assertively', async () => {
+      const file = await aBackupFile(seedRepeatable);
+      const { store: good } = await durableStore();
+      const landed = await mount(good);
+
+      await chooseFile(landed, file);
+      await waitForText(landed, RESTORE_NOTES.heading);
+      await press(landed, 'restore-confirm');
+      await waitForText(landed, RESTORE_NOTES.done);
+
+      const polite = liveRegion(landed, '.outcome.landed');
+      expect(polite.getAttribute('role')).toBe('status');
+      expect(polite.textContent).toContain(RESTORE_NOTES.done);
+
+      const { store: bad } = await durableStore();
+      const wrong = await mount(bad);
+      await withRepository(wrong, (repository) => ({
+        ...repository,
+        replaceFromBackup: () => Promise.resolve(),
+      }));
+
+      await chooseFile(wrong, file);
+      await waitForText(wrong, RESTORE_NOTES.heading);
+      await press(wrong, 'restore-confirm');
+      await waitForText(wrong, RESTORE_NOTES.verifyProblem);
+
+      // `alert` and not a `status` carrying `aria-live="assertive"`: the storage line
+      // is spelled that way because its one node has to say both, and this region only
+      // ever says the one thing.
+      const interrupting = liveRegion(wrong, '.outcome.trouble');
+      expect(interrupting.getAttribute('role')).toBe('alert');
+      expect(interrupting.textContent).toContain(RESTORE_NOTES.verifyProblem);
+    });
+  });
+
+  /*
+   * -------------------------------------------------------------------------
+   * Where focus goes. Nothing else in this repository asserts on it yet.
+   * -------------------------------------------------------------------------
+   */
+  describe('focus', () => {
+    /** The region the root draws around whichever screen is up. */
+    function screenRegion(element: PtkTrainingLogbook): HTMLElement {
+      const region = shadow(element).querySelector('.screen');
+      if (!(region instanceof HTMLElement)) throw new Error('The tool drew no screen region.');
+      return region;
+    }
+
+    /**
+     * A tool mounted into a page it does not own must not move the reader.
+     *
+     * The whole of the rule below is that a screen *change* takes focus, and a first
+     * paint is not one. Without the distinction an embed a quarter of the way down
+     * somebody's article jumps the page to itself on load.
+     */
+    it('takes no focus at all when it is first drawn', async () => {
+      const { store } = await durableStore();
+      await mount(store);
+
+      expect(deepActiveElement()).toBe(document.body);
+    });
+
+    it('lands focus on the screen a press opened, and names it', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+
+      await press(element, 'start-workout');
+
+      expect(deepActiveElement()).toBe(screenRegion(element));
+      expect(focusedName()).toBe(BUILDER_NOTES.heading);
+    });
+
+    it('follows the screen through starting, finishing and going home', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+
+      await planASquatSession(element);
+      expect(focusedName()).toBe(SCREEN_NOTES.active);
+
+      await press(element, 'complete', setRow(element, 0));
+      await press(element, 'finish');
+      await choose(element, 'ptk-choice-group', 'skip');
+      await press(element, 'finish-confirm');
+      expect(deepActiveElement()).toBe(screenRegion(element));
+      expect(focusedName()).toBe(DONE_NOTES.heading);
+
+      await press(element, 'home');
+      expect(focusedName()).toBe(SCREEN_NOTES.home);
+    });
+
+    /**
+     * Section 5.5's two ways in, from the side that costs a lifter their place.
+     *
+     * Back is the half worth asserting: a reader sent to a records screen and then
+     * returned to the top of the document has been moved twice and told once.
+     */
+    it('lands on the records screen and comes back to the one it was opened from', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await planASquatSession(element);
+
+      await openHistory(element, exerciseCard(element, 0));
+      expect(focusedName()).toBe(RECORDS_NOTES.heading);
+
+      await press(element, 'records-back');
+      expect(focusedName()).toBe(SCREEN_NOTES.active);
+    });
+
+    it('lands on the correction editor and back on the workout it corrects', async () => {
+      const { store } = await durableStore();
+      const seeded = await seedRepeatable(store);
+      const element = await mount(store);
+
+      await edit(element, seeded.id);
+      expect(focusedName()).toBe(SCREEN_NOTES.edit);
+
+      await press(element, 'edit-done');
+      expect(focusedName()).toBe(DETAIL_NOTES.heading);
+    });
+
+    /**
+     * The subtle one, and the reason section 33 was raised.
+     *
+     * Done and Undo are two different `ptk-button` instances, so ticking a set off
+     * destroys the node the thumb is on and the platform drops focus on the document.
+     * At the rack that is once per set, all session: the next tab starts at the top of
+     * the page and a reader is told nothing happened.
+     */
+    it('keeps the thumb on the row when a set is ticked off, and again when it is undone', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await planASquatSession(element);
+
+      await pressWithFocus(element, 'complete', setRow(element, 0));
+
+      expect(isDone(setRow(element, 0))).toBe(true);
+      expect(focusedAction()).toBe('undo');
+      // The name says which set, so a reader landing on it knows where they are and
+      // not merely that something is now focusable.
+      expect(focusedName()).toContain('Squat');
+
+      await pressWithFocus(element, 'undo', setRow(element, 0));
+
+      expect(isDone(setRow(element, 0))).toBe(false);
+      expect(focusedAction()).toBe('complete');
+    });
+
+    /**
+     * Keeping focus is not the same as taking it.
+     *
+     * A press made with focus somewhere else -- a pointer on an engine that does not
+     * focus a button on click, a consumer driving the tool -- must leave the reader
+     * where they were. Planning a session has just put focus on the screen region, so
+     * this is that case with nothing contrived about it.
+     */
+    it('does not take focus from a lifter who was reading something else', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await planASquatSession(element);
+      const region = screenRegion(element);
+      expect(deepActiveElement()).toBe(region);
+
+      await press(element, 'complete', setRow(element, 0));
+
+      expect(isDone(setRow(element, 0))).toBe(true);
+      expect(deepActiveElement()).toBe(region);
+    });
+  });
+
   describe('accessibility', () => {
     const RULES = {
       // Disabled for the reason every suite in this collection disables it: the element
       // is measured outside the page's own background, so the contrast engine compares
       // a token against whatever the harness painted behind it.
-      rules: { 'color-contrast': { enabled: false } },
+      //
+      // `target-size` is off by default in axe-core and is switched on here on purpose.
+      // It is WCAG 2.5.8 and it is the one rule that measures what this tool is for:
+      // a control pressed with a thumb, between sets, by somebody who is out of breath.
+      // `scripts/check-narrow-layout.mjs` measures a box; this measures overlap and
+      // spacing too, which is the half a box cannot answer.
+      rules: { 'color-contrast': { enabled: false }, 'target-size': { enabled: true } },
     } as const;
 
     it('has no violations on the home screen', async () => {
@@ -4222,6 +4658,12 @@ describe('the training logbook', () => {
 
       const results = await axe.run(element, RULES);
       expect(results.violations).toEqual([]);
+      // An empty violations list is also what a rule that never ran produces, and
+      // `target-size` is off by default -- so a configuration key silently renamed
+      // upstream would leave every case here green while measuring nothing. This is
+      // the busiest screen the tool draws, so it is the one asked to prove otherwise.
+      const measured = results.passes.find((rule) => rule.id === 'target-size');
+      expect(measured?.nodes.length ?? 0).toBeGreaterThan(0);
     });
 
     it('has no violations on either screen that asks before an irreversible press', async () => {
@@ -4236,6 +4678,60 @@ describe('the training logbook', () => {
       await press(element, 'restore-cancel');
       await press(element, 'delete-pick');
       await waitForText(element, DELETE_NOTES.heading);
+      expect((await axe.run(element, RULES)).violations).toEqual([]);
+    });
+
+    it('has no violations on the screen a finished session lands on', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await planASquatSession(element);
+      await press(element, 'complete', setRow(element, 0));
+      await press(element, 'finish');
+      await choose(element, 'ptk-choice-group', 'skip');
+      await press(element, 'finish-confirm');
+
+      expect(readAll(element)).toContain(DONE_NOTES.heading);
+      expect((await axe.run(element, RULES)).violations).toEqual([]);
+    });
+
+    it('has no violations on a workout read back, or on the records screen behind it', async () => {
+      const { store } = await durableStore();
+      const seeded = await seedRepeatable(store);
+      const element = await mount(store);
+
+      const detail = await open(element, await historyRow(element, seeded.id));
+      expect((await axe.run(element, RULES)).violations).toEqual([]);
+
+      await openHistory(element, shadow(detail));
+      expect(readAll(element)).toContain(RECORDS_NOTES.back);
+      expect((await axe.run(element, RULES)).violations).toEqual([]);
+    });
+
+    it('has no violations while a finished session is being corrected', async () => {
+      const { store } = await durableStore();
+      const seeded = await seedRepeatable(store);
+      const element = await mount(store);
+
+      await edit(element, seeded.id);
+      await press(element, 'edit', workingRow(element, 0));
+
+      expect((await axe.run(element, RULES)).violations).toEqual([]);
+    });
+
+    /**
+     * Both libraries, with a row in each.
+     *
+     * The home screen case above draws them empty, which is the state with no controls
+     * in it -- so it says nothing about the ones a saved gym and an invented movement
+     * put on the screen. Those are the small quiet buttons this tool has most of.
+     */
+    it('has no violations with a saved gym and a movement the lifter invented', async () => {
+      const { store } = await durableStore();
+      await store.writeProfile(aProfile());
+      await store.writeExercise(anInventedExercise());
+      const element = await mount(store);
+      await waitForText(element, 'The garage');
+
       expect((await axe.run(element, RULES)).violations).toEqual([]);
     });
 

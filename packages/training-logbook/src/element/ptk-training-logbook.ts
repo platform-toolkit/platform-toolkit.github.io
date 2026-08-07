@@ -60,6 +60,7 @@ import {
   type RestoreProblemCode,
   type TrainingLogbookBackup,
 } from '../core/backup.js';
+import { calendarDayOf } from '../core/calendar.js';
 import {
   createCustomExercise,
   exerciseOptions,
@@ -130,6 +131,7 @@ import type {
 } from '../types.js';
 
 import {
+  BUILDER_NOTES,
   DELETE_NOTES,
   DETAIL_NOTES,
   DONE_NOTES,
@@ -145,6 +147,7 @@ import {
   REST_NOTES,
   SAVE_STATES,
   SAVE_STATE_NOTES,
+  SCREEN_NOTES,
   UNIT_LABELS,
   formatDuration,
   type SaveState,
@@ -236,6 +239,33 @@ export const TRAINING_LOGBOOK_TAG = 'ptk-training-logbook';
  */
 type Screen =
   'home' | 'build' | 'active' | 'done' | 'detail' | 'records' | 'edit' | 'restore' | 'delete';
+
+/**
+ * What each screen is called to somebody who cannot see it changing.
+ *
+ * The name of the region a screen change moves focus to, so it is the first thing a
+ * reader is told after a press that replaced everything below the rest timer -- which
+ * is every press in {@link #onClick} that assigns {@link #screen}. Six of the nine are
+ * the heading the screen already draws, taken from the same constant the screen takes
+ * it from rather than written out again here; the other three have no heading of their
+ * own and are in {@link SCREEN_NOTES}.
+ *
+ * Typed against the union so a tenth screen does not ship nameless.
+ */
+const SCREEN_NAMES: Readonly<Record<Screen, string>> = {
+  home: SCREEN_NOTES.home,
+  build: BUILDER_NOTES.heading,
+  active: SCREEN_NOTES.active,
+  done: DONE_NOTES.heading,
+  // The generic fallbacks, not the workout's own title. The heading inside says which
+  // workout; a region that renamed itself per session would be announced as a
+  // different place every time a lifter opened one.
+  detail: DETAIL_NOTES.heading,
+  records: RECORDS_NOTES.heading,
+  edit: SCREEN_NOTES.edit,
+  restore: RESTORE_NOTES.heading,
+  delete: DELETE_NOTES.heading,
+};
 
 /**
  * Which of the repository's three writes a session goes through.
@@ -452,6 +482,26 @@ export class PtkTrainingLogbook extends LitElement {
       font-size: var(--ptk-font-size-lg);
     }
 
+    /*
+     * The same clip rectangle ptk-rest-timer uses, and for the same reason:
+     * display: none would take the text out of the accessibility tree along with
+     * the pixels, and the text is the entire point. SCREEN_NOTES says why the
+     * title is drawn at all when the hosting page draws one too.
+     *
+     * No backticks in here: a CSS comment is still inside the tagged template,
+     * and one quoted identifier ends it 40 lines before the parser notices.
+     */
+    .spoken {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
     .note {
       margin: 0 0 var(--ptk-space-sm);
       color: var(--ptk-color-text-muted);
@@ -612,10 +662,16 @@ export class PtkTrainingLogbook extends LitElement {
   /**
    * The lifter's own calendar day, in their own time zone.
    *
-   * A property because this package must not read a clock, and because the correct
-   * value cannot be derived from an instant without knowing the zone. The host builds
-   * it from `getFullYear`/`getMonth`/`getDate` -- never `toISOString`, which is UTC and
-   * gives yesterday to everyone west of Greenwich in the evening.
+   * A property because the host knows the zone and this package must not read a clock.
+   * It builds the value from `getFullYear`/`getMonth`/`getDate` -- never `toISOString`,
+   * which is UTC and gives yesterday to everyone west of Greenwich in the evening.
+   *
+   * Left unset it is the empty string, which is not a calendar day at all, and nothing
+   * downstream refuses one: `CalendarDay` is structurally a string, so an unset host
+   * silently dated every workout `''` and named every export file after nothing. Read
+   * it through {@link #day} rather than directly -- that resolves the empty case
+   * against `now`, which already defaults, so a consumer who mounts this element and
+   * wires nothing else gets the right day instead of a corrupt one.
    */
   @property({ attribute: false }) today: CalendarDay = '';
 
@@ -624,6 +680,33 @@ export class PtkTrainingLogbook extends LitElement {
 
   /** A fresh opaque identifier. Overridable so a test can make them predictable. */
   @property({ attribute: false }) nextId: () => LogbookId = () => crypto.randomUUID();
+
+  /**
+   * Set when the surrounding page already names this tool in a heading of its own.
+   *
+   * The element draws a clipped `<h1>` so that a reader landing in a bare frame is
+   * told what they have landed in. On a page that has its own visible `<h1>` saying
+   * the same words, that is the outline saying it twice. The host is the only side
+   * that can know which it is, so it says, the same way it says the day and the
+   * clock.
+   *
+   * Unset is the safe answer and that is why it is the default: a consumer who mounts
+   * this element and wires nothing gets a heading, and the failure mode of the wrong
+   * default in the other direction is a document with no `<h1>` at all.
+   */
+  @property({ attribute: false }) pageTitled = false;
+
+  /**
+   * The day to file things under. Every write and every filename goes through here.
+   *
+   * Resolved on each read rather than defaulted once in the field initialiser, because
+   * a field initialiser runs at construction: an element built at 23:59 would keep
+   * yesterday for as long as the tab stayed open. `now` is a function for the same
+   * reason and this borrows its answer, so the fallback costs no second clock read.
+   */
+  get #day(): CalendarDay {
+    return this.today === '' ? calendarDayOf(this.now()) : this.today;
+  }
 
   /** The build stamped into a backup file, for a human reading it later. */
   @property({ attribute: false }) applicationVersion = '0.0.0';
@@ -654,6 +737,9 @@ export class PtkTrainingLogbook extends LitElement {
   @property({ attribute: false }) persistence: StoragePersistence | null = null;
 
   @state() private screen: Screen = 'home';
+
+  /** The screen the last render drew, so {@link updated} can tell a change from a repaint. */
+  #painted: Screen | null = null;
   @state() private settings: LogbookSettings = defaultSettings();
   @state() private active: WorkoutSession | null = null;
   @state() private finished: WorkoutSession | null = null;
@@ -1003,22 +1089,66 @@ export class PtkTrainingLogbook extends LitElement {
   }
 
   /**
-   * The rest timer, then whichever screen is showing.
+   * The title, the rest timer, the storage line, then whichever screen is showing.
    *
-   * Above the switch and not inside one of the cases, which is the whole point: the
-   * timer outlives a change of screen. A lifter who taps History between sets comes
+   * The timer is above the switch and not inside one of the cases, which is the whole
+   * point: it outlives a change of screen. A lifter who taps History between sets comes
    * back to a rest that kept running, and one who finishes the session has no timer
    * because there is nothing left to rest for.
+   *
+   * The storage line is up here for a second reason. It says the same thing on every
+   * screen and used to be drawn by each of them, which meant the live region announcing
+   * it was destroyed and rebuilt on every press that changed screen -- and a region
+   * built at the moment it has something to say is announced by about half the engines.
+   * Drawn once, it is in the document from the first paint and survives every
+   * transition below it. See {@link #saveLine}.
+   *
+   * The `<h1>` is clipped rather than absent. See {@link SCREEN_NOTES}. It is dropped
+   * entirely on a page that draws its own -- see {@link pageTitled}.
    */
   override render(): TemplateResult {
     return html`
+      ${this.pageTitled ? nothing : html`<h1 class="spoken">${SCREEN_NOTES.title}</h1>`}
       <ptk-rest-timer
         .timer=${this.rest}
         .now=${this.now}
         .lift=${this.#restLift()}
       ></ptk-rest-timer>
-      ${this.#screen()}
+      ${this.#saveLine()}
+      <section class="screen" tabindex="-1" aria-label=${SCREEN_NAMES[this.screen]}>
+        ${this.#screen()}
+      </section>
     `;
+  }
+
+  /**
+   * A screen change lands focus on the screen it changed to.
+   *
+   * The gap this closes is the whole reason the rest of this file has any focus
+   * handling in it: pressing Start replaced everything below the timer and left focus
+   * on the button that had gone, which the platform resolves by dropping it on the
+   * document. A keyboard is then at the top of the page and a reader has been told
+   * nothing happened.
+   *
+   * The region and not a heading. Six of the nine screens draw their heading inside a
+   * child's shadow root, so a parent that wanted to focus one would have to reach
+   * through a boundary it does not own and guess which of the headings it found was the
+   * screen's -- the rest timer has one too. The region is this element's own, it is
+   * named for the screen in {@link SCREEN_NAMES}, and focusing it puts a reader at the
+   * top of what just arrived rather than one heading into it.
+   *
+   * Only on a change, and never on the first paint -- a tool mounted into a page it
+   * does not own must not steal focus from whatever the visitor was reading. The
+   * previous screen is remembered here rather than read out of `changed`, because
+   * `screen` is a private `@state` and `PropertyValues<this>` cannot name one; the
+   * same reason `#reloadPrevious` keeps `#previousKey`.
+   */
+  protected override updated(): void {
+    const painted = this.#painted;
+    this.#painted = this.screen;
+    if (painted === null || painted === this.screen) return;
+    const region = this.renderRoot.querySelector('.screen');
+    if (region instanceof HTMLElement) region.focus();
   }
 
   #screen(): TemplateResult {
@@ -1057,7 +1187,7 @@ export class PtkTrainingLogbook extends LitElement {
 
   #homeScreen(): TemplateResult {
     return html`
-      ${this.#saveLine()} ${this.#handoffCard()}
+      ${this.#handoffCard()}
       <section class="section">
         <p class="note">${HOME_NOTES.intro}</p>
         <p class="note">${HOME_NOTES.localOnly}</p>
@@ -1084,7 +1214,9 @@ export class PtkTrainingLogbook extends LitElement {
           .workouts=${this.history}
           ?busy=${this.active !== null}
         ></ptk-workout-history>
-        ${this.repeatFailed ? html`<p class="note">${HOME_NOTES.repeatFailed}</p>` : nothing}
+        <div class="outcome" role="alert">
+          ${this.repeatFailed ? html`<p class="note">${HOME_NOTES.repeatFailed}</p>` : nothing}
+        </div>
       </section>
 
       <section class="section">
@@ -1170,8 +1302,10 @@ export class PtkTrainingLogbook extends LitElement {
             >${DELETE_NOTES.action}</ptk-button
           >
         </div>
-        ${this.backupDone ? html`<p class="note">${HOME_NOTES.backupDone}</p>` : nothing}
-        ${this.markdownDone ? html`<p class="note">${HOME_NOTES.markdownDone}</p>` : nothing}
+        <div class="outcome" role="status">
+          ${this.backupDone ? html`<p class="note">${HOME_NOTES.backupDone}</p>` : nothing}
+          ${this.markdownDone ? html`<p class="note">${HOME_NOTES.markdownDone}</p>` : nothing}
+        </div>
         <p class="note">${HOME_NOTES.markdownNote}</p>
         <p class="note">${HOME_NOTES.restoreNote}</p>
         <input
@@ -1181,7 +1315,7 @@ export class PtkTrainingLogbook extends LitElement {
           tabindex="-1"
           @change=${this.#onFileChosen}
         />
-        ${this.#restoreOutcome()} ${this.#deleteOutcome()}
+        ${this.#outcomes()}
       </section>
     `;
   }
@@ -1269,29 +1403,6 @@ export class PtkTrainingLogbook extends LitElement {
   }
 
   /**
-   * What the last delete did, said where it was asked for.
-   *
-   * Beside the restore outcome and not on the screen that asked, because the screen
-   * that asked is gone by the time there is anything to say -- the same arrangement
-   * and the same reason as {@link #restoreOutcome}. A delete that landed says so in
-   * one sentence: there is nothing left to describe, and a count of what was destroyed
-   * would be the tool reciting a logbook back to somebody who just erased it.
-   */
-  #deleteOutcome(): TemplateResult | typeof nothing {
-    if (!this.deleteDone && this.deleteProblem === null) return nothing;
-    return html`
-      ${this.deleteDone ? html`<p class="note">${DELETE_NOTES.done}</p>` : nothing}
-      ${
-        this.deleteProblem === null
-          ? nothing
-          : html`<p class="note trouble">
-              ${this.deleteProblem === 'write' ? DELETE_NOTES.problem : DELETE_NOTES.verifyProblem}
-            </p>`
-      }
-    `;
-  }
-
-  /**
    * The confirmation. Section 10.8.
    *
    * Section 10.7's screen with a different write behind it, which is why it was built
@@ -1313,7 +1424,6 @@ export class PtkTrainingLogbook extends LitElement {
    */
   #deleteScreen(deletion: BackupPreview): TemplateResult {
     return html`
-      ${this.#saveLine()}
       <section class="section restore erase">
         <h2>${DELETE_NOTES.heading}</h2>
         <p class="note trouble">${DELETE_NOTES.warning}</p>
@@ -1369,44 +1479,79 @@ export class PtkTrainingLogbook extends LitElement {
             >${DELETE_NOTES.backupFirst}</ptk-button
           >
         </div>
-        ${this.backupDone ? html`<p class="note">${HOME_NOTES.backupDone}</p>` : nothing}
+        <div class="outcome" role="status">
+          ${this.backupDone ? html`<p class="note">${HOME_NOTES.backupDone}</p>` : nothing}
+        </div>
       </section>
     `;
   }
 
   /**
-   * What the last file the lifter chose did, said where they chose it.
+   * What the last file the lifter chose did, and what the last delete did, said where
+   * they were asked for.
    *
-   * On the home screen and not on the one that has gone, because every one of these
-   * is reported after the restore screen has been left -- a refused file never gets
-   * one drawn, and a restore that landed or did not is a thing that happened to this
-   * screen. Nothing is drawn at all before a file has been picked.
+   * On the home screen and not on the one that has gone, because all of these are
+   * reported after the screen that asked has been left -- a refused file never gets one
+   * drawn at all, and a restore or a delete that landed is a thing that happened to
+   * this screen. A delete that landed says so in one sentence: there is nothing left to
+   * describe, and a count of what was destroyed would be the tool reciting a logbook
+   * back to somebody who has just erased it.
+   *
+   * The two carry their own classes -- `landed` and `trouble` -- because three other
+   * screens draw an `.outcome` region of their own for a backup they have just written,
+   * and a selector that could not tell them apart would find four regions where a case
+   * meant one.
+   *
+   * Two regions rather than one, both drawn empty when there is nothing in them, which
+   * is what makes the refusals work: a file the browser read and this package would not
+   * accept changes nothing but this paragraph, so the region holding it has to already
+   * be in the document -- the same rule `ptk-rest-timer` follows.
+   *
+   * The split is by what it costs to miss the sentence. A restore or a delete that
+   * landed is polite: the screen it lands on is the evidence, and it arrives with a
+   * change of screen that has already moved focus. The other three interrupt, because
+   * each of them means the lifter has to do something before they close the tab -- a
+   * file that was refused, a write that did not go, and a delete whose read-back still
+   * found training on the device. `alert` is also the one live role engines announce
+   * reliably on insertion, which is what the two that do arrive with a screen change
+   * need.
    */
-  #restoreOutcome(): TemplateResult | typeof nothing {
-    if (this.refusals.length === 0 && !this.restoreDone && this.restoreProblem === null) {
-      return nothing;
-    }
+  #outcomes(): TemplateResult {
     return html`
-      ${this.refusals.map(
-        (refusal) =>
-          html`<p class="note trouble">
-            ${RESTORE_REFUSALS[refusal.code]}${
-              refusal.path === null ? nothing : html` ${RESTORE_NOTES.path(refusal.path)}`
-            }
-          </p>`,
-      )}
-      ${this.restoreDone ? html`<p class="note">${RESTORE_NOTES.done}</p>` : nothing}
-      ${
-        this.restoreProblem === null
-          ? nothing
-          : html`<p class="note trouble">
-              ${
-                this.restoreProblem === 'write'
-                  ? RESTORE_NOTES.writeProblem
-                  : RESTORE_NOTES.verifyProblem
+      <div class="outcome landed" role="status">
+        ${this.restoreDone ? html`<p class="note">${RESTORE_NOTES.done}</p>` : nothing}
+        ${this.deleteDone ? html`<p class="note">${DELETE_NOTES.done}</p>` : nothing}
+      </div>
+      <div class="outcome trouble" role="alert">
+        ${this.refusals.map(
+          (refusal) =>
+            html`<p class="note trouble">
+              ${RESTORE_REFUSALS[refusal.code]}${
+                refusal.path === null ? nothing : html` ${RESTORE_NOTES.path(refusal.path)}`
               }
-            </p>`
-      }
+            </p>`,
+        )}
+        ${
+          this.restoreProblem === null
+            ? nothing
+            : html`<p class="note trouble">
+                ${
+                  this.restoreProblem === 'write'
+                    ? RESTORE_NOTES.writeProblem
+                    : RESTORE_NOTES.verifyProblem
+                }
+              </p>`
+        }
+        ${
+          this.deleteProblem === null
+            ? nothing
+            : html`<p class="note trouble">
+                ${
+                  this.deleteProblem === 'write' ? DELETE_NOTES.problem : DELETE_NOTES.verifyProblem
+                }
+              </p>`
+        }
+      </div>
     `;
   }
 
@@ -1435,7 +1580,6 @@ export class PtkTrainingLogbook extends LitElement {
     const unshown = summaries.length - shown.length;
 
     return html`
-      ${this.#saveLine()}
       <section class="section restore">
         <h2>${RESTORE_NOTES.heading}</h2>
         <p class="note trouble">${RESTORE_NOTES.warning}</p>
@@ -1511,7 +1655,9 @@ export class PtkTrainingLogbook extends LitElement {
             >${RESTORE_NOTES.backupFirst}</ptk-button
           >
         </div>
-        ${this.backupDone ? html`<p class="note">${HOME_NOTES.backupDone}</p>` : nothing}
+        <div class="outcome" role="status">
+          ${this.backupDone ? html`<p class="note">${HOME_NOTES.backupDone}</p>` : nothing}
+        </div>
       </section>
     `;
   }
@@ -1569,9 +1715,8 @@ export class PtkTrainingLogbook extends LitElement {
 
   #buildScreen(): TemplateResult {
     return html`
-      ${this.#saveLine()}
       <ptk-workout-builder
-        .today=${this.today}
+        .today=${this.#day}
         .unit=${this.settings.displayUnit}
         .exercises=${this.exercises}
         .equipment=${this.settings.equipment}
@@ -1586,7 +1731,6 @@ export class PtkTrainingLogbook extends LitElement {
 
   #activeScreen(): TemplateResult {
     return html`
-      ${this.#saveLine()}
       ${
         this.unramped.length === 0
           ? nothing
@@ -1610,7 +1754,6 @@ export class PtkTrainingLogbook extends LitElement {
     const session = this.finished;
     const millis = session === null ? null : workoutDurationMillis(session);
     return html`
-      ${this.#saveLine()}
       <section class="section">
         <h2>${DONE_NOTES.heading}</h2>
         <p class="note">${DONE_NOTES.note}</p>
@@ -1625,7 +1768,9 @@ export class PtkTrainingLogbook extends LitElement {
           >
           <ptk-button variant="primary" data-action=${HOME_ACTION}>${DONE_NOTES.home}</ptk-button>
         </div>
-        ${this.backupDone ? html`<p class="note">${HOME_NOTES.backupDone}</p>` : nothing}
+        <div class="outcome" role="status">
+          ${this.backupDone ? html`<p class="note">${HOME_NOTES.backupDone}</p>` : nothing}
+        </div>
       </section>
     `;
   }
@@ -1644,7 +1789,6 @@ export class PtkTrainingLogbook extends LitElement {
    */
   #detailScreen(): TemplateResult {
     return html`
-      ${this.#saveLine()}
       <section class="section">
         <ptk-workout-detail .session=${this.opened}></ptk-workout-detail>
         <div class="actions">
@@ -1678,7 +1822,6 @@ export class PtkTrainingLogbook extends LitElement {
    */
   #editScreen(): TemplateResult {
     return html`
-      ${this.#saveLine()}
       <p class="note">${EDIT_NOTES.note}</p>
       <ptk-active-workout
         past
@@ -1709,7 +1852,6 @@ export class PtkTrainingLogbook extends LitElement {
    */
   #recordsScreen(): TemplateResult {
     return html`
-      ${this.#saveLine()}
       <section class="section">
         <ptk-exercise-history .history=${this.records}></ptk-exercise-history>
         <div class="actions">
@@ -1721,15 +1863,37 @@ export class PtkTrainingLogbook extends LitElement {
     `;
   }
 
-  /** Section 18.9's phrase, on every screen rather than only on the home one. */
-  #saveLine(): TemplateResult | typeof nothing {
+  /**
+   * Section 18.9's phrase, in a region that is in the document before it has anything
+   * to say.
+   *
+   * The paragraph stays conditional: there is nothing to report until the first read
+   * comes back, and a blank line above the tool reads as a fault. What is
+   * unconditional is the region around it, for the reason `ptk-rest-timer` sets out at
+   * length -- a live region created at the moment its sentence appears is announced by
+   * roughly half the engines and reliably by none.
+   *
+   * `role="status"` *and* an explicit politeness. The role is what registers the region
+   * at insertion and brings `aria-atomic` with it, so the line is read whole rather
+   * than as the words that moved; the attribute is what lets the two states a lifter
+   * has to act on interrupt. Everything else stays polite, which matters more here than
+   * it looks -- this line changes twice on every set ticked off, and a region that says
+   * "Saving. Saved on this device." over the top of everything else, three times a
+   * minute, for an hour, is a region that gets the tool turned off.
+   */
+  #saveLine(): TemplateResult {
     const state = this.saveState;
-    if (state === null) return nothing;
-    const note = SAVE_STATE_NOTES[state];
+    const note = state === null ? undefined : SAVE_STATE_NOTES[state];
     const warn = state === 'unavailable' || state === 'failed';
-    return html`<p class=${warn ? 'save warn' : 'save'}>
-      ${SAVE_STATES[state]}${note === undefined ? nothing : html` ${note}`}
-    </p>`;
+    return html`<div class="storage" role="status" aria-live=${warn ? 'assertive' : 'polite'}>
+      ${
+        state === null
+          ? nothing
+          : html`<p class=${warn ? 'save warn' : 'save'}>
+              ${SAVE_STATES[state]}${note === undefined ? nothing : html` ${note}`}
+            </p>`
+      }
+    </div>`;
   }
 
   async #reload(): Promise<void> {
@@ -2009,7 +2173,7 @@ export class PtkTrainingLogbook extends LitElement {
 
     const source = stored;
     const context = this.#context();
-    let session = repeatWorkout(source, context, { localDate: this.today });
+    let session = repeatWorkout(source, context, { localDate: this.#day });
     const unramped: string[] = [];
     // By position, which is `repeatWorkout`'s own contract: it maps the exercises one
     // for one and in order. The pairing is what says whether *this* lift was ramped
@@ -2674,7 +2838,7 @@ export class PtkTrainingLogbook extends LitElement {
     if (record === null || source === null || this.active !== null) return;
 
     const landing = workoutFromHandoff(record, {
-      localDate: this.today,
+      localDate: this.#day,
       context: this.#context(),
     });
     source.clear();
@@ -2809,7 +2973,7 @@ export class PtkTrainingLogbook extends LitElement {
     const repository = this.repository;
     if (repository === null) return;
     const snapshot = await repository.exportSnapshot();
-    this.#download(serializeBackup(snapshot), 'application/json', backupFilename(this.today));
+    this.#download(serializeBackup(snapshot), 'application/json', backupFilename(this.#day));
 
     this.backupDone = true;
     this.dispatchEvent(
@@ -2835,7 +2999,7 @@ export class PtkTrainingLogbook extends LitElement {
     const repository = this.repository;
     if (repository === null) return;
     const snapshot = await repository.exportSnapshot();
-    this.#download(markdownExport(snapshot), 'text/markdown', markdownFilename(this.today));
+    this.#download(markdownExport(snapshot), 'text/markdown', markdownFilename(this.#day));
     this.markdownDone = true;
   }
 

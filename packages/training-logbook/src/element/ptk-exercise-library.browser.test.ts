@@ -149,6 +149,20 @@ function deepAll(root: DocumentFragment | HTMLElement, selector: string): HTMLEl
   return found;
 }
 
+/**
+ * The region this library speaks into -- and not the other library's.
+ *
+ * Scoped to the host rather than searched for from the root, because both libraries sit
+ * on the home screen and both draw a `.unreadable` region. A deep search finds two and
+ * takes the first, which is how this case spent a mutation run asserting things about
+ * the element it was not testing.
+ */
+function unreadableRegion(element: PtkTrainingLogbook): HTMLElement {
+  const found = shadow(one(shadow(element), 'ptk-exercise-library')).querySelector('.unreadable');
+  if (!(found instanceof HTMLElement)) throw new Error('The library drew no region to speak into.');
+  return found;
+}
+
 function one(root: DocumentFragment | HTMLElement, selector: string): HTMLElement {
   const found = deepAll(root, selector)[0];
   if (found === undefined) throw new Error(`Nothing on this screen matches "${selector}".`);
@@ -517,11 +531,30 @@ describe('editing and removing', () => {
     // The two look identical and only one of them makes adding under a familiar name
     // safe. The built-in catalogue stays up, which is the point of reading the customs
     // outside the boot `Promise.all`: a bad row must not cost a lifter the squat.
+    // Held open rather than rejected outright, because what is being asked here is that
+    // the region pre-dates the sentence -- and a read that has already failed by the time
+    // the element is mounted cannot tell a region that was always there from one built
+    // around its own text. `mount` waits on the storage line, which the boot read sets;
+    // this read runs after it.
+    let refuse: (cause: Error) => void = () => undefined;
+    const refusal = new Promise<never>((_resolve, reject) => {
+      refuse = reject;
+    });
     const store: LogbookStore = {
       ...memoryLogbookStore(),
-      readExercises: () => Promise.reject(new Error('unreadable')),
+      readExercises: () => refusal,
     };
     const element = await mount(store);
+
+    // Captured before the sentence, because the region is what has to pre-date it: one
+    // created at the moment it has something in it is announced by roughly half the
+    // engines and reliably by none, which `ptk-rest-timer` sets out at length. The
+    // identity check below is how that is asked -- the same node, holding the sentence.
+    const region = unreadableRegion(element);
+    expect(region.getAttribute('role')).toBe('status');
+    expect(region.textContent.trim()).toBe('');
+
+    refuse(new Error('unreadable'));
 
     // Waited for, like the reopen case above and for the same reason: the sentence is
     // written by the read that runs after the boot one, and an element that has a storage
@@ -531,6 +564,7 @@ describe('editing and removing', () => {
       await element.updateComplete;
       expect(readAll(element)).toContain(EXERCISE_NOTES.libraryUnreadable);
     });
+    expect(unreadableRegion(element)).toBe(region);
     expect(readAll(element)).not.toContain(EXERCISE_NOTES.libraryEmpty);
     // The rest of the tool is untouched: a session can still be planned.
     await pressAction(element, 'start-workout', shadow(element));

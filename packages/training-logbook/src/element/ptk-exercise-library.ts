@@ -373,8 +373,25 @@ export class PtkExerciseLibrary extends LitElement {
     `;
   }
 
+  /**
+   * The lifter's own movements, or the sentence saying they could not be read.
+   *
+   * The refusal is in an always-present region rather than returned in the list's
+   * place, for the reason `ptk-equipment-library` gives next door: it arrives from an
+   * asynchronous read with nothing else on the screen moving, and a region built at the
+   * moment it has something to say is not reliably announced.
+   */
   #renderLibrary(): TemplateResult {
-    if (this.unreadable) return html`<p class="note">${EXERCISE_NOTES.libraryUnreadable}</p>`;
+    const unreadable = this.unreadable;
+    return html`
+      <div class="unreadable" role="status">
+        ${unreadable ? html`<p class="note">${EXERCISE_NOTES.libraryUnreadable}</p>` : nothing}
+      </div>
+      ${unreadable ? nothing : this.#renderExercises()}
+    `;
+  }
+
+  #renderExercises(): TemplateResult {
     const exercises = this.#sorted();
     if (exercises.length === 0) return html`<p class="note">${EXERCISE_NOTES.libraryEmpty}</p>`;
     return html`

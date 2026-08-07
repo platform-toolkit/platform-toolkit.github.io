@@ -3,10 +3,28 @@
 
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
+import { cdp } from 'vitest/browser';
 
 import { DISCLOSURE_TOGGLE_EVENT, type PtkDisclosure } from './ptk-disclosure.js';
 import './ptk-disclosure.js';
 import './tokens.css';
+
+/**
+ * What `cdp()` actually hands back.
+ *
+ * The provider ships the method and the published type is an empty interface, so the
+ * shape is declared here rather than asserted at the call site -- an assertion would go
+ * on compiling the day the signature changes underneath it. Only the one command this
+ * file sends is named.
+ */
+declare module 'vitest/internal/browser' {
+  interface CDPSession {
+    send: (
+      method: 'Emulation.setEmulatedMedia',
+      parameters: { features: { name: string; value: string }[] },
+    ) => Promise<unknown>;
+  }
+}
 
 const teardown: (() => void)[] = [];
 
@@ -14,6 +32,27 @@ afterEach(() => {
   for (const dispose of teardown.splice(0)) {
     dispose();
   }
+});
+
+/**
+ * Tells the browser this page is being read by somebody who asked for less motion.
+ *
+ * Through the debugger protocol because there is no other way in: the preference is
+ * the operating system's, `matchMedia` is read-only, and a stylesheet the test reads
+ * for itself proves the text is present rather than that the engine applies it inside
+ * a shadow root -- which is the half that was wrong, and the half a document rule in
+ * `tokens.css` cannot fix.
+ */
+async function preferMotion(value: 'reduce' | 'no-preference'): Promise<void> {
+  await cdp().send('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-reduced-motion', value }],
+  });
+}
+
+// Page-wide and outlives the test that set it, so every case after a reduced-motion
+// one would otherwise measure a preference it never asked for.
+afterEach(async () => {
+  await preferMotion('no-preference');
 });
 
 function mount(parent: HTMLElement = document.body): PtkDisclosure {
@@ -34,6 +73,14 @@ function details(element: PtkDisclosure): HTMLDetailsElement {
   const found = element.shadowRoot?.querySelector('details');
   if (!(found instanceof HTMLDetailsElement)) {
     throw new Error('The disclosure rendered no details element.');
+  }
+  return found;
+}
+
+function chevron(element: PtkDisclosure): HTMLElement {
+  const found = element.shadowRoot?.querySelector('.chevron');
+  if (!(found instanceof HTMLElement)) {
+    throw new Error('The disclosure rendered no chevron.');
   }
   return found;
 }
@@ -149,6 +196,21 @@ describe('ptk-disclosure', () => {
     await element.updateComplete;
 
     expect(frame.scrollWidth).toBeLessThanOrEqual(frame.clientWidth);
+  });
+
+  it('stops rotating the chevron for somebody who asked for less motion', async () => {
+    // The only animated declaration in either package, and the one thing the
+    // reduced-motion block in `tokens.css` cannot reach: a document rule does not
+    // cross a shadow boundary, and `transition` is not an inherited property, so
+    // nothing carries the preference in here except the query repeated beside the
+    // declaration it cancels.
+    const element = mount();
+    await element.updateComplete;
+    expect(getComputedStyle(chevron(element)).transitionDuration).toBe('0.12s');
+
+    await preferMotion('reduce');
+
+    expect(getComputedStyle(chevron(element)).transitionDuration).toBe('0s');
   });
 
   it('has no accessibility violations, open or closed', async () => {

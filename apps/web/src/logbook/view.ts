@@ -64,6 +64,19 @@ export interface TrainingLogbookViewOptions {
    * the lifter's own device.
    */
   readonly persistence?: StoragePersistence;
+
+  /**
+   * Set when the document already carries a visible heading naming this tool.
+   *
+   * The same asymmetry as the two above and the same shape of reason: the
+   * standalone page draws an `<h1>Training Logbook</h1>` in its own header, and
+   * the element draws a clipped one of its own so that a framed copy -- a
+   * document whose entire body is this tool -- is not a page with no heading.
+   * Both together is the outline saying it twice, and only the page entry knows
+   * which route it is. Left out, the element keeps its heading, which is the
+   * answer that is merely redundant rather than wrong.
+   */
+  readonly pageTitled?: boolean;
 }
 
 /**
@@ -140,6 +153,7 @@ export function createTrainingLogbookView(
   element.applicationVersion = __PTK_APPLICATION_VERSION__;
   element.handoff = options.handoff ?? null;
   element.persistence = options.persistence ?? null;
+  element.pageTitled = options.pageTitled ?? false;
 
   startToday(element, clock);
   startStorage(element, clock, options.openStore ?? (() => openLogbookStore()));

@@ -593,6 +593,31 @@ export class PtkActiveWorkout extends LitElement {
   #loadings: { session: WorkoutSession; equipment: EquipmentSnapshot; answers: Loadings } | null =
     null;
 
+  /**
+   * Where focus goes after the next render, as a selector into this shadow root.
+   *
+   * Every control that changes a set is drawn from that set's own state, so pressing
+   * one destroys it: Done and Undo are two different `ptk-button` instances, and the
+   * row re-renders under the thumb that pressed. What the platform does with focus on
+   * a node that has gone is drop it on the document -- which at the rack means the next
+   * tab starts at the top of the page and a reader is told nothing happened, once per
+   * set, all session.
+   *
+   * A selector and not a node, because the node it names has not been drawn yet. It is
+   * armed on the press and spent by the render that press causes. See {@link updated}.
+   */
+  #refocus: string | null = null;
+
+  /**
+   * Whether the press that armed {@link #refocus} was made with focus inside here.
+   *
+   * The difference between keeping focus and taking it. A click focuses the button on
+   * the engines that focus a button on click, so this is true for the press this whole
+   * mechanism exists for; where it is false the lifter was reading something else and
+   * their focus is not this element's to move.
+   */
+  #held = false;
+
   override connectedCallback(): void {
     super.connectedCallback();
     this.addEventListener(NUMBER_FIELD_CHANGE_EVENT, this.#onValue);
@@ -628,6 +653,46 @@ export class PtkActiveWorkout extends LitElement {
       [...children].filter((node) => node instanceof LitElement).map((node) => node.updateComplete),
     );
     return done;
+  }
+
+  /**
+   * Puts focus on whatever replaced the control that was pressed.
+   *
+   * Only where the render actually took it. A press that leaves its own control
+   * standing -- Add a set, a note toggle, anything on the finish panel -- keeps focus
+   * where the platform put it, and `activeElement` on the shadow root is how that is
+   * asked: it names the host of whatever inside this root holds focus, and is null
+   * exactly when the focused node has been removed.
+   *
+   * The target is left armed when it is not there yet, rather than being spent on the
+   * first attempt. One press can cost two renders -- Undo and Skip both assign
+   * `editing` before they dispatch, so this element updates once on its own state with
+   * the old session still in place and again when the root hands the new one back --
+   * and the control being aimed at is only drawn by the second. {@link #onClick} drops
+   * whatever is armed on every press, which is what stops a target that never arrived
+   * from taking focus off something the lifter reached for minutes later.
+   *
+   * Two of the conditions here survive mutation and are kept anyway: the `activeElement`
+   * check, and that drop in `#onClick`. Both need an armed target that is never drawn,
+   * and every path that arms one today aims at a control the very next render puts on
+   * screen -- so no fixture can produce the state either one refuses. They are the
+   * difference between a rule and a coincidence, and the coincidence is one arming site
+   * away from ending. **Do not delete either on a green run.**
+   */
+  protected override updated(): void {
+    const selector = this.#refocus;
+    const root = this.shadowRoot;
+    if (root === null) return;
+    if (selector === null || !this.#held || root.activeElement !== null) return;
+    const target = root.querySelector(selector);
+    if (!(target instanceof HTMLElement)) return;
+    this.#refocus = null;
+    target.focus();
+  }
+
+  /** A control on one row, as a selector into this shadow root. */
+  #rowControl(setId: LogbookId, action: string): string {
+    return `li[data-set="${setId}"] [data-action="${action}"]`;
   }
 
   override render(): TemplateResult | typeof nothing {
@@ -1148,6 +1213,10 @@ export class PtkActiveWorkout extends LitElement {
   readonly #onClick = (event: Event): void => {
     const action = actionOf(event);
     if (action === null) return;
+    // Dropped on every press, so a target that was armed and never drawn cannot sit
+    // waiting to steal focus from whatever the lifter reached for next.
+    this.#refocus = null;
+    this.#held = (this.shadowRoot?.activeElement ?? null) !== null;
 
     switch (action) {
       case COMPLETE_ACTION:
@@ -1236,12 +1305,21 @@ export class PtkActiveWorkout extends LitElement {
   #changeSet(event: Event, kind: 'duplicate' | 'skip' | 'remove'): void {
     const session = this.session;
     const setId = setOf(event);
-    if (session === null || setId === null || findSet(session, setId) === null) return;
+    const found = session === null || setId === null ? null : findSet(session, setId);
+    if (session === null || setId === null || found === null) return;
     // Skipping or removing closes the editor, the same rule undo follows: leaving it
     // open over a row that is gone, or whose performance has just been cleared, is
     // leaving Save ready to put back what the lifter has said did not happen.
     // Duplicate leaves it open -- that row is still there and still being corrected.
     if (kind !== 'duplicate' && this.editing === setId) this.editing = null;
+    // Where the thumb lands when the row comes back. A skipped row is still there and
+    // carries Undo; a removed one is not, so the nearest thing still standing is the
+    // control that puts a set back on the same lift. Duplicate takes nothing away, so
+    // the button that was pressed keeps the focus the platform gave it.
+    if (kind === 'skip') this.#refocus = this.#rowControl(setId, UNDO_ACTION);
+    if (kind === 'remove') {
+      this.#refocus = `[data-action="${ADD_SET_ACTION}"][data-exercise="${found.exercise.id}"]`;
+    }
     this.#planChange({ kind, setId });
   }
 
@@ -1268,6 +1346,9 @@ export class PtkActiveWorkout extends LitElement {
     const session = this.#withDraft(this.session);
     const setId = setOf(event);
     if (session === null || setId === null || findSet(session, setId) === null) return;
+    // The row comes back with Undo where Done was. This is the press the whole of
+    // #refocus exists for: it is the one a lifter makes standing at the bar.
+    this.#refocus = this.#rowControl(setId, UNDO_ACTION);
     this.#changed(completeSet(session, setId, this.#context()), setId);
   }
 
@@ -1278,6 +1359,7 @@ export class PtkActiveWorkout extends LitElement {
     // The editor closes with the undo. Leaving it open would show the numbers of a
     // performance that no longer exists, ready to be saved back.
     if (this.editing === setId) this.editing = null;
+    this.#refocus = this.#rowControl(setId, COMPLETE_ACTION);
     this.#changed(undoSet(session, setId, this.#context()), null);
   }
 
@@ -1354,6 +1436,9 @@ export class PtkActiveWorkout extends LitElement {
 
     const wasPlanned = found.set.status === 'planned';
     this.editing = null;
+    // Back to the control that opened the editor, which is the only thing on the row
+    // that was there before it and is there after it.
+    this.#refocus = this.#rowControl(setId, EDIT_ACTION);
     this.#changed(recordSet(session, setId, performed, this.#context()), wasPlanned ? setId : null);
   }
 

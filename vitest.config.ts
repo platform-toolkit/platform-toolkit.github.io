@@ -231,7 +231,13 @@ const projects: TestProjectInlineConfiguration[] = [
     // `ui` is: custom elements, Shadow DOM, and Lit's update scheduling are what
     // is being tested, and an emulation of them makes a passing test weak
     // evidence.
-    define: { __PTK_DATA_BASE_URL__: JSON.stringify('/data/') },
+    // Both build-time defines, because a composition root that stamps the
+    // application version into a backup file is one of the things this suite
+    // exists to cover, and an undefined identifier throws before it can.
+    define: {
+      __PTK_DATA_BASE_URL__: JSON.stringify('/data/'),
+      __PTK_APPLICATION_VERSION__: JSON.stringify('0.0.0-test'),
+    },
     test: {
       name: 'web-browser',
       root: './apps/web',

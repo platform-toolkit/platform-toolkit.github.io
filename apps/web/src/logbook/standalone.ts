@@ -43,9 +43,13 @@ registerServiceWorker();
 // reason: persistence is granted to a top-level site, so a framed copy would be
 // asking on behalf of somebody else's page and reporting the answer as though it
 // were about the lifter's own device.
+// `pageTitled` for the third instance of the same asymmetry: the header above
+// `#app` in this document already says "Training Logbook", and the embed route
+// has no header at all.
 app.replaceChildren(
   createTrainingLogbookView({
     handoff: browserHandoffSource(),
     persistence: browserStoragePersistence(),
+    pageTitled: true,
   }),
 );

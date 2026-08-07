@@ -121,6 +121,48 @@ describe('ptk-button', () => {
     expect(inner(element).getAttribute('aria-expanded')).toBe('true');
   });
 
+  it('moves focus to the real button, which the host cannot take on its own', async () => {
+    // The host is not focusable, so an unoverridden `focus()` on it does nothing at
+    // all -- and a caller that has just re-rendered a row and wants the thumb still
+    // on the control has no other way in, the button being behind a shadow root it
+    // does not own.
+    const element = mount('Undo');
+    await element.updateComplete;
+
+    element.focus();
+
+    expect(element.shadowRoot?.activeElement).toBe(inner(element));
+  });
+
+  it('honours a focus call that arrived before it had drawn a button', async () => {
+    // The case the deferral was written for rather than an edge of it. The caller is
+    // a parent restoring focus to the control that replaced the one its own press
+    // destroyed, and it acts from its own `updated()` -- which the platform runs when
+    // the *parent's* template has committed, one microtask before any button in it
+    // has rendered. Dropped there, the override looks correct and works nowhere.
+    const element = mount('Undo');
+    expect(element.shadowRoot?.querySelector('button') ?? null).toBe(null);
+
+    element.focus();
+    await element.updateComplete;
+
+    expect(element.shadowRoot?.activeElement).toBe(inner(element));
+  });
+
+  it('does not take focus at its first render when nobody asked for it', async () => {
+    // What the debt is owed for is a call, not a render. A button that grabbed focus
+    // on arriving would move it every time a row above one redrew.
+    const other = mount('Edit');
+    await other.updateComplete;
+    inner(other).focus();
+
+    const element = mount('Undo');
+    await element.updateComplete;
+
+    expect(other.shadowRoot?.activeElement).toBe(inner(other));
+    expect(element.shadowRoot?.activeElement).toBe(null);
+  });
+
   it.each(['primary', 'secondary', 'quiet'] as const)(
     'is at least the tap-target floor tall as %s',
     async (variant) => {

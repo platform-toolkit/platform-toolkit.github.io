@@ -105,6 +105,22 @@ export class PtkDisclosure extends LitElement {
       transform: rotate(-135deg);
     }
 
+    /*
+     * The reduced-motion block in tokens.css is a document rule and does not
+     * cross a shadow boundary, so it turns off every transition on the page
+     * except the ones that are actually in these components. Only inherited
+     * properties reach in here; transition is not one, and there is no token to
+     * hang it on -- the query has to be repeated beside the declaration it
+     * cancels. This is the only animated declaration in either package.
+     *
+     * No backticks: a quoted identifier in a CSS comment ends the css template.
+     */
+    @media (prefers-reduced-motion: reduce) {
+      .chevron {
+        transition: none;
+      }
+    }
+
     .body {
       padding: 0 var(--ptk-space-md) var(--ptk-space-md);
     }

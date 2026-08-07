@@ -76,6 +76,30 @@ export const SAVE_STATE_NOTES: Readonly<Partial<Record<SaveState, string>>> = {
 };
 
 /**
+ * What the tool calls itself, and what three of its screens are called.
+ *
+ * The title is the element's own `<h1>`. It is there because the tool is shipped
+ * framed as well as hosted: the embed route is a page with no site chrome on it, so
+ * whatever heading a visitor lands on is the one this element drew. The page around
+ * it may well draw the same words above the frame -- that page can be changed and a
+ * document with no level-one heading in it cannot be navigated, so the duplicate is
+ * the cheaper of the two faults.
+ *
+ * The screen names are the accessible name of the region a screen change moves focus
+ * to, which is why only three are here: every other screen already has a heading in
+ * {@link BUILDER_NOTES} and its neighbours, and naming a region with a second string
+ * is how a region comes to disagree with the heading inside it. These three have no
+ * heading of their own -- the home screen is a stack of sections, and the logging and
+ * correcting screens are titled with the workout's own day.
+ */
+export const SCREEN_NOTES = {
+  title: 'Training logbook',
+  home: 'Training logbook',
+  active: 'Logging a workout',
+  edit: 'Correcting a workout',
+} as const;
+
+/**
  * What each loading model asks for, in the words it is filed under.
  *
  * These are the `optgroup` headings in the exercise picker, and grouping by loading

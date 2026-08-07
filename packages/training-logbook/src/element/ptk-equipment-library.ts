@@ -50,7 +50,7 @@ import {
   type TextFieldChangeDetail,
 } from '@platform-toolkit/ui';
 import '@platform-toolkit/ui';
-import { LitElement, css, html, type PropertyValues, type TemplateResult } from 'lit';
+import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from 'lit';
 import { property, state } from 'lit/decorators.js';
 
 import { equipmentFrom, findProfileFor, sameEquipment, snapshotFrom } from '../core/equipment.js';
@@ -296,8 +296,28 @@ export class PtkEquipmentLibrary extends LitElement {
     `;
   }
 
+  /**
+   * The saved gyms, or the sentence saying they could not be read.
+   *
+   * The refusal is in a region that is in the document from the first render and is
+   * empty until there is something to say, rather than being returned in the list's
+   * place. It arrives from an asynchronous read with nothing else on the screen
+   * changing, so a region created at the same moment as its sentence is a sentence
+   * roughly half the engines never speak -- `ptk-rest-timer` sets the rule out at
+   * length. Polite, because the library is a corner of the home screen and the tool
+   * behind it still works.
+   */
   #renderLibrary(): TemplateResult {
-    if (this.unreadable) return html`<p class="note">${EQUIPMENT_NOTES.libraryUnreadable}</p>`;
+    const unreadable = this.unreadable;
+    return html`
+      <div class="unreadable" role="status">
+        ${unreadable ? html`<p class="note">${EQUIPMENT_NOTES.libraryUnreadable}</p>` : nothing}
+      </div>
+      ${unreadable ? nothing : this.#renderProfiles()}
+    `;
+  }
+
+  #renderProfiles(): TemplateResult {
     const profiles = this.#sorted();
     if (profiles.length === 0) return html`<p class="note">${EQUIPMENT_NOTES.libraryEmpty}</p>`;
 
