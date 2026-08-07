@@ -2161,10 +2161,10 @@ describe('the training logbook', () => {
         expect(deepAll(shadow(element), 'ptk-workout-detail')).toHaveLength(1);
       });
       const said = readAll(element);
-      // The reps and not the weight: this session was recorded in kilograms and read
-      // back by a lifter set to pounds, and what the editor does to the weight box in
-      // that case is #103's bug and not this journey's business.
-      expect(said).toContain('x 4');
+      // The weight as well as the reps. This session was recorded in kilograms and is
+      // being read back by a lifter set to pounds, which is the case that used to come
+      // out of the editor relabelled -- correcting the reps must not touch the bar.
+      expect(said).toContain(`${formatWeight({ amount: REPEATED_WEIGHT, unit: 'kg' })} x 4`);
       // The planned line under it, which is the detail screen saying the row was
       // corrected rather than logged that way.
       expect(said).toContain(DETAIL_NOTES.plannedLabel);

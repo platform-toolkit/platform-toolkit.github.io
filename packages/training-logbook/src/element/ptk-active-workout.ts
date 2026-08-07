@@ -85,7 +85,13 @@
  * saved -- which is a promise only the thing holding the repository can make.
  */
 
-import type { Weight, WeightUnit } from '@platform-toolkit/domain';
+import {
+  enterWeight,
+  entryAmount,
+  showEntryIn,
+  type Weight,
+  type WeightUnit,
+} from '@platform-toolkit/domain';
 import {
   CHOICE_CHANGE_EVENT,
   NUMBER_FIELD_CHANGE_EVENT,
@@ -1237,7 +1243,7 @@ export class PtkActiveWorkout extends LitElement {
     const load: SetLoad = shown === null ? { kind: 'none' } : shown.load;
     const reps = shown === null ? null : shown.repetitions;
     this.editing = setId;
-    this.editWeight = load.kind === 'none' ? '' : String(load.weight.amount);
+    this.editWeight = load.kind === 'none' ? '' : String(this.#shownAmount(load.weight));
     this.editReps = reps === null ? '' : String(reps);
     this.editEffort = this.#seedEffort(found.set.performed?.effort ?? null);
   }
@@ -1268,8 +1274,14 @@ export class PtkActiveWorkout extends LitElement {
     const found = findSet(session, setId);
     if (found === null) return;
 
+    // What the box was opened holding, recomputed rather than remembered: the editor
+    // is the only thing that writes this set, so the seed cannot have moved under it,
+    // and a remembered copy is one more piece of state to leave stale.
+    const shown = found.set.performed ?? found.set.planned;
+    const seeded = shown === null || shown.load.kind === 'none' ? null : shown.load.weight;
+
     const performed = {
-      load: loadFor(found.exercise.loading, this.#weight()),
+      load: loadFor(found.exercise.loading, this.#weight(seeded)),
       repetitions: readReps(this.editReps),
       effort: this.#effort(found.set.performed?.effort ?? null),
     };
@@ -1304,12 +1316,34 @@ export class PtkActiveWorkout extends LitElement {
     return stored?.scale !== scale ? stored : null;
   }
 
-  /** What the editor's weight box says, in the unit it was typed in. */
-  #weight(): Weight | null {
+  /**
+   * The number the weight box shows for a weight already on the set.
+   *
+   * The box is labelled with the reading unit, so what goes in it is the stored weight
+   * *converted* -- section 11.4 keeps recorded weights in the unit they were typed in
+   * and puts only the entry boxes in the reading unit. Seeding it with the raw stored
+   * amount put "20" in a box labelled lb for a set done at 20 kg.
+   */
+  #shownAmount(weight: Weight): number {
+    return entryAmount(showEntryIn(enterWeight(weight.amount, weight.unit), this.unit));
+  }
+
+  /**
+   * What the editor's weight box says, given what the box was seeded with.
+   *
+   * A box still holding the number it was opened with is not an entry, and saving it
+   * as one is how a lifter correcting a rep count on a set done at 110 kg, while
+   * reading in pounds, got 242.51 lb written over it. So an untouched box returns the
+   * stored weight itself, exactly as stored, and only a number that differs from the
+   * seed is taken as something the lifter typed -- in the unit the box is labelled
+   * with, which is the reading unit.
+   */
+  #weight(seeded: Weight | null): Weight | null {
     const text = this.editWeight.trim();
     if (text === '') return null;
     const amount = Number(text);
     if (!Number.isFinite(amount) || amount <= 0) return null;
+    if (seeded !== null && amount === this.#shownAmount(seeded)) return seeded;
     return { amount, unit: this.unit };
   }
 

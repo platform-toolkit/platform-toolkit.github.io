@@ -96,6 +96,7 @@ import type {
   Instant,
   LogbookId,
   LogbookSettings,
+  SetLoad,
   SetPerformance,
   WorkoutExercise,
   WorkoutSession,
@@ -1599,6 +1600,61 @@ describe('the editor a set opens', () => {
     // without anybody having to think about it again.
     expect(editorFields(row)).toEqual([DONE_WEIGHT_FIELD, DONE_REPS_FIELD, DONE_EFFORT_FIELD]);
     expect(fieldLabel(row, DONE_EFFORT_FIELD)).toBe(EFFORT_FIELD_LABELS.rpe);
+  });
+});
+
+describe('the weight box on a set recorded in the other unit', () => {
+  /** Invented (section 5.1), and kg-round so the pound reading is visibly not it. */
+  const RECORDED_KG = 100;
+  /** The same weight in pounds at the display precision, which is what the box shows. */
+  const SHOWN_LB = 220.46;
+
+  function storedLoad(session: WorkoutSession, index: number): SetLoad | null {
+    return setAt(session, 0, index).performed?.load ?? null;
+  }
+
+  it('opens the box on the stored weight converted, not on the number relabelled', async () => {
+    const element = await mount({ session: aSession(SQUAT, [RECORDED_KG], 'kg'), unit: 'lb' });
+
+    await tap(element, setRow(element, 0), 'edit');
+
+    // Section 11.4's split: recorded weights read in the unit they were typed in, and
+    // only the entry boxes are in the reading unit. This box is labelled lb, so a
+    // "100" in it is a hundred pounds -- less than half the bar this set was done at.
+    expect(numberBox(setRow(element, 0), DONE_WEIGHT_FIELD).value).toBe(String(SHOWN_LB));
+  });
+
+  it('keeps the weight exactly as recorded when only the reps are corrected', async () => {
+    const element = await mount({ session: aSession(SQUAT, [RECORDED_KG], 'kg'), unit: 'lb' });
+    const seen = changes(element);
+
+    await tap(element, setRow(element, 0), 'edit');
+    await typeInto(element, setRow(element, 0), DONE_REPS_FIELD, '4');
+    await tap(element, setRow(element, 0), 'save-edit');
+
+    // Neither 220.46 lb, which is this weight rounded, nor 100 lb, which is not this
+    // weight at all. A box still holding the number it was opened with is not an
+    // entry, and correcting a rep count must leave the bar alone.
+    expect(storedLoad(only(seen).session, 0)).toEqual({
+      kind: 'implement',
+      weight: { amount: RECORDED_KG, unit: 'kg' },
+    });
+  });
+
+  it('takes a retyped weight in the unit the box is labelled with', async () => {
+    const element = await mount({ session: aSession(SQUAT, [RECORDED_KG], 'kg'), unit: 'lb' });
+    const seen = changes(element);
+
+    await tap(element, setRow(element, 0), 'edit');
+    await typeInto(element, setRow(element, 0), DONE_WEIGHT_FIELD, '225');
+    await tap(element, setRow(element, 0), 'save-edit');
+
+    // The other half of it. A number typed into a box marked lb is pounds, and
+    // storing it as kilograms would be the same bug pointing the other way.
+    expect(storedLoad(only(seen).session, 0)).toEqual({
+      kind: 'implement',
+      weight: { amount: 225, unit: 'lb' },
+    });
   });
 });
 
