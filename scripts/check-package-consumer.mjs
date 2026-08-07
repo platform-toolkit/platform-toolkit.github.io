@@ -25,12 +25,51 @@
  * WHAT IT CHECKS
  *
  *   - every path named in every `exports` map is actually inside the tarball
- *   - the declared dependency closure is enough to build against -- a consumer gets
- *     only what the manifests ask for, so an undeclared dependency is a missing
- *     module rather than a lucky hoist
+ *   - every bare specifier the tarball's own shipped code imports is declared by the
+ *     tarball's own manifest, so an undeclared dependency is a missing module for a
+ *     consumer rather than a lucky hoist here
+ *   - a shared singleton (see below) is peered, and peered on a range wide enough
+ *     that a consumer's own copy is the copy the package gets
+ *   - the declared dependency closure is enough to build against
  *   - the shipped `.d.ts` files type-check under a plain, strict `tsc` that knows
  *     nothing of this repository's `tsconfig.base.json`
  *   - the pure core actually runs in Node, from the tarball, with no bundler
+ *
+ * EVERY PACKAGE IS PACKED, NOT ONLY THE TWO WITH A CONSUMER
+ *
+ * `CONSUMABLE` names the packages a stranger is meant to *build against*, and only
+ * those get a compiled consumer and a runtime smoke -- writing one costs a page of
+ * annotated source per tool. But packing is cheap, and the manifest faults below are
+ * not about a consumer's source at all: a package with no `files` field ships its
+ * `src/`, its `tsbuildinfo` and any gitignored notes beside it, and nothing in a
+ * consumer's build would ever mention that. So the pack, the `exports` sweep, the
+ * import audit and the singleton rules run over **every** package under `packages/`.
+ * Three of them had been outside this check's reach entirely, which is how three of
+ * them came to be shipping their source.
+ *
+ * SHARED SINGLETONS, AND WHY A PINNED `dependency` ON ONE IS THE WORST BUG HERE
+ *
+ * Lit is not an ordinary dependency. It writes to the one global `customElements`
+ * registry, and `ReactiveElement`, the directive base classes and lit-html's
+ * template-part brands are all identities held per module instance. So two copies in
+ * one page is not "slightly larger download": `defineTrainingLogbook()` from copy A
+ * registers elements copy B does not recognise, `instanceof LitElement` is false
+ * across the seam, and a directive authored against one throws inside the other. The
+ * elements simply never upgrade, and **nothing logs**.
+ *
+ * A consumer gets two copies whenever the range a package declares does not admit
+ * the version the consumer already has -- npm and pnpm both answer that by nesting a
+ * second copy under the package rather than by failing. So the rules are:
+ *
+ *   - a singleton is a `peerDependency`, never a `dependency`. A dependency is a
+ *     copy this package owns; a peer is the consumer's copy, which is the only
+ *     answer that can be correct for something with a global registry behind it.
+ *   - the peer range must admit more than one version. `"lit": "3.3.3"` as a peer is
+ *     the same duplication with an extra step, and `~3.3.3` only defers it a minor.
+ *     The check measures the range against the installed version *and* against the
+ *     next minor of it, which is the plausible consumer six months from now.
+ *   - it stays in `devDependencies`, or the workspace has no version to build and
+ *     test against and every tsc here fails on a missing module.
  *
  * WHAT IT DELIBERATELY DOES NOT DO
  *
@@ -59,8 +98,9 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { cp, mkdir, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { builtinModules } from 'node:module';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, extname, join } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
@@ -69,6 +109,20 @@ const PACKAGES_ROOT = join(REPOSITORY_ROOT, 'packages');
 
 /** See the header: $HOME, not `/tmp`, and the reason is Santa rather than taste. */
 const SCRATCH_ROOT = join(homedir(), '.ptk-pack-check');
+
+/**
+ * Dependencies a consumer's graph must hold exactly one copy of. The header says why
+ * Lit is one; the test for adding another is whether two copies would disagree about
+ * an identity rather than merely cost bytes -- a global registry, a `Symbol`-free
+ * brand check, an `instanceof` across the seam.
+ *
+ * `valibot` is deliberately *not* here. Two copies of it validate independently and
+ * agree, so pinning it is a size question and not a correctness one.
+ */
+const SHARED_SINGLETONS = new Set(['lit']);
+
+/** Node's own modules, which no manifest has to declare. */
+const BUILTINS = new Set(builtinModules);
 
 /**
  * The packages a third party is meant to be able to install, each with the source
@@ -337,6 +391,102 @@ async function readManifest(file) {
 }
 
 /**
+ * Just enough semver to answer "would this range take that version".
+ *
+ * Hand-rolled rather than depending on `semver`, which is in the store as somebody
+ * else's transitive dependency and is not declared by anything here -- reaching for
+ * it would be the same undeclared-dependency mistake this file exists to catch, in
+ * the file that catches it. The vocabulary supported is the vocabulary a peer range
+ * in this repository may use, and anything outside it is reported rather than
+ * guessed at, because a range this cannot parse must not read as a range it admits.
+ *
+ * @param {string} version
+ * @returns {[number, number, number] | null}
+ */
+function parseVersion(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(version.trim());
+  return match === null ? null : [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+/**
+ * @param {[number, number, number]} left
+ * @param {[number, number, number]} right
+ * @returns {number}
+ */
+function compareVersions(left, right) {
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] !== right[index]) return left[index] - right[index];
+  }
+  return 0;
+}
+
+/**
+ * @param {string} range one comparator, already split off any `||`
+ * @param {[number, number, number]} version
+ * @returns {boolean | null} null when the comparator is not one this understands
+ */
+function admitsComparator(range, version) {
+  const comparator = range.trim();
+  if (comparator === '' || comparator === '*') return true;
+  const match = /^(\^|~|>=|<=|>|<|=)?\s*v?(\d+\.\d+\.\d+[^\s]*)$/.exec(comparator);
+  if (match === null) return null;
+  const bound = parseVersion(match[2]);
+  if (bound === null) return null;
+  const order = compareVersions(version, bound);
+  switch (match[1] ?? '=') {
+    case '=':
+      return order === 0;
+    case '>':
+      return order > 0;
+    case '>=':
+      return order >= 0;
+    case '<':
+      return order < 0;
+    case '<=':
+      return order <= 0;
+    case '~':
+      return order >= 0 && compareVersions(version, [bound[0], bound[1] + 1, 0]) < 0;
+    case '^':
+      // Only the >= 1.0.0 form, because that is the only form a dependency of this
+      // collection has. A 0.x caret is narrower and would be answered wrongly here.
+      return bound[0] > 0 && order >= 0 && compareVersions(version, [bound[0] + 1, 0, 0]) < 0;
+    default:
+      return null;
+  }
+}
+
+/**
+ * @param {string} range
+ * @param {string} version
+ * @returns {boolean | null} null when the range is not one this understands
+ */
+function admits(range, version) {
+  const parsed = parseVersion(version);
+  if (parsed === null) return null;
+  let understood = false;
+  for (const alternative of range.split('||')) {
+    const comparators = alternative.trim().split(/\s+/).filter(Boolean);
+    const answers = comparators.map((comparator) => admitsComparator(comparator, parsed));
+    if (answers.includes(null)) continue;
+    understood = true;
+    if (answers.every(Boolean)) return true;
+  }
+  return understood ? false : null;
+}
+
+/**
+ * The version a consumer who installed this range later would plausibly be holding.
+ * A caret range takes it and an exact pin does not, which is the whole discrimination.
+ *
+ * @param {string} version
+ * @returns {string | null}
+ */
+function nextMinor(version) {
+  const parsed = parseVersion(version);
+  return parsed === null ? null : `${String(parsed[0])}.${String(parsed[1] + 1)}.0`;
+}
+
+/**
  * Every workspace package, by the name it publishes under.
  *
  * @returns {Promise<Map<string, string>>} name to directory
@@ -401,8 +551,8 @@ async function packAndUnpack(name, directory) {
 }
 
 /**
- * Walks the declared dependency graph from the consumable packages, packing each
- * workspace package it reaches and noting each registry package it needs.
+ * Walks the declared dependency graph from every workspace package, packing each one
+ * and noting each registry package it needs.
  *
  * The walk is over `dependencies` and `peerDependencies` only. `devDependencies`
  * are not installed for a consumer, so a package that needs one at runtime is
@@ -418,7 +568,10 @@ async function resolveClosure(workspace, failures) {
   /** @type {Map<string, string>} registry package name to the directory that wants it */
   const external = new Map();
 
-  const queue = CONSUMABLE.map((entry) => entry.name);
+  // Every package, not only the two with a hand-written consumer. See the header:
+  // the manifest faults this catches are invisible from a consumer's source, so a
+  // package left out of the walk is a package left out of the check entirely.
+  const queue = [...workspace.keys()];
   while (queue.length > 0) {
     const name = queue.shift();
     if (name === undefined || packed.has(name)) continue;
@@ -491,6 +644,166 @@ async function checkExportsExist(packed, failures) {
     for (const path of new Set(paths)) {
       if (!existsSync(join(unpacked, path))) {
         failures.push(`${name} exports ${path}, which its tarball does not contain`);
+      }
+    }
+  }
+}
+
+/**
+ * Every bare specifier a piece of shipped code imports.
+ *
+ * The first two are **anchored to the start of a line**, and that is not tidiness.
+ * An unanchored `\bfrom\s*['"]` reads the prose in this collection's own doc
+ * comments -- "…apart from 'this is some other tool'…" -- and reports a dozen
+ * sentences as undeclared packages. A block comment's continuation lines begin with
+ * `*`, so the anchor is what tells a statement from a sentence about one. Statement
+ * position is also where `tsc` puts every static import it emits, in both the `.js`
+ * and the `.d.ts`.
+ *
+ * The body may run over several lines but may not contain a quote, which stops one
+ * `export` from reaching across a string literal to a later statement's `from`.
+ *
+ * The dynamic and `require` forms stay unanchored because neither is at statement
+ * position, and both are specific enough not to need it.
+ */
+const SPECIFIER_PATTERNS = [
+  /^\s*(?:import|export)\s[^'"]*?\bfrom\s*['"]([^'"]+)['"]/gm,
+  /^\s*import\s+['"]([^'"]+)['"]/gm,
+  /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+  /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+];
+
+/**
+ * The package a specifier names, or null when it names no package.
+ *
+ * @param {string} specifier
+ * @returns {string | null}
+ */
+function packageNameOf(specifier) {
+  if (specifier === '' || specifier.startsWith('.') || specifier.startsWith('/')) return null;
+  if (specifier.startsWith('node:')) return null;
+  const segments = specifier.split('/');
+  return specifier.startsWith('@') ? segments.slice(0, 2).join('/') : segments[0];
+}
+
+/**
+ * Every shipped module in a tarball. Source maps are skipped -- they quote the
+ * source, so scanning one reports the imports of a file that is not in the tarball.
+ *
+ * @param {string} directory
+ * @returns {Promise<string[]>}
+ */
+async function shippedModules(directory) {
+  /** @type {string[]} */
+  const found = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      found.push(...(await shippedModules(path)));
+      continue;
+    }
+    if (entry.name.endsWith('.map')) continue;
+    if (['.js', '.mjs', '.cjs', '.ts'].includes(extname(entry.name))) found.push(path);
+  }
+  return found;
+}
+
+/**
+ * Every package the shipped code imports must be a package the shipped manifest asks
+ * for.
+ *
+ * This is the check that catches a missing peer directly, by name, rather than as
+ * whatever a downstream `tsc` happens to say about the first file that could not
+ * resolve. The workspace cannot see the fault at all: pnpm's store is one hoisted
+ * tree and the import succeeds here however the manifest is written.
+ *
+ * @param {Map<string, string>} packed
+ * @param {string[]} failures
+ */
+async function checkDeclaredImports(packed, failures) {
+  for (const [name, unpacked] of packed) {
+    const manifest = await readManifest(join(unpacked, 'package.json'));
+    const declared = new Set([
+      ...Object.keys(manifest['dependencies'] ?? {}),
+      ...Object.keys(manifest['peerDependencies'] ?? {}),
+      ...Object.keys(manifest['optionalDependencies'] ?? {}),
+    ]);
+    /** @type {Set<string>} */
+    const undeclared = new Set();
+    for (const file of await shippedModules(unpacked)) {
+      const text = await readFile(file, 'utf8');
+      for (const pattern of SPECIFIER_PATTERNS) {
+        pattern.lastIndex = 0;
+        let match;
+        while ((match = pattern.exec(text)) !== null) {
+          const dependency = packageNameOf(match[1]);
+          if (dependency === null) continue;
+          if (dependency === name || declared.has(dependency) || BUILTINS.has(dependency)) continue;
+          undeclared.add(dependency);
+        }
+      }
+    }
+    for (const dependency of [...undeclared].sort()) {
+      failures.push(
+        `${name} ships code importing ${dependency}, which its manifest declares nowhere`,
+      );
+    }
+  }
+}
+
+/**
+ * The shared-singleton rules from the header, measured against what is installed.
+ *
+ * @param {Map<string, string>} workspace
+ * @param {Map<string, string>} packed
+ * @param {Map<string, string>} external
+ * @param {string[]} failures
+ */
+async function checkSharedSingletons(workspace, packed, external, failures) {
+  for (const [name, unpacked] of packed) {
+    const shipped = await readManifest(join(unpacked, 'package.json'));
+    const runtime = /** @type {Record<string, string>} */ (shipped['dependencies'] ?? {});
+    const peers = /** @type {Record<string, string>} */ (shipped['peerDependencies'] ?? {});
+    const directory = workspace.get(name);
+    if (directory === undefined) continue;
+    const local = await readManifest(join(directory, 'package.json'));
+    const development = /** @type {Record<string, string>} */ (local['devDependencies'] ?? {});
+
+    for (const singleton of SHARED_SINGLETONS) {
+      if (singleton in runtime) {
+        failures.push(
+          `${name} declares ${singleton} as a dependency, so a consumer with its own copy gets a second one; it belongs in peerDependencies`,
+        );
+      }
+      const range = peers[singleton];
+      if (range === undefined) continue;
+
+      if (!(singleton in development)) {
+        failures.push(
+          `${name} peers ${singleton} without a devDependency on it, so the workspace has no version to build and test against`,
+        );
+      }
+
+      const resolved = external.get(singleton);
+      if (resolved === undefined) continue;
+      const installed = String((await readManifest(join(resolved, 'package.json')))['version']);
+      const later = nextMinor(installed);
+
+      const takesInstalled = admits(range, installed);
+      if (takesInstalled === null) {
+        failures.push(`${name} peers ${singleton} on "${range}", which this check cannot read`);
+        continue;
+      }
+      if (!takesInstalled) {
+        failures.push(
+          `${name} peers ${singleton} on "${range}", which the installed ${singleton}@${installed} does not satisfy`,
+        );
+        continue;
+      }
+      if (later !== null && admits(range, later) !== true) {
+        failures.push(
+          `${name} peers ${singleton} on "${range}", which a consumer's own ${singleton}@${later} does not satisfy -- the install nests a second copy rather than failing, and two copies of ${singleton} is two registries and no upgraded elements`,
+        );
       }
     }
   }
@@ -585,6 +898,8 @@ async function main() {
   const failures = [];
   const { packed, external } = await resolveClosure(workspace, failures);
   await checkExportsExist(packed, failures);
+  await checkDeclaredImports(packed, failures);
+  await checkSharedSingletons(workspace, packed, external, failures);
 
   const consumer = join(SCRATCH_ROOT, 'consumer');
   await mkdir(consumer, { recursive: true });

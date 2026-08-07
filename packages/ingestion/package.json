@@ -5,6 +5,10 @@
   "description": "Source adapters, normalizers, and anomaly checks. Runs in CI, never in the browser.",
   "license": "Apache-2.0",
   "type": "module",
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -12,7 +16,8 @@
     }
   },
   "scripts": {
-    "build": "tsc --build"
+    "build": "tsc --build",
+    "prepack": "pnpm run build"
   },
   "dependencies": {
     "@platform-toolkit/data-contracts": "workspace:*",

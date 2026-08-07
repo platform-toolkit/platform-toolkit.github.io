@@ -174,10 +174,10 @@ importers:
       '@platform-toolkit/ui':
         specifier: workspace:*
         version: link:../ui
+    devDependencies:
       lit:
         specifier: 3.3.3
         version: 3.3.3
-    devDependencies:
       valibot:
         specifier: 1.4.2
         version: 1.4.2(typescript@6.0.3)
@@ -190,12 +190,13 @@ importers:
       '@platform-toolkit/ui':
         specifier: workspace:*
         version: link:../ui
-      lit:
-        specifier: 3.3.3
-        version: 3.3.3
       valibot:
         specifier: 1.4.2
         version: 1.4.2(typescript@6.0.3)
+    devDependencies:
+      lit:
+        specifier: 3.3.3
+        version: 3.3.3
 
   packages/ui:
     dependencies:
@@ -205,6 +206,7 @@ importers:
       '@platform-toolkit/domain':
         specifier: workspace:*
         version: link:../domain
+    devDependencies:
       lit:
         specifier: 3.3.3
         version: 3.3.3

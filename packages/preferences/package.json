@@ -5,6 +5,10 @@
   "description": "The seam between a tool and whatever remembers a visitor's own settings between visits.",
   "license": "Apache-2.0",
   "type": "module",
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -12,7 +16,8 @@
     }
   },
   "scripts": {
-    "build": "tsc --build"
+    "build": "tsc --build",
+    "prepack": "pnpm run build"
   },
   "dependencies": {
     "valibot": "1.4.2"

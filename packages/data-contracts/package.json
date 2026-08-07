@@ -6,7 +6,9 @@
   "license": "Apache-2.0",
   "type": "module",
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.test.*",
+    "LICENSE"
   ],
   "exports": {
     ".": {
@@ -15,7 +17,8 @@
     }
   },
   "scripts": {
-    "build": "tsc --build"
+    "build": "tsc --build",
+    "prepack": "pnpm run build"
   },
   "dependencies": {
     "valibot": "1.4.2"
