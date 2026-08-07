@@ -13,12 +13,13 @@
  * strongest form of that: a listener can tell that something happened and can
  * correlate two of these events with each other, and can learn nothing else.
  *
- * WHY SIX AND NOT SEVEN
+ * WHY SEVEN, AND WHY THAT IS ALL
  *
- * Section 12.5 suggests seven. Local-data-clearing is still to be built, and the event
- * for it arrives with the flow that fires it. A constant exported now for an event
- * nothing dispatches is an API a consumer can subscribe to and wait forever on, which
- * is worse than its absence -- absence is a compile error.
+ * Section 12.5 suggests exactly these seven and the list is now complete. It is also
+ * closed: a new download button next to an existing one is not a reason to invent an
+ * eighth by symmetry. The Markdown export fires nothing for that reason. An event is
+ * the one thing in this element a consumer can come to depend on and this package
+ * cannot take back, so the bar for adding one is that the requirement asked for it.
  */
 
 import type { LogbookId } from '../types.js';
@@ -35,6 +36,8 @@ export const WORKOUT_SAVED_EVENT = 'training-workout-saved';
 export const BACKUP_EXPORTED_EVENT = 'training-backup-exported';
 /** A backup file was read back in and everything on the device replaced from it. */
 export const BACKUP_RESTORED_EVENT = 'training-backup-restored';
+/** Everything the logbook had on this device was deleted, at the lifter's request. */
+export const LOCAL_DATA_CLEARED_EVENT = 'training-local-data-cleared';
 
 /** Which workout. Nothing about what is in it. */
 export interface WorkoutEventDetail {
@@ -73,6 +76,22 @@ export interface BackupRestoredDetail {
   readonly workoutCount: number;
 }
 
+/**
+ * How much was destroyed.
+ *
+ * The same count shape as the two backup details and, again, its own type: this one is
+ * a report that something is *gone*, and a host that treats it as interchangeable with
+ * a restore is a host that refreshes a view onto an empty database thinking it has a
+ * full one.
+ *
+ * Fired only after the delete landed **and** the database was read back empty. Saying
+ * *deleted* over a write that did not land is the one failure in this tool that tells a
+ * lifter their training is off the device when it is still on it.
+ */
+export interface LocalDataClearedDetail {
+  readonly workoutCount: number;
+}
+
 declare global {
   /**
    * So `addEventListener` types the detail without the listener casting it.
@@ -87,5 +106,6 @@ declare global {
     [WORKOUT_SAVED_EVENT]: CustomEvent<WorkoutEventDetail>;
     [BACKUP_EXPORTED_EVENT]: CustomEvent<BackupExportedDetail>;
     [BACKUP_RESTORED_EVENT]: CustomEvent<BackupRestoredDetail>;
+    [LOCAL_DATA_CLEARED_EVENT]: CustomEvent<LocalDataClearedDetail>;
   }
 }

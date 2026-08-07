@@ -248,19 +248,25 @@ point afterwards.
 
 ### Events
 
-Six, all of them local browser events, and **none of them carries training data**.
+Seven, all of them local browser events, and **none of them carries training data**.
 
-| Event                        | Detail                 |
-| ---------------------------- | ---------------------- |
-| `training-workout-started`   | `{ workoutId }`        |
-| `training-set-completed`     | `{ workoutId, setId }` |
-| `training-workout-completed` | `{ workoutId }`        |
-| `training-workout-saved`     | `{ workoutId }`        |
-| `training-backup-exported`   | `{ workoutCount }`     |
-| `training-backup-restored`   | `{ workoutCount }`     |
+| Event                         | Detail                 |
+| ----------------------------- | ---------------------- |
+| `training-workout-started`    | `{ workoutId }`        |
+| `training-set-completed`      | `{ workoutId, setId }` |
+| `training-workout-completed`  | `{ workoutId }`        |
+| `training-workout-saved`      | `{ workoutId }`        |
+| `training-backup-exported`    | `{ workoutCount }`     |
+| `training-backup-restored`    | `{ workoutCount }`     |
+| `training-local-data-cleared` | `{ workoutCount }`     |
 
 `training-backup-restored` fires only once the write has landed **and** been read back, so a host
-acting on it is acting on a device that holds what the file did.
+acting on it is acting on a device that holds what the file did. `training-local-data-cleared` is
+the same promise inverted: it fires only once the database has been read back empty, and its count
+is what was destroyed rather than what is left.
+
+There is no event for the Markdown download. The list is closed at seven, and a new button beside an
+existing one is not a reason to invent an eighth.
 
 An identifier and a count, never a weight, a rep count, a note or an exercise. A listener that wants
 to know a backup happened is served by the count; one that wants the contents is asking the page to

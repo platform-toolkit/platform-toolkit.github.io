@@ -94,12 +94,14 @@ export {
 export {
   BACKUP_EXPORTED_EVENT,
   BACKUP_RESTORED_EVENT,
+  LOCAL_DATA_CLEARED_EVENT,
   SET_COMPLETED_EVENT,
   WORKOUT_COMPLETED_EVENT,
   WORKOUT_SAVED_EVENT,
   WORKOUT_STARTED_EVENT,
   type BackupExportedDetail,
   type BackupRestoredDetail,
+  type LocalDataClearedDetail,
   type SetCompletedDetail,
   type WorkoutEventDetail,
 } from './events.js';

@@ -25,11 +25,14 @@
  * storage, which is also what stops it from constructing the *wrong* storage in a
  * partitioned iframe where IndexedDB exists and silently keeps nothing.
  *
- * WHAT IS NOT HERE YET, AND IS NOT PRETENDED TO BE
+ * THE THREE WRITES THAT ARE NOT A WORKOUT
  *
- * The deletion flow is a later milestone. Section 0.4 forbids standing in for it with a
- * disabled control or a "coming soon", so it has neither and is mentioned on no screen:
- * nothing sends a lifter looking for a control that is not there.
+ * Restore, delete and the two downloads all act on the whole device rather than on one
+ * session, and all four are reached from one heading on the home screen. Restore and
+ * delete share a shape deliberately -- counts, a span, an offer to take a backup first,
+ * then one press -- because a lifter arriving at either is answering the same question
+ * about the same logbook, and the outcome of both is reported back on the home screen
+ * rather than on the confirmation, which is gone by the time there is anything to say.
  */
 
 import { convertWeight, formatWeight, type WeightUnit } from '@platform-toolkit/domain';
@@ -125,6 +128,7 @@ import type {
 } from '../types.js';
 
 import {
+  DELETE_NOTES,
   DETAIL_NOTES,
   DONE_NOTES,
   EDIT_NOTES,
@@ -156,12 +160,14 @@ import { markdownExport, markdownFilename } from './markdown.js';
 import {
   BACKUP_EXPORTED_EVENT,
   BACKUP_RESTORED_EVENT,
+  LOCAL_DATA_CLEARED_EVENT,
   SET_COMPLETED_EVENT,
   WORKOUT_COMPLETED_EVENT,
   WORKOUT_SAVED_EVENT,
   WORKOUT_STARTED_EVENT,
   type BackupExportedDetail,
   type BackupRestoredDetail,
+  type LocalDataClearedDetail,
   type SetCompletedDetail,
   type WorkoutEventDetail,
 } from './events.js';
@@ -225,7 +231,8 @@ export const TRAINING_LOGBOOK_TAG = 'ptk-training-logbook';
  * what puts it up and clearing that is what takes it down -- which is also why leaving
  * it by any route drops the parsed backup rather than keeping it for a second visit.
  */
-type Screen = 'home' | 'build' | 'active' | 'done' | 'detail' | 'records' | 'edit' | 'restore';
+type Screen =
+  'home' | 'build' | 'active' | 'done' | 'detail' | 'records' | 'edit' | 'restore' | 'delete';
 
 /**
  * Which of the repository's three writes a session goes through.
@@ -243,6 +250,9 @@ const BACKUP_ACTION = 'backup';
 const MARKDOWN_ACTION = 'markdown';
 const RESTORE_PICK_ACTION = 'restore-pick';
 const RESTORE_CONFIRM_ACTION = 'restore-confirm';
+const DELETE_PICK_ACTION = 'delete-pick';
+const DELETE_CONFIRM_ACTION = 'delete-confirm';
+const DELETE_CANCEL_ACTION = 'delete-cancel';
 const RESTORE_CANCEL_ACTION = 'restore-cancel';
 const HOME_ACTION = 'home';
 const HANDOFF_START_ACTION = 'start-handoff';
@@ -334,7 +344,7 @@ function isEffortSetting(value: string): value is EffortSetting {
  * public framing grants the parent no access to application data, and section 12.5 that
  * the events a host may hear "must not transmit data" -- so the boundary has to be
  * enforced by the element that is the boundary. What leaves here instead is
- * `events.ts`: six events carrying identifiers and counts.
+ * `events.ts`: seven events carrying identifiers and counts.
  *
  * Stopping propagation and not immediate propagation, so a consumer that deliberately
  * listens on this element -- inside the boundary, having imported the constant -- still
@@ -404,6 +414,24 @@ function sameShape(written: LogbookSnapshot, file: LogbookSnapshot): boolean {
     (written.activeWorkout === null) === (file.activeWorkout === null) &&
     written.settings.displayUnit === file.settings.displayUnit &&
     written.settings.effort === file.settings.effort
+  );
+}
+
+/**
+ * Whether a read-back after a delete shows a device with nothing on it.
+ *
+ * Deliberately not `sameShape` against a freshly-built empty snapshot. That would
+ * compare the settings too, and a settings record reset to its defaults is
+ * indistinguishable from one that was never cleared on a device whose lifter never
+ * changed a setting -- so the check would pass on exactly the store where it had the
+ * least to go on. What is asserted here is only what section 10.8 promises was removed.
+ */
+function nothingLeft(written: LogbookSnapshot): boolean {
+  return (
+    written.workouts.length === 0 &&
+    written.exerciseDefinitions.length === 0 &&
+    written.equipmentProfiles.length === 0 &&
+    written.activeWorkout === null
   );
 }
 
@@ -514,6 +542,8 @@ export class PtkTrainingLogbook extends LitElement {
       border: 0;
     }
 
+    /* Two screens, one layout. The grid of counts is the same grid, and a second
+       copy of these rules under another name is the drift they exist to prevent. */
     .restore h3 {
       margin: var(--ptk-space-md) 0 var(--ptk-space-xs);
       font-size: var(--ptk-font-size-md);
@@ -749,6 +779,29 @@ export class PtkTrainingLogbook extends LitElement {
    */
   @state() private restoreProblem: 'write' | 'verify' | null = null;
 
+  /**
+   * What is on the device, counted, waiting for the press that destroys it.
+   *
+   * `null` on every screen but `delete`, the same way {@link pending} pairs with
+   * `restore`. It is a `BackupPreview` because that is what the count of everything
+   * here already is -- reading it off `exportSnapshot()` means the numbers on the
+   * confirmation are the numbers a backup taken at that moment would hold, rather than
+   * a second tally maintained beside them that can disagree.
+   */
+  @state() private deletion: BackupPreview | null = null;
+
+  /** Set once a delete landed and the database was read back empty. */
+  @state() private deleteDone = false;
+
+  /**
+   * How a delete went wrong, or `null` where none did.
+   *
+   * The same two-value shape as {@link restoreProblem} and for the same reason, with
+   * the stakes the other way round: `write` is everything still here, and `verify` is
+   * some of it gone and nothing able to say which.
+   */
+  @state() private deleteProblem: 'write' | 'verify' | null = null;
+
   /** The record waiting to be offered, or `null` when there is nothing to offer. */
   @state() private offer: WarmupHandoff | null = null;
 
@@ -947,6 +1000,12 @@ export class PtkTrainingLogbook extends LitElement {
         // unreachable branch that takes the tool down if it is ever reached.
         return pending === null ? this.#homeScreen() : this.#restoreScreen(pending);
       }
+      case 'delete': {
+        const deletion = this.deletion;
+        // The same narrowing guard as `restore` above, for the same reason and with
+        // the same fallback.
+        return deletion === null ? this.#homeScreen() : this.#deleteScreen(deletion);
+      }
       case 'home':
         return this.#homeScreen();
     }
@@ -1061,6 +1120,9 @@ export class PtkTrainingLogbook extends LitElement {
           <ptk-button variant="secondary" data-action=${RESTORE_PICK_ACTION}
             >${HOME_NOTES.restore}</ptk-button
           >
+          <ptk-button variant="secondary" data-action=${DELETE_PICK_ACTION}
+            >${DELETE_NOTES.action}</ptk-button
+          >
         </div>
         ${this.backupDone ? html`<p class="note">${HOME_NOTES.backupDone}</p>` : nothing}
         ${this.markdownDone ? html`<p class="note">${HOME_NOTES.markdownDone}</p>` : nothing}
@@ -1073,7 +1135,113 @@ export class PtkTrainingLogbook extends LitElement {
           tabindex="-1"
           @change=${this.#onFileChosen}
         />
-        ${this.#restoreOutcome()}
+        ${this.#restoreOutcome()} ${this.#deleteOutcome()}
+      </section>
+    `;
+  }
+
+  /**
+   * What the last delete did, said where it was asked for.
+   *
+   * Beside the restore outcome and not on the screen that asked, because the screen
+   * that asked is gone by the time there is anything to say -- the same arrangement
+   * and the same reason as {@link #restoreOutcome}. A delete that landed says so in
+   * one sentence: there is nothing left to describe, and a count of what was destroyed
+   * would be the tool reciting a logbook back to somebody who just erased it.
+   */
+  #deleteOutcome(): TemplateResult | typeof nothing {
+    if (!this.deleteDone && this.deleteProblem === null) return nothing;
+    return html`
+      ${this.deleteDone ? html`<p class="note">${DELETE_NOTES.done}</p>` : nothing}
+      ${
+        this.deleteProblem === null
+          ? nothing
+          : html`<p class="note trouble">
+              ${this.deleteProblem === 'write' ? DELETE_NOTES.problem : DELETE_NOTES.verifyProblem}
+            </p>`
+      }
+    `;
+  }
+
+  /**
+   * The confirmation. Section 10.8.
+   *
+   * Section 10.7's screen with a different write behind it, which is why it was built
+   * second and why it borrows the shape rather than inventing one: counts, the span
+   * they cover, an extra line where a workout is open, and the offer to take a backup
+   * before pressing anything. A lifter arriving at either one is answering the same
+   * question about the same logbook.
+   *
+   * Where it differs is the list. Restore shows the newest sessions in the *file*,
+   * because recognising the file is the decision being made. There is no file here and
+   * the sessions are the lifter's own, so a list would be a tool printing somebody's
+   * training back at them under a heading asking whether to destroy it. The counts and
+   * the span say what is here; naming it is what a backup is for, and the button for
+   * that is on this screen.
+   *
+   * Delete is the primary. Section 0.4's argument holds -- the variant is never the
+   * only signal -- so the sentence above the buttons is what carries the meaning, and
+   * Keep it is worded as a thing to choose rather than as a way out.
+   */
+  #deleteScreen(deletion: BackupPreview): TemplateResult {
+    return html`
+      ${this.#saveLine()}
+      <section class="section restore erase">
+        <h2>${DELETE_NOTES.heading}</h2>
+        <p class="note trouble">${DELETE_NOTES.warning}</p>
+        ${
+          this.active === null
+            ? nothing
+            : html`<p class="note trouble">${DELETE_NOTES.activeWarning}</p>`
+        }
+
+        <dl class="facts">
+          <div>
+            <dt>${DELETE_NOTES.workoutsLabel}</dt>
+            <dd>${deletion.workoutCount}</dd>
+          </div>
+          <div>
+            <dt>${DELETE_NOTES.exercisesLabel}</dt>
+            <dd>${deletion.customExerciseCount}</dd>
+          </div>
+          <div>
+            <dt>${DELETE_NOTES.racksLabel}</dt>
+            <dd>${deletion.equipmentProfileCount}</dd>
+          </div>
+          ${
+            deletion.earliestDay === null || deletion.latestDay === null
+              ? nothing
+              : html`<div>
+                  <dt>${DELETE_NOTES.spanLabel}</dt>
+                  <dd>${DELETE_NOTES.span(deletion.earliestDay, deletion.latestDay)}</dd>
+                </div>`
+          }
+        </dl>
+
+        ${
+          // Every count zero, rather than the workout count alone. A device with no
+          // sessions but four saved gyms on it does have something to lose, and a
+          // screen that said otherwise would be talking a lifter through a press that
+          // throws away the setup work they did before their first session.
+          deletion.workoutCount === 0 &&
+          deletion.customExerciseCount === 0 &&
+          deletion.equipmentProfileCount === 0
+            ? html`<p class="note">${DELETE_NOTES.nothingHere}</p>`
+            : nothing
+        }
+
+        <div class="actions">
+          <ptk-button variant="primary" data-action=${DELETE_CONFIRM_ACTION}
+            >${DELETE_NOTES.confirm}</ptk-button
+          >
+          <ptk-button variant="secondary" data-action=${DELETE_CANCEL_ACTION}
+            >${DELETE_NOTES.cancel}</ptk-button
+          >
+          <ptk-button variant="secondary" data-action=${BACKUP_ACTION}
+            >${DELETE_NOTES.backupFirst}</ptk-button
+          >
+        </div>
+        ${this.backupDone ? html`<p class="note">${HOME_NOTES.backupDone}</p>` : nothing}
       </section>
     `;
   }
@@ -2272,6 +2440,8 @@ export class PtkTrainingLogbook extends LitElement {
         this.refusals = [];
         this.restoreDone = false;
         this.restoreProblem = null;
+        this.deleteDone = false;
+        this.deleteProblem = null;
         this.unramped = [];
         this.repeatFailed = false;
         // Dropped rather than kept for a second visit. It is a whole session held in
@@ -2318,6 +2488,20 @@ export class PtkTrainingLogbook extends LitElement {
         return;
       case RESTORE_CONFIRM_ACTION:
         void this.#restore();
+        return;
+      case DELETE_PICK_ACTION:
+        void this.#openDelete();
+        return;
+      case DELETE_CONFIRM_ACTION:
+        void this.#deleteAll();
+        return;
+      case DELETE_CANCEL_ACTION:
+        // The counts go with the screen, the way the parsed backup does. They describe
+        // a device that anything else in the tool can change while the lifter is away
+        // from this screen, and a stale set of them is a confirmation describing a
+        // logbook that is not the one the press would destroy.
+        this.deletion = null;
+        this.screen = 'home';
         return;
       case RESTORE_CANCEL_ACTION:
         // The parsed backup goes with the screen. Keeping it would leave a file a
@@ -2646,6 +2830,116 @@ export class PtkTrainingLogbook extends LitElement {
     this.dispatchEvent(
       new CustomEvent<BackupRestoredDetail>(BACKUP_RESTORED_EVENT, {
         detail: { workoutCount: pending.preview.workoutCount },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  /**
+   * Counts what is here, then shows the confirmation. Section 10.8's first half.
+   *
+   * The counts are read at the press and not held from the last reload, so the numbers
+   * on the screen are the ones true when the question was asked. `backupPreview` over
+   * the live snapshot rather than a tally of `this.workouts`: the list on the home
+   * screen is a page of summaries and the snapshot is everything, and the whole promise
+   * of this screen is that the number is what goes.
+   *
+   * A read that will not run leaves the lifter on the home screen with the write
+   * problem's wording. It is the honest answer -- a device that cannot be read is one
+   * this press did not empty -- and it is the same sentence a failed delete gets,
+   * because the only fact either has to report is that everything is still here.
+   */
+  async #openDelete(): Promise<void> {
+    const repository = this.repository;
+    if (repository === null) return;
+
+    this.deleteDone = false;
+    this.deleteProblem = null;
+
+    let snapshot: TrainingLogbookBackup;
+    try {
+      snapshot = await repository.exportSnapshot();
+    } catch {
+      this.deleteProblem = 'write';
+      return;
+    }
+
+    this.deletion = backupPreview(snapshot);
+    this.screen = 'delete';
+  }
+
+  /**
+   * Section 10.8: everything on this device, gone, and then read back to prove it.
+   *
+   * The read-back is here for the reason it is in {@link #restore}, turned around. A
+   * restore that half-lands destroys a logbook; a delete that half-lands leaves one
+   * behind, on a device whose owner has been told it is clean. That is the worse of
+   * the two to get wrong silently, because the lifter's next act is to hand the phone
+   * on, so `verify` says plainly that some of it is still here and that nothing here
+   * can say how much.
+   *
+   * The handoff record is cleared alongside the database. It lives in `localStorage`
+   * rather than IndexedDB, so `clearAll` does not reach it -- and it holds lift names
+   * and working weights, which makes it exactly the kind of thing section 10.8 is
+   * about. A delete that emptied four object stores and left a warm-up ladder sitting
+   * in another one would be the most convincing possible way to fail this.
+   *
+   * The offline cache is deliberately untouched; the reasoning is in `DELETE_NOTES`.
+   *
+   * The screen is left before the write, and every first-use note is cleared with it:
+   * they each report a press made against a logbook that no longer exists.
+   */
+  async #deleteAll(): Promise<void> {
+    const repository = this.repository;
+    const deletion = this.deletion;
+    if (repository === null || deletion === null) return;
+
+    this.deletion = null;
+    this.screen = 'home';
+    this.backupDone = false;
+    this.markdownDone = false;
+    this.refusals = [];
+    this.restoreDone = false;
+    this.restoreProblem = null;
+    this.pending = null;
+    if (repository.durable) this.saveState = 'unsaved';
+
+    try {
+      await repository.clearAll();
+    } catch {
+      this.deleteProblem = 'write';
+      if (repository.durable) this.saveState = 'failed';
+      return;
+    }
+
+    this.handoff?.clear();
+    this.offer = null;
+
+    let written: TrainingLogbookBackup;
+    try {
+      written = await repository.exportSnapshot();
+    } catch {
+      this.deleteProblem = 'verify';
+      if (repository.durable) this.saveState = 'failed';
+      return;
+    }
+
+    // Before the verdict, so the screen shows what the database holds even -- most of
+    // all -- where the two disagree.
+    await this.#reload();
+
+    if (!nothingLeft(written.data)) {
+      this.deleteProblem = 'verify';
+      if (repository.durable) this.saveState = 'failed';
+      return;
+    }
+
+    if (repository.durable) this.saveState = 'saved';
+    this.deleteDone = true;
+    this.dispatchEvent(
+      new CustomEvent<LocalDataClearedDetail>(LOCAL_DATA_CLEARED_EVENT, {
+        detail: { workoutCount: deletion.workoutCount },
         bubbles: true,
         composed: true,
       }),

@@ -333,6 +333,85 @@ export const HOME_NOTES = {
 } as const;
 
 /**
+ * The sentences the deletion confirmation says. Section 10.8.
+ *
+ * Every one of them is written for somebody who means it, and none of them is written
+ * to talk them out of it. A tool that hedges a deletion into three warnings is a tool
+ * that has decided it knows better than the person who owns the data; the honest shape
+ * is one plain statement of what goes, one offer of the thing that makes it
+ * recoverable, and a button that says what it does.
+ *
+ * The counts are the same ones the restore preview shows, and deliberately so: what a
+ * lifter is destroying here is exactly what a backup taken now would hold. There is no
+ * list of sessions -- the restore screen lists them because a lifter is identifying an
+ * unfamiliar *file*, and here they are looking at their own device, which they do not
+ * need described back to them.
+ *
+ * WHY NOTHING HERE MENTIONS THE OFFLINE CACHE
+ *
+ * Section 10.8 asks for cached application data to go *where appropriate*, and this is
+ * where that qualifier lands. The cache on this origin holds the application -- HTML,
+ * scripts, styles -- and none of a lifter's training, which lives in IndexedDB and is
+ * what `clearAll` empties. Clearing it would delete nothing personal and would break
+ * the tool for a lifter who installed it to use in a gym with no signal. So it stays,
+ * and the screen says nothing about it: a sentence about caches is a sentence that
+ * invites somebody to worry about the one thing here that is not their data.
+ */
+export const DELETE_NOTES = {
+  /** On the home screen, under the backup section, because the offer above it is the recovery. */
+  action: 'Delete everything on this device',
+
+  heading: 'Delete everything on this device?',
+
+  /**
+   * The whole of section 10.8 in one sentence.
+   *
+   * "There is no copy anywhere else" is not padding. This tool has never had an
+   * account, so the lifter has no server-side fallback to half-remember -- and the
+   * absence of one is exactly the thing a person who has used other apps will assume
+   * wrongly.
+   */
+  warning:
+    'Your workouts, your settings, your own exercises and your saved gyms are all removed. There is no copy anywhere else, and this cannot be undone.',
+
+  /** The one thing being deleted that a lifter may not have counted. */
+  activeWarning: 'The workout you have in progress goes with it.',
+
+  workoutsLabel: 'Workouts',
+  exercisesLabel: 'Your own exercises',
+  racksLabel: 'Saved gyms',
+  spanLabel: 'Covering',
+
+  /** One day where the device holds a single day of training. Same rule as the restore span. */
+  span: (earliest: string, latest: string): string =>
+    earliest === latest ? earliest : `${earliest} to ${latest}`,
+
+  /** An empty device can still be deleted, and a screen that counted zero and said nothing would read as broken. */
+  nothingHere: 'There is nothing recorded on this device yet.',
+
+  confirm: 'Delete everything',
+  cancel: 'Keep it',
+  backupFirst: 'Download a backup first',
+
+  done: 'Everything has been deleted. This device is back to how it started.',
+
+  /** The write did not land, so nothing went. The reassurance is the point of the sentence. */
+  problem: 'Nothing could be deleted, so everything is still here.',
+
+  /**
+   * The delete ran and the read-back still found something.
+   *
+   * Separate from {@link DELETE_NOTES.problem} because the two leave the device in
+   * different states and only one of them is safe to shrug at. This is the sentence
+   * that must never be replaced by *deleted*: telling somebody their training is off
+   * the device while it is still on it is the one lie this screen could tell that
+   * matters.
+   */
+  verifyProblem:
+    'Some of it could not be deleted and is still on this device. Nothing here can say how much.',
+} as const;
+
+/**
  * The sentences the restore confirmation says.
  *
  * All of them are about loss. Section 10.7's sixth step is a preview, and the only

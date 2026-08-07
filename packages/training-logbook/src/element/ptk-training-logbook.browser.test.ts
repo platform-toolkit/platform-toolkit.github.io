@@ -52,6 +52,8 @@ import {
 } from '../core/backup.js';
 import { PRIMARY_EXERCISES, findExercise } from '../core/catalog.js';
 import { AT_LATER, AT_START, ON_DAY } from '../core/context.fixture.js';
+import { createCustomExercise } from '../core/catalog.js';
+import { createProfile } from '../core/equipment.js';
 import { createHandoff } from '../core/handoff.js';
 import {
   addExercise,
@@ -74,6 +76,8 @@ import {
 } from '../storage/repository.js';
 import type {
   CalendarDay,
+  CustomExercise,
+  EquipmentProfile,
   EquipmentSnapshot,
   ExerciseOption,
   HandoffExercise,
@@ -97,6 +101,7 @@ import {
   HISTORY_NOTES,
   HOME_NOTES,
   RECORDS_NOTES,
+  DELETE_NOTES,
   RESTORE_NOTES,
   RESTORE_REFUSALS,
   REST_NOTES,
@@ -117,6 +122,7 @@ import {
 import {
   BACKUP_EXPORTED_EVENT,
   BACKUP_RESTORED_EVENT,
+  LOCAL_DATA_CLEARED_EVENT,
   SET_COMPLETED_EVENT,
   WORKOUT_COMPLETED_EVENT,
   WORKOUT_SAVED_EVENT,
@@ -1337,6 +1343,47 @@ async function aBackup(
     applicationVersion: VERSION,
   });
   return repository.exportSnapshot();
+}
+
+/** Whatever puts one kind of thing on a device. */
+type Seeder = (store: LogbookStore) => Promise<unknown>;
+
+/** A saved rack, so a device can hold something that is not a workout. Section 5.1. */
+function aProfile(): EquipmentProfile {
+  return createProfile('The garage', aGym(), {
+    at: AT_START,
+    nextId: (): LogbookId => 'rack-1',
+  });
+}
+
+/**
+ * The number the delete screen printed under one of its labels.
+ *
+ * Read out of the definition list by position rather than by searching the rendered
+ * text, because a count of 1 against a whole screen is a substring of the year in
+ * every timestamp on it -- an assertion on `readAll` would pass with the number
+ * missing entirely.
+ */
+function deletionCount(element: PtkTrainingLogbook, label: string): string | null {
+  for (const pair of deepAll(shadow(element), '.facts > div')) {
+    if (pair.querySelector('dt')?.textContent.trim() === label) {
+      return pair.querySelector('dd')?.textContent.trim() ?? null;
+    }
+  }
+  return null;
+}
+
+/** A movement the lifter invented, so a device can hold one. */
+function anInventedExercise(): CustomExercise {
+  return createCustomExercise(
+    {
+      name: 'Belt squat, the one at the garage',
+      loading: 'machine-or-cable-weight',
+      warmupFamily: null,
+      defaultUnit: null,
+    },
+    { at: AT_START, nextId: (): LogbookId => 'mine-1' },
+  );
 }
 
 function fileOf(text: string): File {
@@ -3317,9 +3364,9 @@ describe('the training logbook', () => {
       await chooseFile(element, file);
       await waitForText(element, RESTORE_NOTES.heading);
 
-      // Section 0.4: the control is offered during a session rather than hidden,
-      // because until local data can be cleared there is no other way out of a session
-      // a lifter wants rid of. What it costs is named instead.
+      // Section 0.4: the control is offered during a session rather than hidden. What
+      // it would cost is named instead, which is the same answer the delete screen
+      // gives to the same question one heading further down.
       expect(readAll(element)).toContain(RESTORE_NOTES.activeWarning);
       expect(readAll(element)).not.toContain(RESTORE_NOTES.fileHasActive);
     });
@@ -3448,6 +3495,225 @@ describe('the training logbook', () => {
       await waitForText(element, RESTORE_NOTES.verifyProblem);
       expect(readAll(element)).not.toContain(RESTORE_NOTES.done);
     });
+  });
+
+  describe('clearing everything off the device', () => {
+    it('counts what is here before anything is destroyed', async () => {
+      const { store } = await durableStore();
+      await seedRepeatable(store);
+      await useRack(store, aPoundRack());
+      const element = await mount(store);
+
+      await press(element, 'delete-pick');
+      await waitForText(element, DELETE_NOTES.heading);
+
+      const text = readAll(element);
+      expect(text).toContain(DELETE_NOTES.warning);
+      expect(text).toContain(DELETE_NOTES.span(REPEATED_DAY, REPEATED_DAY));
+      // Counted, and not merely mentioned. The number is the whole content of the
+      // question, and a screen that showed the warning with a zero beside it would be
+      // asking a lifter to confirm the destruction of nothing.
+      expect(text).toContain(DELETE_NOTES.workoutsLabel);
+      expect(deletionCount(element, DELETE_NOTES.workoutsLabel)).toBe('1');
+      // Nothing has gone yet, which is why there is a screen here at all.
+      expect((await store.readWorkouts()).length).toBe(1);
+    });
+
+    it('names a session in progress as part of what goes', async () => {
+      const { store } = await durableStore();
+      await seedActive(store);
+      const element = await mount(store);
+
+      await press(element, 'delete-pick');
+      await waitForText(element, DELETE_NOTES.heading);
+
+      expect(readAll(element)).toContain(DELETE_NOTES.activeWarning);
+    });
+
+    it('says there is nothing here rather than counting to zero three times', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+
+      await press(element, 'delete-pick');
+      await waitForText(element, DELETE_NOTES.heading);
+
+      expect(readAll(element)).toContain(DELETE_NOTES.nothingHere);
+    });
+
+    /**
+     * A device with no sessions on it and a gym saved is not an empty device.
+     *
+     * Setting up a rack is the work a lifter does before their first session, and it is
+     * the one thing on a device that a beginner would be most surprised to lose. A
+     * screen keyed on the workout count alone would tell them there was nothing here.
+     */
+    it('does not call a device empty when the only thing on it is a saved gym', async () => {
+      const { store } = await durableStore();
+      await store.writeProfile(aProfile());
+      const element = await mount(store);
+
+      await press(element, 'delete-pick');
+      await waitForText(element, DELETE_NOTES.heading);
+
+      expect(readAll(element)).not.toContain(DELETE_NOTES.nothingHere);
+      expect(deletionCount(element, DELETE_NOTES.racksLabel)).toBe('1');
+    });
+
+    it('leaves everything alone when the lifter keeps it', async () => {
+      const { store } = await durableStore();
+      const seeded = await seedRepeatable(store);
+      const element = await mount(store);
+      await press(element, 'delete-pick');
+      await waitForText(element, DELETE_NOTES.heading);
+
+      await press(element, 'delete-cancel');
+
+      expect(readAll(element)).not.toContain(DELETE_NOTES.heading);
+      expect((await store.readWorkouts()).map((workout) => workout.id)).toEqual([seeded.id]);
+    });
+
+    it('empties the device, and says so only once the read back came up empty', async () => {
+      const { store } = await durableStore();
+      await seedRepeatable(store);
+      await useRack(store, aPoundRack());
+      const element = await mount(store);
+      // Taken first, the way a lifter who read the offer would. The note it leaves has
+      // to go with the logbook it described: left up, it says a backup was downloaded
+      // of training that no longer exists.
+      await press(element, 'backup');
+      await waitForText(element, HOME_NOTES.backupDone);
+      await press(element, 'delete-pick');
+      await waitForText(element, DELETE_NOTES.heading);
+
+      await press(element, 'delete-confirm');
+      await waitForText(element, DELETE_NOTES.done);
+
+      expect(await store.readWorkouts()).toEqual([]);
+      expect(await store.readProfiles()).toEqual([]);
+      // On screen as well as in the database. A delete that emptied storage and left
+      // the history drawn is a lifter looking at training they have been told is gone.
+      expect(readAll(element)).not.toContain(REPEATED_TITLE);
+      expect(readAll(element)).not.toContain(HOME_NOTES.backupDone);
+    });
+
+    /**
+     * The record the warm-up calculator left behind goes too.
+     *
+     * It lives in `localStorage` rather than in IndexedDB, so `clearAll` cannot reach
+     * it -- and it holds lift names and working weights. A delete that emptied four
+     * object stores and left a warm-up ladder in a fifth place would be the most
+     * convincing possible way to fail section 10.8.
+     */
+    it('forgets the warm-up handed over from the other tool', async () => {
+      const { store } = await durableStore();
+      const { source, calls } = aSource(aRecord());
+      const element = await mount(store, source);
+      await waitForText(element, HANDOFF_NOTES.heading);
+
+      await press(element, 'delete-pick');
+      await waitForText(element, DELETE_NOTES.heading);
+      await press(element, 'delete-confirm');
+      await waitForText(element, DELETE_NOTES.done);
+
+      expect(calls.clears).toBe(1);
+      expect(readAll(element)).not.toContain(HANDOFF_NOTES.heading);
+    });
+
+    /**
+     * The write landed and the device cannot be read.
+     *
+     * A different sentence from the one above, and the difference is the whole point:
+     * that one knows nothing was destroyed, this one knows something was and cannot say
+     * what. Reporting the first here would tell a lifter their training is safe on a
+     * device that has just been cleared.
+     *
+     * The first read is let through, because that is the one the confirmation screen is
+     * built from and a lifter who never saw the screen never pressed anything.
+     */
+    it('will not say what is left when the device cannot be read afterwards', async () => {
+      const { store } = await durableStore();
+      await seedRepeatable(store);
+      const element = await mount(store);
+      let reads = 0;
+      await withRepository(element, (repository) => ({
+        ...repository,
+        exportSnapshot: () => {
+          reads += 1;
+          return reads === 1
+            ? repository.exportSnapshot()
+            : Promise.reject(new Error('the disk said no'));
+        },
+      }));
+
+      await press(element, 'delete-pick');
+      await waitForText(element, DELETE_NOTES.heading);
+      await press(element, 'delete-confirm');
+
+      await waitForText(element, DELETE_NOTES.verifyProblem);
+      expect(readAll(element)).not.toContain(DELETE_NOTES.problem);
+      expect(readAll(element)).not.toContain(DELETE_NOTES.done);
+    });
+
+    it('says everything is still here when the write does not land', async () => {
+      const { store } = await durableStore();
+      await seedRepeatable(store);
+      const element = await mount(store);
+      await withRepository(element, (repository) => ({
+        ...repository,
+        clearAll: () => Promise.reject(new Error('the disk said no')),
+      }));
+
+      await press(element, 'delete-pick');
+      await waitForText(element, DELETE_NOTES.heading);
+      await press(element, 'delete-confirm');
+
+      await waitForText(element, DELETE_NOTES.problem);
+      expect(readAll(element)).not.toContain(DELETE_NOTES.done);
+      expect((await store.readWorkouts()).length).toBe(1);
+    });
+
+    /**
+     * The read-back looks at all four things, and one device per thing proves it.
+     *
+     * A store that clears the sessions and leaves the rest behind is what a partial
+     * delete actually looks like -- `clearAll` on the IndexedDB store is one
+     * transaction across four object stores, but a host may hand in its own, and the
+     * three that are not the finished sessions hold a lifter's own exercise names, the
+     * gyms they train at, and the workout they are in the middle of.
+     *
+     * A device seeded with all four at once would not show this. Each check would be
+     * covered by whichever of its neighbours also fired, so dropping any one of them
+     * would leave every case still passing -- which is exactly what the first version
+     * of this did, and what mutating the four conjuncts one at a time found.
+     */
+    const survivors: readonly { readonly what: string; readonly seed: Seeder }[] = [
+      { what: 'a finished session', seed: seedRepeatable },
+      { what: 'the session in progress', seed: seedActive },
+      { what: 'a saved gym', seed: (store) => store.writeProfile(aProfile()) },
+      {
+        what: 'a movement the lifter invented',
+        seed: (store) => store.writeExercise(anInventedExercise()),
+      },
+    ];
+
+    for (const { what, seed } of survivors) {
+      it(`does not call a device clean when ${what} is still on it`, async () => {
+        const { store } = await durableStore();
+        await seed(store);
+        const element = await mount(store);
+        await withRepository(element, (repository) => ({
+          ...repository,
+          clearAll: () => Promise.resolve(),
+        }));
+
+        await press(element, 'delete-pick');
+        await waitForText(element, DELETE_NOTES.heading);
+        await press(element, 'delete-confirm');
+
+        await waitForText(element, DELETE_NOTES.verifyProblem);
+        expect(readAll(element)).not.toContain(DELETE_NOTES.done);
+      });
+    }
   });
 
   describe('the events a host can listen for', () => {
@@ -3587,6 +3853,26 @@ describe('the training logbook', () => {
       expect(payload).not.toContain(REPEATED_TITLE);
       expect(payload).not.toContain(SQUAT.name);
     });
+
+    it('announces a cleared device with the count of what was destroyed', async () => {
+      const cleared = record(LOCAL_DATA_CLEARED_EVENT);
+
+      const { store } = await durableStore();
+      await seedRepeatable(store);
+      const element = await mount(store);
+      await press(element, 'delete-pick');
+      await waitForText(element, DELETE_NOTES.heading);
+      await press(element, 'delete-confirm');
+
+      await vi.waitFor(() => {
+        expect(cleared.length).toBe(1);
+      });
+      // What went, not what is left -- which is always zero and would say nothing.
+      expect(cleared[0]).toStrictEqual({ workoutCount: 1 });
+      const payload = JSON.stringify(cleared);
+      expect(payload).not.toContain(REPEATED_TITLE);
+      expect(payload).not.toContain(SQUAT.name);
+    });
   });
 
   describe('what it never says', () => {
@@ -3688,6 +3974,21 @@ describe('the training logbook', () => {
 
       const results = await axe.run(element, RULES);
       expect(results.violations).toEqual([]);
+    });
+
+    it('has no violations on either screen that asks before an irreversible press', async () => {
+      const file = await aBackupFile(seedRepeatable);
+      const { store } = await durableStore();
+      const element = await mount(store);
+
+      await chooseFile(element, file);
+      await waitForText(element, RESTORE_NOTES.heading);
+      expect((await axe.run(element, RULES)).violations).toEqual([]);
+
+      await press(element, 'restore-cancel');
+      await press(element, 'delete-pick');
+      await waitForText(element, DELETE_NOTES.heading);
+      expect((await axe.run(element, RULES)).violations).toEqual([]);
     });
 
     it('gives every repeated control a name that says which set it acts on', async () => {

@@ -546,6 +546,35 @@ export const ConfirmingARestore: Story = {
 };
 
 /**
+ * The other press that cannot be taken back, and the one with no undo at all.
+ *
+ * Restore replaces a logbook with another one; this removes it. So the screen borrows
+ * the restore confirmation's layout deliberately -- a lifter arriving at either is
+ * answering the same question about the same device -- and differs in the one place it
+ * has to: there is no list of sessions. Restore lists what is in the *file*, because
+ * recognising the file is the decision. Here the sessions are the lifter's own, and
+ * printing them under a heading asking whether to destroy them is not a description, it
+ * is a goodbye. The counts and the span say what is here.
+ *
+ * Reached through a restore so there is something to count. A device with nothing on it
+ * says so in a sentence instead, which is the one arrangement of this screen with
+ * nothing at stake.
+ */
+export const ConfirmingADelete: Story = {
+  args: aFreshTool('delete'),
+  play: async ({ canvasElement }) => {
+    const element = await logbook(canvasElement);
+    await chooseFile(element, await aBackupFile());
+    await press(element, 'restore-confirm');
+    await press(element, 'delete-pick');
+    await until(
+      'the delete confirmation',
+      () => deepAll(shadow(element), 'section.erase').length > 0,
+    );
+  },
+};
+
+/**
  * The same confirmation at the narrowest phone still in use (section 5.7).
  *
  * Its own story because the counts are a grid, and a grid is the one layout on this
@@ -570,6 +599,38 @@ export const NarrowConfirmingARestore: Story = {
   play: async ({ canvasElement }) => {
     const element = await logbook(canvasElement);
     await chooseFile(element, await aBackupFile());
+  },
+};
+
+/**
+ * The delete confirmation at 320px, for the reason the restore one has a narrow story.
+ *
+ * The grid of counts is the layout that runs out of room first, and the warning above it
+ * is the longest sentence the tool says anywhere.
+ */
+export const NarrowConfirmingADelete: Story = {
+  args: aFreshTool('delete-narrow'),
+  render: (args) => html`
+    <div style="width: 320px; outline: 1px dashed currentColor;">
+      <ptk-training-logbook
+        .repository=${args.repository}
+        .today=${args.today}
+        .now=${args.now}
+        .nextId=${args.nextId}
+        .applicationVersion=${args.applicationVersion}
+        .handoff=${args.handoff}
+      ></ptk-training-logbook>
+    </div>
+  `,
+  play: async ({ canvasElement }) => {
+    const element = await logbook(canvasElement);
+    await chooseFile(element, await aBackupFile());
+    await press(element, 'restore-confirm');
+    await press(element, 'delete-pick');
+    await until(
+      'the delete confirmation',
+      () => deepAll(shadow(element), 'section.erase').length > 0,
+    );
   },
 };
 

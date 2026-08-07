@@ -1998,6 +1998,25 @@ const LOGBOOK_RESTORE_SETTLE = [
   'ptk-training-logbook section.restore ptk-button[data-action="restore-confirm"] button',
 ];
 
+/** Restore that file, so the delete screen below has something to count. */
+const LOGBOOK_DELETE_RESTORE = [
+  'ptk-training-logbook section.restore ptk-button[data-action="restore-confirm"] button',
+];
+
+const LOGBOOK_DELETE_OPEN = ['ptk-training-logbook ptk-button[data-action="delete-pick"] button'];
+
+/**
+ * The counts and the press, on the screen that is not the restore one.
+ *
+ * `section.erase` and not `section.restore`, which both carry: the two screens
+ * share a layout deliberately, so a selector matching either would let this route
+ * pass while sitting on the restore screen it was supposed to have left.
+ */
+const LOGBOOK_DELETE_SETTLE = [
+  'ptk-training-logbook section.erase dl.facts dd',
+  'ptk-training-logbook section.erase ptk-button[data-action="delete-confirm"] button',
+];
+
 /**
  * A session left on the origin by the warm-up calculator, as if a lifter had
  * just walked over from it.
@@ -2638,6 +2657,24 @@ const ROUTES = [
     fill: [],
     upload: LOGBOOK_RESTORE_UPLOAD,
     settle: LOGBOOK_RESTORE_SETTLE,
+  },
+  {
+    // The other irreversible press, and the reason it is worth its own entry: the
+    // warning above the buttons is the longest sentence in the tool, and at 320px
+    // and at 200% text it is the line that runs out of room.
+    //
+    // Reached through the restore screen because the counts are the point. Opening
+    // it on an empty logbook would measure three zeroes and the "nothing here"
+    // line, which is the one arrangement of this screen that cannot overflow.
+    path: '/logbook/',
+    label: '/logbook/ (delete)',
+    click: [],
+    reveal: [],
+    fill: [],
+    upload: LOGBOOK_RESTORE_UPLOAD,
+    clickAfter: LOGBOOK_DELETE_RESTORE,
+    clickLast: LOGBOOK_DELETE_OPEN,
+    settle: LOGBOOK_DELETE_SETTLE,
   },
   {
     // Its own entry rather than a seed on the home row, because the offer sits
