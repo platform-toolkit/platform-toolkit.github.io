@@ -3047,6 +3047,45 @@ const MEASURE = `(() => {
 })()`;
 
 /**
+ * Runs one action on a control, turning an actionability timeout into a failure.
+ *
+ * Playwright waits for a control to be visible, enabled and stable before it acts,
+ * and throws a `TimeoutError` when it never gets there -- covered by something,
+ * still animating, or disabled behind a read that has not answered. Every one of
+ * those is a fact about the screen and belongs in the list with the others.
+ *
+ * Unguarded, that exception left `main` and killed the process mid-route. A run
+ * that had already measured a hundred screens printed no failure list, no count and
+ * no route name, and exited with the code a genuine layout failure uses -- so the
+ * one thing this script exists to print was the thing that went missing, and the
+ * only way to find out which screen it died on was to read a stack trace. It cost a
+ * verify on 2026-08-07, on a workout-builder button that pressed fine on a rerun.
+ *
+ * Reporting it and moving on also means the remaining routes still run, so a real
+ * layout regression somewhere after the wedged screen is not hidden behind it.
+ *
+ * @param {() => Promise<unknown>} act
+ * @param {string} what
+ * @param {string} selector
+ * @param {string} where
+ * @param {string[]} failures
+ * @returns {Promise<boolean>}
+ */
+async function attempt(act, what, selector, where, failures) {
+  try {
+    await act();
+    return true;
+  } catch (caught) {
+    // The name rather than the message. Playwright hangs its whole actionability
+    // call log off the message, which is a dozen indented lines per entry in
+    // something that is read as a list of one-line findings.
+    const reason = caught instanceof Error ? caught.name : 'failed';
+    failures.push(`${where}: could not ${what} ${selector} (${reason})`);
+    return false;
+  }
+}
+
+/**
  * Presses a list of things, failing on anything that is not there.
  *
  * Shared by `click` and `clickAfter` so the two lists cannot drift into
@@ -3077,7 +3116,7 @@ async function tap(page, selectors, where, failures) {
       failures.push(`${where}: nothing matched ${selector}`);
       return false;
     }
-    await control.click();
+    if (!(await attempt(() => control.click(), 'press', selector, where, failures))) return false;
   }
   return true;
 }
@@ -3127,7 +3166,8 @@ async function pick(page, pickers, where, failures) {
       );
       return false;
     }
-    await control.selectOption({ index });
+    const choose = () => control.selectOption({ index });
+    if (!(await attempt(choose, 'answer', selector, where, failures))) return false;
   }
   return true;
 }
@@ -3153,7 +3193,8 @@ async function enter(page, fields, where, failures) {
       failures.push(`${where}: nothing matched ${selector}`);
       return false;
     }
-    await field.fill(value);
+    const type = () => field.fill(value);
+    if (!(await attempt(type, 'type into', selector, where, failures))) return false;
   }
   return true;
 }
@@ -3241,7 +3282,7 @@ async function reveal(page, route, pass, failures) {
       failures.push(`${where}: nothing matched ${selector}`);
       return false;
     }
-    await control.check();
+    if (!(await attempt(() => control.check(), 'tick', selector, where, failures))) return false;
   }
 
   // Pickers after tiles, and not arrangeable the other way round: a weight class
