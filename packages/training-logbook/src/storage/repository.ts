@@ -108,11 +108,29 @@ export interface TrainingLogbookRepository {
   completeWorkout(workout: WorkoutSession): Promise<void>;
 
   /**
-   * The history, newest first, narrowed by the query. Section 9.3.
+   * The history -- what has already been done -- newest first, narrowed by the
+   * query. Section 9.3.
+   *
+   * Two workouts are absent by default and both are the same rule. The one the
+   * active pointer names is the session the lifter is *in*, which the home screen
+   * already offers to resume; a `discarded` one is the session they threw away.
+   * Neither has been done, so neither is history.
+   *
+   * **Excluded by pointer and not by `status === 'active'`.** A session planned and
+   * not yet started is still `draft` and is still the session on screen, so a status
+   * test would leave it in the list under the one heading it does not belong to.
+   * The pointer is also the fact the tool resumes from, so the list and the Resume
+   * button cannot come to disagree about which workout is the live one.
+   *
+   * A query naming a `status` overrides both, because it is a different question and
+   * `status: 'active'` has to be able to answer with the session in progress. The
+   * defaults live here rather than in the one caller there is today, or the next
+   * screen to read a history grows the row back.
    *
    * Bounded by `limit`, and by `from` where one is given: both are stopping
    * conditions on an ordered walk rather than filters over everything. A screen
-   * asking for the last ten pays for the last ten.
+   * asking for the last ten pays for the last ten, and an excluded workout does not
+   * spend one of the ten.
    */
   listWorkouts(query?: WorkoutHistoryQuery): Promise<readonly WorkoutSummary[]>;
   getWorkout(id: LogbookId): Promise<WorkoutSession | null>;
@@ -170,11 +188,22 @@ export interface RepositoryOptions {
   readonly applicationVersion: string;
 }
 
-function withinQuery(workout: WorkoutSession, query: WorkoutHistoryQuery): boolean {
+/**
+ * Whether this workout belongs in the answer. `activeId` is what the pointer names.
+ *
+ * The two default exclusions apply only where the query names no status, and the
+ * early return is what makes that structural rather than a matter of ordering three
+ * independent tests -- see `listWorkouts`' contract above.
+ */
+function withinQuery(
+  workout: WorkoutSession,
+  query: WorkoutHistoryQuery,
+  activeId: LogbookId | null,
+): boolean {
   if (query.from !== undefined && workout.localDate < query.from) return false;
   if (query.to !== undefined && workout.localDate > query.to) return false;
-  if (query.status !== undefined && workout.status !== query.status) return false;
-  return true;
+  if (query.status !== undefined) return workout.status === query.status;
+  return workout.id !== activeId && workout.status !== 'discarded';
 }
 
 /**
@@ -243,6 +272,17 @@ export function createRepository(
       const { limit } = query;
       if (limit !== undefined && !(limit > 0)) return [];
 
+      // Read before the walk and never inside it: the visitor is synchronous
+      // precisely so that it cannot end its own transaction, and this is a second
+      // read. A write landing between the two leaves the list one press stale, the
+      // same bound the element's `#generation` already documents.
+      //
+      // Read unconditionally, including for a query that names a status and will
+      // therefore ignore it. Skipping it there is one keyed lookup saved on a query
+      // no screen makes, in exchange for `withinQuery` holding a condition nothing
+      // can reach and no mutation can kill.
+      const activeId = await store.readActiveId();
+
       const rows: WorkoutSummary[] = [];
       // The day on which the limit was filled, or null while still short of it.
       // Set once and then only read; see the stop condition below.
@@ -260,7 +300,7 @@ export function createRepository(
         // below. So the day that filled the limit is finished before stopping.
         if (filledOn !== null && workout.localDate < filledOn) return 'stop';
 
-        if (withinQuery(workout, query)) {
+        if (withinQuery(workout, query, activeId)) {
           rows.push(summarize(workout));
           if (limit !== undefined && filledOn === null && rows.length >= limit) {
             filledOn = workout.localDate;

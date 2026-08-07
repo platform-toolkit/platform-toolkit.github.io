@@ -1044,10 +1044,13 @@ function unreadable(store: LogbookStore): LogbookStore {
  *
  * Broken on demand rather than from the start, because boot is a walk now: the home
  * list is `listWorkouts`, which stops at the tenth row instead of reading everything but
- * is still a scan. A store that refused every scan could not be mounted, so a case built
- * on one would be measuring the boot path and not the screen it names. Breaking it after
- * the element is up is also the truer story, and the same one {@link unreadable} tells --
- * a record goes bad under a lifter who already has the tool open.
+ * is still a scan. Breaking it after the element is up keeps a case about the records
+ * screen off the boot path, and tells the truer story {@link unreadable} tells -- a
+ * record goes bad under a lifter who already has the tool open.
+ *
+ * It can now also be broken *before* the mount, which it could not be until #108: the
+ * boot read had no catch, so a store that refused every scan left no screen to assert
+ * against. The home screen's own case below does exactly that.
  */
 function unscannable(store: LogbookStore): { store: LogbookStore; breakTheWalk: () => void } {
   let broken = false;
@@ -1061,6 +1064,59 @@ function unscannable(store: LogbookStore): { store: LogbookStore; breakTheWalk: 
     },
     breakTheWalk: () => {
       broken = true;
+    },
+  };
+}
+
+/**
+ * A store that reaches the database at once and reaches the element when told to.
+ *
+ * The window #95 is about is one storage round trip wide: the boot read is issued, the
+ * database answers it, and the element assigns those answers some microtasks later.
+ * Anything a lifter does in between is done against state the answers already
+ * contradict, and holding the delivery is the only way to make that window wide enough
+ * for a case to press a button inside it.
+ *
+ * Held on the way back and never on the way out, which is the whole of what makes these
+ * cases honest. A wrapper that waited *before* calling the store would let the read see
+ * the session planned inside the window, and would then be proving that a read of newer
+ * state does not overwrite it -- which nothing ever claimed. Waiting after the answer is
+ * also outside the transaction, so section 4's auto-commit rule is untouched: the
+ * request has already been served before anything here awaits.
+ *
+ * The three held reads are the three the boot `Promise.all` makes. `readProfiles` is
+ * deliberately not one of them, so {@link counting}'s counter still works underneath
+ * this as the "the boot read is over" signal a release has to be waited on with.
+ */
+function held(store: LogbookStore): {
+  store: LogbookStore;
+  hold: () => void;
+  release: () => void;
+} {
+  let gate: Promise<void> | null = null;
+  let open: (() => void) | null = null;
+  async function deliver<T>(answer: Promise<T>): Promise<T> {
+    const value = await answer;
+    if (gate !== null) await gate;
+    return value;
+  }
+  return {
+    store: {
+      ...store,
+      readSettings: () => deliver(store.readSettings()),
+      readActiveId: () => deliver(store.readActiveId()),
+      scanWorkouts: (visit) => deliver(store.scanWorkouts(visit)),
+    },
+    hold: () => {
+      gate = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+    },
+    release: () => {
+      const resolve = open;
+      gate = null;
+      open = null;
+      resolve?.();
     },
   };
 }
@@ -2179,10 +2235,11 @@ describe('the training logbook', () => {
       await press(element, 'finish-confirm');
       const booted = calls.profiles;
       await press(element, 'home');
-      // Going home restarts the boot read, and nothing on screen reports it. Planning
-      // the next session while it is still in flight loses that session to an answer
-      // read before it existed -- which is a race in the test and not in the tool, a
-      // lifter needing four taps to get where this arrives in four milliseconds.
+      // Going home restarts the boot read, and nothing on screen reports it; profiles
+      // are read last, so this is the wait for it to be over. Since #95 a session
+      // planned while it is still in flight is no longer lost to it -- the generation
+      // cases below are about exactly that -- but waiting keeps this case about one
+      // read at a time.
       await vi.waitFor(() => {
         expect(calls.profiles).toBeGreaterThan(booted);
       });
@@ -2193,6 +2250,199 @@ describe('the training logbook', () => {
       const line = await previousLine(element);
       expect(line).toContain(TODAY);
       expect(line).toContain(formatWeight({ amount: 100, unit: UNIT }));
+    });
+  });
+
+  /**
+   * Task #108. A history that will not come back, and the rest of the tool surviving it.
+   *
+   * `#reload` read the history in the same `Promise.all` as the settings and the workout
+   * in progress, so a rejected walk took all three down: no storage line, no resumable
+   * session, and no backup -- which is the one control a lifter whose database is going
+   * bad would reach for. `#reloadProfiles`' docblock had already drawn the line these
+   * cases put the history read on the other side of.
+   *
+   * The durable store throughout, because the failure being injected is a real
+   * `scanWorkouts` refusing, and every case here needs something seeded for it to refuse
+   * to walk over.
+   */
+  describe('when the history will not read', () => {
+    it('boots anyway, and says the history could not be read', async () => {
+      const { store } = await durableStore();
+      await seedRepeatable(store);
+      const walk = unscannable(store);
+      // Before the mount and not after it: the boot read is the case.
+      walk.breakTheWalk();
+
+      const element = await mount(walk.store);
+
+      // `mount` waits for the storage line, so before #108 this case did not fail an
+      // assertion -- it timed out, with the whole screen still blank.
+      expect(saveLine(element)).toBe(SAVE_STATES.saved);
+      expect(readAll(element)).toContain(HOME_NOTES.historyUnreadable);
+      // And not "nothing logged yet", which is what the list says when it is drawn
+      // empty and is a claim about a database nothing has managed to read.
+      expect(readAll(element)).not.toContain(HOME_NOTES.historyEmpty);
+    });
+
+    it('still writes the backup the lifter came for', async () => {
+      const { store } = await durableStore();
+      await seedRepeatable(store);
+      const walk = unscannable(store);
+      walk.breakTheWalk();
+      const element = await mount(walk.store);
+
+      await press(element, 'backup');
+
+      // `readSnapshot` is a bulk read and not the bounded walk, so the one control that
+      // gets a lifter's training off a failing device was never itself broken -- only
+      // unreachable, behind a home screen that never rendered.
+      await waitForText(element, HOME_NOTES.backupDone);
+    });
+
+    it('withdraws a list it had already drawn, when a later read fails', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const walk = unscannable(store);
+      const element = await mount(walk.store);
+      // The row is real first, or the assertions below hold against an empty logbook.
+      expect(rowText(await historyRow(element, source.id))).not.toBe('');
+      expect(readAll(element)).not.toContain(HOME_NOTES.historyUnreadable);
+
+      walk.breakTheWalk();
+      // Into the builder and straight back out: `CANCEL_PLAN_ACTION` shares
+      // `HOME_ACTION`'s arm, and that arm is where a home screen already on screen
+      // reloads.
+      await press(element, 'start-workout');
+      await press(element, 'cancel-plan');
+
+      await waitForText(element, HOME_NOTES.historyUnreadable);
+      // Withdrawn rather than emptied. Left drawn it would offer Resume and Repeat on
+      // rows read before the database stopped answering.
+      expect(deepAll(shadow(element), 'ptk-workout-history')).toHaveLength(0);
+    });
+
+    /**
+     * The refresh that runs off the back of a write, which is the other caller.
+     *
+     * It has no screen of its own -- leaving the editor lands on the detail screen, and
+     * every way back to the list reloads and would overwrite whatever this set. So the
+     * observable is the one an uncaught rejection leaves behind: a promise nobody is
+     * holding. Section 2.4 forbids that as squarely as it forbids swallowing the error.
+     */
+    it('leaves no rejected read behind when the editor is left', async () => {
+      const seen: unknown[] = [];
+      const note = (event: PromiseRejectionEvent): void => {
+        seen.push(event.reason);
+        // Or the runner fails the case on the rejection before the assertion can say
+        // which read it came from.
+        event.preventDefault();
+      };
+      window.addEventListener('unhandledrejection', note);
+      teardown.push(() => {
+        window.removeEventListener('unhandledrejection', note);
+      });
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const walk = unscannable(store);
+      // Counting on the outside, so a scan that is refused is still a scan that was
+      // asked for. The other way round, a broken walk answers before the counter and
+      // the wait below never ends.
+      const counted = counting(walk.store);
+      const element = await mount(counted.store);
+      await edit(element, source.id);
+      walk.breakTheWalk();
+      const before = counted.calls.scans;
+
+      await press(element, 'edit-done');
+
+      // The refresh has been attempted, so whatever it was going to do it has done.
+      await vi.waitFor(() => {
+        expect(counted.calls.scans).toBeGreaterThan(before);
+      }, STORAGE_WAIT);
+      // A plain wait, which nothing else in this file needs and this case cannot avoid:
+      // `unhandledrejection` is delivered on a task boundary, and there is no event to
+      // wait *for* when the assertion is that none arrives. Long enough that the
+      // refused read and its rejection have both been and gone.
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 250);
+      });
+      expect(seen).toEqual([]);
+    });
+  });
+
+  /**
+   * Task #95. A read issued before the lifter did something, landing after they did it.
+   *
+   * `#reload` is started with `void` from four places and awaited nowhere, so the answers
+   * it assigns are answers to a question asked before the last press. {@link held} widens
+   * that window from microseconds to as long as the case needs; the generation counter is
+   * what makes the tool notice.
+   *
+   * `counting` underneath `held` in every case, because `readProfiles` runs after the
+   * boot `Promise.all` and is therefore the only signal a released read has landed.
+   */
+  describe('a read that lands on top of newer state', () => {
+    it('keeps a session planned while the boot read was in flight', async () => {
+      const { store } = await durableStore();
+      const counted = counting(store);
+      const gate = held(counted.store);
+      const element = await mount(gate.store);
+
+      // A session finished, so the pointer the read in flight will find is null. That
+      // null is what used to be assigned over the session planned below it.
+      await planASquatSession(element);
+      await press(element, 'complete', setRow(element, 0));
+      await press(element, 'finish');
+      await choose(element, 'ptk-choice-group', 'skip');
+      await press(element, 'finish-confirm');
+
+      const booted = counted.calls.profiles;
+      gate.hold();
+      await press(element, 'home');
+      await planASquatSession(element);
+      const planned = await store.readActiveId();
+      expect(planned).not.toBeNull();
+      gate.release();
+
+      await vi.waitFor(() => {
+        expect(counted.calls.profiles).toBeGreaterThan(booted);
+      }, STORAGE_WAIT);
+      await element.updateComplete;
+
+      // Still logging, and logging the session the lifter planned. Without the counter
+      // the screen falls back to home with `active` nulled, while the database goes on
+      // holding a session the tool has forgotten it has.
+      expect(deepAll(shadow(element), 'ptk-active-workout')).toHaveLength(1);
+      expect(await store.readActiveId()).toBe(planned);
+    });
+
+    it('keeps a setting answered while the boot read was in flight', async () => {
+      const { store } = await durableStore();
+      const counted = counting(store);
+      const gate = held(counted.store);
+      const element = await mount(gate.store);
+      expect(chosenSetting(element, UNIT_SETTING_FIELD)).toBe(UNIT);
+
+      const booted = counted.calls.profiles;
+      gate.hold();
+      // The same reload as above, reached without a workout: the settings controls are
+      // on the home screen, and the builder is the shortest round trip back to it.
+      await press(element, 'start-workout');
+      await press(element, 'cancel-plan');
+      await chooseSetting(element, UNIT_SETTING_FIELD, 'kg');
+      gate.release();
+
+      await vi.waitFor(() => {
+        expect(counted.calls.profiles).toBeGreaterThan(booted);
+      }, STORAGE_WAIT);
+      await element.updateComplete;
+
+      // The write landed either way -- it is not held -- so the screen reverting to
+      // pounds is the tool disagreeing with its own database until the next boot, which
+      // is the worse half of the failure and the half only this assertion sees.
+      expect(chosenSetting(element, UNIT_SETTING_FIELD)).toBe('kg');
+      expect((await store.readSettings())?.displayUnit).toBe('kg');
     });
   });
 
@@ -3917,25 +4167,26 @@ describe('the training logbook', () => {
     });
 
     /**
-     * Three of the four things that count, and one device per thing proves it.
+     * All four things that count, and one device per thing proves it.
      *
      * Same shape and same reason as the delete read-back above: a device holding all
      * of them at once cannot show a broken conjunct, because each is covered by
-     * whichever of its neighbours also fires. Two of the three are work a lifter does
+     * whichever of its neighbours also fires. Two of the four are work a lifter does
      * *before* their first finished session -- setting up a gym, inventing a movement
      * -- and a check keyed on finished sessions alone would tell both of those people
      * there was nothing here worth keeping.
      *
-     * The fourth conjunct, `active`, is deliberately not here and cannot be reached
-     * from this screen. A session in progress is in the history list as well, because
-     * that list is not filtered by status (#97), and the logging screen has no way
-     * back to the home one -- so a device seeded with one would pass through
-     * `history` while appearing to prove `active`, which is the exact failure the
-     * one-device-per-conjunct rule exists to stop. Why the conjunct stays anyway is on
-     * `#hasSomethingToKeep`. Do not add a case here claiming to cover it.
+     * `active` is the fourth, and until #97 it could not be covered here at all: the
+     * history list held the session in progress too, so a device seeded with one
+     * passed through `history` while appearing to prove `active` -- the exact failure
+     * the one-device-per-conjunct rule exists to stop. Now that the list excludes the
+     * workout the active pointer names, the conjunct is the only thing standing
+     * between somebody midway through their first session and an offer they never
+     * see. That is the person with most to lose by it, having exported nothing yet.
      */
     const keepable: readonly { readonly what: string; readonly seed: Seeder }[] = [
       { what: 'a finished session', seed: seedRepeatable },
+      { what: 'a session in progress', seed: seedActive },
       { what: 'a saved gym', seed: (store) => store.writeProfile(aProfile()) },
       {
         what: 'a movement the lifter invented',
@@ -4385,6 +4636,44 @@ describe('the training logbook', () => {
      * sits in `render()` above the screen rather than inside each of the nine: a node
      * redrawn by every screen change is a node that was created with its sentence.
      */
+    /**
+     * Task #108's second half, and the rule the first half is no use without.
+     *
+     * The sentence about an unreadable history arrives from a read that has already
+     * resolved, so a region drawn around it would be created in the same update as its
+     * text -- announced by roughly half the engines and reliably by none. It is empty
+     * and on screen from the home screen's first paint instead.
+     *
+     * Scoped to the home screen rather than to the tool, which is `.outcome`'s scope
+     * beside it and not `.storage`'s above: a screen change rebuilds this section, and
+     * a reader who has left the home screen is not waiting on news about its list.
+     *
+     * `status` and not `alert`, because this is the two libraries' news and not a lift
+     * on the page in front of the lifter -- nothing here is worth cutting across
+     * whatever else is being spoken.
+     */
+    it('has somewhere to say the history failed before it fails', async () => {
+      const { store } = await durableStore();
+      await seedRepeatable(store);
+      const walk = unscannable(store);
+      const element = await mount(walk.store);
+
+      const region = liveRegion(element, '.unreadable');
+      expect(region.getAttribute('role')).toBe('status');
+      // Nothing has gone wrong yet, which is the whole point of it being here.
+      expect(region.textContent.trim()).toBe('');
+      expect(readAll(element)).not.toContain(HOME_NOTES.historyUnreadable);
+
+      walk.breakTheWalk();
+      await press(element, 'start-workout');
+      await press(element, 'cancel-plan');
+
+      await waitForText(element, HOME_NOTES.historyUnreadable);
+      expect(liveRegion(element, '.unreadable').textContent).toContain(
+        HOME_NOTES.historyUnreadable,
+      );
+    });
+
     it('says how storage stands through one region that outlives every screen', async () => {
       const { store } = await durableStore();
       const element = await mount(store);

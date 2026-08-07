@@ -1383,14 +1383,13 @@ export class PtkTrainingLogbook extends LitElement {
    * The history list is capped, so this reads "at least one" and never a total. That is
    * all the question needs.
    *
-   * `active` is the one conjunct with no test, and it cannot have one today: the
-   * history list is not filtered by status (#97), so a session in progress is already
-   * in `history`, and the only screen that draws this is the home one -- which the
-   * logging screen has no way back to. Mutating it away leaves the whole suite green.
-   * It stays because the redundancy is a coincidence of two other decisions rather
-   * than a property of this question: filtering #97's list is a change one task away,
-   * and it would silently take the offer off the device of somebody in the middle of
-   * their first workout, which is the device this feature is most for.
+   * `active` was the one conjunct with no test, on the grounds that a session in
+   * progress was in `history` anyway and mutating the conjunct away left the suite
+   * green. The note ended by saying that filtering the history list was a change one
+   * task away and would silently take the offer off the device of somebody in the
+   * middle of their first workout. #97 made that change, so this conjunct is now the
+   * whole of the offer for that device rather than a fourth way to say what `history`
+   * already said, and the browser suite covers it.
    */
   #hasSomethingToKeep(): boolean {
     return (

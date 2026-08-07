@@ -21,6 +21,7 @@ import {
   addExercise,
   completeSet,
   createWorkout,
+  discardWorkout,
   finishWorkout,
   performance,
   startWorkout,
@@ -260,13 +261,65 @@ describe('listWorkouts', () => {
     expect(await logbook.listWorkouts({ limit: -1 })).toEqual([]);
   });
 
-  it('includes the workout in progress', async () => {
-    // The history screen shows it labelled as unfinished. Hiding it here would
-    // mean a lifter who backgrounded the app sees no trace of the session.
-    const logbook = repository();
-    await logbook.saveActiveWorkout(finished());
+  /** A session started and not finished: what the active pointer points at. */
+  function live(localDate: CalendarDay, at: ReturnType<typeof contextSeries>): WorkoutSession {
+    return startWorkout(
+      createWorkout(at(AT_START), { localDate, title: 'Squat day' }),
+      at(AT_START),
+    );
+  }
 
-    expect(await logbook.listWorkouts()).toHaveLength(1);
+  it('leaves out the session in progress, and answers with it when asked', async () => {
+    // #97. The home screen already offers to resume it, so a row here is the same
+    // session twice -- the second time under a heading saying it has been done. The
+    // case this replaced argued the opposite on the grounds that hiding it left a
+    // backgrounded session with no trace, which stopped being true when the resume
+    // offer landed.
+    const logbook = repository();
+    const at = contextSeries();
+    await logbook.saveWorkout(finished('2026-03-10', at));
+    await logbook.saveActiveWorkout(live('2026-03-11', at));
+
+    expect((await logbook.listWorkouts()).map((row) => row.localDate)).toEqual(['2026-03-10']);
+    expect(await logbook.listWorkouts({ status: 'active' })).toHaveLength(1);
+  });
+
+  it('leaves out a session planned and not yet started, which is a draft and not active', async () => {
+    // Why the exclusion is the pointer and not `status === 'active'`. This session
+    // is on screen being written; a status test puts it in the history list while
+    // the lifter is still adding lifts to it.
+    const logbook = repository();
+    const at = contextSeries();
+    await logbook.saveActiveWorkout(createWorkout(at(AT_START), { localDate: '2026-03-11' }));
+
+    expect(await logbook.listWorkouts()).toEqual([]);
+    expect(await logbook.listWorkouts({ status: 'draft' })).toHaveLength(1);
+  });
+
+  it('leaves out a session that was thrown away', async () => {
+    // No screen in this repository discards one yet, but `discardWorkout` is
+    // exported from `../core` and a consumer reaches it either way. A discarded
+    // session in the history is training the lifter deliberately did not keep.
+    const logbook = repository();
+    const at = contextSeries();
+    await logbook.saveWorkout(discardWorkout(finished('2026-03-10', at), at(AT_LATER)));
+
+    expect(await logbook.listWorkouts()).toEqual([]);
+    expect(await logbook.listWorkouts({ status: 'discarded' })).toHaveLength(1);
+  });
+
+  it('does not spend a row of the limit on the session in progress', async () => {
+    // The exclusion sits inside the walk's filter rather than in a slice after it,
+    // so a screen asking for two rows gets two finished workouts and not one.
+    const logbook = repository();
+    const at = contextSeries();
+    for (const day of ['2026-03-09', '2026-03-10']) await logbook.saveWorkout(finished(day, at));
+    await logbook.saveActiveWorkout(live('2026-03-11', at));
+
+    expect((await logbook.listWorkouts({ limit: 2 })).map((row) => row.localDate)).toEqual([
+      '2026-03-10',
+      '2026-03-09',
+    ]);
   });
 
   /**
@@ -845,7 +898,11 @@ describe('replaceFromBackup', () => {
     await logbook.replaceFromBackup(backup);
 
     expect((await logbook.loadActiveWorkout())?.id).toBe(live.id);
-    expect(await logbook.listWorkouts()).toHaveLength(1);
+    // In the store, and out of the history. The snapshot holds the active session
+    // in a field of its own precisely so a restore cannot land it in both places,
+    // and #97's exclusion is what keeps the second copy from growing back on read.
+    expect(await logbook.listWorkouts()).toEqual([]);
+    expect(await logbook.listWorkouts({ status: live.status })).toHaveLength(1);
   });
 
   it('round-trips a whole logbook byte for byte', async () => {
