@@ -195,6 +195,49 @@ function findViolation(text) {
   return null;
 }
 
+// ---- the signing key -------------------------------------------------------
+
+/**
+ * The `type base64` of a public key, with the comment dropped.
+ *
+ * `user.signingkey` is either a literal `key::ssh-ed25519 AAAA...` or a path, and
+ * a path may name either half of the pair -- git reads `<path>.pub` when handed a
+ * private key -- so both are tried before giving up.
+ */
+function signingPublicKey(value) {
+  const text = (() => {
+    if (value.startsWith('key::')) return value.slice('key::'.length);
+    const path = value.replace(/^~/, process.env['HOME'] ?? '~');
+    for (const candidate of [path, `${path}.pub`]) {
+      try {
+        return readFileSync(candidate, 'utf8');
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  })();
+  if (text === null) return null;
+  const [type, blob] = text.trim().split(/\s+/);
+  if (type === undefined || blob === undefined || !type.startsWith('ssh-')) return null;
+  return `${type} ${blob}`;
+}
+
+/** Whether the allowed signers file sanctions this key for this identity. */
+function isAllowedSignerFor(allowedSigners, identity, publicKey) {
+  const wanted = identity.toLowerCase();
+  return allowedSigners
+    .split('\n')
+    .filter((line) => line.trim() !== '' && !line.startsWith('#'))
+    .some((line) => {
+      if (!line.includes(publicKey)) return false;
+      const [principals] = line.trim().split(/\s+/);
+      return (principals ?? '')
+        .split(',')
+        .some((principal) => principal.replaceAll('"', '').toLowerCase() === wanted);
+    });
+}
+
 // ---- the commit about to be made (pre-commit only) -------------------------
 
 if (checkPending) {
@@ -258,23 +301,44 @@ if (checkPending) {
       );
     }
 
+    // Reject a key belonging to a different identity -- signing with the wrong key
+    // stamps the wrong person on the commit just as surely as the wrong author
+    // field does. The question is what "belonging" means, and it is deliberately
+    // not the key's comment field: that is a free-text label `ssh-keygen -C`
+    // rewrites at will, nothing verifies it, and one person who signs as two
+    // addresses can only put one of them there. The allowed signers file is what
+    // git itself checks a signature against, so it decides here too -- the key has
+    // to be listed in it under the required identity. Two addresses for one person
+    // is two lines naming the same key; somebody else's key is in neither.
     const signingKey = gitConfig('user.signingkey');
+    const allowedSignersFile = gitConfig('gpg.ssh.allowedsignersfile');
     if (signingKey === '') {
       violations.push('pending commit: no user.signingkey is configured');
-    } else if (signingKey.startsWith('/') || signingKey.startsWith('~')) {
-      // An SSH signing key is a path to a key file. Reject one belonging to a
-      // different identity -- signing with the wrong key stamps the wrong person
-      // on the commit just as surely as the wrong author field does.
-      const keyPath = signingKey.replace(/^~/, process.env['HOME'] ?? '~');
-      const keyContents = (() => {
+    } else if (allowedSignersFile === '') {
+      violations.push(
+        `pending commit: ${LOCAL_IDENTITY_FILE} requires a signing key belonging to ` +
+          `"${requiredIdentity}", and there is no gpg.ssh.allowedsignersfile to check ` +
+          'that against (git config --local gpg.ssh.allowedsignersfile <path>)',
+      );
+    } else {
+      const publicKey = signingPublicKey(signingKey);
+      const allowedSigners = (() => {
         try {
-          return readFileSync(keyPath, 'utf8');
+          return readFileSync(allowedSignersFile.replace(/^~/, process.env['HOME'] ?? '~'), 'utf8');
         } catch {
-          return null; // Not a readable file; nothing to verify against.
+          return null;
         }
       })();
-      if (keyContents !== null && !keyContents.includes(requiredIdentity)) {
-        violations.push(`pending commit: signing key ${signingKey} is not the required identity`);
+
+      if (publicKey === null) {
+        violations.push(`pending commit: no public key could be read from ${signingKey}`);
+      } else if (allowedSigners === null) {
+        violations.push(`pending commit: ${allowedSignersFile} cannot be read`);
+      } else if (!isAllowedSignerFor(allowedSigners, requiredIdentity, publicKey)) {
+        violations.push(
+          `pending commit: ${allowedSignersFile} does not list the signing key ` +
+            `under "${requiredIdentity}"`,
+        );
       }
     }
   }
