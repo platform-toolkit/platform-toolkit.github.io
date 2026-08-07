@@ -27,10 +27,9 @@
  *
  * WHAT IS NOT HERE YET, AND IS NOT PRETENDED TO BE
  *
- * Markdown export and the deletion flow are later milestones. Section 0.4 forbids
- * standing in for either with a disabled control or a "coming soon", so neither has
- * one and neither is mentioned on a screen: nothing sends a lifter looking for a
- * control that is not there.
+ * The deletion flow is a later milestone. Section 0.4 forbids standing in for it with a
+ * disabled control or a "coming soon", so it has neither and is mentioned on no screen:
+ * nothing sends a lifter looking for a control that is not there.
  */
 
 import { convertWeight, formatWeight, type WeightUnit } from '@platform-toolkit/domain';
@@ -153,6 +152,7 @@ import {
   fieldOf,
 } from './dataset.js';
 import { formatVolume } from './format.js';
+import { markdownExport, markdownFilename } from './markdown.js';
 import {
   BACKUP_EXPORTED_EVENT,
   BACKUP_RESTORED_EVENT,
@@ -240,6 +240,7 @@ const START_ACTION = 'start-workout';
 const RESUME_ACTION = 'resume-workout';
 const CANCEL_PLAN_ACTION = 'cancel-plan';
 const BACKUP_ACTION = 'backup';
+const MARKDOWN_ACTION = 'markdown';
 const RESTORE_PICK_ACTION = 'restore-pick';
 const RESTORE_CONFIRM_ACTION = 'restore-confirm';
 const RESTORE_CANCEL_ACTION = 'restore-cancel';
@@ -714,6 +715,16 @@ export class PtkTrainingLogbook extends LitElement {
   @state() private backupDone = false;
 
   /**
+   * The same, for the readable copy. Section 10.5.
+   *
+   * A second flag rather than one shared with {@link backupDone}, because the two
+   * buttons produce two different files and a lifter who has taken the readable one
+   * and not the backup is in the state the note beside it warns about. One flag would
+   * tell them they had a backup.
+   */
+  @state() private markdownDone = false;
+
+  /**
    * The backup a lifter chose and this build could read, waiting to be confirmed.
    *
    * `null` on every screen but `restore`, and the two move together: this is what puts
@@ -1044,11 +1055,16 @@ export class PtkTrainingLogbook extends LitElement {
           <ptk-button variant="secondary" data-action=${BACKUP_ACTION}
             >${HOME_NOTES.backup}</ptk-button
           >
+          <ptk-button variant="secondary" data-action=${MARKDOWN_ACTION}
+            >${HOME_NOTES.markdown}</ptk-button
+          >
           <ptk-button variant="secondary" data-action=${RESTORE_PICK_ACTION}
             >${HOME_NOTES.restore}</ptk-button
           >
         </div>
         ${this.backupDone ? html`<p class="note">${HOME_NOTES.backupDone}</p>` : nothing}
+        ${this.markdownDone ? html`<p class="note">${HOME_NOTES.markdownDone}</p>` : nothing}
+        <p class="note">${HOME_NOTES.markdownNote}</p>
         <p class="note">${HOME_NOTES.restoreNote}</p>
         <input
           type="file"
@@ -1891,6 +1907,7 @@ export class PtkTrainingLogbook extends LitElement {
     this.finished = session;
     this.screen = 'done';
     this.backupDone = false;
+    this.markdownDone = false;
     this.#emitWorkout(WORKOUT_COMPLETED_EVENT, session.id);
     void this.#persist(session, 'finished');
   };
@@ -2247,9 +2264,10 @@ export class PtkTrainingLogbook extends LitElement {
       case HOME_ACTION:
         this.screen = 'home';
         this.backupDone = false;
-        // Cleared with the download note beside them and for the same reason: all
-        // three report what one press did, and a report still on screen after a trip
-        // through a workout reads as a claim about the logbook rather than as the
+        this.markdownDone = false;
+        // Cleared with the download notes beside them and for the same reason: every
+        // one of them reports what one press did, and a report still on screen after a
+        // trip through a workout reads as a claim about the logbook rather than as the
         // answer to something the lifter did.
         this.refusals = [];
         this.restoreDone = false;
@@ -2288,6 +2306,9 @@ export class PtkTrainingLogbook extends LitElement {
         return;
       case BACKUP_ACTION:
         void this.#backup();
+        return;
+      case MARKDOWN_ACTION:
+        void this.#markdown();
         return;
       case RESTORE_PICK_ACTION:
         // A `MouseEvent` rather than `click()`, which is what the meet-day shelf
@@ -2444,28 +2465,36 @@ export class PtkTrainingLogbook extends LitElement {
   }
 
   /**
-   * Section 10.4's backup, handed straight to the browser.
+   * A file, handed straight to the browser. Section 10.6.
    *
    * The anchor is never attached to the document: a detached one still opens the
    * download, and attaching it would put a control in the light DOM of a page that
    * renders everything else inside a shadow root.
    *
-   * The filename carries the lifter's own day rather than an instant, because a file
-   * named for a UTC timestamp sorts oddly in a folder for anybody who trains in the
-   * evening west of Greenwich.
+   * An object URL and an anchor and nothing else, which section 10.6 asks for in as
+   * many words -- the required path has to be the broadly compatible one. A save-file
+   * picker is allowed as an enhancement and there is not one here, because two ways of
+   * writing a file is two ways for it to go wrong on a phone.
+   *
+   * Filenames carry the lifter's own day rather than an instant. A file named for a UTC
+   * timestamp sorts oddly in a folder for anybody who trains in the evening west of
+   * Greenwich.
    */
+  #download(text: string, mime: string, filename: string): void {
+    const url = URL.createObjectURL(new Blob([text], { type: mime }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /** Section 10.4's backup: the file a restore reads. */
   async #backup(): Promise<void> {
     const repository = this.repository;
     if (repository === null) return;
     const snapshot = await repository.exportSnapshot();
-    const url = URL.createObjectURL(
-      new Blob([serializeBackup(snapshot)], { type: 'application/json' }),
-    );
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = backupFilename(this.today);
-    link.click();
-    URL.revokeObjectURL(url);
+    this.#download(serializeBackup(snapshot), 'application/json', backupFilename(this.today));
 
     this.backupDone = true;
     this.dispatchEvent(
@@ -2475,6 +2504,24 @@ export class PtkTrainingLogbook extends LitElement {
         composed: true,
       }),
     );
+  }
+
+  /**
+   * Section 10.5's readable copy: the file nothing reads.
+   *
+   * Built from the same snapshot the backup is, through the same `exportSnapshot`, so
+   * the two files a lifter takes in one sitting describe the same device. It fires no
+   * event. Section 12.5's list is closed at seven and none of them is this: a host
+   * cannot act on a Markdown download differently from a JSON one, since the only fact
+   * either carries is that a file left the device, and `training-backup-exported`
+   * already says that about the file that matters.
+   */
+  async #markdown(): Promise<void> {
+    const repository = this.repository;
+    if (repository === null) return;
+    const snapshot = await repository.exportSnapshot();
+    this.#download(markdownExport(snapshot), 'text/markdown', markdownFilename(this.today));
+    this.markdownDone = true;
   }
 
   /**
@@ -2562,6 +2609,7 @@ export class PtkTrainingLogbook extends LitElement {
     this.pending = null;
     this.screen = 'home';
     this.backupDone = false;
+    this.markdownDone = false;
     if (repository.durable) this.saveState = 'unsaved';
 
     try {

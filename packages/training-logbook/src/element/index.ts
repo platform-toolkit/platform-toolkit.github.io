@@ -119,6 +119,7 @@ export {
   HOME_NOTES,
   LOADING_LABELS,
   LOADING_NOTES,
+  MARKDOWN_NOTES,
   RECORDS_NOTES,
   RESTORE_NOTES,
   RESTORE_REFUSALS,
@@ -144,6 +145,8 @@ export {
   formatSetRun,
   formatVolume,
 } from './format.js';
+
+export { markdownExport, markdownFilename } from './markdown.js';
 
 export {
   MAX_PLANNED_REPS,

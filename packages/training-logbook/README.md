@@ -309,6 +309,19 @@ A backup is a plain, documented, versioned JSON file rather than an export forma
 whole answer to "what happens to my training if this project stops". Anything that can read JSON can
 read it, this package's own reader is one of those things, and neither requires the other.
 
+There is a second, human-readable output beside it, and it is deliberately not a second backup:
+
+```js
+import { markdownExport, markdownFilename } from '@platform-toolkit/training-logbook/element';
+```
+
+`markdownExport` turns a `TrainingLogbookBackup` into a Markdown document — every session, every
+set, planned against performed, notes kept whole and best-set markers where the history screen shows
+them. It is a rendering, which is why it lives on `./element` next to the words it composes rather
+than on `./core`, and it touches no DOM, so a Node script can call it. Nothing reads it back: the
+document says so in its own first line, because the JSON is the file that restores and Markdown has
+no version stamp to check.
+
 Plate loading, weight conversion and directional rounding are rules, and the rules are in
 `@platform-toolkit/domain`, which the other tools in this collection use as well — a rule copied
 into two packages is the fork this collection exists to avoid. What this package adds is the part

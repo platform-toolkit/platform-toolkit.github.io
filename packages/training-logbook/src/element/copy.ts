@@ -303,6 +303,21 @@ export const HOME_NOTES = {
   /** A download that produced a file needs to say so, or somebody presses it twice. */
   backupDone: 'Backup downloaded.',
 
+  markdown: 'Download a readable copy',
+
+  /**
+   * Said under both buttons, because the choice between them is the whole of what a
+   * lifter has to understand here. Section 10.5: one file restores and one file reads,
+   * and somebody who keeps only the second has kept a diary and thinks they have a
+   * backup. Naming the format in each sentence is what makes the pair legible at a
+   * glance -- "JSON" above, "Markdown" here.
+   */
+  markdownNote:
+    'A Markdown file to read, print or keep elsewhere. It holds the same training, and it cannot be restored from.',
+
+  /** Its own sentence and not a shared one: two buttons, two things that may have happened. */
+  markdownDone: 'Readable copy downloaded.',
+
   restore: 'Restore from a backup',
 
   /**
@@ -1155,6 +1170,77 @@ export const REST_NOTES = {
     if (rest === 0) return `${String(minutes)} min`;
     return `${String(minutes)} min ${String(rest)} s`;
   },
+} as const;
+
+/**
+ * The Markdown document, which is the one thing this tool writes and will never read.
+ * Section 10.5.
+ *
+ * Here rather than beside the loop that emits it, for the reason this file exists at
+ * all: a document a lifter opens in a text editor is the tool talking, and words kept
+ * next to the code that concatenates them are words nobody reads again. The rendering
+ * rules -- which order, which table, which weight -- are in `markdown.ts`.
+ *
+ * Sections 15.3 and 16.1 apply to a file exactly as they apply to a screen, and
+ * `markdown.test.ts` asserts the vocabulary against a generated document rather than
+ * against this object -- the same reason the browser test asserts against rendered
+ * screens, since a heading composed at write time counts too.
+ */
+export const MARKDOWN_NOTES = {
+  title: 'Training logbook',
+
+  /**
+   * Said at the top, because the file it is about is the one sitting next to it.
+   *
+   * Somebody who kept the Markdown and deleted the JSON has kept a record and not a
+   * backup, and the moment to find that out is before the browser is cleared, not
+   * after. Section 10.5's first line as a sentence a person will actually meet.
+   */
+  preamble:
+    'A readable copy of this device. The logbook cannot read it back in -- restoring needs the JSON backup.',
+
+  exported: 'Exported',
+  unit: 'Unit',
+  equipment: 'Equipment',
+  workouts: 'Workouts',
+
+  /** Provenance for a human, the same fact the backup carries in `applicationVersion`. */
+  writtenBy: 'Written by',
+
+  /** What stands in for the summary on a logbook that has no default equipment. */
+  noEquipment: 'None set',
+
+  duration: 'Duration',
+  note: 'Note',
+
+  /**
+   * Numbers a set note so it can be matched to its row without repeating the row.
+   *
+   * A position within the exercise and not a set id: the id is in the file the restore
+   * reads, and a reader of this one is counting down the table with a finger.
+   */
+  setLabel: (position: number): string => `Set ${String(position)}`,
+
+  /** The five columns section 10.5 asks for. */
+  columns: {
+    kind: 'Type',
+    planned: 'Planned',
+    performed: 'Performed',
+    effort: 'Effort',
+    status: 'Status',
+  },
+
+  /**
+   * A cell with no answer in it.
+   *
+   * A dash rather than an empty cell: a row of blanks reads as a table that lost a
+   * column somewhere, and this way an unrecorded effort looks the same as every other
+   * unrecorded thing in the document.
+   */
+  blank: '-',
+
+  /** A logbook with nothing in it still exports, and says so rather than trailing off. */
+  empty: 'No workouts recorded.',
 } as const;
 
 /** A duration in the words a session is talked about in. */

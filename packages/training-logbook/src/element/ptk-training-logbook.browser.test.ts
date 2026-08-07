@@ -50,7 +50,7 @@ import {
   type RestoreProblemCode,
   type TrainingLogbookBackup,
 } from '../core/backup.js';
-import { CATALOG_EXERCISES, PRIMARY_EXERCISES, findExercise } from '../core/catalog.js';
+import { PRIMARY_EXERCISES, findExercise } from '../core/catalog.js';
 import { AT_LATER, AT_START, ON_DAY } from '../core/context.fixture.js';
 import { createHandoff } from '../core/handoff.js';
 import {
@@ -129,6 +129,7 @@ import { planProblem } from './plan.js';
 import { WORKOUT_CHANGED_EVENT } from './ptk-active-workout.js';
 import type { PtkRestTimer } from './ptk-rest-timer.js';
 import type { PtkTrainingLogbook } from './ptk-training-logbook.js';
+import { FORBIDDEN, withoutExerciseNames } from './vocabulary.fixture.js';
 
 /** The lifter's own day. Invented, and the same one the core fixtures use. */
 const TODAY: CalendarDay = ON_DAY;
@@ -3548,6 +3549,24 @@ describe('the training logbook', () => {
       });
     });
 
+    it('fires nothing at all for the readable copy', async () => {
+      // Section 12.5's list is closed at seven, and this download is not one of them.
+      // A `training-markdown-exported` added here because the backup next to it has one
+      // would be a public event invented by symmetry rather than asked for, and a public
+      // event is the one thing in this element that cannot be taken back.
+      const exported = record(BACKUP_EXPORTED_EVENT);
+
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await press(element, 'markdown');
+
+      await vi.waitFor(async () => {
+        await element.updateComplete;
+        expect(readAll(element)).toContain(HOME_NOTES.markdownDone);
+      });
+      expect(exported).toEqual([]);
+    });
+
     it('says how much a restored backup held, and nothing about what was in it', async () => {
       const restored = record(BACKUP_RESTORED_EVENT);
 
@@ -3571,47 +3590,10 @@ describe('the training logbook', () => {
   });
 
   describe('what it never says', () => {
-    /**
-     * The words that would turn a record into advice.
-     *
-     * Sections 15.3 and 16.1. A logbook that calls a session good is making a claim
-     * about work it did not see, and one that calls a set missed has renamed a lifter's
-     * own decision a failure. The rule is enforced by vocabulary or not at all, so it
-     * is asserted against the rendered screens rather than against `copy.ts` -- a
-     * sentence composed at render time counts too.
-     */
-    const FORBIDDEN = [
-      'great',
-      'good',
-      'well done',
-      'nice',
-      'easy',
-      'hard',
-      'ahead',
-      'behind',
-      'on track',
-      'missed',
-      'failed',
-      'personal best',
-    ];
-
-    /**
-     * Takes the exercise names out before the words are looked for.
-     *
-     * The builder's picker lists the whole catalogue, and the catalogue contains a Good
-     * Morning -- a real barbell movement, named that since long before this tool. The
-     * rule is about the vocabulary the tool writes, not about the vocabulary of the
-     * sport it is written for, so the exercise names are subtracted rather than the
-     * word dropped: `good` is the single most valuable entry in the list, because it is
-     * the one word a logbook drifts towards on its own.
-     */
-    function withoutExerciseNames(text: string): string {
-      return CATALOG_EXERCISES.reduce(
-        (remaining, exercise) => remaining.split(exercise.name.toLowerCase()).join(' '),
-        text,
-      );
-    }
-
+    // The list and the subtraction live in `vocabulary.fixture.ts`, because section
+    // 10.5's Markdown document is a second thing this tool writes and has to pass the
+    // same test. The walk below is what is specific to the screens: a stage this test
+    // does not reach is copy nothing checks.
     it('does not grade the session on any screen of it', async () => {
       const { store } = await durableStore();
       const element = await mount(store);
