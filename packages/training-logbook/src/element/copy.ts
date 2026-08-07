@@ -550,8 +550,15 @@ export const ACTIVE_NOTES = {
   /** Finishing with everything ticked still needs a confirmation to be undoable. */
   finishAllDone: 'Everything is ticked off.',
 
-  /** A finished workout cannot be reopened yet, and that is worth saying first. */
-  finishFinal: 'A finished workout cannot be reopened in this version.',
+  /**
+   * What finishing actually does, said before the button that does it.
+   *
+   * This line used to say a finished workout could not be reopened. That was true
+   * when it was written and is not true now that a session in the history can be
+   * corrected, and a confirmation screen making a false promise about what it is
+   * about to do is worse than no line at all.
+   */
+  finishFinal: 'It moves to your history, where you can still correct it.',
 } as const;
 
 /**
@@ -632,6 +639,38 @@ export const DETAIL_NOTES = {
   plannedLabel: 'Planned',
 
   back: 'Back to the logbook',
+
+  /**
+   * The way into section 5.4's edit, and the only control the root draws here that
+   * changes the record rather than the screen.
+   *
+   * "Change" rather than "Edit" to match the word the logging screen already uses on
+   * a set, since the screen it opens is that screen.
+   */
+  edit: 'Change this workout',
+} as const;
+
+/**
+ * The two sentences correcting a finished workout adds.
+ *
+ * Two, because the screen underneath them is the logging screen and it already says
+ * everything about a set, a note and the shape of a lift. A separate voice for editing
+ * would be the same words a second time in a register a lifter would have to notice.
+ *
+ * Nothing here is called "Done". That word is on every set row on this screen (section
+ * 7.5), and a control at the foot sharing it would read as ticking the last one.
+ */
+export const EDIT_NOTES = {
+  /**
+   * Said above the session rather than beside a Save button, because there is no Save
+   * button: every change writes as it is made, exactly as it does mid-workout. A
+   * lifter correcting a session from March needs to be told that once, and told as
+   * well that doing so does not move it -- the fear this line exists to answer is that
+   * an edit re-dates the workout to today.
+   */
+  note: 'Changes are saved as you make them, and the workout stays on its own day in your history.',
+
+  back: 'Back to the workout',
 } as const;
 
 /**

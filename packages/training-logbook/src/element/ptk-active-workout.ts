@@ -10,6 +10,14 @@
  * agree -- which is most sets, most of the time. Everything else on this screen is
  * arranged not to get in the way of that tap.
  *
+ * IT IS ALSO THE SCREEN FOR CORRECTING A SESSION THAT IS ALREADY IN THE RECORD
+ *
+ * Section 5.4's "edit workout" is section 7.7's changes and section 7.5's ticking
+ * applied to a workout from the history, which is this screen and nothing else. The
+ * `past` property removes the finish flow and the root sends the writes somewhere
+ * else; the rest is the same rows doing the same thing to the same record. A second
+ * element for it would have been these fourteen hundred lines again with its own bugs.
+ *
  * WHY THE EDITOR IS NOT ALWAYS OPEN
  *
  * A weight box and a reps box beside every set would make the common case slower to
@@ -497,6 +505,23 @@ export class PtkActiveWorkout extends LitElement {
    */
   @property({ attribute: false }) previous: ReadonlyMap<string, PreviousPerformance> = new Map();
 
+  /**
+   * Whether this session is already in the history. Section 5.4's edit.
+   *
+   * The only thing it changes is the finish flow, which is removed: a workout in the
+   * history is finished, and section 0.4 does not allow a control that would say so a
+   * second time. Everything else on the screen -- ticking, correcting, the shape of a
+   * lift, notes -- is the same operation on the same record, which is why correcting a
+   * past session is this element and not a second one written to look like it.
+   *
+   * It is a property and not a mode the element infers from `session.status`, because
+   * a session can be in the history in more than one status (finished, discarded) and
+   * because a caller reading the record back is the thing that knows where it came
+   * from. The root also does not hand down {@link previous} here: "last time" against
+   * a session from March would compare it against training that came after it.
+   */
+  @property({ type: Boolean }) past = false;
+
   /** The one set whose editor is open, or `null`. */
   @state() private editing: LogbookId | null = null;
 
@@ -609,9 +634,13 @@ export class PtkActiveWorkout extends LitElement {
                 this.#noteSurface(session, WORKOUT_NOTE_KEY)
               }
               <div class="actions">
-                <ptk-button variant="primary" data-action=${FINISH_ACTION}
-                  >${ACTIVE_NOTES.finish}</ptk-button
-                >
+                ${
+                  this.past
+                    ? nothing
+                    : html`<ptk-button variant="primary" data-action=${FINISH_ACTION}
+                        >${ACTIVE_NOTES.finish}</ptk-button
+                      >`
+                }
                 ${this.#noteButton(WORKOUT_NOTE_KEY, ACTIVE_NOTES.workoutNote)}
               </div>
             `

@@ -102,6 +102,7 @@ import type {
 import {
   DETAIL_NOTES,
   DONE_NOTES,
+  EDIT_NOTES,
   EFFORT_SETTING_LABELS,
   EFFORT_SETTING_NOTES,
   HANDOFF_NOTES,
@@ -179,7 +180,16 @@ export const TRAINING_LOGBOOK_TAG = 'ptk-training-logbook';
  * exists. A Back button that guessed would drop a lifter out of a live session for
  * having looked something up.
  */
-type Screen = 'home' | 'build' | 'active' | 'done' | 'detail' | 'records';
+type Screen = 'home' | 'build' | 'active' | 'done' | 'detail' | 'records' | 'edit';
+
+/**
+ * Which of the repository's three writes a session goes through.
+ *
+ * A name rather than the boolean this used to be, because two of the three now differ
+ * in what they do to the active pointer and a third boolean argument at a call site
+ * says nothing about which.
+ */
+type PersistKind = 'active' | 'finished' | 'past';
 
 const START_ACTION = 'start-workout';
 const RESUME_ACTION = 'resume-workout';
@@ -189,6 +199,8 @@ const HOME_ACTION = 'home';
 const HANDOFF_START_ACTION = 'start-handoff';
 const HANDOFF_DISCARD_ACTION = 'discard-handoff';
 const RECORDS_BACK_ACTION = 'records-back';
+const EDIT_ACTION = 'edit-workout';
+const EDIT_DONE_ACTION = 'edit-done';
 
 /** How many history rows the home screen reads. Section 17.2's budget, applied. */
 const HISTORY_LIMIT = 20;
@@ -404,6 +416,26 @@ export class PtkTrainingLogbook extends LitElement {
   @state() private opened: WorkoutSession | null = null;
 
   /**
+   * The workout being corrected, or `null` when none is. Section 5.4's edit.
+   *
+   * A second field rather than editing {@link opened} in place, because the two answer
+   * different questions and the difference decides where a write goes: `opened` is what
+   * the detail screen is showing, and this is the session the logging screen's events
+   * are about. It is also what tells `#onChanged` and `#onSetPlan` apart from the same
+   * events fired by a live session -- both screens are the same element.
+   *
+   * Never `null` while the edit screen is up, which is why that screen needs no answer
+   * for an unreadable workout: it is only reachable from a detail screen that has one.
+   */
+  @state() private editing: WorkoutSession | null = null;
+
+  /**
+   * The last write handed to the repository, chained so they land in the order they
+   * were made and so `#leaveEditor` has something to wait for.
+   */
+  #writing: Promise<void> = Promise.resolve();
+
+  /**
    * The exercise being read back, or `null` where it could not be read.
    *
    * The same three outcomes `opened` has, collapsed the same way and for the same
@@ -593,6 +625,8 @@ export class PtkTrainingLogbook extends LitElement {
         return this.#detailScreen();
       case 'records':
         return this.#recordsScreen();
+      case 'edit':
+        return this.#editScreen();
       case 'home':
         return this.#homeScreen();
     }
@@ -819,8 +853,50 @@ export class PtkTrainingLogbook extends LitElement {
         <ptk-workout-detail .session=${this.opened}></ptk-workout-detail>
         <div class="actions">
           <ptk-button variant="primary" data-action=${HOME_ACTION}>${DETAIL_NOTES.back}</ptk-button>
+          ${
+            // Drawn here rather than inside the element, which keeps "nothing on the
+            // detail screen writes to the record" literally true of that element. It
+            // sits beside Back because both of them change screen and neither is a
+            // change to the workout; the one behind it is.
+            this.opened === null
+              ? nothing
+              : html`<ptk-button variant="secondary" data-action=${EDIT_ACTION}
+                  >${DETAIL_NOTES.edit}</ptk-button
+                >`
+          }
         </div>
       </section>
+    `;
+  }
+
+  /**
+   * A workout out of the history, on the screen that logged it. Section 5.4.
+   *
+   * `past` is the whole of the difference: no finish flow, because it is finished. No
+   * `previous` either -- "last time" on a session from March would name training that
+   * happened after it, which is the one line on that screen that would be a lie here.
+   *
+   * There is no Save. Every change writes as it is made, exactly as it does mid-workout,
+   * and the line above the session says so once rather than a button implying the
+   * opposite.
+   */
+  #editScreen(): TemplateResult {
+    return html`
+      ${this.#saveLine()}
+      <p class="note">${EDIT_NOTES.note}</p>
+      <ptk-active-workout
+        past
+        .session=${this.editing}
+        .unit=${this.settings.displayUnit}
+        .effort=${this.settings.effort}
+        .equipment=${this.settings.equipment}
+        .now=${this.now}
+      ></ptk-active-workout>
+      <div class="actions section">
+        <ptk-button variant="primary" data-action=${EDIT_DONE_ACTION}
+          >${EDIT_NOTES.back}</ptk-button
+        >
+      </div>
     `;
   }
 
@@ -982,7 +1058,7 @@ export class PtkTrainingLogbook extends LitElement {
     this.active = session;
     this.screen = 'active';
     this.#emitWorkout(WORKOUT_STARTED_EVENT, session.id);
-    void this.#persist(session, false);
+    void this.#persist(session, 'active');
   };
 
   /**
@@ -1163,7 +1239,7 @@ export class PtkTrainingLogbook extends LitElement {
     this.unramped = unramped;
     this.screen = 'active';
     this.#emitWorkout(WORKOUT_STARTED_EVENT, session.id);
-    void this.#persist(session, false);
+    void this.#persist(session, 'active');
   }
 
   /**
@@ -1225,6 +1301,14 @@ export class PtkTrainingLogbook extends LitElement {
   readonly #onChanged = (event: CustomEvent<WorkoutChangedDetail>): void => {
     stopHere(event);
     const { session, completedSetId } = event.detail;
+    if (this.editing !== null) {
+      // No `SET_COMPLETED_EVENT`. Section 12.5's event says a set was just done, and
+      // ticking a row on a session from March did not do a set -- section 8's rest
+      // timer hangs off that event, and a correction must not start one.
+      this.editing = session;
+      void this.#persist(session, 'past');
+      return;
+    }
     this.active = session;
     if (completedSetId !== null) {
       this.dispatchEvent(
@@ -1235,7 +1319,7 @@ export class PtkTrainingLogbook extends LitElement {
         }),
       );
     }
-    void this.#persist(session, false);
+    void this.#persist(session, 'active');
   };
 
   /**
@@ -1249,6 +1333,14 @@ export class PtkTrainingLogbook extends LitElement {
    */
   readonly #onSetPlan = (event: CustomEvent<SetPlanChangedDetail>): void => {
     stopHere(event);
+    const editing = this.editing;
+    if (editing !== null) {
+      const corrected = this.#applyPlan(editing, event.detail.change);
+      if (corrected === editing) return;
+      this.editing = corrected;
+      void this.#persist(corrected, 'past');
+      return;
+    }
     const session = this.active;
     if (session === null) return;
     const next = this.#applyPlan(session, event.detail.change);
@@ -1259,7 +1351,7 @@ export class PtkTrainingLogbook extends LitElement {
     // `updatedAt`, which would move the workout up the history for nothing.
     if (next === session) return;
     this.active = next;
-    void this.#persist(next, false);
+    void this.#persist(next, 'active');
   };
 
   #applyPlan(session: WorkoutSession, change: SetPlanChange): WorkoutSession {
@@ -1313,7 +1405,7 @@ export class PtkTrainingLogbook extends LitElement {
     this.screen = 'done';
     this.backupDone = false;
     this.#emitWorkout(WORKOUT_COMPLETED_EVENT, session.id);
-    void this.#persist(session, true);
+    void this.#persist(session, 'finished');
   };
 
   /**
@@ -1526,11 +1618,29 @@ export class PtkTrainingLogbook extends LitElement {
         // changed it.
         this.opened = null;
         this.records = null;
+        this.editing = null;
         void this.#reload();
         return;
       case RECORDS_BACK_ACTION:
         this.screen = this.recordsFrom;
         this.records = null;
+        return;
+      case EDIT_ACTION:
+        // The session already read for the detail screen, handed straight over rather
+        // than read again. It is the same record and a second read would only widen
+        // the window in which the two could disagree.
+        if (this.opened === null) return;
+        this.editing = this.opened;
+        this.screen = 'edit';
+        return;
+      case EDIT_DONE_ACTION:
+        // The corrected session becomes what the detail screen shows, because it is
+        // what storage now holds. The list behind it is reloaded as well: the set
+        // count and the note mark on a row are summary fields and an edit moves both.
+        this.opened = this.editing;
+        this.editing = null;
+        this.screen = 'detail';
+        void this.#leaveEditor();
         return;
       case BACKUP_ACTION:
         void this.#backup();
@@ -1602,7 +1712,7 @@ export class PtkTrainingLogbook extends LitElement {
     if (this.settings.equipment === null) {
       await this.#saveSettings({ ...this.settings, equipment });
     }
-    await this.#persist(session, false);
+    await this.#persist(session, 'active');
   }
 
   /**
@@ -1612,8 +1722,22 @@ export class PtkTrainingLogbook extends LitElement {
    * `saveActiveWorkout` because clearing the active marker and storing the workout
    * have to happen in one transaction -- two writes would leave, on a crash between
    * them, a finished workout that the tool still offers to carry on with.
+   *
+   * A correction is the third answer and takes `saveWorkout`, which writes the record
+   * with the active pointer untouched. That is the whole of what makes editing a
+   * session from March safe: neither of the other two calls can be used for it, since
+   * one would make it the workout in progress and the other would finish it a second
+   * time.
    */
-  async #persist(session: WorkoutSession, finished: boolean): Promise<void> {
+  async #persist(session: WorkoutSession, kind: PersistKind): Promise<void> {
+    const write = this.#writing.then(async () => this.#write(session, kind));
+    // Held even when it fails, so a later reader waits for the attempt rather than
+    // skipping past it. `#write` reports failure on the screen and never rejects.
+    this.#writing = write;
+    return write;
+  }
+
+  async #write(session: WorkoutSession, kind: PersistKind): Promise<void> {
     const repository = this.repository;
     if (repository === null) return;
     if (!repository.durable) {
@@ -1624,7 +1748,8 @@ export class PtkTrainingLogbook extends LitElement {
 
     this.saveState = 'unsaved';
     try {
-      if (finished) await repository.completeWorkout(session);
+      if (kind === 'finished') await repository.completeWorkout(session);
+      else if (kind === 'past') await repository.saveWorkout(session);
       else await repository.saveActiveWorkout(session);
     } catch {
       // Reported to the lifter rather than to a console, which is section 2.4's
@@ -1636,7 +1761,20 @@ export class PtkTrainingLogbook extends LitElement {
     }
     this.saveState = 'saved';
     this.#emitWorkout(WORKOUT_SAVED_EVENT, session.id);
-    if (finished) void this.#refreshHistory();
+    if (kind === 'finished') void this.#refreshHistory();
+  }
+
+  /**
+   * Rebuilds the history list, but only once the correction behind it is written.
+   *
+   * Everywhere else `#persist` is fired and forgotten, because nothing on the screen
+   * it returns to reads the database back. Leaving the editor does: the list is built
+   * from storage, and built too early it shows the lifter the numbers they just
+   * changed.
+   */
+  async #leaveEditor(): Promise<void> {
+    await this.#writing;
+    await this.#refreshHistory();
   }
 
   async #refreshHistory(): Promise<void> {

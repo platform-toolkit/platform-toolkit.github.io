@@ -77,6 +77,7 @@ import {
   BUILDER_NOTES,
   DETAIL_NOTES,
   DONE_NOTES,
+  EDIT_NOTES,
   EFFORT_FIELD_LABELS,
   EFFORT_SETTING_NOTES,
   FINISH_DISPOSITIONS,
@@ -747,6 +748,11 @@ async function historyRow(element: PtkTrainingLogbook, id: LogbookId): Promise<H
   return row;
 }
 
+/** What one history row says. Not `readAll`, which wants an element with a shadow root. */
+function rowText(row: HTMLElement): string {
+  return row.textContent.replace(/\s+/gu, ' ').trim();
+}
+
 /**
  * Presses Repeat on a row and waits for the copy to be on screen.
  *
@@ -805,6 +811,60 @@ async function openHistory(
   const screen = deepAll(shadow(element), 'ptk-exercise-history')[0];
   if (screen === undefined) throw new Error('The history did not open.');
   return screen;
+}
+
+/**
+ * Opens a workout from the history and presses Change, landing on the logging screen.
+ *
+ * Two presses and not one, because that is the journey: section 5.4's edit is reached
+ * through the workout it is about, and a helper that set the screen directly would skip
+ * the handover of the session already read for the detail screen.
+ */
+async function edit(element: PtkTrainingLogbook, id: LogbookId): Promise<void> {
+  await open(element, await historyRow(element, id));
+  await press(element, 'edit-workout');
+  await vi.waitFor(async () => {
+    await element.updateComplete;
+    expect(deepAll(shadow(element), 'ptk-active-workout')).toHaveLength(1);
+  });
+  await settle(element);
+}
+
+/**
+ * A working row of the first lift, by position among the working rows.
+ *
+ * Not `setRow`, which counts the warm-up rows above them. A seeded session here is
+ * ramped, so its first row is a 20 kg bar -- correcting that one proves the wiring and
+ * nothing a lifter would recognise, and removing it moves no number on the history row.
+ */
+function workingRow(element: PtkTrainingLogbook, index: number): HTMLElement {
+  const row = deepAll(shadow(element), 'li[data-set][data-kind="working"]')[index];
+  if (row === undefined) throw new Error(`There is no working set ${String(index + 1)} here.`);
+  return row;
+}
+
+/** Opens the editor on a working row, retypes the reps, and saves -- the correction path. */
+async function correctReps(
+  element: PtkTrainingLogbook,
+  index: number,
+  reps: string,
+): Promise<void> {
+  await press(element, 'edit', workingRow(element, index));
+  await type(element, field(workingRow(element, index), 'done-reps'), reps);
+  await press(element, 'save-edit', workingRow(element, index));
+}
+
+/** What the first working set of a lift was actually done for, out of a stored session. */
+function performedReps(session: WorkoutSession, index: number): number | null {
+  const working = exerciseAt(session, 0).sets.filter((set) => set.kind === 'working');
+  const set = working[index];
+  if (set === undefined) throw new Error(`This lift has no working set ${String(index + 1)}.`);
+  return set.performed?.repetitions ?? null;
+}
+
+/** How many rows one lift of a stored session has. */
+function setCount(session: WorkoutSession, index: number): number {
+  return exerciseAt(session, index).sets.length;
 }
 
 /**
@@ -2025,6 +2085,164 @@ describe('the training logbook', () => {
       // And it must not read as "you have never done this", which is the other sentence
       // this screen has and a lie about a lift that is on the page behind it.
       expect(readAll(screen)).not.toContain(RECORDS_NOTES.empty);
+    });
+  });
+
+  /**
+   * Section 5.4's edit, from a workout in the history back onto the screen that logged it.
+   *
+   * The leaf suites can see that the logging screen suppresses its finish flow when it is
+   * told the session is already recorded, and `repository.test.ts` can see that
+   * `saveWorkout` leaves the active pointer alone. What only a journey can see is the
+   * join: a correction made through the same controls a live session uses has to land in
+   * the history record, not in a new one and not in the workout in progress, and the
+   * screen behind it has to agree with storage afterwards.
+   *
+   * On the durable store, for the reason the repeat and note journeys are: `#persist`
+   * returns early where the repository is not durable, so these would pass against a
+   * journey in which nothing was written at all.
+   */
+  describe('correcting a workout in the history', () => {
+    it('writes the correction to the workout it was opened from', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+      await edit(element, source.id);
+
+      await correctReps(element, 0, '4');
+
+      const stored = await store.readWorkout(source.id);
+      if (stored === null) throw new Error('The workout being corrected has gone.');
+      expect(performedReps(stored, 0)).toBe(4);
+      // The same identifier and the same day. A correction that wrote a second record,
+      // or re-dated this one to today, would leave a lifter with two Tuesdays.
+      expect(stored.id).toBe(source.id);
+      expect(stored.localDate).toBe(REPEATED_DAY);
+    });
+
+    it('leaves the tool with no workout in progress', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+      await edit(element, source.id);
+
+      await correctReps(element, 0, '4');
+
+      // The one thing `saveWorkout` exists for. `saveActiveWorkout` would have made a
+      // session from February the workout the tool offers to carry on with, which is
+      // the failure a lifter would find at the rack a week later.
+      expect(await store.readActiveId()).toBeNull();
+    });
+
+    it('offers no way to finish a workout that is already finished', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+
+      await edit(element, source.id);
+
+      // Section 0.4. The rest of the screen is deliberately identical, so the absence
+      // of this one control is the whole of what `past` means.
+      expect(deepAll(shadow(element), '[data-action="finish"]')).toHaveLength(0);
+      expect(setRows(element).length).toBeGreaterThan(0);
+    });
+
+    it('shows the correction on the screen it goes back to', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+      await edit(element, source.id);
+      await correctReps(element, 0, '4');
+
+      await press(element, 'edit-done');
+
+      await vi.waitFor(async () => {
+        await element.updateComplete;
+        expect(deepAll(shadow(element), 'ptk-workout-detail')).toHaveLength(1);
+      });
+      const said = readAll(element);
+      // The reps and not the weight: this session was recorded in kilograms and read
+      // back by a lifter set to pounds, and what the editor does to the weight box in
+      // that case is #103's bug and not this journey's business.
+      expect(said).toContain('x 4');
+      // The planned line under it, which is the detail screen saying the row was
+      // corrected rather than logged that way.
+      expect(said).toContain(DETAIL_NOTES.plannedLabel);
+    });
+
+    it('changes the shape of a lift in the record, and not only on the screen', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const before = setCount(source, 0);
+      const element = await mount(store);
+      await edit(element, source.id);
+
+      await press(element, 'edit', workingRow(element, 0));
+      await press(element, 'remove-set', workingRow(element, 0));
+
+      // The other half of the wiring: section 7.7's changes leave the screen as an
+      // event the root applies, and the root has to apply them to the session being
+      // corrected rather than to whatever it last had in progress.
+      const stored = await store.readWorkout(source.id);
+      if (stored === null) throw new Error('The workout being corrected has gone.');
+      expect(setCount(stored, 0)).toBe(before - 1);
+    });
+
+    it('brings the history list up to date with what was corrected', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+      const listed = rowText(await historyRow(element, source.id));
+      await edit(element, source.id);
+      await press(element, 'edit', workingRow(element, 0));
+      await press(element, 'remove-set', workingRow(element, 0));
+      await press(element, 'edit-done');
+
+      await press(element, 'home');
+
+      // The completed-set count is a summary field and a removed working row moves it.
+      // A list left as it was would disagree with the workout one press behind it.
+      expect(listed).toContain(`${String(REPEATED_SETS * 2)} ${HISTORY_NOTES.setsLabel}`);
+      await vi.waitFor(async () => {
+        expect(rowText(await historyRow(element, source.id))).toContain(
+          `${String(REPEATED_SETS * 2 - 1)} ${HISTORY_NOTES.setsLabel}`,
+        );
+      });
+    });
+
+    it('does not announce a corrected set as a set just done', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+      const completed = record(SET_COMPLETED_EVENT);
+      await edit(element, source.id);
+
+      await press(element, 'undo', setRow(element, 0));
+      await press(element, 'complete', setRow(element, 0));
+
+      // Section 12.5's event says a set was just done, and section 8's rest timer is
+      // the consumer of it. Ticking a row on a session from February did not do a set,
+      // and a timer starting for one is the tool getting the lifter's day wrong.
+      expect(completed).toEqual([]);
+      expect(isDone(setRow(element, 0))).toBe(true);
+    });
+
+    it('goes back to the workout being corrected after a lift is read back', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+      await edit(element, source.id);
+
+      await openHistory(element, shadow(element));
+      await press(element, 'records-back');
+
+      // The way in from a live session and the way in from a corrected one are the same
+      // control on the same element, so the return has to be told apart by where it was
+      // pressed. Landing on the home screen here would throw away the correction in
+      // progress as surely as it would throw away a lifter's place at the rack.
+      expect(deepAll(shadow(element), 'ptk-exercise-history')).toHaveLength(0);
+      expect(deepAll(shadow(element), 'ptk-active-workout')).toHaveLength(1);
+      expect(readAll(element)).toContain(EDIT_NOTES.note);
     });
   });
 

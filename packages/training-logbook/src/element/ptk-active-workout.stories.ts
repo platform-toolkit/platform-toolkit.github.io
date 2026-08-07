@@ -370,6 +370,9 @@ const meta: Meta<PtkActiveWorkout> = {
     // Pinned. A story that read the clock would stamp a different instant on every set
     // completed in it, and two reviewers would be looking at different pages.
     now: () => AT_LATER,
+    // False by default, because this screen is a session in progress on all but one of
+    // the pages below. `CorrectingAPastSession` is the one that turns it on.
+    past: false,
   },
   render: (args) => html`
     <ptk-active-workout
@@ -379,6 +382,7 @@ const meta: Meta<PtkActiveWorkout> = {
       .equipment=${args.equipment}
       .previous=${args.previous}
       .now=${args.now}
+      ?past=${args.past}
     ></ptk-active-workout>
   `,
 };
@@ -852,6 +856,27 @@ export const ChangingASetAlreadyDone: Story = {
  */
 export const ASetSkipped: Story = {
   args: { session: withSkipped(aStartedSession({ prefix: 'skipped' }), 0, 1) },
+};
+
+/**
+ * The same screen, opened on a session that is already in the history.
+ *
+ * Section 5.4's correction, and the reason it is this element rather than a second one:
+ * changing a set on a workout from March wants every control on this page. What it must
+ * not offer is the one that puts a workout into the history, so Finish is gone and the
+ * page ends at the workout note. Worth reading against `AllSetsDone` -- the same page
+ * with the same rows ticked, differing by the one button that would finish a workout
+ * that is already finished.
+ *
+ * Nothing on the screen announces that this is a correction. That sentence belongs to
+ * the root, which draws it above this element, because a lifter arrives here by pressing
+ * Change this workout and does not need to be told twice.
+ *
+ * The last-time line is absent for the same reason the root withholds it: "last time"
+ * against a session from March would be comparing it against training that came after.
+ */
+export const CorrectingAPastSession: Story = {
+  args: { session: aStartedSession({ completed: 3, prefix: 'past' }), past: true },
 };
 
 /**

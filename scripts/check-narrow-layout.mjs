@@ -1677,6 +1677,28 @@ const LOGBOOK_OPEN_CLICK_LAST = [
 const LOGBOOK_OPEN_SETTLE = ['ptk-workout-detail li[data-set]'];
 
 /**
+ * Open the workout, then press the one control on it that changes the record.
+ *
+ * Two presses in `clickLast` for `LOGBOOK_RECORDS_CLICK_LAST`'s reason: reaching a
+ * finished workout has already spent `click`, `fill` and `clickAfter`. Edit is drawn by
+ * the root beside Back rather than by the detail element, which is why the first
+ * selector is scoped to `ptk-workout-detail` and this one is not.
+ */
+const LOGBOOK_EDIT_CLICK_LAST = [
+  ...LOGBOOK_OPEN_CLICK_LAST,
+  'ptk-training-logbook ptk-button[data-action="edit-workout"] button',
+];
+
+/**
+ * A set row on the workout screen, which on this route can only be the editor.
+ *
+ * `ptk-active-workout` is on screen twice in this journey -- once while the session was
+ * being logged and once here -- but the detail screen sits between them, so a row inside
+ * that element after the last press is this screen and not the earlier one.
+ */
+const LOGBOOK_EDIT_SETTLE = ['ptk-active-workout li[data-set]'];
+
+/**
  * The repeat route's journey with one set actually ticked off in the middle of it.
  *
  * `LOGBOOK_REPEAT_CLICK` finishes a session in which nothing was done, which is the
@@ -2587,6 +2609,23 @@ const ROUTES = [
     clickAfter: LOGBOOK_REPEAT_CLICK,
     clickLast: LOGBOOK_OPEN_CLICK_LAST,
     settle: LOGBOOK_OPEN_SETTLE,
+  },
+  {
+    // The correcting screen, which is section 5.4's workout screen with the finish
+    // control taken off and a line of explanation put above it. Most of what is here is
+    // measured by `/logbook/ (logging)` and that is the point of reusing the element --
+    // what nothing measures is the arrangement around it. The note is the longest
+    // sentence the tool puts above a card, the actions row is down to a single primary
+    // button where every other route has two, and the rows underneath are all in their
+    // performed state at once, which on the logging routes only the last pass reaches.
+    path: '/logbook/',
+    label: '/logbook/ (a workout corrected)',
+    click: LOGBOOK_PLAN_CLICK,
+    reveal: [],
+    fill: LOGBOOK_PLAN_FILL,
+    clickAfter: LOGBOOK_REPEAT_CLICK,
+    clickLast: LOGBOOK_EDIT_CLICK_LAST,
+    settle: LOGBOOK_EDIT_SETTLE,
   },
   {
     // Section 5.5's third read-only screen, and the only one whose rows carry a
