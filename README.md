@@ -157,6 +157,11 @@ the gym once and every set draws its own per-side plate loading underneath it; t
 are remembered. A lift with a warm-up family can have a ramp generated onto the card, and a session
 already worked out in the Warm-Up Calculator can be carried straight across.
 
+The record reads back: a past session opens for correction, the logging screen shows what the same
+lift did last time, every lift has a history with its heaviest days marked, and any past session can
+be repeated as today's plan. Sets, exercises and sessions each take a note, the catalogue takes
+exercises you add to it, and an optional timer counts the rest down on screen between sets.
+
 Nothing leaves the device. No account, no server, no sync, no telemetry: a workout is written to the
 browser's own storage as it changes, and the way training leaves is a JSON file the lifter
 downloads. Every screen says whether that storage is really keeping it, because a browser can refuse

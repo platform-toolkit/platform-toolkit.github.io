@@ -22,6 +22,13 @@ device's own storage rather than through a link: a URL carrying a session carrie
 address bar, the history and the next site's `Referer`, which is the opposite of what this tool
 promises.
 
+The record reads back. A finished session opens for correction months later, the logging screen
+shows what the same lift did last time, every lift has a history of its own with the heaviest days
+marked, and any past session can be repeated as today's plan. Sets, exercises and sessions each take
+a note, and the catalogue takes exercises the lifter adds to it. Between sets an optional timer
+counts down the rest that lift was planned around — on screen only: no sound, no buzz, no
+notification, which is said where it is switched on.
+
 **It does not tell anybody what to lift.** A missed set is recorded and not scored, an effort rating
 is stored and not interpreted, and nothing here derives a programme from a history. Prescribing is a
 different tool with a different burden of proof; a logbook that quietly started coaching would be
