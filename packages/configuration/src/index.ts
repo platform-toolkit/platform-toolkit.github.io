@@ -6,8 +6,10 @@ export {
   HostThemeMessageSchema,
   MESSAGE_SOURCE,
   MESSAGE_VERSION,
+  readHeightMessage,
   readHostThemeMessage,
   type HeightMessage,
+  type HeightReading,
   type HostThemeMessage,
 } from './embedding.js';
 export {

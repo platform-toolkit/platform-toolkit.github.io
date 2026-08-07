@@ -97,3 +97,37 @@ export function readHostThemeMessage(payload: unknown): ThemeMode | null {
   const parsed = v.safeParse(HostThemeMessageSchema, payload);
   return parsed.success ? parsed.output.mode : null;
 }
+
+/**
+ * What an embedder acts on: which frame is speaking, and how tall it is.
+ *
+ * Not the whole `HeightMessage`, because `source`, `version` and `type` are
+ * envelope this function has already checked. Handing them back invites a
+ * caller to check them a second time, differently.
+ */
+export type HeightReading = Pick<HeightMessage, 'tool' | 'height'>;
+
+/**
+ * Reads a content height out of an arbitrary postMessage payload.
+ *
+ * Returns `null` for anything that is not one, for the reason
+ * `readHostThemeMessage` does: a page hears everything posted to it, and a
+ * widget it did not frame talking to itself is ordinary traffic rather than an
+ * error.
+ *
+ * A fractional height is dropped rather than rounded. The publisher is the side
+ * that decided which way to round -- it measures a sub-pixel box and rounds up,
+ * so a fraction arriving here says the sender is not the thing this protocol
+ * describes, and rounding on its behalf would size a frame from a payload
+ * nothing vouched for.
+ *
+ * Nothing in this collection calls it, because the party that reads a height is
+ * the embedding page and that page is not ours. It exists so that page needs no
+ * validation library of its own -- a schema published without a reader hands
+ * every consumer the job of holding one, which is what a shared protocol module
+ * exists to prevent.
+ */
+export function readHeightMessage(payload: unknown): HeightReading | null {
+  const parsed = v.safeParse(HeightMessageSchema, payload);
+  return parsed.success ? { tool: parsed.output.tool, height: parsed.output.height } : null;
+}

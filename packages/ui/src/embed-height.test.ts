@@ -12,7 +12,7 @@
  * nothing in the repository asserted what a framed tool posts to the page
  * around it.
  */
-import { HeightMessageSchema, type HeightMessage } from '@platform-toolkit/configuration';
+import { readHeightMessage, type HeightReading } from '@platform-toolkit/configuration';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -35,21 +35,21 @@ function track(stop: () => void): void {
 }
 
 /**
- * Reads a payload back through the protocol schema.
+ * Reads a payload back the way an embedding page would.
  *
- * Through the schema's standard interface rather than through `safeParse`,
- * because this package deliberately depends on no validation library -- the
- * configuration package owns that, which is the whole reason the schema is
- * declared there and the DOM half is here. Hand-asserting the shape instead
- * would leave the one thing worth checking untested: that what a tool posts is
- * what an embedder is documented to receive, integer height and all.
+ * Through the protocol's own reader, because this package deliberately depends
+ * on no validation library -- the configuration package owns that, which is the
+ * whole reason the schema is declared there and the DOM half is here.
+ * Hand-asserting the shape instead would leave the one thing worth checking
+ * untested: that what a tool posts is what an embedder is documented to
+ * receive, integer height and all.
  */
-async function asHeightMessage(payload: unknown): Promise<HeightMessage> {
-  const result = await HeightMessageSchema['~standard'].validate(payload);
-  if (result.issues !== undefined) {
-    throw new Error(`Not a height message: ${JSON.stringify(result.issues)}`);
+function asHeightMessage(payload: unknown): HeightReading {
+  const reading = readHeightMessage(payload);
+  if (reading === null) {
+    throw new Error(`Not a height message: ${JSON.stringify(payload)}`);
   }
-  return result.value;
+  return reading;
 }
 
 /** A window that is not this one, standing in for the embedding page. */
@@ -192,7 +192,7 @@ describe('publishEmbedHeight', () => {
     await afterDelivery(host);
 
     expect(received).toHaveLength(2);
-    const message = await asHeightMessage(received[0]);
+    const message = asHeightMessage(received[0]);
     expect(message.tool).toBe('convert');
     expect(message.height).toBe(101);
   });
@@ -217,13 +217,13 @@ describe('publishEmbedHeightOnResize', () => {
     const root = sizedElement(200);
 
     track(publishEmbedHeightOnResize({ tool: 'convert', host, root }));
-    await vi.waitFor(async () => {
-      expect(await lastHeight(received)).toBe(200);
+    await vi.waitFor(() => {
+      expect(lastHeight(received)).toBe(200);
     });
 
     root.style.height = '300px';
-    await vi.waitFor(async () => {
-      expect(await lastHeight(received)).toBe(300);
+    await vi.waitFor(() => {
+      expect(lastHeight(received)).toBe(300);
     });
   });
 
@@ -233,21 +233,21 @@ describe('publishEmbedHeightOnResize', () => {
     const root = sizedElement(200);
 
     const stop = publishEmbedHeightOnResize({ tool: 'convert', host, root });
-    await vi.waitFor(async () => {
-      expect(await lastHeight(received)).toBe(200);
+    await vi.waitFor(() => {
+      expect(lastHeight(received)).toBe(200);
     });
     stop();
 
     root.style.height = '300px';
     await afterDelivery(host);
 
-    expect(await lastHeight(received)).toBe(200);
+    expect(lastHeight(received)).toBe(200);
   });
 });
 
 /** The most recent height posted, ignoring the sentinel used to settle a wait. */
-async function lastHeight(received: readonly unknown[]): Promise<number | null> {
+function lastHeight(received: readonly unknown[]): number | null {
   const heights = received.filter((payload) => payload !== SENTINEL);
   const latest = heights.at(-1);
-  return latest === undefined ? null : (await asHeightMessage(latest)).height;
+  return latest === undefined ? null : asHeightMessage(latest).height;
 }
