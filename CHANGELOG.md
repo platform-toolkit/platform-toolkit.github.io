@@ -134,6 +134,10 @@ A lifter's published results read against a meet's published entry criteria — 
 lift and on the total, drug-tested status, the window each result falls inside, and each of a
 transcribed meet's routes with the sentence it was read from beside it.
 
+A route that does not open until a published day now reads as not yet open until that day, and any
+condition attached to it is quoted rather than judged. Whether a place frees up is a fact about a
+roster, and there is no roster here.
+
 **It does not tell anybody whether they may enter a meet.** Where the answer is not knowable from
 published figures, the reading says so. Two people under one name is ordinary, so the tool always
 asks which and never picks — not even when the archive returns exactly one lifter. A pasted profile
@@ -152,6 +156,9 @@ Nothing leaves the device: no account, no server, no sync, no telemetry. Trainin
 file the lifter downloads. **Every screen says whether the browser is really keeping it**, because a
 browser can refuse storage to a page, and that is better read before anything is typed than
 discovered when a block of training is gone.
+
+The history list is what has already been done. The session in progress is no longer in it — the
+home screen already offers to resume that one — and neither is a session that was thrown away.
 
 **It does not coach.** A missed set is recorded and not scored, an effort rating is stored and not
 interpreted, and nothing derives a programme from a history.
@@ -182,6 +189,22 @@ interpreted, and nothing derives a programme from a history.
   without one, and drops it on a page that already has one.
 - **Every package and the site itself now has a README**, and two claims in the root README that the
   code did not support are gone. The embeddable surface has exactly one query parameter, `theme`.
+- **A published package now contains only what a consumer runs.** Tests were being compiled into
+  `dist` and then filtered back out by a packing rule; they are no longer built. Declaration and
+  source maps are off for the packed projects, because a tarball carries no `src` and a map that
+  names `../src/index.ts` points at a path the consumer does not have.
+- **An embedding page can validate the height message it receives** without a validation library of
+  its own. The schema was published and the reader was not, which left every embedder to write one —
+  and a page hears everything posted to it, so that reader is a trust boundary.
+- **The offer to install is on every tool page**, not only the hub: arriving on a tool by a shared
+  link is the ordinary case, and those visitors were offered nothing. It stays off the embed routes,
+  where the page belongs to somebody else, and off the printed page.
+- **The not-found page follows the deployment.** Its link home was absolute, so under a subpath
+  deployment it sent a visitor who was already lost to the wrong site.
+- **A logbook that cannot read its own history now says so**, instead of painting a blank screen
+  over the one control — the JSON backup — that somebody with a failing database would reach for. A
+  boot read the lifter has already overtaken is discarded rather than landing on top of the session
+  they just planned, and exporting a long history no longer feeds every session to every exercise.
 
 ## Earlier
 
