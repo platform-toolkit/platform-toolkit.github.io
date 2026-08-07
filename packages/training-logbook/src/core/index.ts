@@ -135,6 +135,23 @@ export {
 } from './previous.js';
 
 export {
+  MAX_REST_SECONDS,
+  MIN_REST_SECONDS,
+  REST_STEP_SECONDS,
+  adjustRest,
+  clampRestSeconds,
+  pauseRest,
+  resetRest,
+  restIsUp,
+  restRemainingMillis,
+  restSecondsFor,
+  resumeRest,
+  startRest,
+  startRestFor,
+  type RestTimer,
+} from './rest.js';
+
+export {
   byMostRecent,
   isWorkingSet,
   loadWeight,
