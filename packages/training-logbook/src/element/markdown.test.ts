@@ -25,7 +25,7 @@ import type { Weight } from '@platform-toolkit/domain';
 import { describe, expect, it } from 'vitest';
 
 import { backupFilename, createBackup, type TrainingLogbookBackup } from '../core/backup.js';
-import { findExercise, loadFor } from '../core/catalog.js';
+import { CATALOG_EXERCISES, findExercise, loadFor } from '../core/catalog.js';
 import { contextSeries } from '../core/context.fixture.js';
 import {
   addExercise,
@@ -161,6 +161,47 @@ function firstSetId(session: WorkoutSession): string {
   return set.id;
 }
 
+/** One block of a session: a lift, a weight, and how many sets of it. */
+interface Block {
+  readonly exercise: ExerciseOption;
+  readonly weight: Weight;
+  readonly sets: number;
+}
+
+/**
+ * A finished session built block by block, for the two shapes `squatDay` cannot describe:
+ * one lift listed twice, and a day of lifts that are not squats.
+ */
+function trainingDay(day: CalendarDay, blocks: readonly Block[]): WorkoutSession {
+  const { start, end } = instants(day);
+  const series = contextSeries();
+  const prefixed = (at: Instant): SessionContext => {
+    const base = series(at);
+    return { at, nextId: () => `${day}-${base.nextId()}` };
+  };
+
+  let session = createWorkout(prefixed(start), { localDate: day, title: null });
+  for (const block of blocks) {
+    session = addExercise(session, prefixed(start), {
+      exerciseId: block.exercise.id,
+      displayName: block.exercise.name,
+      loading: block.exercise.loading,
+      plan: Array.from({ length: block.sets }, () => ({
+        kind: 'working' as const,
+        performance: performance(loadFor(block.exercise.loading, block.weight), 5),
+      })),
+    });
+  }
+
+  session = startWorkout(session, prefixed(start));
+  // The list is read once, before the loop rebuilds the session under it: set
+  // identifiers survive a completion and array identities do not.
+  for (const set of session.exercises.flatMap((exercise) => exercise.sets)) {
+    session = completeSet(session, set.id, prefixed(end));
+  }
+  return finishWorkout(session, 'leave', prefixed(end));
+}
+
 interface BackupOptions {
   readonly active?: WorkoutSession;
   readonly displayUnit?: 'kg' | 'lb';
@@ -201,6 +242,30 @@ function setRows(document: string): readonly string[] {
     .split('\n')
     .filter((line) => line.startsWith('| ') && !line.startsWith('| ---'))
     .filter((line) => !line.includes(MARKDOWN_NOTES.columns.performed));
+}
+
+/**
+ * A session that counts every read of its exercise list.
+ *
+ * A getter rather than a spy because the read is the unit of work being asserted on: the
+ * document asks each session what is in it once to print it and once per walk it is
+ * offered to, and it is the second of those that is allowed to grow with the number of
+ * lifts in the file.
+ */
+function counted(session: WorkoutSession, tally: { reads: number }): WorkoutSession {
+  return {
+    ...session,
+    get exercises() {
+      tally.reads += 1;
+      return session.exercises;
+    },
+  };
+}
+
+/** Every row that earned a mark of any kind. */
+function markedRows(document: string): readonly string[] {
+  const marks = Object.values(RECORDS_NOTES.markers);
+  return setRows(document).filter((line) => marks.some((mark) => line.includes(mark)));
 }
 
 describe('markdownFilename', () => {
@@ -543,6 +608,55 @@ describe('markdownExport markers', () => {
     expect(document.indexOf(RECORDS_NOTES.markers.heaviest)).toBeGreaterThan(
       document.indexOf(`## ${oldest}`),
     );
+  });
+
+  it('does not turn one lift in two blocks into a group of two', () => {
+    // Squats at the front and lighter back-offs at the end are two blocks of one lift in
+    // one session, and the walk already reads both of them together. Offering the session
+    // to that lift once per block folds every set twice, and section 9.2's group of two
+    // is then met by one set counted again -- a maximum over a set with nothing to be
+    // better than, which is the exact failure that rule exists to prevent.
+    const document = markdownExport(
+      backupOf([
+        trainingDay(LATER_DAY, [
+          { exercise: SQUAT, weight: HEAVIER, sets: 1 },
+          { exercise: SQUAT, weight: LIGHTER, sets: 1 },
+        ]),
+      ]),
+    );
+
+    const marked = markedRows(document);
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toContain(RECORDS_NOTES.markers.heaviest);
+    expect(marked[0]).toContain('100 kg x 5');
+  });
+
+  it('asks a session what is in it as often for twelve lifts as for one', () => {
+    // The marks are folded by one walk per lift the file mentions, and the shape invites
+    // offering every session to every one of them: sixty movements over three years is
+    // tens of thousands of calls, each reaching a walk that discards the session on its
+    // first line. Counted rather than timed, for the reason sub-task 31 counts records --
+    // twelve invented sessions time this laptop and nothing else.
+    const days = Array.from(
+      { length: 12 },
+      (_unused, index): CalendarDay => `2026-04-${String(index + 1).padStart(2, '0')}`,
+    );
+    const lifts = CATALOG_EXERCISES.slice(0, days.length);
+    expect(lifts).toHaveLength(days.length);
+
+    const reads = (blocks: readonly Block[][]): number => {
+      const tally = { reads: 0 };
+      const sessions = blocks.map((day, index) =>
+        counted(trainingDay(days[index] ?? LATER_DAY, day), tally),
+      );
+      markdownExport(backupOf(sessions));
+      return tally.reads;
+    };
+
+    const one = reads(days.map(() => [{ exercise: SQUAT, weight: HEAVIER, sets: 1 }]));
+    const many = reads(lifts.map((lift) => [{ exercise: lift, weight: HEAVIER, sets: 1 }]));
+
+    expect(many).toBe(one);
   });
 });
 

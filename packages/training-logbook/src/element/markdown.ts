@@ -49,7 +49,11 @@
 import { describeRack } from '@platform-toolkit/domain';
 
 import type { TrainingLogbookBackup } from '../core/backup.js';
-import { searchExerciseHistory, type ExerciseMarker } from '../core/records.js';
+import {
+  searchExerciseHistory,
+  type ExerciseHistorySearch,
+  type ExerciseMarker,
+} from '../core/records.js';
 import { byMostRecent, summarize, type WorkoutSummary } from '../core/summary.js';
 import type {
   EquipmentSnapshot,
@@ -238,26 +242,46 @@ function workoutLines(
  * twenty is a screen's budget, and a marker stitched onto a set that fell off the end of
  * that list would be one this walk never returns.
  *
+ * **A session goes only to the searches for the lifts it contains.** Offering every
+ * session to every search is what the shape suggests, and it costs one call per exercise
+ * in the file per session -- three years and sixty movements is tens of thousands of
+ * them, to reach a `take` that discards all but a handful on its first line. Routing is
+ * safe rather than merely cheaper: `take` opens by discarding a session with no block for
+ * its exercise, so a session withheld from a search is one that search would have thrown
+ * away, and the day buffering is unaffected because a discarded session contributes
+ * nothing to the day it was buffered in.
+ *
  * Sessions must arrive newest day first, which is what `consider` buffers on. That is
  * the order they are printed in too, except for the active workout -- see the caller.
  */
 function markersBySet(
   sessions: readonly WorkoutSession[],
 ): ReadonlyMap<string, readonly ExerciseMarker[]> {
-  const exerciseIds = new Set<string>();
-  for (const session of sessions) {
-    for (const exercise of session.exercises) exerciseIds.add(exercise.exerciseId);
-  }
+  const searches = new Map<string, ExerciseHistorySearch>();
 
-  const searches = [...exerciseIds].map((id) =>
-    searchExerciseHistory(id, { limit: sessions.length }),
-  );
   for (const session of sessions) {
-    for (const search of searches) search.consider(session);
+    const routed = new Set<string>();
+    for (const exercise of session.exercises) {
+      const id = exercise.exerciseId;
+      // Squats at the front and back-offs at the end are two blocks and one session.
+      // `take` already reads every block it finds, so a second `consider` would keep
+      // the day twice and print the same sets under two entries.
+      if (routed.has(id)) continue;
+      routed.add(id);
+
+      let search = searches.get(id);
+      if (search === undefined) {
+        // Built where the lift is first met rather than up front, which is the same
+        // list of searches: the feed is newest first, so nothing older is missed.
+        search = searchExerciseHistory(id, { limit: sessions.length });
+        searches.set(id, search);
+      }
+      search.consider(session);
+    }
   }
 
   const marked = new Map<string, readonly ExerciseMarker[]>();
-  for (const search of searches) {
+  for (const search of searches.values()) {
     for (const session of search.history().sessions) {
       for (const set of session.sets) {
         if (set.markers.length > 0) marked.set(set.id, set.markers);
