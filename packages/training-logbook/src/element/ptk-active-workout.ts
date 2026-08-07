@@ -52,10 +52,13 @@
  * nothing: the core hands back the session it was given when the text has not
  * moved, and `#changed` is skipped on that.
  *
- * A *set* note is not here. The core stores one and section 7.9 only asks for
- * it if it fits cleanly; a fold on each of forty rows is forty controls in the
- * way of the one tap this screen exists for, so it stays unwritten until there
- * is a place for it that is not this list.
+ * A set's note has no button. Section 7.9 asks for it only if it fits cleanly,
+ * and a fold on each of forty rows does not: that is forty controls in the way
+ * of the one tap this screen exists for, which is what kept a set note stored
+ * but unwritable until the editor existed. It fits inside the editor, which is
+ * already the deliberate act that makes a row's other five controls safe --
+ * so the box is simply open in there, and no row that has not been opened
+ * carries anything but the note's own words once there are some.
  *
  * WHY ADDING AND REMOVING SETS LEAVE AS A DIFFERENT EVENT
  *
@@ -116,6 +119,7 @@ import {
   outstandingSets,
   recordSet,
   setExerciseNote,
+  setSetNote,
   setWorkoutNote,
   undoSet,
   type FinishDisposition,
@@ -153,6 +157,8 @@ import {
   exerciseOf,
   fieldOf,
   noteOf,
+  setNoteId,
+  setNoteKey,
   setOf,
 } from './dataset.js';
 import { formatEffort, formatPerformance, formatSetRun } from './format.js';
@@ -407,6 +413,14 @@ export class PtkActiveWorkout extends LitElement {
       border-top: 1px solid var(--ptk-color-border);
       display: grid;
       gap: var(--ptk-space-sm);
+    }
+
+    /*
+     * A grid item here, unlike the lift's box, which is drawn in flow under a
+     * heading. The gap does the spacing and the margin would be added to it.
+     */
+    .editor .note-box {
+      margin-top: 0;
     }
 
     .editor .numbers {
@@ -693,7 +707,7 @@ export class PtkActiveWorkout extends LitElement {
       </div>
       ${this.#previousLine(exercise)} ${this.#noteSurface(session, note)}
       <ul>
-        ${exercise.sets.map((set) => this.#set(exercise, set, loadings))}
+        ${exercise.sets.map((set) => this.#set(session, exercise, set, loadings))}
       </ul>
       <div class="add-set">
         <ptk-button
@@ -749,8 +763,9 @@ export class PtkActiveWorkout extends LitElement {
    * The box itself, wherever it is drawn.
    *
    * The value is the draft when this is the box being typed in and the stored
-   * note when it is not, which is the whole of what the finish panel needs to
-   * pick up an unwritten note mid-keystroke. It is also what keeps the binding
+   * note when it is not, which is the whole of what the two boxes nothing
+   * toggles -- the finish panel's and the set editor's -- need to pick up an
+   * unwritten note mid-keystroke. It is also what keeps the binding
    * from fighting the caret: the box adopts its own text before reporting it,
    * so the string handed back here is the one already in it and lit-html
    * commits nothing.
@@ -780,8 +795,20 @@ export class PtkActiveWorkout extends LitElement {
    * the words somebody can see have to reach the control they can see. The
    * workout's own box is already named for what it is, so it gets nothing back
    * and renders no `aria-label` at all.
+   *
+   * A set's box is named too, even though the editor holding it is a group
+   * already labelled with the set. Only one editor is open at a time, but a
+   * lift's note box can be open above it -- and two boxes labelled "Note" on one
+   * screen is the ambiguity this exists for. The group name would answer it in a
+   * reader that announces the group on entry, and not in one moving field by
+   * field.
    */
   #noteName(session: WorkoutSession, key: string): string | null {
+    const setId = setNoteId(key);
+    if (setId !== null) {
+      const found = findSet(session, setId);
+      return found === null ? null : this.#name(ACTIVE_NOTES.note, found.exercise, found.set);
+    }
     const exerciseId = exerciseNoteId(key);
     if (exerciseId === null) return null;
     const exercise = findWorkoutExercise(session, exerciseId);
@@ -819,7 +846,12 @@ export class PtkActiveWorkout extends LitElement {
    * tool through its controls could press Start on a warm-up it asked for and then
    * measure a screen where none was generated, with every selector still matching.
    */
-  #set(exercise: WorkoutExercise, set: WorkoutSet, loadings: Loadings): TemplateResult {
+  #set(
+    session: WorkoutSession,
+    exercise: WorkoutExercise,
+    set: WorkoutSet,
+    loadings: Loadings,
+  ): TemplateResult {
     const done = set.status !== 'planned';
     const shown = set.performed ?? set.planned;
     const loading = loadings?.get(set.id) ?? null;
@@ -881,8 +913,26 @@ export class PtkActiveWorkout extends LitElement {
         set.status === 'skipped' ? html`<p class="status">${ACTIVE_NOTES.skipped}</p>` : nothing
       }
       ${setWasEdited(set) ? html`<p class="status">${ACTIVE_NOTES.edited}</p>` : nothing}
-      ${this.editing === set.id ? this.#editor(exercise, set) : nothing}
+      ${this.#setNote(session, set)}
+      ${this.editing === set.id ? this.#editor(session, exercise, set) : nothing}
     </li>`;
+  }
+
+  /**
+   * A set's own note, read back on the row.
+   *
+   * The same shape as a lift's, and drawn for the same reason: the alternative
+   * asks a lifter to open the editor to find out whether there is anything in
+   * there worth opening it for. What differs is which state hides it. A lift's
+   * note is a box or a line depending on whether its own toggle is pressed;
+   * this one has no toggle, so the editor holding the box is what withdraws the
+   * line -- otherwise the sentence is on screen twice, once above the box that
+   * is being used to type it.
+   */
+  #setNote(session: WorkoutSession, set: WorkoutSet): TemplateResult | typeof nothing {
+    if (this.editing === set.id) return nothing;
+    const written = this.#noteAt(session, setNoteKey(set.id));
+    return written === '' ? nothing : html`<p class="written">${written}</p>`;
   }
 
   /**
@@ -892,7 +942,7 @@ export class PtkActiveWorkout extends LitElement {
    * without the editor having to carry the identifier a second time -- and so a
    * lifter can see the plan they are correcting while they correct it.
    */
-  #editor(exercise: WorkoutExercise, set: WorkoutSet): TemplateResult {
+  #editor(session: WorkoutSession, exercise: WorkoutExercise, set: WorkoutSet): TemplateResult {
     const weighted = takesWeight(exercise.loading);
     return html`<div class="editor" role="group" aria-label=${this.#setName(exercise, set)}>
       <p class="note">${ACTIVE_NOTES.editNote}</p>
@@ -928,6 +978,17 @@ export class PtkActiveWorkout extends LitElement {
               </div>`
         }
       </div>
+      ${
+        // Section 7.9's third note, open in the editor rather than behind a toggle
+        // of its own. A sixth control on every row is what section 14.3 keeps off
+        // them, and there is nothing left for a toggle to protect here: opening the
+        // row is already the deliberate act, and a lifter who has done it to say
+        // what they lifted has room for a sentence about how it went.
+        //
+        // Above Save because it is one of the things Save writes. Below it, beside
+        // section 7.7's three, it would read as a note about removing the row.
+        this.#noteBox(session, setNoteKey(set.id))
+      }
       <div>
         <ptk-button variant="primary" data-action=${SAVE_ACTION}>${ACTIVE_NOTES.save}</ptk-button>
       </div>
@@ -1232,6 +1293,11 @@ export class PtkActiveWorkout extends LitElement {
     const session = this.session;
     const setId = setOf(event);
     if (session === null || setId === null) return;
+    // The note box goes with the fold, so closing one is a way of losing what is
+    // in it. `#onFocusOut` has usually written it already -- but only usually,
+    // and which of a blur and the tap that caused it arrives first is not
+    // something to hang a lifter's sentence on. See {@link #withDraft}.
+    this.#flushNote();
     if (this.editing === setId) {
       this.editing = null;
       return;
@@ -1401,6 +1467,8 @@ export class PtkActiveWorkout extends LitElement {
   /** Which core setter a note key names. An unrecognised one changes nothing. */
   #applyNote(session: WorkoutSession, key: string, text: string): WorkoutSession {
     if (key === WORKOUT_NOTE_KEY) return setWorkoutNote(session, text, this.#context());
+    const setId = setNoteId(key);
+    if (setId !== null) return setSetNote(session, setId, text, this.#context());
     const exerciseId = exerciseNoteId(key);
     if (exerciseId === null) return session;
     return setExerciseNote(session, exerciseId, text, this.#context());
@@ -1409,6 +1477,8 @@ export class PtkActiveWorkout extends LitElement {
   /** What is stored against a note key, as the empty string where nothing is. */
   #noteAt(session: WorkoutSession, key: string): string {
     if (key === WORKOUT_NOTE_KEY) return session.note ?? '';
+    const setId = setNoteId(key);
+    if (setId !== null) return findSet(session, setId)?.set.note ?? '';
     const exerciseId = exerciseNoteId(key);
     if (exerciseId === null) return '';
     return findWorkoutExercise(session, exerciseId)?.note ?? '';

@@ -42,6 +42,7 @@ import {
   performance as setPerformance,
   recordSet,
   setExerciseNote,
+  setSetNote,
   setWorkoutNote,
   skipSet,
   type SessionContext,
@@ -183,6 +184,16 @@ function withLiftNote(session: WorkoutSession, index: number, text: string): Wor
   return setExerciseNote(session, liftAt(session, index).id, text, storyContext());
 }
 
+/** And for one set, which is section 7.9's third note and the only one with no button. */
+function withSetNote(
+  session: WorkoutSession,
+  exercise: number,
+  index: number,
+  text: string,
+): WorkoutSession {
+  return setSetNote(session, setAt(session, exercise, index).id, text, storyContext());
+}
+
 /** The `data-note` key naming one lift's note, read off the session rather than guessed. */
 function liftNoteKey(session: WorkoutSession, index: number): string {
   return exerciseNoteKey(liftAt(session, index).id);
@@ -286,6 +297,15 @@ const A_WORKOUT_NOTE = 'Warm room, belt on from the third set. Left knee sleeve 
 const A_SQUAT_NOTE = 'Depth fine. Bar drifting forward on the last rep of every set.';
 
 /**
+ * One set's worth, which is a different kind of sentence from the two above it.
+ *
+ * A note on a lift is about the movement across the session and a note on a set is about
+ * the one attempt -- short, and written between two of them. Section 7.9's word for it is
+ * "short", and a page showing it as a paragraph would document the wrong control.
+ */
+const A_SET_NOTE = 'Lost the brace at the top.';
+
+/**
  * The filename, which is the unbroken token the long note is here to break.
  *
  * Sixty-three characters and no hyphen anywhere in it, deliberately: a hyphen is a break
@@ -317,6 +337,20 @@ const A_SESSION_WITH_A_LIFT_NOTE = withLiftNote(
   aStartedSession({ prefix: 'lift-note' }),
   0,
   A_SQUAT_NOTE,
+);
+
+/**
+ * The session the set-note story renders, with the note already on the second set.
+ *
+ * Already on it, because the page worth reading is the box holding what is stored: it is
+ * the only note on this screen a lifter cannot see before opening something, so a story
+ * with an empty box would show the arrangement and not the reason for it.
+ */
+const A_SESSION_WITH_A_SET_NOTE = withSetNote(
+  aStartedSession({ prefix: 'set-note' }),
+  0,
+  1,
+  A_SET_NOTE,
 );
 
 /**
@@ -600,6 +634,35 @@ export const WritingALiftNote: Story = {
     }
     if (written(element).length !== 0) {
       throw new Error('The note is both open in a box and read back beneath it.');
+    }
+  },
+};
+
+/**
+ * Section 7.9's third note, which is the one with no button anywhere. Section 14.3.
+ *
+ * A fold on every row would be forty more controls around the one tap this screen exists
+ * for, so the box is simply part of the set editor: a lifter who has opened a row to
+ * correct what they lifted has room for a sentence about how it went, and one who has not
+ * sees no trace of the feature. Above Save, because Save is what writes it; below it,
+ * beside section 7.7's three, it would read as a note about removing the row.
+ *
+ * The row underneath the editor is the comparison. It carries no note and shows nothing,
+ * which is what every row on every session looked like until this box existed -- the core
+ * has stored a set note since the first milestone and nothing could write one.
+ */
+export const WritingASetNote: Story = {
+  args: { session: A_SESSION_WITH_A_SET_NOTE },
+  play: async ({ canvasElement }) => {
+    const element = await loggingScreen(canvasElement);
+    const noted = setAt(A_SESSION_WITH_A_SET_NOTE, 0, 1);
+    await press(element, `li[data-set="${noted.id}"] [data-action="edit"]`);
+    await until('the editor to open', () => noteBoxes(element) === 1);
+    if (noteBoxText(element, '.editor') !== A_SET_NOTE) {
+      throw new Error('The editor opened without the note that is already stored.');
+    }
+    if (written(element).length !== 0) {
+      throw new Error('The note is both open in a box and read back above it.');
     }
   },
 };

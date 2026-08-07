@@ -117,6 +117,7 @@ import {
   DONE_WEIGHT_FIELD,
   WORKOUT_NOTE_KEY,
   exerciseNoteKey,
+  setNoteKey,
 } from './dataset.js';
 import { NOT_SET, formatSetRun } from './format.js';
 import { defineTrainingLogbook } from './index.js';
@@ -838,6 +839,16 @@ function rowNote(session: WorkoutSession, index: number): string | null {
   return exerciseAt(session, index).note;
 }
 
+/** The key naming one set's note -- from the set's own id, like the template's. */
+function setNoteKeyFor(session: WorkoutSession, exercise: number, index: number): string {
+  return setNoteKey(setAt(session, exercise, index).id);
+}
+
+/** What one set of a handed-up session carries as its note. */
+function setNote(session: WorkoutSession, exercise: number, index: number): string | null {
+  return setAt(session, exercise, index).note;
+}
+
 /** One set of one row, by position in the fixture. */
 function setAt(session: WorkoutSession, exercise: number, index: number): WorkoutSet {
   const set = exerciseAt(session, exercise).sets[index];
@@ -857,6 +868,7 @@ function only(seen: readonly WorkoutChangedDetail[]): WorkoutChangedDetail {
 /** Invented, and long enough that a trimmed copy is visibly a different string. */
 const NOTE_TEXT = 'felt heavy off the floor';
 const SESSION_NOTE = 'short on sleep, belt on from the second set';
+const SET_NOTE = 'lost the brace at the top';
 
 describe('the notes on a session', () => {
   it('says nothing at all until something is written', async () => {
@@ -1136,6 +1148,173 @@ describe('the notes on a session', () => {
     expect(seen).toHaveLength(1);
     expect(rowNote(only(seen).session, 0)).toBe(NOTE_TEXT);
     expect(setAt(only(seen).session, 0, 0).performed).not.toBeNull();
+  });
+
+  /**
+   * Section 7.9's third note, which is stored by the core and was written by
+   * nothing until the editor grew a box for it.
+   *
+   * The two above it are revealed by a control and this one is not: it is open
+   * whenever the row it belongs to is, which makes the *editor* the thing whose
+   * opening and closing has to keep a draft safe. That is the difference these
+   * cases exist for, and everything they share with a lift's note -- the
+   * debounce, the trimming, the identity check -- is proved once above rather
+   * than a second time here.
+   */
+  describe('the note on a set', () => {
+    it('is in the editor, and on no row that has not been opened', async () => {
+      const session = aSession(SQUAT, [135, 185]);
+      const element = await mount({ session });
+
+      // Forty rows with a fold each is what section 14.3 keeps off this screen,
+      // so the count before anything is opened is the whole of the claim.
+      expect(noteBoxes(element)).toHaveLength(0);
+
+      await tap(element, setRow(element, 0), 'edit');
+
+      expect(noteBoxes(element)).toHaveLength(1);
+      expect(noteBoxes(element, setNoteKeyFor(session, 0, 0))).toHaveLength(1);
+      // Still no control anywhere claiming to open it -- the lift's and the
+      // session's are the only two, exactly as they were.
+      expect(noteKeys(element)).toEqual([noteKeyFor(session, 0), WORKOUT_NOTE_KEY]);
+    });
+
+    it('names the box for the set rather than for the lift', async () => {
+      const session = aSession(SQUAT, [135, 185]);
+      const element = await mount({ session });
+      const key = setNoteKeyFor(session, 0, 1);
+
+      await tap(element, setRow(element, 1), 'edit');
+
+      expect(noteBox(element, key).getAttribute('label')).toBe(ACTIVE_NOTES.note);
+      // The group around the boxes is named for the set too, and a reader moving
+      // field by field is never told what a group it did not enter is called.
+      expect(spokenName(element, key)).toBe(`${ACTIVE_NOTES.note}, ${SQUAT.name} set 2`);
+    });
+
+    it('writes what was typed against the set whose editor was open', async () => {
+      const session = aSession(SQUAT, [135, 185]);
+      const element = await mount({ session });
+      const seen = changes(element);
+      const key = setNoteKeyFor(session, 0, 1);
+
+      await tap(element, setRow(element, 1), 'edit');
+      await typeNote(element, key, NOTE_TEXT);
+      await leaveNote(element, key);
+
+      expect(seen).toHaveLength(1);
+      // On the set, and on nothing above it. All three notes are drawn within a
+      // few centimetres of each other and the core has a separate setter for
+      // each, so which one a key reaches is worth saying out loud.
+      expect(setNote(only(seen).session, 0, 1)).toBe(NOTE_TEXT);
+      expect(setNote(only(seen).session, 0, 0)).toBeNull();
+      expect(rowNote(only(seen).session, 0)).toBeNull();
+      expect(only(seen).session.note).toBeNull();
+    });
+
+    it('reads it back on the row once the editor is closed, and re-opens on it', async () => {
+      const session = aSession(SQUAT, [135, 185]);
+      const element = await mount({ session });
+      playRoot(element);
+      const key = setNoteKeyFor(session, 0, 0);
+
+      await tap(element, setRow(element, 0), 'edit');
+      await typeNote(element, key, NOTE_TEXT);
+      await leaveNote(element, key);
+
+      // Not while the editor is open. The words would be on screen twice, once
+      // above the box being used to type them.
+      expect(writtenNotes(setRow(element, 0))).toEqual([]);
+
+      await tap(element, setRow(element, 0), 'edit');
+
+      expect(writtenNotes(setRow(element, 0))).toEqual([NOTE_TEXT]);
+      expect(writtenNotes(setRow(element, 1))).toEqual([]);
+
+      await tap(element, setRow(element, 0), 'edit');
+
+      // On what is stored rather than on an empty box, or the next blur deletes
+      // the note by writing nothing over it.
+      expect(noteField(element, key).value).toBe(NOTE_TEXT);
+    });
+
+    it('keeps a note still in the box when the editor is closed on it', async () => {
+      const session = aSession(SQUAT, [135]);
+      const element = await mount({ session });
+      const seen = changes(element);
+      const key = setNoteKeyFor(session, 0, 0);
+
+      await tap(element, setRow(element, 0), 'edit');
+      await typeNote(element, key, NOTE_TEXT);
+      // Neither blurred nor waited out. Change is pressed with the words still
+      // unwritten, and the fold that goes takes the box with it -- so a screen
+      // relying on the focus leaving first is a screen that loses the note
+      // whenever the browser delivers the tap before the blur.
+      await tap(element, setRow(element, 0), 'edit');
+
+      expect(seen).toHaveLength(1);
+      expect(setNote(only(seen).session, 0, 0)).toBe(NOTE_TEXT);
+    });
+
+    it('keeps a note typed in the same breath as the correction was saved', async () => {
+      const session = aSession(SQUAT, [135]);
+      const element = await mount({ session });
+      const seen = changes(element);
+      const key = setNoteKeyFor(session, 0, 0);
+
+      await tap(element, setRow(element, 0), 'edit');
+      await typeNote(element, key, NOTE_TEXT);
+      await tap(element, setRow(element, 0), 'save-edit');
+
+      // One session carrying both. Save is directly under the box, so this is
+      // the ordinary way a set note gets written rather than an edge of it.
+      expect(seen).toHaveLength(1);
+      expect(setNote(only(seen).session, 0, 0)).toBe(NOTE_TEXT);
+      expect(setAt(only(seen).session, 0, 0).performed).not.toBeNull();
+    });
+
+    it('tells one box from the other with a lift note and a set note both open', async () => {
+      const session = aSession(SQUAT, [135]);
+      const element = await mount({ session });
+      playRoot(element);
+      const lift = noteKeyFor(session, 0);
+      const set = setNoteKeyFor(session, 0, 0);
+
+      await tapNote(element, lift);
+      await typeNote(element, lift, NOTE_TEXT);
+      // Two boxes on screen, which is a state a lift's note and the session's
+      // can never reach: one of those is closed by opening the other. Typing in
+      // the second with the first still unwritten is what the draft has to
+      // survive, and putting one note's words into the other's field is the
+      // failure -- both being empty would pass a weaker assertion.
+      await tap(element, setRow(element, 0), 'edit');
+      expect(noteBoxes(element)).toHaveLength(2);
+
+      await typeNote(element, set, SET_NOTE);
+      await leaveNote(element, set);
+
+      expect(setNote(currentSession(element), 0, 0)).toBe(SET_NOTE);
+      expect(rowNote(currentSession(element), 0)).toBe(NOTE_TEXT);
+    });
+
+    it('stores nothing for a note emptied out, and the line goes with it', async () => {
+      const session = aSession(SQUAT, [135]);
+      const element = await mount({ session });
+      playRoot(element);
+      const key = setNoteKeyFor(session, 0, 0);
+
+      await tap(element, setRow(element, 0), 'edit');
+      await typeNote(element, key, NOTE_TEXT);
+      await leaveNote(element, key);
+      // Spacebarred out rather than selected and deleted, which is the one that
+      // actually happens on a phone.
+      await typeNote(element, key, '   ');
+      await leaveNote(element, key);
+      await tap(element, setRow(element, 0), 'edit');
+
+      expect(setNote(currentSession(element), 0, 0)).toBeNull();
+      expect(writtenNotes(setRow(element, 0))).toEqual([]);
+    });
   });
 
   it('carries an unwritten note into the finish panel, and draws one box for it', async () => {

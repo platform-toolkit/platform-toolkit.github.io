@@ -184,6 +184,32 @@ export function exerciseNoteId(key: string): string | null {
   return id === '' ? null : id;
 }
 
+const SET_NOTE_PREFIX = 'set:';
+
+/**
+ * The key naming one set's note. Section 7.9.
+ *
+ * A third kind of key rather than a second attribute, for the reason
+ * {@link WORKOUT_NOTE_KEY} gives at greater length: a set's note box is drawn
+ * inside its row, which is inside the exercise block, so `data-set` and
+ * `data-exercise` are both already on the path above it and neither says which
+ * of the three notes is being typed.
+ *
+ * The identifier is `WorkoutSet.id`, which is unique across the session -- so
+ * unlike an exercise's note this needs nothing else to find its target, and
+ * `setSetNote` takes the same identifier on its own.
+ */
+export function setNoteKey(id: string): string {
+  return `${SET_NOTE_PREFIX}${id}`;
+}
+
+/** The set a note key names, or `null` where it names something else. */
+export function setNoteId(key: string): string | null {
+  if (!key.startsWith(SET_NOTE_PREFIX)) return null;
+  const id = key.slice(SET_NOTE_PREFIX.length);
+  return id === '' ? null : id;
+}
+
 /** Which note a control acts on, or `null`. Opaque, so unchecked like {@link setOf}. */
 export function noteOf(event: Event): string | null {
   return attributeOn(event, NOTE_DATASET_KEY);
