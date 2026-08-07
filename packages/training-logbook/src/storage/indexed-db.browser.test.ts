@@ -222,8 +222,40 @@ function hasLocalDateIndex(name: string): Promise<boolean> {
       const database = request.result;
       const transaction = database.transaction('workouts', 'readonly');
       const found = transaction.objectStore('workouts').indexNames.contains('by-local-date');
-      database.close();
-      resolve(found);
+      // Closed from `oncomplete` and not straight after the read, which is what made
+      // the upgrade case below flaky for two months (#96, #104). `close()` on a
+      // connection with a live transaction does not close it -- it sets closePending,
+      // and the connection stays open until the transaction finishes. A version 2 open
+      // arriving in that window is `onblocked`, not an upgrade. The window is a
+      // microtask wide on an idle machine and wide enough to lose on a busy one, which
+      // is the whole of why this wanted a loaded machine and a cold profile to show.
+      transaction.oncomplete = () => {
+        database.close();
+        resolve(found);
+      };
+      transaction.onerror = () => {
+        database.close();
+        reject(new Error('could not read the test database schema'));
+      };
+    };
+  });
+}
+
+/**
+ * A version 1 connection that is simply held, which is what a second tab is.
+ *
+ * Deliberately without an `onversionchange` handler. The adapter installs one so its
+ * own connections step aside for an upgrade; this is the connection that cannot be
+ * asked to -- a tab on an older build, or one the browser has frozen in the background.
+ */
+function holdVersion1(name: string): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(name, 1);
+    request.onerror = () => {
+      reject(new Error('could not hold the version 1 test database'));
+    };
+    request.onsuccess = () => {
+      resolve(request.result);
     };
   });
 }
@@ -455,6 +487,29 @@ describe('upgrading a database written by version 1', () => {
     expect(await hasLocalDateIndex(name)).toBe(true);
     expect(await store.readWorkout(january.id)).toEqual(january);
     expect(await scanDays(store)).toEqual(['2026-03-11', '2026-01-05']);
+  });
+
+  it('says an upgrade is held up rather than handing back an empty store', async () => {
+    // The error is not the interesting half. What used to happen instead is: the
+    // `onblocked` rejection landed in `openDatabase`'s own outer catch, became `null`,
+    // and `openLogbookStore` turned that into memory -- so a lifter with the logbook
+    // open in a second tab got an empty durable-false store and a screen telling them
+    // this device is not keeping their training, while the database holding it sat one
+    // closed tab away. Both of this file's `onblocked` claims -- the header's and the
+    // handler's own comment -- described behaviour that could not happen.
+    const name = freshName();
+    const january = finished('2026-01-05', contextSeries());
+    await createVersion1(name, [january]);
+    const held = await holdVersion1(name);
+
+    try {
+      await expect(openLogbookStore({ databaseName: name })).rejects.toThrow(LogbookStorageError);
+    } finally {
+      // Before the assertion is read, so a failure does not leave a connection open for
+      // whichever case runs next -- which is this file's header warning arriving as a
+      // teardown bug rather than as an adapter one.
+      held.close();
+    }
   });
 
   it('leaves a fresh version 2 database indistinguishable from an upgraded one', async () => {

@@ -285,7 +285,18 @@ async function openDatabase(options: OpenDatabaseOptions): Promise<IDBDatabase |
         reject(new LogbookStorageError('unavailable'));
       };
     });
-  } catch {
+  } catch (cause) {
+    // A blocked upgrade is not an absent database, and only an absent one may become
+    // `null`. `null` is this function's single way of saying the browser will not give
+    // this origin a database at all -- private browsing, a managed device, a
+    // partitioned frame -- which is permanent, and which sends `openLogbookStore` to
+    // memory on purpose. `onblocked` is the opposite situation: the records are here
+    // and another connection is holding the old version open, so the remedy is closing
+    // a tab rather than accepting that nothing will be kept. Letting it land here
+    // erased exactly the distinction the handler above rejects in order to preserve,
+    // and it did so silently -- the caller was handed an empty memory store and told
+    // only that this device is not durable.
+    if (cause instanceof LogbookStorageError) throw cause;
     return null;
   }
 }
@@ -297,6 +308,11 @@ async function openDatabase(options: OpenDatabaseOptions): Promise<IDBDatabase |
  * on `null`, and all three are ordinary rather than exceptional. Use
  * {@link openLogbookStore} unless the caller genuinely wants to handle the absence
  * itself.
+ *
+ * Throws {@link LogbookStorageError} with reason `unavailable` where the database
+ * exists but an older connection is holding it open. That is not an absence and must
+ * not be answered as one: a caller that reads `null` as "this browser has no database"
+ * will do something permanent about a condition that is fixed by closing a tab.
  */
 export async function indexedDbLogbookStore(
   options: OpenDatabaseOptions = {},
@@ -312,6 +328,11 @@ export async function indexedDbLogbookStore(
  * The caller does not branch. It reads {@link LogbookStore.durable} and tells the
  * lifter whether this device is keeping their training, which is the only decision
  * that actually differs between the two.
+ *
+ * The one thing it does not absorb is a blocked upgrade, which propagates. Memory is
+ * the right answer for a device that will never have a database and the wrong one for
+ * a database that is a closed tab away, and the difference is invisible from here --
+ * so it is the caller's, as the `onblocked` handler says.
  */
 export async function openLogbookStore(options: OpenDatabaseOptions = {}): Promise<LogbookStore> {
   const store = await indexedDbLogbookStore(options);
