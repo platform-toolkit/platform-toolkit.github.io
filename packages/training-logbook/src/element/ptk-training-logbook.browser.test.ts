@@ -109,6 +109,7 @@ import {
 } from './events.js';
 import { NOT_SET } from './format.js';
 import { defineTrainingLogbook } from './index.js';
+import { STORAGE_WAIT } from './storage.fixture.js';
 import { planProblem } from './plan.js';
 import { WORKOUT_CHANGED_EVENT } from './ptk-active-workout.js';
 import type { PtkRestTimer } from './ptk-rest-timer.js';
@@ -210,7 +211,7 @@ async function mount(store: LogbookStore, handoff?: HandoffSource): Promise<PtkT
   await vi.waitFor(async () => {
     await element.updateComplete;
     expect(shadow(element).querySelector('.save')).not.toBeNull();
-  });
+  }, STORAGE_WAIT);
   return element;
 }
 
@@ -295,7 +296,7 @@ async function settle(element: PtkTrainingLogbook): Promise<void> {
   await vi.waitFor(async () => {
     await element.updateComplete;
     expect(saveLine(element)).not.toBe(SAVE_STATES.unsaved);
-  });
+  }, STORAGE_WAIT);
 }
 
 /** What the storage line says, with the template's own whitespace taken off. */

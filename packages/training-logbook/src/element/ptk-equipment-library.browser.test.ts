@@ -40,6 +40,7 @@ import type { CalendarDay, Instant, LogbookId } from '../types.js';
 
 import { EQUIPMENT_NOTES, SAVE_STATES } from './copy.js';
 import { defineTrainingLogbook } from './index.js';
+import { STORAGE_WAIT } from './storage.fixture.js';
 import type { PtkTrainingLogbook } from './ptk-training-logbook.js';
 
 const TODAY: CalendarDay = ON_DAY;
@@ -118,7 +119,7 @@ async function mount(store: LogbookStore): Promise<PtkTrainingLogbook> {
   await vi.waitFor(async () => {
     await element.updateComplete;
     expect(shadow(element).querySelector('.save')).not.toBeNull();
-  });
+  }, STORAGE_WAIT);
   await openTheRack(element);
   return element;
 }
@@ -177,7 +178,7 @@ async function settle(element: PtkTrainingLogbook): Promise<void> {
   await vi.waitFor(async () => {
     await element.updateComplete;
     expect(saveLine(element)).not.toBe(SAVE_STATES.unsaved);
-  });
+  }, STORAGE_WAIT);
 }
 
 /** Unfolds the rack editor by pressing its summary, which is how a lifter opens it. */

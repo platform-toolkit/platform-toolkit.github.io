@@ -42,6 +42,7 @@ import type { CalendarDay, CustomExercise, Instant, LogbookId } from '../types.j
 
 import { EXERCISE_NOTES, LOADING_LABELS, SAVE_STATES, WARMUP_FAMILY_LABELS } from './copy.js';
 import { defineTrainingLogbook } from './index.js';
+import { STORAGE_WAIT } from './storage.fixture.js';
 import type { PtkTrainingLogbook } from './ptk-training-logbook.js';
 
 const TODAY: CalendarDay = ON_DAY;
@@ -125,7 +126,7 @@ async function mount(store: LogbookStore): Promise<PtkTrainingLogbook> {
   await vi.waitFor(async () => {
     await element.updateComplete;
     expect(shadow(element).querySelector('.save')).not.toBeNull();
-  });
+  }, STORAGE_WAIT);
   return element;
 }
 
@@ -183,7 +184,7 @@ async function settle(element: PtkTrainingLogbook): Promise<void> {
   await vi.waitFor(async () => {
     await element.updateComplete;
     expect(saveLine(element)).not.toBe(SAVE_STATES.unsaved);
-  });
+  }, STORAGE_WAIT);
 }
 
 /** The exercise library, which is one section of the home screen. */
