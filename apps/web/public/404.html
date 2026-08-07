@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Not available — Platform Toolkit</title>
+    <!--
+      This page answers two questions with one document, which is why it never
+      says "404" outright.
+
+      GitHub Pages serves it for any address under the deployment it cannot
+      resolve -- a mistyped URL, or a link to a tool that has since moved. The
+      service worker also serves it, from the precache, for a navigation that
+      has neither a network nor a cached copy behind it. The visitor cannot tell
+      those apart and does not need to: in both cases the address they asked for
+      is not going to load and the collection they installed still will.
+
+      WHY IT IS SELF-CONTAINED
+
+      `public/` is copied verbatim, so nothing here is rewritten by the build:
+      no hashed stylesheet to link, no injected policy, and no substituted base.
+      A page that exists to be shown when a request has already failed is also
+      the wrong place for a second request, so the small amount of styling it
+      needs is inline. The policy below is written by hand for that: this
+      document runs no script, reads no input and has no injection point, so an
+      inline stylesheet is the whole of what it needs to be allowed.
+
+      The one thing the build cannot fix is the link. It is root-absolute, which
+      is correct for the deployment this project targets -- an organisation user
+      site served from the origin root -- and wrong under PTK_BASE_PATH, where
+      it would leave the subpath entirely. Making it follow the base means
+      putting this file through Vite as a build input rather than copying it.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#14171b" />
+    <style>
+      /*
+       * The token values rather than the tokens. `tokens.css` is bundled under a
+       * content hash and this file cannot name it, so the two are kept in step by
+       * hand -- which is affordable for six declarations and would not be for a
+       * page with real chrome.
+       */
+      :root {
+        color-scheme: light;
+        --surface: #ffffff;
+        --text: #16191d;
+        --text-muted: #565d67;
+        --accent: #1f5fa8;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        /*
+         * `color-scheme` alongside the colours, never the colours alone. Without
+         * it the scrollbars and the canvas behind the page stay light while the
+         * page is dark, which reads as a half-loaded document.
+         */
+        :root {
+          color-scheme: dark;
+          --surface: #14171b;
+          --text: #e9edf2;
+          --text-muted: #a3acb8;
+          --accent: #7fb2ee;
+        }
+      }
+
+      body {
+        margin: 0;
+        padding: 1.5rem max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom))
+          max(1rem, env(safe-area-inset-left));
+        background: var(--surface);
+        color: var(--text);
+        font-family:
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          roboto,
+          helvetica,
+          arial,
+          sans-serif;
+        line-height: 1.5;
+        /* `anywhere`, not `break-word`: only this value is counted when a box's
+           min-content width is computed, and a long address is exactly the word
+           that would otherwise set a floor the 320px column cannot go under. */
+        overflow-wrap: anywhere;
+      }
+
+      /*
+       * Named rather than left as a bare element. This document is served under
+       * whatever address failed, so the only way anything can assert that *this*
+       * page is what came back is a selector that no other page in the build can
+       * match -- `scripts/check-pwa.mjs` waits on it after an offline navigation
+       * to an address that does not exist.
+       */
+      main.not-available {
+        max-width: 36rem;
+        margin: 0 auto;
+      }
+
+      h1 {
+        font-size: 1.75rem;
+        margin: 0 0 1rem;
+      }
+
+      p {
+        margin: 0 0 1rem;
+        color: var(--text-muted);
+      }
+
+      /* Its own line rather than inside the sentence above it. An inline link is
+         as tall as its line box, and vertical padding grows the hit area without
+         growing the line -- so the only way to reach 44px from inside a paragraph
+         is to overlap the prose a thumb was aiming at. */
+      a {
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <main class="not-available">
+      <h1>That page is not available</h1>
+      <p>
+        The address does not match anything in this collection, or the page has not been saved to
+        this device and there is no connection to fetch it with.
+      </p>
+      <p>
+        Every tool here works offline once the toolkit is installed, so the ones you have already
+        opened will still load.
+      </p>
+      <a href="/">Go to Platform Toolkit</a>
+    </main>
+  </body>
+</html>

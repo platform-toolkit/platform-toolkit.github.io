@@ -58,6 +58,21 @@ const BUILD_ID = /* @__PTK_BUILD_ID__ */ 'development';
  */
 const DATA_BASE = /* @__PTK_DATA_BASE__ */ '/data/';
 
+/**
+ * The document shown when a navigation has nowhere left to go.
+ *
+ * Not a placeholder and not part of the substituted list. `public/` is copied
+ * verbatim, so this filename is fixed rather than content-hashed, and it is the
+ * one precache entry the worker needs by name -- everything else it only has to
+ * store. The build does not list it, so it is added below; `scripts/check-pwa.mjs`
+ * reads this constant and holds the build's own output to it.
+ *
+ * GitHub Pages serves the same file for an address it cannot resolve, so a
+ * mistyped URL and an uncached one land on one page, which is why its wording
+ * commits to neither.
+ */
+const OFFLINE_FALLBACK_PATH = './404.html';
+
 const PRECACHE_NAME = `ptk-shell-${BUILD_ID}`;
 
 /**
@@ -81,7 +96,19 @@ const DATA_CACHE_NAME = 'ptk-data';
 const MAX_DATA_ENTRIES = 60;
 
 const dataBaseUrl = new URL(DATA_BASE, self.location.href);
-const precacheUrls = PRECACHE_PATHS.map((path) => new URL(path, self.location.href).href);
+// Deduplicated after resolution, not before. `cache.addAll` rejects outright
+// when two of its requests name the same URL, so the day the build starts
+// listing the fallback itself, an unguarded concatenation would fail every
+// install -- and an install that fails leaves the previous worker serving, which
+// is the failure that looks like nothing happening.
+const precacheUrls = [
+  ...new Set(
+    [...PRECACHE_PATHS, OFFLINE_FALLBACK_PATH].map(
+      (path) => new URL(path, self.location.href).href,
+    ),
+  ),
+];
+const offlineFallbackUrl = new URL(OFFLINE_FALLBACK_PATH, self.location.href).href;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -135,11 +162,7 @@ self.addEventListener('fetch', (event) => {
   // application or the browser's offline page, so it is the one worth handling
   // even though its response is rarely the freshest thing in the cache.
   if (request.mode === 'navigate') {
-    // `ignoreSearch`, because the documented embed parameters (`?theme=dark`)
-    // select an appearance and never a different document. Without it every
-    // parameterised URL is a cache miss, and the offline case that fails is the
-    // embedded one -- the hardest to notice.
-    event.respondWith(networkFirst(request, PRECACHE_NAME, { ignoreSearch: true }));
+    event.respondWith(navigate(request));
     return;
   }
 
@@ -169,6 +192,34 @@ self.addEventListener('fetch', (event) => {
   // browser. Silently caching requests nobody planned for is how a service worker
   // starts serving a version of the site that no deploy can replace.
 });
+
+/**
+ * A page request, and what to show when there is no page to be had.
+ *
+ * The fallback is deliberately not inside `networkFirst`: the data index goes
+ * through the same function, and answering a request for JSON with a document
+ * would turn a reported network failure into a parse error somewhere else
+ * entirely.
+ *
+ * @param {Request} request
+ * @returns {Promise<Response>}
+ */
+async function navigate(request) {
+  try {
+    // `ignoreSearch`, because the documented embed parameters (`?theme=dark`)
+    // select an appearance and never a different document. Without it every
+    // parameterised URL is a cache miss, and the offline case that fails is the
+    // embedded one -- the hardest to notice.
+    return await networkFirst(request, PRECACHE_NAME, { ignoreSearch: true });
+  } catch (navigationError) {
+    const fallback = await caches.match(offlineFallbackUrl);
+    // Still rethrown when even the fallback is missing. That only happens if the
+    // precache never populated, and handing the browser its own offline page
+    // says so in the visitor's language rather than showing nothing.
+    if (fallback === undefined) throw navigationError;
+    return fallback;
+  }
+}
 
 /**
  * Network, then cache. For things that change under a fixed name.

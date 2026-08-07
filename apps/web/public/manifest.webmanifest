@@ -19,14 +19,22 @@
     "would override the device rotation lock for every visitor -- and the people that locks",
     "out are the ones who cannot rotate the phone back, which is exactly who WCAG 1.3.4 is",
     "written for. A lifter with the phone clamped to a rack is the same case arriving from",
-    "the other side."
+    "the other side.",
+    "",
+    "There is deliberately no \"id\". It is the one member that does not resolve the way the",
+    "rest of this file does: the algorithm parses it against the *origin* of the resolved",
+    "start_url, so \"./\", \"foo\", \"/foo\" and \"../foo\" all mean the same thing and none of",
+    "them can name a subpath. An \"id\" of \"./\" therefore claims the origin's root as this",
+    "application's identity, which under PTK_BASE_PATH is a subpath deploy calling itself",
+    "whatever else is installed from that host's root. Omitting it makes the identity",
+    "default to the resolved start_url, which does carry the base -- the same property every",
+    "other URL here has, obtained by leaving the member out rather than by writing one."
   ],
   "name": "Platform Toolkit",
   "short_name": "Toolkit",
   "description": "Open-source tools for the powerlifting community. Every tool works on its own and embeds anywhere.",
   "start_url": "./",
   "scope": "./",
-  "id": "./",
   "display": "standalone",
   "orientation": "any",
   "theme_color": "#1f5fa8",
@@ -58,6 +66,84 @@
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
+    }
+  ],
+  "$comment_shortcuts": [
+    "The long-press menu on the installed icon, and the only place the collection can be",
+    "entered anywhere but the hub. There is still one application and one start_url -- a",
+    "shortcut is a deep link into the running app, not a second installable thing -- which",
+    "is why these are the four tools a lifter opens standing at a rack rather than all",
+    "seven: a launcher shows about four and the ones past that are written for nobody.",
+    "",
+    "Every url is relative for the same reason start_url is, and a shortcut is the easiest",
+    "member to get wrong here because an absolute one still works in development. No per",
+    "shortcut icons: there is no per-tool artwork, and a launcher given nothing falls back",
+    "to the application icon, which is honest. Naming the same file four times would put",
+    "one indistinguishable barbell beside four different labels."
+  ],
+  "shortcuts": [
+    {
+      "name": "Training Logbook",
+      "short_name": "Logbook",
+      "description": "Plan a session and tick off each set as you finish it.",
+      "url": "./logbook/"
+    },
+    {
+      "name": "Warm-Up Calculator",
+      "short_name": "Warm-Up",
+      "description": "Warm-up sets and plate loading for a working weight.",
+      "url": "./warm-up/"
+    },
+    {
+      "name": "One-Rep Max Estimator",
+      "short_name": "One-Rep Max",
+      "description": "What a set you already did suggests about a single.",
+      "url": "./one-rep-max/"
+    },
+    {
+      "name": "Platform Targets",
+      "short_name": "Targets",
+      "description": "Classifications, records and qualification standards for one lifter.",
+      "url": "./platform-targets/"
+    }
+  ],
+  "$comment_screenshots": [
+    "What a browser shows in place of a bare one-line install bar. Captured from the built",
+    "site rather than drawn, so a stale one is a screenshot of a page that no longer looks",
+    "like that and not a promise the product never kept.",
+    "",
+    "Two form factors because a browser picks by device and shows nothing at all when the",
+    "set for the one it is on is empty: narrow is the phone, which is the device this",
+    "collection is for, and wide is the desktop dialog. The narrow pair are the hub and the",
+    "logbook -- the collection, then the one tool that works with no network, which is the",
+    "reason to install rather than bookmark.",
+    "",
+    "Deliberately not precached. These are shown by the browser's own install UI before",
+    "there is an installed application, and a phone that has one will never ask for them",
+    "again -- putting a third of a megabyte of imagery on the device at install time is the",
+    "same mistake as precaching the record books."
+  ],
+  "screenshots": [
+    {
+      "src": "./screenshots/hub-narrow.png",
+      "sizes": "720x1280",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "The list of tools in the collection, on a phone."
+    },
+    {
+      "src": "./screenshots/logbook-narrow.png",
+      "sizes": "720x1280",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "The training logbook, ready to plan a session, on a phone."
+    },
+    {
+      "src": "./screenshots/hub-wide.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "The list of tools in the collection, on a desktop browser."
     }
   ]
 }

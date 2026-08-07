@@ -18,13 +18,16 @@
  *
  * WHAT IT CHECKS
  *
- *   - the manifest parses, is complete, and every icon it names exists at the
- *     pixel size it claims
+ *   - the manifest parses, is complete, and every icon and screenshot it names
+ *     exists at the pixel size it claims
+ *   - every shortcut points at a page of this collection, relatively
  *   - the hub and the tool page link the manifest and an apple-touch-icon, and
  *     the embed route links neither
  *   - the worker registers, activates, takes control, and fills its precache
  *   - with the network switched off, both pages still render -- including the
  *     tool page, which needs published data as well as its own code
+ *   - a page never opened online renders offline, from the precache alone
+ *   - an address that does not exist falls back to this collection's own page
  *   - the embed route installs nothing, even framed by another origin
  *
  * USAGE
@@ -102,7 +105,44 @@ function pngSize(bytes) {
 }
 
 /**
+ * Checks one declared image against the file the build actually emitted.
+ *
+ * Shared by the icons and the screenshots because the failure is the same in
+ * both: a `sizes` string is a promise about the bytes, and nothing else here
+ * opens the file to find out whether it was kept.
+ *
  * @param {string[]} failures
+ * @param {unknown} declared
+ */
+async function checkDeclaredImage(failures, declared) {
+  const image = /** @type {Record<string, unknown>} */ (declared);
+  const source = String(image['src'] ?? '');
+  const file = join(OUTPUT_DIRECTORY, source.replace(/^\.\//, ''));
+  let bytes;
+  try {
+    bytes = await readFile(file);
+  } catch {
+    failures.push(`the manifest names ${source}, which the build does not contain`);
+    return;
+  }
+  if (!source.endsWith('.png')) return;
+
+  const size = pngSize(bytes);
+  if (size === null) {
+    failures.push(`${source} is named as a PNG but is not one`);
+    return;
+  }
+  const [width, height] = String(image['sizes']).split('x').map(Number);
+  if (size.width !== width || size.height !== height) {
+    failures.push(
+      `${source} is declared ${String(image['sizes'])} but is ${String(size.width)}x${String(size.height)}`,
+    );
+  }
+}
+
+/**
+ * @param {string[]} failures
+ * @returns {Promise<Record<string, unknown> | null>} the parsed manifest
  */
 async function checkManifest(failures) {
   let manifest;
@@ -110,7 +150,7 @@ async function checkManifest(failures) {
     manifest = JSON.parse(await readFile(join(OUTPUT_DIRECTORY, 'manifest.webmanifest'), 'utf8'));
   } catch (error) {
     failures.push(`the manifest could not be read or parsed: ${String(error)}`);
-    return;
+    return null;
   }
 
   for (const member of REQUIRED_MANIFEST_MEMBERS) {
@@ -142,6 +182,19 @@ async function checkManifest(failures) {
     );
   }
 
+  // `id` is the one member that does not resolve against the manifest's URL: the
+  // algorithm parses it against the *origin* of the resolved start_url, so a
+  // relative value cannot name a subpath at all and "./" simply means the
+  // origin's root. Under PTK_BASE_PATH that is an identity shared with whatever
+  // else is installed from that host. Left out, the identity defaults to the
+  // resolved start_url, which does carry the base -- so the check is that the
+  // member is absent, not that it looks relative like every other URL here.
+  if (manifest.id !== undefined) {
+    failures.push(
+      `the manifest declares an id of ${JSON.stringify(manifest.id)}, which resolves against the origin rather than the deployed base`,
+    );
+  }
+
   const icons = Array.isArray(manifest.icons) ? manifest.icons : [];
   const declaredSizes = new Set(icons.map((icon) => icon.sizes));
   for (const size of REQUIRED_ICON_SIZES) {
@@ -154,35 +207,68 @@ async function checkManifest(failures) {
   }
 
   for (const icon of icons) {
-    const source = String(icon.src ?? '');
-    const file = join(OUTPUT_DIRECTORY, source.replace(/^\.\//, ''));
-    let bytes;
-    try {
-      bytes = await readFile(file);
-    } catch {
-      failures.push(`the manifest names ${source}, which the build does not contain`);
-      continue;
-    }
-    if (!source.endsWith('.png')) continue;
+    await checkDeclaredImage(failures, icon);
+  }
 
-    const size = pngSize(bytes);
-    if (size === null) {
-      failures.push(`${source} is named as a PNG but is not one`);
-      continue;
-    }
-    const [width, height] = String(icon.sizes).split('x').map(Number);
-    if (size.width !== width || size.height !== height) {
-      failures.push(
-        `${source} is declared ${String(icon.sizes)} but is ${String(size.width)}x${String(size.height)}`,
-      );
+  // A screenshot set that a browser cannot use is worse than none: it is carried
+  // on every deploy and shows nowhere. The set is chosen by device, so an empty
+  // form factor is a bare one-line install bar on exactly that class of device,
+  // and the phone is the one this collection is written for.
+  const screenshots = Array.isArray(manifest.screenshots) ? manifest.screenshots : [];
+  for (const formFactor of ['narrow', 'wide']) {
+    if (!screenshots.some((shot) => shot.form_factor === formFactor)) {
+      failures.push(`the manifest declares no ${formFactor} screenshot`);
     }
   }
+  for (const shot of screenshots) {
+    await checkDeclaredImage(failures, shot);
+  }
+
+  // A shortcut is a deep link into the one installed application, so it has to
+  // land on a page of this collection and it has to be relative for the same
+  // reason start_url is. An absolute one is right in development and installs a
+  // long-press menu pointing at somebody else's site on a subpath deploy, which
+  // is the failure nobody looks for -- a launcher menu is opened by hand, months
+  // later, by somebody who will not report it.
+  const shortcuts = Array.isArray(manifest.shortcuts) ? manifest.shortcuts : [];
+  if (shortcuts.length === 0) failures.push('the manifest declares no shortcuts');
+  const installablePaths = new Set(PAGES.filter((page) => page.installable).map((p) => p.path));
+  for (const shortcut of shortcuts) {
+    const url = String(shortcut.url ?? '');
+    if (typeof shortcut.name !== 'string' || shortcut.name === '') {
+      failures.push(`the shortcut for ${url} has no name`);
+    }
+    if (!url.startsWith('./')) {
+      failures.push(`the shortcut url "${url}" is not relative to the manifest`);
+      continue;
+    }
+    if (!installablePaths.has(url.replace(/^\./, ''))) {
+      failures.push(`the shortcut url "${url}" is not a page of this collection`);
+    }
+  }
+
+  return manifest;
+}
+
+/**
+ * Reads a meta tag's content, whichever order its attributes were written in.
+ *
+ * @param {string} html
+ * @param {string} name
+ * @returns {string | null}
+ */
+function metaContent(html, name) {
+  const tag = new RegExp(`<meta[^>]+name="${name}"[^>]*>`).exec(html);
+  if (tag === null) return null;
+  const content = /content="([^"]*)"/.exec(tag[0]);
+  return content === null ? null : content[1];
 }
 
 /**
  * @param {string[]} failures
+ * @param {Record<string, unknown> | null} manifest
  */
-async function checkDocuments(failures) {
+async function checkDocuments(failures, manifest) {
   for (const page of PAGES) {
     const file = join(OUTPUT_DIRECTORY, page.path.replace(/^\//, ''), 'index.html');
     const html = await readFile(file, 'utf8');
@@ -197,6 +283,23 @@ async function checkDocuments(failures) {
     }
     if (!page.installable && (hasManifest || hasAppleIcon)) {
       failures.push(`${page.path} offers installation and must not`);
+    }
+    if (!page.installable || manifest === null) continue;
+
+    // The home-screen label, stated once per document and once in the manifest,
+    // with nothing keeping the nine copies in step.
+    //
+    // It has to be the same on every page. `apple-mobile-web-app-title` overrides
+    // short_name on iOS and is read from whichever page the lifter happened to be
+    // on when they reached for Share -- but what gets installed is start_url, the
+    // hub, because the collection is one application. So a per-page value does
+    // not label a per-page install; it labels the whole collection with the name
+    // of one tool, and which tool is decided by where a shared link landed.
+    const title = metaContent(html, 'apple-mobile-web-app-title');
+    if (title !== manifest['short_name']) {
+      failures.push(
+        `${page.path} names the home-screen icon ${JSON.stringify(title)}, and the manifest's short_name is ${JSON.stringify(manifest['short_name'])}`,
+      );
     }
   }
 }
@@ -231,6 +334,32 @@ async function checkPrecache(failures) {
   }
   const precache = new Set(JSON.parse(listed[1]));
 
+  // The offline fallback is the one entry the build does not contribute: it is a
+  // fixed name copied out of `public/`, and the worker adds it to its own
+  // install. Folding it in here rather than exempting the file from the sweep
+  // below means the document still has to exist and still has to be precached --
+  // the check is the same, it is just satisfied from the other end. Reading the
+  // constant rather than hard-coding the path is what makes renaming it a
+  // failure instead of a silently unprecached page.
+  const fallback = /const OFFLINE_FALLBACK_PATH = '([^']+)';/.exec(worker);
+  if (fallback === null) {
+    failures.push('sw.js names no offline fallback document');
+  } else {
+    precache.add(fallback[1]);
+    // Asked directly, because the sweep below only walks files that exist and so
+    // has nothing to say about one that does not. `cache.addAll` is all-or-
+    // nothing, so a missing fallback fails every install and the browser pass
+    // reports it as six cascading failures beginning "the worker never took
+    // control" -- true, and no help at all in finding the deleted file.
+    try {
+      await readFile(join(OUTPUT_DIRECTORY, fallback[1].replace(/^\.\//, '')));
+    } catch {
+      failures.push(
+        `the worker precaches ${fallback[1]}, which the build does not contain, so every install will fail`,
+      );
+    }
+  }
+
   if (/const BUILD_ID = "development"/.test(worker)) {
     failures.push('sw.js still carries the template build identifier');
   }
@@ -245,7 +374,12 @@ async function checkPrecache(failures) {
     // Published data is cached on demand by design -- artifacts are budgeted at
     // 2 MiB each and precaching them would put every record book on a phone at
     // install time. `sw.js` itself is fetched by the browser, never by the page.
-    if (path.startsWith('data/') || path === 'sw.js') continue;
+    //
+    // The screenshots are exempt for a related reason: they exist for the
+    // browser's install dialog, which is shown before there is an installed
+    // application and never again afterwards, so precaching them spends the
+    // install's download budget on imagery the installed app cannot display.
+    if (path.startsWith('data/') || path.startsWith('screenshots/') || path === 'sw.js') continue;
 
     const expected = path.endsWith('index.html')
       ? `./${path.replace(/(^|\/)index\.html$/, '$1')}`
@@ -317,8 +451,8 @@ async function main() {
   }
 
   const failures = [];
-  await checkManifest(failures);
-  await checkDocuments(failures);
+  const manifest = await checkManifest(failures);
+  await checkDocuments(failures, manifest);
   await checkPrecache(failures);
 
   const { server, origin } = await serveDirectory(OUTPUT_DIRECTORY);
@@ -382,6 +516,36 @@ async function main() {
       'the hub does not render offline',
       () => page.goto(`${origin}/`, { waitUntil: 'load' }),
       () => page.locator('.tool-list a').first(),
+    );
+
+    // The one page in this context that has never been fetched, opened with no
+    // network at all.
+    //
+    // Everything above is a page the worker already served once, and a navigation
+    // served network-first is cached at runtime -- so those two prove the worker
+    // is answering and prove nothing about the precache being complete. This is
+    // the other half, and it is the visitor the feature exists for: somebody who
+    // installed the collection from the hub, put the phone in a bag, and opened
+    // the logbook in a basement gym having never loaded it. It is the logbook
+    // because it is the tool that owes the network nothing -- no artifact, no
+    // federation, the training in IndexedDB and the rules in the bundle -- so a
+    // failure here is the precache and cannot be anything else.
+    await expectRenders(
+      failures,
+      'the logbook does not render offline having never been opened online',
+      () => page.goto(`${origin}/logbook/`, { waitUntil: 'load' }),
+      () => page.locator('ptk-training-logbook ptk-button[data-action="start-workout"] button'),
+    );
+
+    // An address with nothing behind it, offline. GitHub Pages answers the online
+    // half of this with the same document, which is why one file covers both --
+    // and why the worker has to be holding it, since the host that would have
+    // served it is the thing that is unreachable.
+    await expectRenders(
+      failures,
+      'an unknown address offline does not fall back to this collection',
+      () => page.goto(`${origin}/no-such-tool/`, { waitUntil: 'load' }),
+      () => page.locator('main.not-available'),
     );
 
     await context.close();
