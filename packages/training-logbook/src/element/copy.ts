@@ -291,6 +291,21 @@ export const HOME_NOTES = {
   historyEmpty: 'Nothing logged yet. Your finished workouts will be listed here.',
 
   /**
+   * The other reason the list can be empty, and the two libraries' sentence again.
+   *
+   * The distinction is the sharp one the records screen draws: `historyEmpty` promises
+   * a lifter that their finished workouts will be listed here, which is a lie to
+   * somebody whose year of training is in a database this build cannot walk. What it
+   * must not do instead is guess the other way -- a failed walk says nothing about
+   * whether the records are still there, and this tool has no second copy to check
+   * against. So it says what it knows and points at the one control that answers the
+   * question, which is the backup below: it reads the workouts by key rather than by
+   * the walk that just failed, so it can still take out whatever is readable.
+   */
+  historyUnreadable:
+    'Your recent workouts could not be read on this device. There is no way from here to tell whether they are still in the database. The rest of the tool still works, and the backup below will hold whatever can be read.',
+
+  /**
    * A Repeat that read nothing back.
    *
    * Said rather than swallowed, because the row is still on screen and the press

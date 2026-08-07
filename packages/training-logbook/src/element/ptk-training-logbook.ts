@@ -744,6 +744,9 @@ export class PtkTrainingLogbook extends LitElement {
   @state() private active: WorkoutSession | null = null;
   @state() private finished: WorkoutSession | null = null;
   @state() private history: readonly WorkoutSummary[] = [];
+
+  /** Whether the history could be read at all. See {@link #readHistory}. */
+  @state() private historyUnreadable = false;
   @state() private exercises: readonly ExerciseOption[] = exerciseOptions([]);
   @state() private profiles: readonly EquipmentProfile[] = [];
 
@@ -958,6 +961,35 @@ export class PtkTrainingLogbook extends LitElement {
    * that is what this compares. `null` before the first read.
    */
   #previousKey: string | null = null;
+
+  /**
+   * How many writes have landed, so a read can tell whether it is still the answer.
+   *
+   * The other half of {@link #reload}'s guard, and {@link #previousKey}'s shape rather
+   * than a second pattern: a value captured before the await and compared after it,
+   * because the field the read is about is one nothing in `PropertyValues<this>` can
+   * name.
+   *
+   * Bumped by {@link #persist} and {@link #saveSettings} and by nothing else, which is
+   * the whole of the discipline. Those two are the only paths that change what a reload
+   * reads, and both are called synchronously by the handler that has just assigned the
+   * newer state -- so the bump lands in the same task as the assignment it stands for.
+   * Bumping at each of the six `this.active =` sites instead would put the rule in six
+   * places for one guard to depend on.
+   *
+   * Reads do not bump it. A second reload landing over a first assigns the same three
+   * answers out of the same database, so racing them would buy a branch no test can
+   * tell apart -- and a reload that superseded itself would need exempting from its own
+   * check.
+   *
+   * What it costs, and the cost is the right way round: a write landing inside a
+   * reload's window discards a history that write does not itself rebuild, so the list
+   * can be one press stale until the next reload. The session and the settings in
+   * memory are always the newer of the two, a finished workout rebuilds the list
+   * through {@link #refreshHistory} anyway, and the alternative is #95 -- a lifter's
+   * session overwritten by an answer read before they started it.
+   */
+  #generation = 0;
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -1210,10 +1242,28 @@ export class PtkTrainingLogbook extends LitElement {
       </section>
 
       <section class="section">
-        <ptk-workout-history
-          .workouts=${this.history}
-          ?busy=${this.active !== null}
-        ></ptk-workout-history>
+        ${
+          // The list is withdrawn rather than drawn empty, which is the two libraries'
+          // shape and is here for the records screen's reason: `historyEmpty` tells a
+          // lifter their finished workouts will be listed here, and under a walk that
+          // failed that is a claim about a database nothing has managed to read. The
+          // heading is drawn in its place because `ptk-workout-history` owns the one
+          // this section normally has, and a section that loses its heading when it has
+          // bad news to give is a section a reader arrives in the middle of.
+          this.historyUnreadable
+            ? html`<h2>${HOME_NOTES.historyHeading}</h2>`
+            : html`<ptk-workout-history
+                .workouts=${this.history}
+                ?busy=${this.active !== null}
+              ></ptk-workout-history>`
+        }
+        <div class="unreadable" role="status">
+          ${
+            this.historyUnreadable
+              ? html`<p class="note trouble">${HOME_NOTES.historyUnreadable}</p>`
+              : nothing
+          }
+        </div>
         <div class="outcome" role="alert">
           ${this.repeatFailed ? html`<p class="note">${HOME_NOTES.repeatFailed}</p>` : nothing}
         </div>
@@ -1896,25 +1946,85 @@ export class PtkTrainingLogbook extends LitElement {
     </div>`;
   }
 
+  /**
+   * The boot read: the settings, the workout in progress and the recent history.
+   *
+   * Two things here are load-bearing and neither is visible from the six call sites.
+   *
+   * The history goes through {@link #readHistory}, which never rejects, so it can no
+   * longer take the other two reads down with it. It stays *inside* the `Promise.all`
+   * rather than moving out behind the libraries: three reads on one round trip is what
+   * makes the storage line an honest signal that the boot read is over, and a suite
+   * whose `mount` waits for that line would otherwise be driving a screen whose history
+   * had not arrived. The libraries are after it for the opposite reason and that is
+   * still right -- see {@link #reloadProfiles}.
+   *
+   * The generation check is the other. Every read here is answered by storage some
+   * milliseconds after it was asked, and the tool is fully usable in between: press
+   * Done, go home, and plan a session inside that window, and the answer taken before
+   * the new session existed would assign `active = null` over it, drop the logging
+   * screen and leave the workout in storage with nothing pointing at it. Four taps for
+   * a lifter and four milliseconds for a test, which is how it was found. So a read
+   * that has been superseded by a write is discarded whole rather than assigned in
+   * pieces -- {@link #generation} says why the counter is bumped where it is.
+   *
+   * The library reads are outside the check on purpose. They are superseded by nothing
+   * a write here can do, and skipping them would leave a discarded boot with no saved
+   * gyms and no custom movements for as long as the tab stayed open.
+   */
   async #reload(): Promise<void> {
     const repository = this.repository;
     if (repository === null) return;
+    const generation = this.#generation;
     const [settings, active, history] = await Promise.all([
       repository.loadSettings(),
       repository.loadActiveWorkout(),
-      repository.listWorkouts({ limit: HISTORY_LIMIT }),
+      this.#readHistory(repository),
     ]);
-    this.settings = settings;
-    this.active = active;
-    this.history = history;
-    this.saveState = repository.durable ? 'saved' : 'unavailable';
-    // A resumed session lands on the logging screen rather than behind a button on
-    // the home one only when the lifter asks. Section 7.2: reopening the tool
-    // mid-workout should not lose the session, and should not assume the reason it
-    // was reopened was to carry on -- somebody checking last week's squats would
-    // otherwise be dropped into today's.
-    if (active === null && this.screen === 'active') this.screen = 'home';
+    if (generation === this.#generation) {
+      this.settings = settings;
+      this.active = active;
+      this.#showHistory(history);
+      this.saveState = repository.durable ? 'saved' : 'unavailable';
+      // A resumed session lands on the logging screen rather than behind a button on
+      // the home one only when the lifter asks. Section 7.2: reopening the tool
+      // mid-workout should not lose the session, and should not assume the reason it
+      // was reopened was to carry on -- somebody checking last week's squats would
+      // otherwise be dropped into today's.
+      if (active === null && this.screen === 'active') this.screen = 'home';
+    }
     await Promise.all([this.#reloadProfiles(), this.#reloadExercises()]);
+  }
+
+  /**
+   * Reads the recent history, on its own and behind a catch.
+   *
+   * Section 9.3's walk, and therefore the read here most likely to meet a record it
+   * cannot parse. It used to be a bare third entry in the `Promise.all` above, which
+   * meant one bad row rejected the boot read as a unit and took the settings and the
+   * workout in progress with it: a blank tool, with the JSON backup a lifter would
+   * reach for behind the same blank screen. That is {@link #reloadProfiles}' argument
+   * exactly, and the history was on the wrong side of the line it draws.
+   *
+   * `null` and not an empty list, because the two are different sentences and only one
+   * of them is true -- see `HOME_NOTES.historyUnreadable`. The `catch` is not a
+   * swallow: {@link #showHistory} is what says so on screen, and section 2.4 forbids
+   * the version of this that only returns `[]`.
+   */
+  async #readHistory(
+    repository: TrainingLogbookRepository,
+  ): Promise<readonly WorkoutSummary[] | null> {
+    try {
+      return await repository.listWorkouts({ limit: HISTORY_LIMIT });
+    } catch {
+      return null;
+    }
+  }
+
+  /** The list and the sentence, set together so neither can be left saying the other. */
+  #showHistory(history: readonly WorkoutSummary[] | null): void {
+    this.history = history ?? [];
+    this.historyUnreadable = history === null;
   }
 
   /**
@@ -1972,6 +2082,10 @@ export class PtkTrainingLogbook extends LitElement {
    */
   async #saveSettings(settings: LogbookSettings): Promise<void> {
     this.settings = settings;
+    // Before the durability guard, and for the same reason `#persist`'s is where it
+    // is: the line above is what makes a boot read stale, whether or not the write
+    // that follows it goes anywhere. See {@link #generation}.
+    this.#generation += 1;
     const repository = this.repository;
     if (repository?.durable !== true) return;
     this.saveState = 'unsaved';
@@ -2890,6 +3004,10 @@ export class PtkTrainingLogbook extends LitElement {
    * time.
    */
   async #persist(session: WorkoutSession, kind: PersistKind): Promise<void> {
+    // Here and not in `#write`, which runs a chain later: what supersedes a read in
+    // flight is the caller having already assigned the session above this line, not
+    // the database agreeing to it. See {@link #generation}.
+    this.#generation += 1;
     const write = this.#writing.then(async () => this.#write(session, kind));
     // Held even when it fails, so a later reader waits for the attempt rather than
     // skipping past it. `#write` reports failure on the screen and never rejects.
@@ -2937,10 +3055,19 @@ export class PtkTrainingLogbook extends LitElement {
     await this.#refreshHistory();
   }
 
+  /**
+   * The same read as the boot one, through the same catch and the same two fields.
+   *
+   * Not a second `listWorkouts` of its own. This one runs off the back of a write, so
+   * an uncaught rejection here is a promise nobody is holding as well as a list that
+   * silently stops matching the database -- the lifter finishes a session, lands on the
+   * home screen, and the workout they just did is not in the list with nothing saying
+   * why.
+   */
   async #refreshHistory(): Promise<void> {
     const repository = this.repository;
     if (repository === null) return;
-    this.history = await repository.listWorkouts({ limit: HISTORY_LIMIT });
+    this.#showHistory(await this.#readHistory(repository));
   }
 
   /**
