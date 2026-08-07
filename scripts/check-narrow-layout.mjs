@@ -1948,6 +1948,90 @@ const LOGBOOK_HANDOFF_SEED = `
 const LOGBOOK_HANDOFF_SETTLE = ['ptk-training-logbook .offer li', 'ptk-training-logbook p.save'];
 
 /**
+ * Switch the rest timer on, which is what makes everything below it exist.
+ *
+ * Section 7.11 leaves the feature optional and it defaults off, so a route that
+ * skipped this press would walk a whole session and measure a logging screen with
+ * no band on it -- which is the screen five other logbook routes already measure.
+ *
+ * Reached by the words in the segment for `LOGBOOK_EFFORT_CLICK`'s reason and with
+ * the same reservation attached: `ptk-segmented` puts the value on the input as a
+ * property, where no selector can see it, so the visible text is all there is.
+ * Qualified through `[data-field="rest-setting"]` because the settings section now
+ * holds three of these bars and `tap` takes `.first()` -- unqualified, this would
+ * answer the unit question instead, silently, since "On" is not a word either of
+ * the other two bars uses and the miss would land on the first bar rather than
+ * failing.
+ */
+const LOGBOOK_REST_CLICK = [
+  'ptk-training-logbook [data-field="rest-setting"] label.segment:has(span:text-is("On"))',
+];
+
+/**
+ * The longest duration the picker offers, by position because that is all `pick`
+ * speaks.
+ *
+ * Index 4 rather than 3: `ptk-select` always draws a placeholder option first, so
+ * the seven presets sit at 1 through 7 and 150 seconds is the fourth of them. Its
+ * label, "2 min 30 s", ties with "1 min 30 s" for the longest the list can hold,
+ * and a select that shrink-wraps takes its closed width from the option chosen
+ * rather than from the widest one available.
+ *
+ * A preset list edited to a different length does not fail silently here: `pick`
+ * reports the option count when the index is past the end, and the settle below
+ * names the control the answer has to have landed in.
+ */
+const LOGBOOK_REST_CHOOSE = [
+  { selector: 'ptk-training-logbook [data-field="rest-duration"] select', index: 4 },
+];
+
+/**
+ * The revealed picker, and the storage line under the whole card.
+ *
+ * The picker is drawn only where the timer is on, so naming it is naming the press
+ * rather than a control that was always there. The save line is named as well
+ * because it lands beneath everything being measured and can still push the card
+ * taller -- `LOGBOOK_REPEAT_SETTLE` names it for the same reason.
+ */
+const LOGBOOK_REST_SETTLE = [
+  'ptk-training-logbook [data-field="rest-duration"] select',
+  'ptk-training-logbook p.save',
+];
+
+/** Switch the timer on, then plan the standard session over it. */
+const LOGBOOK_RESTING_CLICK = [...LOGBOOK_REST_CLICK, ...LOGBOOK_PLAN_CLICK];
+
+/**
+ * Tick one set off, which is the only thing that starts a rest.
+ *
+ * `complete` on its own rather than `LOGBOOK_LOG_CLICK`, whose second press opens
+ * the set editor: that editor is measured by three routes already, and all it would
+ * add here is height under the band this route exists for.
+ */
+const LOGBOOK_RESTING_CLICK_AFTER = [
+  ...LOGBOOK_START,
+  'ptk-active-workout ptk-button[data-action="complete"] button',
+];
+
+/**
+ * The last of the band's five controls, and the row whose tick started it.
+ *
+ * Dismiss is drawn last of the five, so waiting for it waits for the whole wrapping
+ * row rather than for the first button in it. Nothing else in this collection puts
+ * five controls on one line.
+ *
+ * The completed row is the second selector because the band and the card under it
+ * are two elements with two independently scheduled renders, and the arrangement
+ * this route exists to measure is the pair -- a session card pushed down the page by
+ * a band that was not there a moment ago. Waiting on the band alone measures
+ * whichever of the two happens to be later, some of the time.
+ */
+const LOGBOOK_RESTING_SETTLE = [
+  'ptk-training-logbook ptk-rest-timer ptk-button[data-action="dismiss"] button',
+  'ptk-active-workout li[data-set].done',
+];
+
+/**
  * The routes, and what has to happen before each is worth measuring.
  *
  * A path may appear more than once. Platform Targets shows one of two whole
@@ -2679,6 +2763,59 @@ const ROUTES = [
     fillAfter: LOGBOOK_NOTES_FILL_AFTER,
     clickLast: LOGBOOK_NOTES_CLICK_LAST,
     settle: LOGBOOK_NOTES_SETTLE,
+  },
+  {
+    // The settings section with the timer switched on, which is not the card
+    // `/logbook/ (home)` measures: the switch reveals a duration picker that is drawn
+    // nowhere else in the tool. Section 0.4 is why it is revealed rather than disabled,
+    // and the consequence for this file is that the home route measures the section one
+    // full-width control short of its tallest arrangement.
+    //
+    // Its own entry rather than a press folded into the route below, because that route
+    // walks away from the home screen before anything is measured -- the picker is on a
+    // screen no journey ending at the band still has open. The precedent is the effort
+    // route, which correctly declined a home entry because its setting revealed nothing;
+    // this one does.
+    path: '/logbook/',
+    label: '/logbook/ (rest timer settings)',
+    click: LOGBOOK_REST_CLICK,
+    reveal: [],
+    choose: LOGBOOK_REST_CHOOSE,
+    fill: [],
+    settle: LOGBOOK_REST_SETTLE,
+  },
+  {
+    // Section 7.11's band, which is the only thing this tool draws *above* a screen
+    // rather than inside one. That makes its failure mode different from every other
+    // route's: it can be laid out perfectly and still be wrong, by taking enough height
+    // that the set a lifter is standing over goes off the bottom of a 320px handset.
+    // Five controls in one wrapping flex row is more than anything else in the
+    // collection puts on a line, and they are meant to wrap into rows of whole 44px
+    // buttons rather than into a strip that hides the last one.
+    //
+    // The timer defaults off, so the press that switches it on is the first thing in
+    // the list and the whole of what separates this from the logging route.
+    //
+    // What a green run here does not say anything about:
+    //
+    // - The rest running out. Pause comes off the row and "Rest is up." appears in the
+    //   live region beside the heading, which is four controls and a sentence against
+    //   five controls and a blank -- narrower, in a row that already wraps. Reaching it
+    //   means waiting out the shortest preset per pass per width, which is minutes of
+    //   wall clock for an arrangement strictly smaller than the one measured.
+    // - A paused rest. Resume is a character shorter than Pause and the state line holds
+    //   "Paused.", so it is the same trade as above for one more press.
+    // - A ten-minute rest. `clampRestSeconds` allows one and the picker does not offer
+    //   it, so the two-digit clock is only reachable through a restored backup. The
+    //   digits are tabular and the widest preset is already 5:00, so the difference is
+    //   one character in a line that is nowhere near the edge.
+    path: '/logbook/',
+    label: '/logbook/ (resting)',
+    click: LOGBOOK_RESTING_CLICK,
+    reveal: [],
+    fill: LOGBOOK_PLAN_FILL,
+    clickAfter: LOGBOOK_RESTING_CLICK_AFTER,
+    settle: LOGBOOK_RESTING_SETTLE,
   },
   {
     // One entry for the framed copy, the way meet-day gets one: the chrome around

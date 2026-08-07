@@ -77,6 +77,17 @@ export const UNIT_SETTING_FIELD = 'unit-setting';
 export const EFFORT_SETTING_FIELD = 'effort-setting';
 
 /**
+ * The rest timer's two, which are a third segmented control and a picker.
+ *
+ * The switch is named separately from the duration even though only one of them is a
+ * `ptk-segmented`, because the picker's change event carries a value and nothing else
+ * in exactly the same way -- and the day a second picker joins the settings section,
+ * the handler that routed on "it is the select" is the one that breaks quietly.
+ */
+export const REST_SETTING_FIELD = 'rest-setting';
+export const REST_DURATION_FIELD = 'rest-duration';
+
+/**
  * The innermost `data-` value of one key on an event's path, or `null`.
  *
  * Innermost rather than outermost, because a set row sits inside an exercise block and

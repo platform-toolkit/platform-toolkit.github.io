@@ -27,19 +27,22 @@
  *
  * WHAT IS NOT HERE YET, AND IS NOT PRETENDED TO BE
  *
- * Custom exercises, the rest timer, editing history, reading a backup back in,
- * Markdown export and the deletion flow are all later milestones. Section 0.4
- * forbids standing in for them with a disabled control or a "coming soon", so none of
- * them has one: the only thing said about a missing feature is said in prose, where a
- * lifter would otherwise go looking for it -- reading a backup file back in, which is
- * the one a person will hunt for the moment they have downloaded a file.
+ * Reading a backup back in, Markdown export and the deletion flow are later
+ * milestones. Section 0.4 forbids standing in for them with a disabled control or a
+ * "coming soon", so none of them has one: the only thing said about a missing feature
+ * is said in prose, where a lifter would otherwise go looking for it -- reading a
+ * backup file back in, which is the one a person will hunt for the moment they have
+ * downloaded a file.
  */
 
 import { convertWeight, formatWeight, type WeightUnit } from '@platform-toolkit/domain';
 import {
   SEGMENTED_CHANGE_EVENT,
+  SELECT_CHANGE_EVENT,
   type Choice,
   type SegmentedChangeDetail,
+  type SelectChangeDetail,
+  type SelectOption,
 } from '@platform-toolkit/ui';
 import '@platform-toolkit/ui';
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from 'lit';
@@ -58,6 +61,16 @@ import { handoffLifts, workoutFromHandoff } from '../core/handoff.js';
 import type { PreviousPerformance } from '../core/previous.js';
 import type { ExerciseHistory } from '../core/records.js';
 import {
+  REST_STEP_SECONDS,
+  adjustRest,
+  clampRestSeconds,
+  pauseRest,
+  resetRest,
+  resumeRest,
+  startRestFor,
+  type RestTimer,
+} from '../core/rest.js';
+import {
   rampExercise,
   rampLastExercise,
   workingPrescription,
@@ -73,6 +86,7 @@ import {
   createWorkout,
   duplicateSet,
   emptyPerformance,
+  findSet,
   findWorkoutExercise,
   performance,
   removeSet,
@@ -108,13 +122,21 @@ import {
   HANDOFF_NOTES,
   HOME_NOTES,
   RECORDS_NOTES,
+  REST_NOTES,
   SAVE_STATES,
   SAVE_STATE_NOTES,
   UNIT_LABELS,
   formatDuration,
   type SaveState,
 } from './copy.js';
-import { EFFORT_SETTING_FIELD, UNIT_SETTING_FIELD, actionOf, fieldOf } from './dataset.js';
+import {
+  EFFORT_SETTING_FIELD,
+  REST_DURATION_FIELD,
+  REST_SETTING_FIELD,
+  UNIT_SETTING_FIELD,
+  actionOf,
+  fieldOf,
+} from './dataset.js';
 import { formatVolume } from './format.js';
 import {
   BACKUP_EXPORTED_EVENT,
@@ -145,6 +167,7 @@ import {
   type RackChangedDetail,
 } from './ptk-equipment-library.js';
 import { EXERCISE_HISTORY_EVENT, type ExerciseHistoryOpenDetail } from './ptk-exercise-history.js';
+import { REST_ACTION_EVENT, type RestActionDetail } from './ptk-rest-timer.js';
 import {
   EXERCISE_REMOVED_EVENT,
   EXERCISE_SAVED_EVENT,
@@ -225,6 +248,37 @@ const EFFORT_CHOICES: readonly Choice[] = [
   { value: 'rpe', label: EFFORT_SETTING_LABELS.rpe },
   { value: 'rir', label: EFFORT_SETTING_LABELS.rir },
 ];
+
+/** On first, because the control is only reached by somebody looking for the timer. */
+const REST_CHOICES: readonly Choice[] = [
+  { value: 'on', label: REST_NOTES.settingOn },
+  { value: 'off', label: REST_NOTES.settingOff },
+];
+
+/**
+ * The rests a lifter is offered, in seconds.
+ *
+ * A picker and not a number box. Section 7.11 wants a duration, not a stopwatch to
+ * configure, and every one of these is a rest somebody actually takes: a minute between
+ * accessory sets, five between heavy singles. A free number field would put the whole
+ * of `clampRestSeconds` in front of a lifter who wanted three minutes.
+ */
+const REST_PRESET_SECONDS: readonly number[] = [60, 90, 120, 150, 180, 240, 300];
+
+/**
+ * Those presets, plus whatever is actually stored if it is not one of them.
+ *
+ * A restored backup, or a per-exercise duration written by an earlier version, can hold
+ * a number this list does not offer -- and `ptk-select` refuses a value it has no option
+ * for, so the control would paint as unanswered while the timer ran on a duration
+ * nothing on screen admitted to.
+ */
+function restDurationOptions(current: number): readonly SelectOption[] {
+  const seconds = REST_PRESET_SECONDS.includes(current)
+    ? REST_PRESET_SECONDS
+    : [...REST_PRESET_SECONDS, current].sort((left, right) => left - right);
+  return seconds.map((value) => ({ value: String(value), label: REST_NOTES.duration(value) }));
+}
 
 function isUnit(value: string): value is WeightUnit {
   return value === 'kg' || value === 'lb';
@@ -442,6 +496,18 @@ export class PtkTrainingLogbook extends LitElement {
    * reason: a press that reached storage and failed must not look like a press that
    * missed the button.
    */
+  /**
+   * The rest the lifter is taking, or `null` for none. Section 7.11.
+   *
+   * Here rather than on the logging screen, because looking up what a lift went for
+   * last month is a thing done mid-rest -- section 5.5 puts a History button on the
+   * logging screen for exactly that -- and a timer owned by the screen would be
+   * destroyed by the trip. It is deliberately **not** persisted: a rest is thirty
+   * seconds to five minutes long and a session read back tomorrow with a countdown
+   * still on it would be describing a rest that ended yesterday.
+   */
+  @state() private rest: RestTimer | null = null;
+
   @state() private records: ExerciseHistory | null = null;
 
   /**
@@ -500,6 +566,8 @@ export class PtkTrainingLogbook extends LitElement {
     this.addEventListener(SET_PLAN_EVENT, this.#onSetPlan);
     this.addEventListener(WORKOUT_FINISHED_EVENT, this.#onFinished);
     this.addEventListener(SEGMENTED_CHANGE_EVENT, this.#onSetting);
+    this.addEventListener(SELECT_CHANGE_EVENT, this.#onSelectSetting);
+    this.addEventListener(REST_ACTION_EVENT, this.#onRestAction);
     this.addEventListener(RACK_CHANGED_EVENT, this.#onRack);
     this.addEventListener(PROFILE_SAVED_EVENT, this.#onProfileSaved);
     this.addEventListener(PROFILE_APPLIED_EVENT, this.#onProfileApplied);
@@ -518,6 +586,8 @@ export class PtkTrainingLogbook extends LitElement {
     this.removeEventListener(SET_PLAN_EVENT, this.#onSetPlan);
     this.removeEventListener(WORKOUT_FINISHED_EVENT, this.#onFinished);
     this.removeEventListener(SEGMENTED_CHANGE_EVENT, this.#onSetting);
+    this.removeEventListener(SELECT_CHANGE_EVENT, this.#onSelectSetting);
+    this.removeEventListener(REST_ACTION_EVENT, this.#onRestAction);
     this.removeEventListener(RACK_CHANGED_EVENT, this.#onRack);
     this.removeEventListener(PROFILE_SAVED_EVENT, this.#onProfileSaved);
     this.removeEventListener(PROFILE_APPLIED_EVENT, this.#onProfileApplied);
@@ -613,7 +683,22 @@ export class PtkTrainingLogbook extends LitElement {
     return done;
   }
 
+  /**
+   * The rest timer, then whichever screen is showing.
+   *
+   * Above the switch and not inside one of the cases, which is the whole point: the
+   * timer outlives a change of screen. A lifter who taps History between sets comes
+   * back to a rest that kept running, and one who finishes the session has no timer
+   * because there is nothing left to rest for.
+   */
   override render(): TemplateResult {
+    return html`
+      <ptk-rest-timer .timer=${this.rest} .now=${this.now}></ptk-rest-timer>
+      ${this.#screen()}
+    `;
+  }
+
+  #screen(): TemplateResult {
     switch (this.screen) {
       case 'build':
         return this.#buildScreen();
@@ -704,6 +789,28 @@ export class PtkTrainingLogbook extends LitElement {
           html`<p class="note">${EFFORT_SETTING_NOTES[this.settings.effort]}</p>`
         }
         <p class="note">${HOME_NOTES.effortNote}</p>
+        <div data-field=${REST_SETTING_FIELD}>
+          <ptk-segmented
+            label=${REST_NOTES.settingLabel}
+            .choices=${REST_CHOICES}
+            .value=${this.settings.restTimer.enabled ? 'on' : 'off'}
+          ></ptk-segmented>
+        </div>
+        <p class="note">${REST_NOTES.settingNote}</p>
+        ${
+          // The duration only where the timer is on. Section 0.4 forbids a disabled
+          // control standing in for a feature, and a picker that changes nothing is
+          // the same thing with a different excuse.
+          this.settings.restTimer.enabled
+            ? html`<div data-field=${REST_DURATION_FIELD}>
+                <ptk-select
+                  label=${REST_NOTES.durationLabel}
+                  .options=${restDurationOptions(clampRestSeconds(this.settings.restTimer.defaultSeconds))}
+                  .value=${String(clampRestSeconds(this.settings.restTimer.defaultSeconds))}
+                ></ptk-select>
+              </div>`
+            : nothing
+        }
       </section>
 
       <section class="section">
@@ -1302,15 +1409,17 @@ export class PtkTrainingLogbook extends LitElement {
     stopHere(event);
     const { session, completedSetId } = event.detail;
     if (this.editing !== null) {
-      // No `SET_COMPLETED_EVENT`. Section 12.5's event says a set was just done, and
-      // ticking a row on a session from March did not do a set -- section 8's rest
-      // timer hangs off that event, and a correction must not start one.
+      // No `SET_COMPLETED_EVENT`, and no rest. Section 12.5's event says a set was
+      // just done, and ticking a row on a session from March did not do a set --
+      // section 7.11's timer hangs off that event, and a correction must not start
+      // one.
       this.editing = session;
       void this.#persist(session, 'past');
       return;
     }
     this.active = session;
     if (completedSetId !== null) {
+      this.#startRest(session, completedSetId);
       this.dispatchEvent(
         new CustomEvent<SetCompletedDetail>(SET_COMPLETED_EVENT, {
           detail: { workoutId: session.id, setId: completedSetId },
@@ -1401,6 +1510,7 @@ export class PtkTrainingLogbook extends LitElement {
     stopHere(event);
     const { session } = event.detail;
     this.active = null;
+    this.rest = null;
     this.finished = session;
     this.screen = 'done';
     this.backupDone = false;
@@ -1438,6 +1548,101 @@ export class PtkTrainingLogbook extends LitElement {
     if (field === EFFORT_SETTING_FIELD) {
       if (!isEffortSetting(value) || value === this.settings.effort) return;
       void this.#saveSettings({ ...this.settings, effort: value });
+      return;
+    }
+    if (field === REST_SETTING_FIELD) {
+      const enabled = value === 'on';
+      if (enabled === this.settings.restTimer.enabled) return;
+      // Switching the timer off takes the one on screen with it, and no test covers
+      // this line: a rest exists only during a live session, the settings are on the
+      // home screen, and there is no way to the home screen from a live session. So it
+      // is a guard against the day there is one rather than a path a thumb can walk --
+      // leaving a countdown running would be a screen with nothing on it that explains
+      // where the countdown came from. Do not delete it on the strength of a green run,
+      // and do not claim it is tested.
+      if (!enabled) this.rest = null;
+      void this.#saveSettings({
+        ...this.settings,
+        restTimer: { ...this.settings.restTimer, enabled },
+      });
+    }
+  };
+
+  /**
+   * The rest duration, which is the settings section's only picker.
+   *
+   * Routed on `data-field` like the segmented controls beside it, for the reason
+   * `dataset.ts` gives: "it is the select" stops being a routing rule the moment there
+   * are two. A value that is not a number is dropped rather than clamped -- the options
+   * are this element's own and anything else came from a consumer firing the event by
+   * hand, which is not a number to guess at.
+   */
+  readonly #onSelectSetting = (event: CustomEvent<SelectChangeDetail>): void => {
+    stopHere(event);
+    if (fieldOf(event) !== REST_DURATION_FIELD) return;
+    const { value } = event.detail;
+    if (value === null) return;
+    const seconds = Number.parseInt(value, 10);
+    if (!Number.isInteger(seconds)) return;
+    const defaultSeconds = clampRestSeconds(seconds);
+    if (defaultSeconds === this.settings.restTimer.defaultSeconds) return;
+    // The running rest is deliberately left alone. This says how long the *next* rest
+    // is, and rewriting the one in progress would move the end of a rest the lifter is
+    // already taking -- section 7.11 has a Start again button for that, and it is a
+    // press rather than a side effect of a setting three screens away.
+    void this.#saveSettings({
+      ...this.settings,
+      restTimer: { ...this.settings.restTimer, defaultSeconds },
+    });
+  };
+
+  /**
+   * A set was ticked off, so the rest for that lift begins.
+   *
+   * The exercise is looked up rather than passed down, because the logging screen
+   * reports the set and the duration hangs off the movement. A set that is somehow not
+   * in the session it came with leaves the previous timer alone: a rest of the wrong
+   * length is worse than the one already running, and this is a path nothing reaches by
+   * ordinary use.
+   */
+  #startRest(session: WorkoutSession, completedSetId: LogbookId): void {
+    const found = findSet(session, completedSetId);
+    if (found === null) return;
+    this.rest = startRestFor(this.settings.restTimer, found.exercise.exerciseId, this.now());
+  }
+
+  /**
+   * One of the rest timer's controls.
+   *
+   * Applied here because the timer is this element's state; `ptk-rest-timer` names the
+   * press and computes nothing. Dismiss is the only one that ends the rest, and it ends
+   * it whether or not it had run out -- a lifter pressing Done resting has finished
+   * resting.
+   */
+  readonly #onRestAction = (event: CustomEvent<RestActionDetail>): void => {
+    stopHere(event);
+    const timer = this.rest;
+    if (timer === null) return;
+    const at = this.now();
+    switch (event.detail.action) {
+      case 'pause':
+        this.rest = pauseRest(timer, at);
+        return;
+      case 'resume':
+        this.rest = resumeRest(timer, at);
+        return;
+      case 'extend':
+        this.rest = adjustRest(timer, REST_STEP_SECONDS, at);
+        return;
+      case 'shorten':
+        this.rest = adjustRest(timer, -REST_STEP_SECONDS, at);
+        return;
+      case 'reset':
+        this.rest = resetRest(timer, at);
+        return;
+      case 'dismiss':
+        this.rest = null;
+        return;
     }
   };
 

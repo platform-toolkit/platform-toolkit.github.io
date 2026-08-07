@@ -85,6 +85,7 @@ import {
   HISTORY_NOTES,
   HOME_NOTES,
   RECORDS_NOTES,
+  REST_NOTES,
   SAVE_STATES,
   SAVE_STATE_NOTES,
   UNIT_LABELS,
@@ -92,6 +93,8 @@ import {
 import {
   DONE_EFFORT_FIELD,
   EFFORT_SETTING_FIELD,
+  REST_DURATION_FIELD,
+  REST_SETTING_FIELD,
   UNIT_SETTING_FIELD,
   WORKOUT_NOTE_KEY,
   exerciseNoteKey,
@@ -107,6 +110,7 @@ import { NOT_SET } from './format.js';
 import { defineTrainingLogbook } from './index.js';
 import { planProblem } from './plan.js';
 import { WORKOUT_CHANGED_EVENT } from './ptk-active-workout.js';
+import type { PtkRestTimer } from './ptk-rest-timer.js';
 import type { PtkTrainingLogbook } from './ptk-training-logbook.js';
 
 /** The lifter's own day. Invented, and the same one the core fixtures use. */
@@ -1128,6 +1132,96 @@ function countingSettings(store: LogbookStore): {
 /** The editor's effort box, wherever the logging screen has drawn one. */
 function effortBoxes(root: DocumentFragment | HTMLElement): HTMLElement[] {
   return deepAll(root, `[data-field="${DONE_EFFORT_FIELD}"]`);
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * The rest between sets. Section 7.11.
+ * ---------------------------------------------------------------------------
+ */
+
+/**
+ * The timer element, which the root draws above every screen and not inside one.
+ *
+ * Reached through `querySelector` rather than `deepAll` because everything below waits
+ * on its `updateComplete`, and that needs the element's own type. It is a child of the
+ * root's shadow root, so one hop finds it.
+ */
+function restTimer(element: PtkTrainingLogbook): PtkRestTimer {
+  const found = shadow(element).querySelector('ptk-rest-timer');
+  if (found === null) throw new Error('The tool is drawing no rest timer at all.');
+  return found;
+}
+
+/**
+ * The rest on screen, or `null` where there is none -- once the timer has caught up.
+ *
+ * The await is the whole reason this is a function rather than a selector. The root
+ * owns the timer and assigns it down a property, so the child's render is scheduled by
+ * the root's and `settle` returns one update too early: every assertion here would
+ * otherwise be made against the rest as it was before the press.
+ */
+async function restBand(element: PtkTrainingLogbook): Promise<HTMLElement | null> {
+  const timer = restTimer(element);
+  await timer.updateComplete;
+  return deepAll(shadow(timer), '.rest')[0] ?? null;
+}
+
+/** What the timer reads, in the digits a sighted lifter sees. */
+async function restDigits(element: PtkTrainingLogbook): Promise<string> {
+  const band = await restBand(element);
+  if (band === null) throw new Error('There is no rest on screen.');
+  const shown = band.querySelector('.clock span[aria-hidden="true"]');
+  if (shown === null) throw new Error('The rest timer is drawing no clock.');
+  return shown.textContent.trim();
+}
+
+/** Presses one of the timer's own controls. */
+async function pressRest(element: PtkTrainingLogbook, action: string): Promise<void> {
+  const band = await restBand(element);
+  if (band === null) throw new Error(`There is no rest on screen to ${action}.`);
+  nativeButton(control(band, action)).click();
+  await settle(element);
+}
+
+/**
+ * Moves the clock the tool reads, and repaints the timer.
+ *
+ * Through `visibilitychange`, which is a path the timer really has and really needs.
+ * Waiting for its own 250ms interval would put the wall clock into every case below and
+ * three real minutes into the one about a rest running out, and a case that slept would
+ * be asserting the sampling rate rather than the arithmetic.
+ */
+async function waitOut(element: PtkTrainingLogbook, seconds: number): Promise<void> {
+  clock = new Date(Date.parse(clock) + seconds * 1000).toISOString();
+  document.dispatchEvent(new Event('visibilitychange'));
+  await restTimer(element).updateComplete;
+}
+
+/** The duration picker, which the settings section draws only where the timer is on. */
+function restDurationPickers(element: PtkTrainingLogbook): HTMLElement[] {
+  return deepAll(shadow(element), `[data-field="${REST_DURATION_FIELD}"] ptk-select`);
+}
+
+/** Answers the duration picker the way the platform's own list does. */
+async function chooseRestDuration(element: PtkTrainingLogbook, seconds: number): Promise<void> {
+  const host = restDurationPickers(element)[0];
+  if (host === undefined) throw new Error('The rest duration picker is not on screen.');
+  const select = shadow(host).querySelector('select');
+  if (select === null) throw new Error('The duration picker has not rendered.');
+  select.value = String(seconds);
+  // `change` and not `input`: a native select reports on change, which is also the one
+  // event `ptk-select` listens for.
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  await settle(element);
+}
+
+/** Switches the timer on and waits for the answer to reach storage. */
+async function useRestTimer(element: PtkTrainingLogbook, store: LogbookStore): Promise<void> {
+  await chooseSetting(element, REST_SETTING_FIELD, 'on');
+  await vi.waitFor(async () => {
+    expect((await store.readSettings())?.restTimer.enabled).toBe(true);
+  });
 }
 
 describe('the training logbook', () => {
@@ -2657,6 +2751,192 @@ describe('the training logbook', () => {
       expect(text).not.toContain(EFFORT_FIELD_LABELS.rpe);
       expect(text).not.toContain(EFFORT_FIELD_LABELS.rir);
     });
+  });
+
+  describe('the rest between sets', () => {
+    it('offers no duration until the timer is switched on', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+
+      // Off for a lifter who has never answered it, and the picker absent rather than
+      // greyed out -- root 0.4 forbids a disabled control standing in for a feature,
+      // and a picker that changes nothing is the same thing with a better excuse.
+      expect(chosenSetting(element, REST_SETTING_FIELD)).toBe('off');
+      expect(restDurationPickers(element)).toHaveLength(0);
+      // And the section says what the timer does not do. A lifter who expects a buzz
+      // in their pocket finds out at the rack.
+      expect(readAll(element)).toContain(REST_NOTES.settingNote);
+
+      await useRestTimer(element, store);
+      expect(restDurationPickers(element)).toHaveLength(1);
+    });
+
+    it('draws no rest at all for a lifter who has the timer off', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await planASquatSession(element);
+
+      await press(element, 'complete', setRow(element, 0));
+
+      // The set was done, so the absence below is the setting and not a tick that
+      // failed to land.
+      expect(isDone(setRow(element, 0))).toBe(true);
+      expect(await restBand(element)).toBeNull();
+    });
+
+    it('starts the rest the moment a set is ticked off', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await useRestTimer(element, store);
+      await planASquatSession(element);
+
+      await press(element, 'complete', setRow(element, 0));
+
+      expect(await restDigits(element)).toBe('3:00');
+      await waitOut(element, 61);
+      expect(await restDigits(element)).toBe('1:59');
+    });
+
+    it('rests for as long as the lifter asked, and remembers it', async () => {
+      const { store, databaseName } = await durableStore();
+      const first = await mount(store);
+      await useRestTimer(first, store);
+
+      await chooseRestDuration(first, 90);
+      await vi.waitFor(async () => {
+        expect((await store.readSettings())?.restTimer.defaultSeconds).toBe(90);
+      });
+
+      // The refresh. A duration that only moved the control's own property satisfies
+      // every assertion made against the screen it is on and is gone by the next
+      // session, which for a preference is the first time it is read.
+      first.remove();
+      store.close();
+      const second = await mount(await reopen(databaseName));
+      await planASquatSession(second);
+      await press(second, 'complete', setRow(second, 0));
+
+      expect(await restDigits(second)).toBe('1:30');
+    });
+
+    it('says the rest is up rather than counting past it', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await useRestTimer(element, store);
+      await planASquatSession(element);
+      await press(element, 'complete', setRow(element, 0));
+
+      await waitOut(element, 200);
+
+      expect(await restDigits(element)).toBe('0:00');
+      expect(readAll(element)).toContain(REST_NOTES.up);
+    });
+
+    it('keeps the rest running while the lifter reads a lift back', async () => {
+      // The reason the timer is the root's state and is drawn above the screen switch
+      // rather than inside the logging screen. Looking last week's numbers up between
+      // sets is one of the reasons the logbook is out at the rack at all, and a rest
+      // that ended because somebody checked is a rest the tool lost.
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await useRestTimer(element, store);
+      await planASquatSession(element);
+      await press(element, 'complete', setRow(element, 0));
+      await waitOut(element, 30);
+
+      await openHistory(element, shadow(element));
+
+      expect(deepAll(shadow(element), 'ptk-active-workout')).toHaveLength(0);
+      expect(await restDigits(element)).toBe('2:30');
+    });
+
+    it('takes thirty seconds off and puts them back', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await useRestTimer(element, store);
+      await planASquatSession(element);
+      await press(element, 'complete', setRow(element, 0));
+
+      await pressRest(element, 'shorten');
+      expect(await restDigits(element)).toBe('2:30');
+      await pressRest(element, 'extend');
+      expect(await restDigits(element)).toBe('3:00');
+    });
+
+    it('holds a paused rest still while the clock runs on', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await useRestTimer(element, store);
+      await planASquatSession(element);
+      await press(element, 'complete', setRow(element, 0));
+
+      await pressRest(element, 'pause');
+      await waitOut(element, 120);
+      expect(await restDigits(element)).toBe('3:00');
+
+      // And it picks up where it stopped rather than from the top: a resume that
+      // restarted the rest would cost two minutes nobody asked for, on the one screen
+      // where the number is the whole point.
+      await pressRest(element, 'resume');
+      await waitOut(element, 60);
+      expect(await restDigits(element)).toBe('2:00');
+    });
+
+    it('takes the rest away when the lifter says they are done resting', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await useRestTimer(element, store);
+      await planASquatSession(element);
+      await press(element, 'complete', setRow(element, 0));
+
+      await pressRest(element, 'dismiss');
+
+      expect(await restBand(element)).toBeNull();
+      // The set stays done. Dismissing a rest is not taking back the set that began it,
+      // and the two controls sit one card apart.
+      expect(isDone(setRow(element, 0))).toBe(true);
+    });
+
+    it('stops timing when the workout is finished', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await useRestTimer(element, store);
+      await planASquatSession(element);
+      await press(element, 'complete', setRow(element, 0));
+
+      await press(element, 'finish');
+      await choose(element, 'ptk-choice-group', 'skip');
+      await press(element, 'finish-confirm');
+
+      // A countdown left on the summary screen is a rest between the last set and
+      // nothing.
+      expect(await restBand(element)).toBeNull();
+    });
+
+    it('does not time a correction to a workout in the history', async () => {
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      const element = await mount(store);
+      await useRestTimer(element, store);
+      await edit(element, source.id);
+
+      // Untick and tick again, because everything in a finished session is already
+      // done. Section 12.5's event says a set was *just done*, the timer hangs off that
+      // event, and ticking a row on a session from February did not do a set.
+      await press(element, 'undo', workingRow(element, 0));
+      await press(element, 'complete', workingRow(element, 0));
+
+      expect(isDone(workingRow(element, 0))).toBe(true);
+      expect(await restBand(element)).toBeNull();
+    });
+
+    /*
+     * There is deliberately no case for switching the timer off mid-rest. A rest
+     * exists only during a live session and the settings are on the home screen, which
+     * a live session has no way to -- and `reportSetting` cannot stand in for the
+     * press, because `#onSetting` routes on a `data-field` that is only in the event's
+     * path when the control itself is on screen. The guard in the root says as much.
+     */
   });
 
   describe('when the browser will not store anything', () => {

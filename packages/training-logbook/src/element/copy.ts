@@ -973,6 +973,66 @@ export const RECORDS_NOTES = {
   back: 'Back to the workout',
 } as const;
 
+/**
+ * The sentences the rest timer says. Section 7.11.
+ *
+ * Short, because every one of them is read between sets by somebody who is about to
+ * lift again. There is no encouragement here and no instruction about how long to rest:
+ * the number is the lifter's, the tool only counts it.
+ */
+export const REST_NOTES = {
+  heading: 'Rest',
+
+  /** Named, because a bare countdown on a training screen could be several things. */
+  label: 'Rest timer',
+
+  pause: 'Pause',
+  resume: 'Resume',
+  reset: 'Start again',
+  dismiss: 'Done resting',
+
+  /**
+   * Signed rather than named, so the pair reads as one control with two directions.
+   * The number comes from `REST_STEP_SECONDS` and is written into the label at render,
+   * because two constants for one step is how they drift apart.
+   */
+  extend: (seconds: number): string => `+${String(seconds)}s`,
+  shorten: (seconds: number): string => `-${String(seconds)}s`,
+
+  extendName: (seconds: number): string => `Add ${String(seconds)} seconds`,
+  shortenName: (seconds: number): string => `Take off ${String(seconds)} seconds`,
+
+  /** The one thing worth interrupting a screen reader for, and the only live region. */
+  up: 'Rest is up.',
+
+  paused: 'Paused.',
+
+  settingLabel: 'Rest timer',
+  settingOn: 'On',
+  settingOff: 'Off',
+
+  /**
+   * Why the timer is a clock and not an alarm, said where it is switched on.
+   *
+   * Section 7.11 leaves a sound or a buzz optional and there is none yet, so a lifter
+   * who switches this on and puts the phone away would otherwise wait for a noise that
+   * is never coming.
+   */
+  settingNote:
+    'Starts counting after each set you tick off. It does not make a sound or buzz -- you have to look.',
+
+  durationLabel: 'Rest for',
+
+  /** A duration as an option label: "3 min", "2 min 30 s". */
+  duration: (seconds: number): string => {
+    const minutes = Math.floor(seconds / 60);
+    const rest = seconds % 60;
+    if (minutes === 0) return `${String(rest)} s`;
+    if (rest === 0) return `${String(minutes)} min`;
+    return `${String(minutes)} min ${String(rest)} s`;
+  },
+} as const;
+
 /** A duration in the words a session is talked about in. */
 export function formatDuration(millis: number): string {
   const minutes = Math.round(millis / 60_000);
@@ -980,4 +1040,42 @@ export function formatDuration(millis: number): string {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
   return rest === 0 ? `${String(hours)} h` : `${String(hours)} h ${String(rest)} min`;
+}
+
+/**
+ * A rest as `m:ss`, which is the only place in this tool a colon means a duration.
+ *
+ * Rounded up rather than down, so a rest of three minutes reads 3:00 for its first
+ * second instead of 2:59, and 0:00 means the rest is actually over rather than under a
+ * second from it. The alternative puts a lifter back at the bar a second early every
+ * time and makes the last second of every rest invisible.
+ *
+ * Not {@link formatDuration}, which rounds to whole minutes: "3 min" is how a session
+ * is talked about afterwards and is useless to somebody watching one run out.
+ */
+export function formatRest(millis: number): string {
+  const total = Math.max(0, Math.ceil(millis / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${String(minutes)}:${String(seconds).padStart(2, '0')}`;
+}
+
+/**
+ * The same rest in words, for the reader that cannot see the colon.
+ *
+ * "0:45" is announced as zero, colon, forty-five by some engines and as forty-five by
+ * others, and neither is a length of time. This is rendered beside the digits and
+ * hidden from sight -- **not** in a live region, so it is read when somebody navigates
+ * to the timer and never announced on its own. A countdown that announced itself would
+ * talk over everything else on the device once a second.
+ */
+export function formatRestSpoken(millis: number): string {
+  const total = Math.max(0, Math.ceil(millis / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  const minutePart = minutes === 1 ? '1 minute' : `${String(minutes)} minutes`;
+  const secondPart = seconds === 1 ? '1 second' : `${String(seconds)} seconds`;
+  if (minutes === 0) return `${secondPart} left`;
+  if (seconds === 0) return `${minutePart} left`;
+  return `${minutePart} ${secondPart} left`;
 }

@@ -25,6 +25,7 @@ import { ACTIVE_WORKOUT_TAG, PtkActiveWorkout } from './ptk-active-workout.js';
 import { EQUIPMENT_LIBRARY_TAG, PtkEquipmentLibrary } from './ptk-equipment-library.js';
 import { EXERCISE_HISTORY_TAG, PtkExerciseHistory } from './ptk-exercise-history.js';
 import { EXERCISE_LIBRARY_TAG, PtkExerciseLibrary } from './ptk-exercise-library.js';
+import { PtkRestTimer, REST_TIMER_TAG } from './ptk-rest-timer.js';
 import { PtkTrainingLogbook, TRAINING_LOGBOOK_TAG } from './ptk-training-logbook.js';
 import { PtkWorkoutBuilder, WORKOUT_BUILDER_TAG } from './ptk-workout-builder.js';
 import { PtkWorkoutDetail, WORKOUT_DETAIL_TAG } from './ptk-workout-detail.js';
@@ -39,10 +40,12 @@ export {
   PtkEquipmentLibrary,
   PtkExerciseHistory,
   PtkExerciseLibrary,
+  PtkRestTimer,
   PtkTrainingLogbook,
   PtkWorkoutBuilder,
   PtkWorkoutDetail,
   PtkWorkoutHistory,
+  REST_TIMER_TAG,
   TRAINING_LOGBOOK_TAG,
   WORKOUT_BUILDER_TAG,
   WORKOUT_DETAIL_TAG,
@@ -69,6 +72,7 @@ export {
   type RackChangedDetail,
 } from './ptk-equipment-library.js';
 export { EXERCISE_HISTORY_EVENT, type ExerciseHistoryOpenDetail } from './ptk-exercise-history.js';
+export { REST_ACTION_EVENT, type RestAction, type RestActionDetail } from './ptk-rest-timer.js';
 export {
   EXERCISE_REMOVED_EVENT,
   EXERCISE_SAVED_EVENT,
@@ -109,6 +113,7 @@ export {
   LOADING_LABELS,
   LOADING_NOTES,
   RECORDS_NOTES,
+  REST_NOTES,
   SAVE_STATES,
   SAVE_STATE_NOTES,
   SET_KINDS,
@@ -117,6 +122,8 @@ export {
   WARMUP_FAMILY_LABELS,
   WORKOUT_STATUSES,
   formatDuration,
+  formatRest,
+  formatRestSpoken,
   type SaveState,
 } from './copy.js';
 
@@ -150,6 +157,7 @@ const ELEMENTS: readonly (readonly [string, typeof LitElement])[] = [
   [EQUIPMENT_LIBRARY_TAG, PtkEquipmentLibrary],
   [EXERCISE_HISTORY_TAG, PtkExerciseHistory],
   [EXERCISE_LIBRARY_TAG, PtkExerciseLibrary],
+  [REST_TIMER_TAG, PtkRestTimer],
   [WORKOUT_BUILDER_TAG, PtkWorkoutBuilder],
   [WORKOUT_DETAIL_TAG, PtkWorkoutDetail],
   [WORKOUT_HISTORY_TAG, PtkWorkoutHistory],
