@@ -42,6 +42,14 @@ import { SEGMENTED_CHANGE_EVENT, type SegmentedChangeDetail } from '@platform-to
 import axe from 'axe-core';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  BACKUP_SCHEMA_VERSION,
+  MAX_BACKUP_BYTES,
+  readBackup,
+  serializeBackup,
+  type RestoreProblemCode,
+  type TrainingLogbookBackup,
+} from '../core/backup.js';
 import { CATALOG_EXERCISES, PRIMARY_EXERCISES, findExercise } from '../core/catalog.js';
 import { AT_LATER, AT_START, ON_DAY } from '../core/context.fixture.js';
 import { createHandoff } from '../core/handoff.js';
@@ -59,7 +67,11 @@ import type { HandoffSource } from '../handoff.js';
 import { indexedDbLogbookStore } from '../storage/indexed-db.js';
 import { memoryLogbookStore } from '../storage/memory.js';
 import type { LogbookStore } from '../storage/port.js';
-import { createRepository, defaultSettings } from '../storage/repository.js';
+import {
+  createRepository,
+  defaultSettings,
+  type TrainingLogbookRepository,
+} from '../storage/repository.js';
 import type {
   CalendarDay,
   EquipmentSnapshot,
@@ -85,6 +97,8 @@ import {
   HISTORY_NOTES,
   HOME_NOTES,
   RECORDS_NOTES,
+  RESTORE_NOTES,
+  RESTORE_REFUSALS,
   REST_NOTES,
   SAVE_STATES,
   SAVE_STATE_NOTES,
@@ -102,6 +116,7 @@ import {
 } from './dataset.js';
 import {
   BACKUP_EXPORTED_EVENT,
+  BACKUP_RESTORED_EVENT,
   SET_COMPLETED_EVENT,
   WORKOUT_COMPLETED_EVENT,
   WORKOUT_SAVED_EVENT,
@@ -1258,6 +1273,135 @@ async function useRestTimer(element: PtkTrainingLogbook, store: LogbookStore): P
   await vi.waitFor(async () => {
     expect((await store.readSettings())?.restTimer.enabled).toBe(true);
   });
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Backups, and the file picker that reads one back. Section 10.7.
+ * ---------------------------------------------------------------------------
+ */
+
+/** The title on the seeded session in progress. Its own, so it cannot be confused. */
+const ACTIVE_TITLE = 'Invented Thursday, part way through';
+
+/**
+ * A session in progress in the store, as a page closed mid-workout would leave one.
+ *
+ * Its own identifier prefix, for `seedRepeatable`'s reason: a seeded workout sharing an
+ * identifier with a live one is overwritten by that session's first save.
+ */
+async function seedActive(store: LogbookStore): Promise<WorkoutSession> {
+  let next = 0;
+  const context: SessionContext = {
+    at: AT_START,
+    nextId: (): LogbookId => {
+      next += 1;
+      return `mid-${String(next)}`;
+    },
+  };
+  let session = createWorkout(context, { localDate: TODAY, title: ACTIVE_TITLE });
+  session = addExercise(session, context, {
+    exerciseId: SQUAT.id,
+    displayName: SQUAT.name,
+    loading: SQUAT.loading,
+    plan: [
+      {
+        kind: 'working',
+        performance: performance(
+          { kind: 'implement', weight: { amount: REPEATED_WEIGHT, unit: 'kg' } },
+          REPEATED_REPS,
+        ),
+      },
+    ],
+  });
+  session = startWorkout(session, context);
+  await store.writeWorkout(session, { kind: 'set' });
+  return session;
+}
+
+/**
+ * A backup document, written by the same code the download button uses.
+ *
+ * Built out of a real store and a real repository rather than out of a literal: what
+ * the restore path has to accept is whatever the export path writes, and a hand-written
+ * fixture is a second opinion about that which drifts the first time either moves.
+ */
+async function aBackup(
+  seed?: (store: LogbookStore) => Promise<unknown>,
+): Promise<TrainingLogbookBackup> {
+  const store = memoryLogbookStore();
+  await seed?.(store);
+  const repository = createRepository(store, {
+    now: () => clock,
+    applicationVersion: VERSION,
+  });
+  return repository.exportSnapshot();
+}
+
+function fileOf(text: string): File {
+  return new File([text], 'backup.json', { type: 'application/json' });
+}
+
+/** The same document, as a thing a lifter picked off their disk. */
+async function aBackupFile(seed?: (store: LogbookStore) => Promise<unknown>): Promise<File> {
+  return fileOf(serializeBackup(await aBackup(seed)));
+}
+
+/** The clipped input the Restore button stands in for. Only on the home screen. */
+function fileInput(element: PtkTrainingLogbook): HTMLInputElement {
+  const input = shadow(element).querySelector('input[type=file]');
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error('This screen is drawing no file input.');
+  }
+  return input;
+}
+
+/**
+ * Hands the tool a file the way the picker does.
+ *
+ * Through a `DataTransfer`, because `files` cannot be assigned any other way, and the
+ * `change` is dispatched at the input rather than at the host because that is where the
+ * handler is bound and `currentTarget` is what it reads.
+ */
+async function chooseFile(element: PtkTrainingLogbook, file: File): Promise<void> {
+  const input = fileInput(element);
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  input.files = transfer.files;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  await element.updateComplete;
+}
+
+/**
+ * Waits for a sentence to reach the screen.
+ *
+ * Polled, and not counted in macrotasks: reading a file settles on its own task source
+ * in its own time, and a fixed number of ticks is the kind of thing that holds on one
+ * machine for months and then does not.
+ */
+async function waitForText(element: PtkTrainingLogbook, text: string): Promise<void> {
+  await vi.waitFor(async () => {
+    await element.updateComplete;
+    expect(readAll(element)).toContain(text);
+  }, STORAGE_WAIT);
+}
+
+/**
+ * Mounts a swapped repository under a tool that is already up.
+ *
+ * Section 10.7's steps 8 and 10 are about a write that does not land, and neither
+ * IndexedDB nor the memory store can be told to fail on demand -- so the failure goes in
+ * at the seam the element actually calls. Assigning `repository` reloads, which is why
+ * this settles before it returns.
+ */
+async function withRepository(
+  element: PtkTrainingLogbook,
+  swap: (repository: TrainingLogbookRepository) => TrainingLogbookRepository,
+): Promise<void> {
+  const repository = element.repository;
+  if (repository === null) throw new Error('This tool was mounted without a repository.');
+  element.repository = swap(repository);
+  await settle(element);
 }
 
 describe('the training logbook', () => {
@@ -3075,6 +3219,236 @@ describe('the training logbook', () => {
     });
   });
 
+  describe('reading a backup back in', () => {
+    /**
+     * The button, and not the input, is what a lifter can see.
+     *
+     * The click is cancelled inside the listener on purpose: an uncancelled one on a
+     * file input opens a native picker, which is a window no test can close.
+     */
+    it('opens the picker from the button standing in for the input', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+      let clicks = 0;
+      fileInput(element).addEventListener('click', (event: Event) => {
+        clicks += 1;
+        event.preventDefault();
+      });
+
+      await press(element, 'restore-pick');
+
+      expect(clicks).toBe(1);
+    });
+
+    it('shows what the file holds, and writes nothing until it is confirmed', async () => {
+      const file = await aBackupFile(seedRepeatable);
+      const { store } = await durableStore();
+      const element = await mount(store);
+
+      await chooseFile(element, file);
+      await waitForText(element, RESTORE_NOTES.heading);
+
+      const text = readAll(element);
+      expect(text).toContain(RESTORE_NOTES.warning);
+      // The span and a session title, which are the two things a lifter recognises a
+      // file by. Counts alone describe a great many files.
+      expect(text).toContain(RESTORE_NOTES.span(REPEATED_DAY, REPEATED_DAY));
+      expect(text).toContain(REPEATED_TITLE);
+      // And the device is untouched, which is the whole reason there is a screen
+      // between the picker and the write.
+      expect(await store.readWorkouts()).toEqual([]);
+    });
+
+    it('leaves the device alone when the lifter keeps what is here', async () => {
+      const file = await aBackupFile(seedRepeatable);
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await chooseFile(element, file);
+      await waitForText(element, RESTORE_NOTES.heading);
+
+      await press(element, 'restore-cancel');
+
+      expect(readAll(element)).toContain(HOME_NOTES.restore);
+      expect(readAll(element)).not.toContain(RESTORE_NOTES.heading);
+      expect(await store.readWorkouts()).toEqual([]);
+    });
+
+    it('forgets a file it has read, so the same one can be chosen again', async () => {
+      const { store } = await durableStore();
+      const element = await mount(store);
+
+      await chooseFile(element, fileOf('this is a sentence, not a document'));
+      await waitForText(element, RESTORE_REFUSALS['not-json']);
+
+      // A refusal leaves the lifter on the screen they picked from, still holding the
+      // input that read the file -- unlike a restore, which replaces that whole screen
+      // and the input with it. The picker fires `change` only when its value changes,
+      // so an input still holding the file says nothing at all when the lifter mends
+      // the file and picks it again, and the second attempt looks like a tool that
+      // broke.
+      expect(fileInput(element).files?.length ?? 0).toBe(0);
+    });
+
+    it('replaces everything, and says so only once the write has been read back', async () => {
+      const file = await aBackupFile(seedRepeatable);
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await chooseFile(element, file);
+      await waitForText(element, RESTORE_NOTES.heading);
+
+      await press(element, 'restore-confirm');
+      await waitForText(element, RESTORE_NOTES.done);
+
+      const stored = await store.readWorkouts();
+      expect(stored.length).toBe(1);
+      expect(stored[0]?.title).toBe(REPEATED_TITLE);
+      // On screen as well as in the database: a restore that wrote and reloaded
+      // nothing would report a success the lifter cannot see any sign of.
+      expect(readAll(element)).toContain(REPEATED_TITLE);
+    });
+
+    it('names the workout in progress as part of what gets replaced', async () => {
+      const file = await aBackupFile(seedRepeatable);
+      const { store } = await durableStore();
+      await seedActive(store);
+      const element = await mount(store);
+
+      await chooseFile(element, file);
+      await waitForText(element, RESTORE_NOTES.heading);
+
+      // Section 0.4: the control is offered during a session rather than hidden,
+      // because until local data can be cleared there is no other way out of a session
+      // a lifter wants rid of. What it costs is named instead.
+      expect(readAll(element)).toContain(RESTORE_NOTES.activeWarning);
+      expect(readAll(element)).not.toContain(RESTORE_NOTES.fileHasActive);
+    });
+
+    it('says when the session a lifter would carry on with is the one in the file', async () => {
+      const file = await aBackupFile(seedActive);
+      const { store } = await durableStore();
+      const element = await mount(store);
+
+      await chooseFile(element, file);
+      await waitForText(element, RESTORE_NOTES.heading);
+
+      const text = readAll(element);
+      expect(text).toContain(RESTORE_NOTES.fileHasActive);
+      // A backup carrying only an unfinished session holds no workouts, and saying so
+      // is the difference between a restore a lifter meant and one that empties the
+      // history without warning.
+      expect(text).toContain(RESTORE_NOTES.noWorkouts);
+      expect(text).not.toContain(RESTORE_NOTES.activeWarning);
+    });
+
+    it('refuses a file that is not one of its backups, a sentence for each way', async () => {
+      const backup = await aBackup();
+      const { store } = await durableStore();
+      const element = await mount(store);
+
+      const refusals: readonly { readonly file: File; readonly code: RestoreProblemCode }[] = [
+        { file: fileOf('a'.repeat(MAX_BACKUP_BYTES + 1)), code: 'too-large' },
+        { file: fileOf('this is a sentence, not a document'), code: 'not-json' },
+        {
+          file: fileOf(JSON.stringify({ notes: 'training, but not from here' })),
+          code: 'not-a-backup',
+        },
+        {
+          file: fileOf(JSON.stringify({ ...backup, schemaVersion: BACKUP_SCHEMA_VERSION + 1 })),
+          code: 'newer-schema-version',
+        },
+        {
+          file: fileOf(JSON.stringify({ ...backup, data: { ...backup.data, settings: {} } })),
+          code: 'invalid-data',
+        },
+      ];
+
+      // One element down the whole list rather than one each, because the second half
+      // of this is that the previous refusal is gone rather than stacked above the new
+      // one -- and a fresh element every time could not show that.
+      for (const { file, code } of refusals) {
+        await chooseFile(element, file);
+        await waitForText(element, RESTORE_REFUSALS[code]);
+
+        expect(readAll(element)).not.toContain(RESTORE_NOTES.heading);
+        for (const other of refusals) {
+          if (other.code === code) continue;
+          expect(readAll(element)).not.toContain(RESTORE_REFUSALS[other.code]);
+        }
+      }
+
+      expect(await store.readWorkouts()).toEqual([]);
+    });
+
+    /**
+     * Where it stopped, and never what it found there.
+     *
+     * Section 2.3: an error string is the kind of thing that gets pasted into a bug
+     * report, so the diagnostic is a path and has nowhere to put a lifter's numbers.
+     */
+    it('says where in the file it stopped, once, however many fields are wrong', async () => {
+      const backup = await aBackup();
+      const text = JSON.stringify({ ...backup, data: { ...backup.data, settings: {} } });
+      const refused = readBackup(text, text.length);
+      if (refused.ok) throw new Error('A backup with no settings in it was meant to be refused.');
+      const path = refused.problems[0]?.path;
+      if (path === undefined || path === null) {
+        throw new Error('An invalid document was meant to come back with a path.');
+      }
+
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await chooseFile(element, fileOf(text));
+      await waitForText(element, RESTORE_NOTES.path(path));
+
+      // One sentence and not one per field. A file a version out of step can fail on
+      // every set it holds, and four hundred identical sentences is not a report.
+      expect(deepAll(shadow(element), 'p.trouble').length).toBe(1);
+    });
+
+    it('says nothing on the device was changed when the write does not land', async () => {
+      const file = await aBackupFile(seedRepeatable);
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await withRepository(element, (repository) => ({
+        ...repository,
+        replaceFromBackup: () => Promise.reject(new Error('the disk said no')),
+      }));
+
+      await chooseFile(element, file);
+      await waitForText(element, RESTORE_NOTES.heading);
+      await press(element, 'restore-confirm');
+
+      await waitForText(element, RESTORE_NOTES.writeProblem);
+      expect(readAll(element)).not.toContain(RESTORE_NOTES.done);
+      expect(await store.readWorkouts()).toEqual([]);
+    });
+
+    /**
+     * A write that reports success and did not happen.
+     *
+     * The store that throws is handled above. This is the other failure, and the one
+     * the read-back exists for: a restore half of which landed leaves a lifter holding
+     * a device they believe is their training and is not, and the only useful thing to
+     * say about it is to take a backup now, before anything else touches it.
+     */
+    it('tells the lifter to back up now when what came back is not what went in', async () => {
+      const file = await aBackupFile(seedRepeatable);
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await withRepository(element, (repository) => ({
+        ...repository,
+        replaceFromBackup: () => Promise.resolve(),
+      }));
+
+      await chooseFile(element, file);
+      await waitForText(element, RESTORE_NOTES.heading);
+      await press(element, 'restore-confirm');
+
+      await waitForText(element, RESTORE_NOTES.verifyProblem);
+      expect(readAll(element)).not.toContain(RESTORE_NOTES.done);
+    });
+  });
+
   describe('the events a host can listen for', () => {
     it('announces the session as it happens, naming it by identifier only', async () => {
       const started = record(WORKOUT_STARTED_EVENT);
@@ -3172,6 +3546,27 @@ describe('the training logbook', () => {
         await element.updateComplete;
         expect(readAll(element)).toContain(HOME_NOTES.backupDone);
       });
+    });
+
+    it('says how much a restored backup held, and nothing about what was in it', async () => {
+      const restored = record(BACKUP_RESTORED_EVENT);
+
+      const file = await aBackupFile(seedRepeatable);
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await chooseFile(element, file);
+      await waitForText(element, RESTORE_NOTES.heading);
+      await press(element, 'restore-confirm');
+
+      await vi.waitFor(() => {
+        expect(restored.length).toBe(1);
+      });
+      expect(restored[0]).toStrictEqual({ workoutCount: 1 });
+      // Section 12.5 again, and it matters more here than anywhere: this is the one
+      // event fired with a whole logbook in hand.
+      const payload = JSON.stringify(restored);
+      expect(payload).not.toContain(REPEATED_TITLE);
+      expect(payload).not.toContain(SQUAT.name);
     });
   });
 

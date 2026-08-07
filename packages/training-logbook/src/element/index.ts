@@ -93,11 +93,13 @@ export {
 
 export {
   BACKUP_EXPORTED_EVENT,
+  BACKUP_RESTORED_EVENT,
   SET_COMPLETED_EVENT,
   WORKOUT_COMPLETED_EVENT,
   WORKOUT_SAVED_EVENT,
   WORKOUT_STARTED_EVENT,
   type BackupExportedDetail,
+  type BackupRestoredDetail,
   type SetCompletedDetail,
   type WorkoutEventDetail,
 } from './events.js';
@@ -118,6 +120,8 @@ export {
   LOADING_LABELS,
   LOADING_NOTES,
   RECORDS_NOTES,
+  RESTORE_NOTES,
+  RESTORE_REFUSALS,
   REST_NOTES,
   SAVE_STATES,
   SAVE_STATE_NOTES,

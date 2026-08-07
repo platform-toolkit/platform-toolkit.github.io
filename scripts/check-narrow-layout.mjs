@@ -45,6 +45,7 @@
  *
  *   node scripts/check-narrow-layout.mjs        after `pnpm run build`
  */
+import { Buffer } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import process from 'node:process';
@@ -1873,6 +1874,131 @@ const LOGBOOK_NOTES_SETTLE = [
 ];
 
 /**
+ * A backup file, as a lifter's disk would hold one.
+ *
+ * There is no control on the site that produces this screen from an empty
+ * logbook: a backup arrives off a disk, and the picker that reads it opens a
+ * native window nothing here can drive. So the file is handed straight to the
+ * input, and without it the confirmation screen -- the one screen in the tool
+ * whose whole job is to be read carefully before an irreversible press -- would
+ * be measured at no width at all.
+ *
+ * Written out here rather than imported, for `LOGBOOK_HANDOFF_SEED`'s reason:
+ * this file is plain `.mjs` and the package is TypeScript, so the only importable
+ * copy is a build output. Drift is not silent. The screen renders only from a
+ * document the package's own validator accepts, so a field renamed in that
+ * package fails this check loudly rather than quietly measuring the home screen
+ * under a label saying otherwise.
+ *
+ * Two sessions and not one, because the newest-sessions list is a list: a single
+ * row cannot show what a second one does to the line above it. The titles are the
+ * longest a person plausibly types beside a short one, and the second session has
+ * none at all -- the screen writes "Untitled" there, and a column sized to the
+ * long title is not the column that has to hold the short one.
+ *
+ * Every figure is invented (section 5.1).
+ */
+const LOGBOOK_RESTORE_FILE = JSON.stringify({
+  format: 'platform-toolkit-training-logbook-backup',
+  schemaVersion: 1,
+  exportedAt: '2026-03-10T09:00:00.000Z',
+  applicationVersion: '0.0.0-narrow',
+  data: {
+    settings: {
+      schemaVersion: 1,
+      displayUnit: 'kg',
+      effort: 'none',
+      restTimer: { enabled: false, defaultSeconds: 180, perExerciseSeconds: {} },
+      equipment: null,
+      acceptedTerms: {},
+      lastBackupAt: null,
+    },
+    equipmentProfiles: [],
+    exerciseDefinitions: [],
+    activeWorkout: null,
+    workouts: [
+      aRestorableWorkout('older', '2026-02-17', null),
+      aRestorableWorkout('newer', '2026-03-09', 'Tuesday, heavy squats and a long name on it'),
+    ],
+  },
+});
+
+/**
+ * One finished session in that file.
+ *
+ * A function rather than two spelled-out objects: what the list draws is a day and
+ * a title, and everything under those is the same session twice. Two copies of it
+ * written out would be forty lines whose only differences are the three arguments
+ * here.
+ */
+function aRestorableWorkout(prefix, localDate, title) {
+  return {
+    id: `${prefix}-workout`,
+    schemaVersion: 1,
+    status: 'completed',
+    localDate,
+    startedAt: `${localDate}T09:00:00.000Z`,
+    completedAt: `${localDate}T10:00:00.000Z`,
+    title,
+    note: null,
+    createdAt: `${localDate}T09:00:00.000Z`,
+    updatedAt: `${localDate}T10:00:00.000Z`,
+    source: 'manual',
+    exercises: [
+      {
+        id: `${prefix}-exercise`,
+        exerciseId: 'squat',
+        displayName: 'Squat',
+        loading: 'barbell-total-weight',
+        warmup: null,
+        note: null,
+        sets: [
+          {
+            id: `${prefix}-set`,
+            kind: 'working',
+            planned: {
+              load: { kind: 'implement', weight: { amount: 100, unit: 'kg' } },
+              repetitions: 5,
+              effort: null,
+            },
+            performed: {
+              load: { kind: 'implement', weight: { amount: 100, unit: 'kg' } },
+              repetitions: 5,
+              effort: null,
+            },
+            status: 'complete',
+            completedAt: `${localDate}T09:30:00.000Z`,
+            note: null,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+const LOGBOOK_RESTORE_UPLOAD = [
+  {
+    selector: 'ptk-training-logbook input[type="file"]',
+    name: 'platform-toolkit-training-logbook-backup-2026-03-10.json',
+    mimeType: 'application/json',
+    body: LOGBOOK_RESTORE_FILE,
+  },
+];
+
+/**
+ * The three things on that screen that arrive at their own moment.
+ *
+ * The counts, the sessions list and the press that cannot be taken back. Waiting
+ * on the first alone would measure the list mid-render, which is placeholder-width
+ * text rather than the layout at risk of overflowing.
+ */
+const LOGBOOK_RESTORE_SETTLE = [
+  'ptk-training-logbook section.restore dl.facts dd',
+  'ptk-training-logbook section.restore ul.sessions li',
+  'ptk-training-logbook section.restore ptk-button[data-action="restore-confirm"] button',
+];
+
+/**
  * A session left on the origin by the warm-up calculator, as if a lifter had
  * just walked over from it.
  *
@@ -2494,6 +2620,24 @@ const ROUTES = [
     clickAfter: LOGBOOK_EXERCISE_SAVE,
     clickLast: LOGBOOK_EXERCISE_TICK,
     settle: LOGBOOK_EXERCISE_SETTLE,
+  },
+  {
+    // The one screen in the tool a lifter is meant to stop and read: six counts
+    // in a grid, the span the file covers, the newest sessions in it and two
+    // presses, one of which replaces everything they have. At 320px the grid is
+    // the question -- it is the only layout here that runs out of room for a
+    // second column -- and at 200% text the long session title is.
+    //
+    // Reached by handing the input a file, because there is no other way: the
+    // button beside it opens a native picker, and a picker is a window outside
+    // the page.
+    path: '/logbook/',
+    label: '/logbook/ (restore)',
+    click: [],
+    reveal: [],
+    fill: [],
+    upload: LOGBOOK_RESTORE_UPLOAD,
+    settle: LOGBOOK_RESTORE_SETTLE,
   },
   {
     // Its own entry rather than a seed on the home row, because the offer sits
@@ -3122,6 +3266,43 @@ async function tap(page, selectors, where, failures) {
 }
 
 /**
+ * Hands a file to a file input, failing where there is none.
+ *
+ * Its own slot rather than an entry in `fill`, because Playwright's `fill` refuses
+ * a file input outright and the only way in is `setInputFiles`. The bytes are
+ * built here rather than read off the disk: a fixture file in the repository is a
+ * second thing to keep in step with the format, and this way the document and the
+ * reasoning for it sit in one place.
+ *
+ * The input this drives is deliberately invisible -- a native file control cannot
+ * be made to look like the rest of a page, so the tool clips it and puts a button
+ * in front of it. `setInputFiles` does not require visibility, which is the only
+ * reason the screen behind such a button can be measured at all.
+ */
+async function hand(page, uploads, where, failures) {
+  for (const { selector, name, mimeType, body } of uploads) {
+    const control = page.locator(selector).first();
+    // Waits rather than counting, for `tap`'s reason.
+    try {
+      await control.waitFor({ state: 'attached', timeout: ARRIVAL_TIMEOUT_MS });
+    } catch {
+      failures.push(`${where}: nothing matched ${selector}`);
+      return false;
+    }
+    const file = { name, mimeType, buffer: Buffer.from(body, 'utf8') };
+    const handed = await attempt(
+      () => control.setInputFiles(file),
+      'hand a file to',
+      selector,
+      where,
+      failures,
+    );
+    if (!handed) return false;
+  }
+  return true;
+}
+
+/**
  * Answers a list of pickers by position, failing on anything that is not there.
  *
  * By position rather than by value because the options are published data: the
@@ -3291,6 +3472,11 @@ async function reveal(page, route, pass, failures) {
   if (!(await pick(page, route.choose ?? [], where, failures))) return false;
 
   if (!(await enter(page, route.fill, where, failures))) return false;
+
+  // A file is an answer like a typed number, so it goes in beside the other
+  // answers rather than among the presses -- and after them, because the input it
+  // is handed to is drawn on the screen the presses above arrive at.
+  if (!(await hand(page, route.upload ?? [], where, failures))) return false;
 
   // Folds that do not exist until the fields above have been answered. The
   // estimator's percentage table and formula comparison render nothing at all

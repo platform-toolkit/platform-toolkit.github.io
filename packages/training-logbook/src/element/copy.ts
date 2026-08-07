@@ -303,9 +303,115 @@ export const HOME_NOTES = {
   /** A download that produced a file needs to say so, or somebody presses it twice. */
   backupDone: 'Backup downloaded.',
 
-  /** Reading the file back in is not built yet, and a lifter will look for it. */
-  restoreNotYet:
-    'Reading a backup file back in is not built yet. Keep the files you download: they are the format the restore will read.',
+  restore: 'Restore from a backup',
+
+  /**
+   * Said next to the button rather than only on the confirmation behind it.
+   *
+   * Section 10.7 makes a restore a replacement and not a merge, and that is the one
+   * fact about it a lifter has to know *before* they go looking for a file. The
+   * suggestion to take a backup first is in the same sentence for the same reason:
+   * it is only useful while there is still something to back up.
+   */
+  restoreNote:
+    'Reads one of those files back in. Everything on this device is replaced by what the file holds, so download a backup of what is here first if you want to keep it.',
+} as const;
+
+/**
+ * The sentences the restore confirmation says.
+ *
+ * All of them are about loss. Section 10.7's sixth step is a preview, and the only
+ * reason to draw one is that the press after it cannot be taken back -- so the screen
+ * describes the file well enough for a lifter to tell it apart from the backup they
+ * took a year ago and forgot about, and names what is going as plainly as what is
+ * arriving.
+ *
+ * The span matters more than the counts, which is why it is here at all. "Forty-one
+ * workouts" describes a great many files; "March to August" describes one.
+ *
+ * There is nothing here about *when* the file was written, and the omission is
+ * deliberate. `exportedAt` is an instant, and an instant rendered as a day is a
+ * different day either side of midnight in the reader's own zone -- so the tool would
+ * be printing a date that disagrees with the lifter's memory of taking it. The span of
+ * training inside the file is already the thing a person recognises, and it is stored
+ * as calendar days that mean the same everywhere.
+ */
+export const RESTORE_NOTES = {
+  heading: 'Restore this backup?',
+
+  /** The whole of section 10.7 in one sentence, before the button that does it. */
+  warning:
+    'Everything now on this device is replaced by what this file holds. This cannot be undone.',
+
+  /** The one thing a lifter can lose here that they cannot get back from a file. */
+  activeWarning: 'The workout you have in progress is part of what gets replaced.',
+
+  workoutsLabel: 'Workouts',
+  finishedLabel: 'Finished',
+  exercisesLabel: 'Your own exercises',
+  racksLabel: 'Saved gyms',
+  spanLabel: 'Covering',
+  versionLabel: 'Written by',
+
+  /** One day where the file holds a single day of training, not "the 5th to the 5th". */
+  span: (earliest: string, latest: string): string =>
+    earliest === latest ? earliest : `${earliest} to ${latest}`,
+
+  /** An empty file is a real backup and reads as a broken one without this. */
+  noWorkouts: 'This file holds no workouts. Restoring it leaves this device with none.',
+
+  fileHasActive: 'It has a workout in progress in it, which is the one you would carry on with.',
+
+  newestHeading: 'The newest sessions in it',
+  untitled: 'Untitled',
+  more: (count: number): string => (count === 1 ? 'and 1 more' : `and ${count} more`),
+
+  confirm: 'Replace everything',
+  cancel: 'Keep what is here',
+  backupFirst: 'Download a backup of what is here first',
+
+  /** Where the reading stopped, as a path. Never the value found there -- section 2.3. */
+  path: (path: string): string => `The part it stopped on: ${path}.`,
+
+  done: 'Backup restored. Everything on this device is now what was in the file.',
+
+  /**
+   * The write did not land. Nothing is lost, and saying so is the point of the sentence.
+   */
+  writeProblem: 'That backup could not be written, so nothing on this device was changed.',
+
+  /**
+   * The write landed and the read-back did not agree with it. Section 10.7's ninth step.
+   *
+   * The bluntest sentence in the tool, because it describes the one state where the
+   * database holds neither the old logbook nor the new one whole. Downloading a backup
+   * is the only thing that makes the next step recoverable, so it is the only thing
+   * suggested.
+   */
+  verifyProblem:
+    'That backup was written and reading it back did not match the file. Download a backup now, before doing anything else here.',
+} as const;
+
+/**
+ * Why a chosen file was not read, one sentence per kind.
+ *
+ * Each one says what the tool concluded and, where it is not obvious, that nothing was
+ * changed. None of them quotes the file: a refusal is the kind of string that gets
+ * pasted into a message to somebody else, and section 2.3 is easier to keep when the
+ * diagnostic has nowhere to put a lifter's training in it.
+ */
+export const RESTORE_REFUSALS = {
+  /** The platform never produced any text. `readBackup` cannot report this one. */
+  unreadable: 'That file could not be read off the disk, so nothing was changed.',
+
+  'too-large':
+    'That file is larger than this tool will read. A backup it writes is far smaller than the limit, so this is very likely not one.',
+  'not-json': 'That file is not JSON, so it is not a backup this tool wrote.',
+  'not-a-backup': 'That is JSON, and it is not a training logbook backup.',
+  'newer-schema-version':
+    'That backup was written by a newer version of this tool than the one you are running, so nothing here can tell what its fields mean. It was not read.',
+  'invalid-data':
+    'That is a logbook backup and part of it does not match the format this version reads. Nothing was changed.',
 } as const;
 
 /**

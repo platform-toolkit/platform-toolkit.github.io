@@ -44,6 +44,7 @@ import type { PtkTrainingLogbook } from './ptk-training-logbook.js';
 import {
   AT_START,
   A_TRAINING_DAY,
+  aBackupFile,
   aFreshTool,
   aKilogramRack,
   aStartedSession,
@@ -184,6 +185,29 @@ async function chooseSetting(
   if (radio === undefined) throw new Error(`No "${value}" to choose for "${field}".`);
   radio.click();
   await settled(element);
+}
+
+/**
+ * Hands the tool a file the way the picker does.
+ *
+ * Through a `DataTransfer`, because `files` cannot be assigned any other way, and the
+ * `change` goes to the input rather than to the host because that is where the handler is
+ * bound. The button beside it is left alone on purpose: an uncancelled click on a file
+ * input opens a native window, and a story cannot close one.
+ */
+async function chooseFile(element: PtkTrainingLogbook, file: File): Promise<void> {
+  const input = shadow(element).querySelector('input[type=file]');
+  if (!(input instanceof HTMLInputElement)) throw new Error('This screen has no file input.');
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  input.files = transfer.files;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  await settled(element);
+  await until(
+    'the confirmation screen',
+    () => deepAll(shadow(element), 'section.restore').length > 0,
+  );
+  await element.updateComplete;
 }
 
 /** Every sentence the tool says in its own voice, at any shadow depth. */
@@ -497,6 +521,55 @@ export const Narrow: Story = {
   `,
   play: async ({ canvasElement }) => {
     await startASquatSession(canvasElement);
+  },
+};
+
+/**
+ * What a lifter is shown before a backup replaces everything they have.
+ *
+ * The screen this milestone exists for. Counts on their own describe a great many files,
+ * so the span and the newest few sessions are here too: "March to August, ending last
+ * Tuesday" is the thing a person can tell apart from the backup they took a year ago and
+ * forgot about. What it costs is stated in the tool's own voice above the two controls,
+ * and neither of them is the one a stray thumb lands on -- the primary is the one that
+ * replaces, and it is named for what it does rather than agreeing.
+ *
+ * Offered as well is a download of what is here now, which is the only undo this screen
+ * has.
+ */
+export const ConfirmingARestore: Story = {
+  args: aFreshTool('restore'),
+  play: async ({ canvasElement }) => {
+    const element = await logbook(canvasElement);
+    await chooseFile(element, await aBackupFile());
+  },
+};
+
+/**
+ * The same confirmation at the narrowest phone still in use (section 5.7).
+ *
+ * Its own story because the counts are a grid, and a grid is the one layout on this
+ * screen that can only be judged at the width where it stops having room for two columns.
+ * Constrained by a wrapper for the same reason `Narrow` is: a viewport parameter would
+ * document a width the element never sees.
+ */
+export const NarrowConfirmingARestore: Story = {
+  args: aFreshTool('restore-narrow'),
+  render: (args) => html`
+    <div style="width: 320px; outline: 1px dashed currentColor;">
+      <ptk-training-logbook
+        .repository=${args.repository}
+        .today=${args.today}
+        .now=${args.now}
+        .nextId=${args.nextId}
+        .applicationVersion=${args.applicationVersion}
+        .handoff=${args.handoff}
+      ></ptk-training-logbook>
+    </div>
+  `,
+  play: async ({ canvasElement }) => {
+    const element = await logbook(canvasElement);
+    await chooseFile(element, await aBackupFile());
   },
 };
 

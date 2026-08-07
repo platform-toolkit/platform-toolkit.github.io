@@ -27,12 +27,10 @@
  *
  * WHAT IS NOT HERE YET, AND IS NOT PRETENDED TO BE
  *
- * Reading a backup back in, Markdown export and the deletion flow are later
- * milestones. Section 0.4 forbids standing in for them with a disabled control or a
- * "coming soon", so none of them has one: the only thing said about a missing feature
- * is said in prose, where a lifter would otherwise go looking for it -- reading a
- * backup file back in, which is the one a person will hunt for the moment they have
- * downloaded a file.
+ * Markdown export and the deletion flow are later milestones. Section 0.4 forbids
+ * standing in for either with a disabled control or a "coming soon", so neither has
+ * one and neither is mentioned on a screen: nothing sends a lifter looking for a
+ * control that is not there.
  */
 
 import { convertWeight, formatWeight, type WeightUnit } from '@platform-toolkit/domain';
@@ -48,7 +46,18 @@ import '@platform-toolkit/ui';
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from 'lit';
 import { property, state } from 'lit/decorators.js';
 
-import { backupFilename, serializeBackup } from '../core/backup.js';
+import {
+  backupFilename,
+  backupPreview,
+  backupSummaries,
+  readBackup,
+  serializeBackup,
+  type BackupPreview,
+  type LogbookSnapshot,
+  type RestoreProblem,
+  type RestoreProblemCode,
+  type TrainingLogbookBackup,
+} from '../core/backup.js';
 import {
   createCustomExercise,
   exerciseOptions,
@@ -125,6 +134,8 @@ import {
   HANDOFF_NOTES,
   HOME_NOTES,
   RECORDS_NOTES,
+  RESTORE_NOTES,
+  RESTORE_REFUSALS,
   REST_NOTES,
   SAVE_STATES,
   SAVE_STATE_NOTES,
@@ -144,11 +155,13 @@ import {
 import { formatVolume } from './format.js';
 import {
   BACKUP_EXPORTED_EVENT,
+  BACKUP_RESTORED_EVENT,
   SET_COMPLETED_EVENT,
   WORKOUT_COMPLETED_EVENT,
   WORKOUT_SAVED_EVENT,
   WORKOUT_STARTED_EVENT,
   type BackupExportedDetail,
+  type BackupRestoredDetail,
   type SetCompletedDetail,
   type WorkoutEventDetail,
 } from './events.js';
@@ -193,9 +206,9 @@ export const TRAINING_LOGBOOK_TAG = 'ptk-training-logbook';
 /**
  * Which screen is showing.
  *
- * A union rather than a router. This tool is six screens with one path between them,
- * and a URL per screen would put a lifter's session in their history -- a back button
- * that unwinds a workout is worse than one that leaves the page.
+ * A union rather than a router. This tool is a handful of screens with one path between
+ * them, and a URL per screen would put a lifter's session in their history -- a back
+ * button that unwinds a workout is worse than one that leaves the page.
  *
  * `detail` and `records` are the two that are reached and left rather than passed
  * through, and neither is a route. They are also the two reachable while a session is
@@ -206,8 +219,13 @@ export const TRAINING_LOGBOOK_TAG = 'ptk-training-logbook';
  * logging screen and from a workout read back -- which is why {@link #recordsFrom}
  * exists. A Back button that guessed would drop a lifter out of a live session for
  * having looked something up.
+ *
+ * `restore` is the only one that cannot be reached by pressing a button alone. It needs
+ * a file the browser has read and this package has validated, so {@link #pending} is
+ * what puts it up and clearing that is what takes it down -- which is also why leaving
+ * it by any route drops the parsed backup rather than keeping it for a second visit.
  */
-type Screen = 'home' | 'build' | 'active' | 'done' | 'detail' | 'records' | 'edit';
+type Screen = 'home' | 'build' | 'active' | 'done' | 'detail' | 'records' | 'edit' | 'restore';
 
 /**
  * Which of the repository's three writes a session goes through.
@@ -222,6 +240,9 @@ const START_ACTION = 'start-workout';
 const RESUME_ACTION = 'resume-workout';
 const CANCEL_PLAN_ACTION = 'cancel-plan';
 const BACKUP_ACTION = 'backup';
+const RESTORE_PICK_ACTION = 'restore-pick';
+const RESTORE_CONFIRM_ACTION = 'restore-confirm';
+const RESTORE_CANCEL_ACTION = 'restore-cancel';
 const HOME_ACTION = 'home';
 const HANDOFF_START_ACTION = 'start-handoff';
 const HANDOFF_DISCARD_ACTION = 'discard-handoff';
@@ -231,6 +252,15 @@ const EDIT_DONE_ACTION = 'edit-done';
 
 /** How many history rows the home screen reads. Section 17.2's budget, applied. */
 const HISTORY_LIMIT = 20;
+
+/**
+ * How many of a backup's sessions the confirmation lists.
+ *
+ * Five, and the count under them says how many are not shown. A file can hold three
+ * years, and a confirmation a lifter has to scroll past to reach the button that
+ * replaces their training is a confirmation they stop reading.
+ */
+const RESTORE_PREVIEW_ROWS = 5;
 
 /**
  * The one empty answer to "what was this lifted for last time".
@@ -303,7 +333,7 @@ function isEffortSetting(value: string): value is EffortSetting {
  * public framing grants the parent no access to application data, and section 12.5 that
  * the events a host may hear "must not transmit data" -- so the boundary has to be
  * enforced by the element that is the boundary. What leaves here instead is
- * `events.ts`: five events carrying identifiers and counts.
+ * `events.ts`: six events carrying identifiers and counts.
  *
  * Stopping propagation and not immediate propagation, so a consumer that deliberately
  * listens on this element -- inside the boundary, having imported the constant -- still
@@ -311,6 +341,69 @@ function isEffortSetting(value: string): value is EffortSetting {
  */
 function stopHere(event: Event): void {
   event.stopPropagation();
+}
+
+/**
+ * Why a chosen file did not become a restore.
+ *
+ * The core's codes plus the one it cannot produce. `readBackup` is handed text, so it
+ * has no way to report that the platform never produced any -- and widening
+ * `RestoreProblemCode` to say so would put a caller's trouble inside a union that
+ * `readBackup`'s own return type promises to cover.
+ */
+type RestoreRefusalCode = RestoreProblemCode | 'unreadable';
+
+interface RestoreRefusal {
+  readonly code: RestoreRefusalCode;
+  readonly path: string | null;
+}
+
+/** A validated backup waiting for the press that replaces everything with it. */
+interface PendingRestore {
+  readonly backup: TrainingLogbookBackup;
+  readonly preview: BackupPreview;
+  readonly summaries: readonly WorkoutSummary[];
+}
+
+/**
+ * One sentence per kind of trouble, not one per field.
+ *
+ * A file whose sets are all one version out produces an `invalid-data` problem for
+ * every set in it, and a screen carrying four hundred identical sentences says less
+ * than a screen carrying one. The first path of each kind is what is kept, because the
+ * path is the only part that differs between two problems of the same code and it is
+ * the only part a person can do anything with.
+ */
+function distinctRefusals(problems: readonly RestoreProblem[]): readonly RestoreRefusal[] {
+  const byCode = new Map<RestoreRefusalCode, RestoreRefusal>();
+  for (const problem of problems) {
+    if (!byCode.has(problem.code)) byCode.set(problem.code, problem);
+  }
+  return [...byCode.values()];
+}
+
+/**
+ * Whether what came back out of storage is the file that went into it. Section 10.7's
+ * ninth step.
+ *
+ * Counts, and not a field-by-field comparison. What a mismatch here means is that some
+ * of the writes landed and some did not, and that shows up in a count; walking a year
+ * of training twice to say the same thing would cost more than the restore did.
+ *
+ * The settings are the exception, because a store of exactly one record has no count
+ * to compare -- so two of its fields stand in for it. They are the two a lifter would
+ * notice within a minute of the restore, which is the point: a settings row that
+ * silently did not land is the failure this step exists to catch.
+ */
+function sameShape(written: LogbookSnapshot, file: LogbookSnapshot): boolean {
+  return (
+    written.workouts.length === file.workouts.length &&
+    written.exerciseDefinitions.length === file.exerciseDefinitions.length &&
+    written.equipmentProfiles.length === file.equipmentProfiles.length &&
+    (written.activeWorkout === null) === (file.activeWorkout === null) &&
+    written.settings.displayUnit === file.settings.displayUnit &&
+    written.settings.effort === file.settings.effort
+  );
 }
 
 export class PtkTrainingLogbook extends LitElement {
@@ -391,6 +484,85 @@ export class PtkTrainingLogbook extends LitElement {
     .offer .volume {
       color: var(--ptk-color-text-muted);
       font-size: var(--ptk-font-size-sm);
+    }
+
+    /*
+     * A refusal is the answer to a press, not a footnote under one, so it is drawn at
+     * full text colour while the notes around it stay muted. Colour is not the only
+     * signal -- every one of these sentences says what happened in words -- but a
+     * muted one under a muted paragraph is a sentence a lifter scrolls past.
+     */
+    .note.trouble {
+      color: var(--ptk-color-text);
+    }
+
+    /*
+     * The native file input is replaced by a button that presses it. Clipped rather
+     * than display: none, because a display-none input cannot be opened by a script in
+     * Safari and opening the picker is the whole job of the button beside it.
+     */
+    input[type='file'] {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .restore h3 {
+      margin: var(--ptk-space-md) 0 var(--ptk-space-xs);
+      font-size: var(--ptk-font-size-md);
+    }
+
+    /*
+     * Term over value rather than beside it. At 320px a label as long as "Your own
+     * exercises" and a figure on the same row leave the figure hanging on its own
+     * line anyway, and a grid of narrow columns puts the two together whatever the
+     * label is.
+     */
+    .restore .facts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+      gap: var(--ptk-space-sm);
+      margin: var(--ptk-space-sm) 0;
+    }
+
+    .restore .facts dt {
+      color: var(--ptk-color-text-muted);
+      font-size: var(--ptk-font-size-sm);
+      overflow-wrap: anywhere;
+    }
+
+    .restore .facts dd {
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .restore .sessions {
+      list-style: none;
+      margin: 0 0 var(--ptk-space-sm);
+      padding: 0;
+    }
+
+    .restore .sessions li {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: var(--ptk-space-xs) var(--ptk-space-md);
+      padding: var(--ptk-space-xs) 0;
+      border-top: 1px solid var(--ptk-color-border);
+      overflow-wrap: anywhere;
+    }
+
+    /* The day never wraps mid-string: "2026-08-" on one line is not a date. */
+    .restore .sessions .day {
+      color: var(--ptk-color-text-muted);
+      font-size: var(--ptk-font-size-sm);
+      white-space: nowrap;
     }
   `;
 
@@ -540,6 +712,31 @@ export class PtkTrainingLogbook extends LitElement {
 
   /** Set after a file is handed to the browser, so nobody presses it twice. */
   @state() private backupDone = false;
+
+  /**
+   * The backup a lifter chose and this build could read, waiting to be confirmed.
+   *
+   * `null` on every screen but `restore`, and the two move together: this is what puts
+   * that screen up, and clearing it is what takes it down. Held rather than re-read on
+   * the press, because the file the picker handed over is gone by then -- and re-asking
+   * for it would mean a second dialog between "yes, replace everything" and the write.
+   */
+  @state() private pending: PendingRestore | null = null;
+
+  /** Why the last chosen file was not read. Empty when there was no trouble. */
+  @state() private refusals: readonly RestoreRefusal[] = [];
+
+  /** Set after a restore landed and was read back, for {@link backupDone}'s reason. */
+  @state() private restoreDone = false;
+
+  /**
+   * How a restore went wrong, or `null` where none did.
+   *
+   * Two values and not one, because they are two different states of the database and
+   * a lifter has to do different things about them. `write` is nothing lost; `verify`
+   * is a logbook that holds neither the old training nor the new whole.
+   */
+  @state() private restoreProblem: 'write' | 'verify' | null = null;
 
   /** The record waiting to be offered, or `null` when there is nothing to offer. */
   @state() private offer: WarmupHandoff | null = null;
@@ -730,6 +927,15 @@ export class PtkTrainingLogbook extends LitElement {
         return this.#recordsScreen();
       case 'edit':
         return this.#editScreen();
+      case 'restore': {
+        const pending = this.pending;
+        // A narrowing guard and not a path a thumb can walk: the only writer of
+        // `screen = 'restore'` sets `pending` in the same statement, and every way
+        // off the screen clears both. It falls back to the home screen rather than
+        // throwing, because the one thing worse than an unreachable branch is an
+        // unreachable branch that takes the tool down if it is ever reached.
+        return pending === null ? this.#homeScreen() : this.#restoreScreen(pending);
+      }
       case 'home':
         return this.#homeScreen();
     }
@@ -838,9 +1044,162 @@ export class PtkTrainingLogbook extends LitElement {
           <ptk-button variant="secondary" data-action=${BACKUP_ACTION}
             >${HOME_NOTES.backup}</ptk-button
           >
+          <ptk-button variant="secondary" data-action=${RESTORE_PICK_ACTION}
+            >${HOME_NOTES.restore}</ptk-button
+          >
         </div>
         ${this.backupDone ? html`<p class="note">${HOME_NOTES.backupDone}</p>` : nothing}
-        <p class="note">${HOME_NOTES.restoreNotYet}</p>
+        <p class="note">${HOME_NOTES.restoreNote}</p>
+        <input
+          type="file"
+          accept="application/json,.json"
+          aria-hidden="true"
+          tabindex="-1"
+          @change=${this.#onFileChosen}
+        />
+        ${this.#restoreOutcome()}
+      </section>
+    `;
+  }
+
+  /**
+   * What the last file the lifter chose did, said where they chose it.
+   *
+   * On the home screen and not on the one that has gone, because every one of these
+   * is reported after the restore screen has been left -- a refused file never gets
+   * one drawn, and a restore that landed or did not is a thing that happened to this
+   * screen. Nothing is drawn at all before a file has been picked.
+   */
+  #restoreOutcome(): TemplateResult | typeof nothing {
+    if (this.refusals.length === 0 && !this.restoreDone && this.restoreProblem === null) {
+      return nothing;
+    }
+    return html`
+      ${this.refusals.map(
+        (refusal) =>
+          html`<p class="note trouble">
+            ${RESTORE_REFUSALS[refusal.code]}${
+              refusal.path === null ? nothing : html` ${RESTORE_NOTES.path(refusal.path)}`
+            }
+          </p>`,
+      )}
+      ${this.restoreDone ? html`<p class="note">${RESTORE_NOTES.done}</p>` : nothing}
+      ${
+        this.restoreProblem === null
+          ? nothing
+          : html`<p class="note trouble">
+              ${
+                this.restoreProblem === 'write'
+                  ? RESTORE_NOTES.writeProblem
+                  : RESTORE_NOTES.verifyProblem
+              }
+            </p>`
+      }
+    `;
+  }
+
+  /**
+   * The confirmation. Section 10.7's sixth step, and the last moment before its
+   * seventh.
+   *
+   * A screen and not a panel under the Backup heading, for the reason the detail
+   * screen is a screen: what is being confirmed is a description of a whole logbook,
+   * and a lifter should not have to scroll past their own history to read what is
+   * about to replace it.
+   *
+   * Replace is the primary and Keep is beside it, which is the same arrangement the
+   * meet-day shelf uses for the same argued reason: the variant is never the only
+   * signal of what a press does. What carries the meaning here is the sentence above
+   * the buttons, which survives forced colours and being read aloud.
+   *
+   * The offer to take a backup first is on this screen and not only on the home one,
+   * because this is where a lifter finds out what they are about to lose. Pressing it
+   * leaves the confirmation exactly as it is: the file has already been read and the
+   * download is a separate errand.
+   */
+  #restoreScreen(pending: PendingRestore): TemplateResult {
+    const { preview, summaries } = pending;
+    const shown = summaries.slice(0, RESTORE_PREVIEW_ROWS);
+    const unshown = summaries.length - shown.length;
+
+    return html`
+      ${this.#saveLine()}
+      <section class="section restore">
+        <h2>${RESTORE_NOTES.heading}</h2>
+        <p class="note trouble">${RESTORE_NOTES.warning}</p>
+        ${
+          this.active === null
+            ? nothing
+            : html`<p class="note trouble">${RESTORE_NOTES.activeWarning}</p>`
+        }
+
+        <dl class="facts">
+          <div>
+            <dt>${RESTORE_NOTES.workoutsLabel}</dt>
+            <dd>${preview.workoutCount}</dd>
+          </div>
+          <div>
+            <dt>${RESTORE_NOTES.finishedLabel}</dt>
+            <dd>${preview.completedWorkoutCount}</dd>
+          </div>
+          <div>
+            <dt>${RESTORE_NOTES.exercisesLabel}</dt>
+            <dd>${preview.customExerciseCount}</dd>
+          </div>
+          <div>
+            <dt>${RESTORE_NOTES.racksLabel}</dt>
+            <dd>${preview.equipmentProfileCount}</dd>
+          </div>
+          ${
+            preview.earliestDay === null || preview.latestDay === null
+              ? nothing
+              : html`<div>
+                  <dt>${RESTORE_NOTES.spanLabel}</dt>
+                  <dd>${RESTORE_NOTES.span(preview.earliestDay, preview.latestDay)}</dd>
+                </div>`
+          }
+          <div>
+            <dt>${RESTORE_NOTES.versionLabel}</dt>
+            <dd>${preview.applicationVersion}</dd>
+          </div>
+        </dl>
+
+        ${preview.workoutCount === 0 ? html`<p class="note">${RESTORE_NOTES.noWorkouts}</p>` : nothing}
+        ${
+          preview.hasActiveWorkout
+            ? html`<p class="note">${RESTORE_NOTES.fileHasActive}</p>`
+            : nothing
+        }
+        ${
+          shown.length === 0
+            ? nothing
+            : html`
+                <h3>${RESTORE_NOTES.newestHeading}</h3>
+                <ul class="sessions">
+                  ${shown.map(
+                    (summary) =>
+                      html`<li>
+                        <span class="name">${summary.title ?? RESTORE_NOTES.untitled}</span>
+                        <span class="day">${summary.localDate}</span>
+                      </li>`,
+                  )}
+                </ul>
+                ${unshown > 0 ? html`<p class="note">${RESTORE_NOTES.more(unshown)}</p>` : nothing}
+              `
+        }
+
+        <div class="actions">
+          <ptk-button variant="primary" data-action=${RESTORE_CONFIRM_ACTION}
+            >${RESTORE_NOTES.confirm}</ptk-button
+          >
+          <ptk-button variant="secondary" data-action=${RESTORE_CANCEL_ACTION}
+            >${RESTORE_NOTES.cancel}</ptk-button
+          >
+          <ptk-button variant="secondary" data-action=${BACKUP_ACTION}
+            >${RESTORE_NOTES.backupFirst}</ptk-button
+          >
+        </div>
+        ${this.backupDone ? html`<p class="note">${HOME_NOTES.backupDone}</p>` : nothing}
       </section>
     `;
   }
@@ -1888,6 +2247,13 @@ export class PtkTrainingLogbook extends LitElement {
       case HOME_ACTION:
         this.screen = 'home';
         this.backupDone = false;
+        // Cleared with the download note beside them and for the same reason: all
+        // three report what one press did, and a report still on screen after a trip
+        // through a workout reads as a claim about the logbook rather than as the
+        // answer to something the lifter did.
+        this.refusals = [];
+        this.restoreDone = false;
+        this.restoreProblem = null;
         this.unramped = [];
         this.repeatFailed = false;
         // Dropped rather than kept for a second visit. It is a whole session held in
@@ -1922,6 +2288,22 @@ export class PtkTrainingLogbook extends LitElement {
         return;
       case BACKUP_ACTION:
         void this.#backup();
+        return;
+      case RESTORE_PICK_ACTION:
+        // A `MouseEvent` rather than `click()`, which is what the meet-day shelf
+        // found it needed: the input is clipped, and the synthetic press is the only
+        // thing that opens a picker a lifter cannot see.
+        this.renderRoot.querySelector('input[type=file]')?.dispatchEvent(new MouseEvent('click'));
+        return;
+      case RESTORE_CONFIRM_ACTION:
+        void this.#restore();
+        return;
+      case RESTORE_CANCEL_ACTION:
+        // The parsed backup goes with the screen. Keeping it would leave a file a
+        // lifter has already declined one press away from replacing everything, on a
+        // screen they thought they had left.
+        this.pending = null;
+        this.screen = 'home';
         return;
       case HANDOFF_START_ACTION:
         this.#startHandoff();
@@ -2089,6 +2471,133 @@ export class PtkTrainingLogbook extends LitElement {
     this.dispatchEvent(
       new CustomEvent<BackupExportedDetail>(BACKUP_EXPORTED_EVENT, {
         detail: { workoutCount: snapshot.data.workouts.length },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  /**
+   * A file off the lifter's own disk, on its way to {@link #readChosen}.
+   *
+   * The input is cleared whether or not a file arrived, so choosing the same file
+   * twice running fires a second change. Without it, a file refused once cannot be
+   * tried again -- after fixing it in an editor, say -- without picking something
+   * else in between.
+   */
+  readonly #onFileChosen = (event: Event): void => {
+    const input = event.currentTarget;
+    if (!(input instanceof HTMLInputElement)) return;
+    const file = input.files?.[0];
+    input.value = '';
+    if (file === undefined) return;
+    void this.#readChosen(file);
+  };
+
+  /**
+   * Section 10.7's steps 1 to 6: read the file, validate it, describe it.
+   *
+   * Nothing is written here and nothing is replaced. What this produces is either a
+   * refusal on the home screen or a confirmation on its own screen, and the press on
+   * that screen is the only thing in the tool that can replace a logbook.
+   *
+   * `file.size` and never `text.length`. `MAX_BACKUP_BYTES` is a byte count, and
+   * UTF-16 code units undercount a file full of non-Latin exercise names by up to a
+   * factor of three -- so a limit measured in code units would let a file three times
+   * the size through and would say the limit had been kept.
+   *
+   * The outcome of the *previous* file is cleared first. A refusal left under the
+   * button while a second file is being read would be answering a question the lifter
+   * has already moved on from.
+   */
+  async #readChosen(file: File): Promise<void> {
+    this.refusals = [];
+    this.restoreDone = false;
+    this.restoreProblem = null;
+
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      this.refusals = [{ code: 'unreadable', path: null }];
+      return;
+    }
+
+    const result = readBackup(text, file.size);
+    if (!result.ok) {
+      this.refusals = distinctRefusals(result.problems);
+      return;
+    }
+
+    this.pending = {
+      backup: result.backup,
+      preview: backupPreview(result.backup),
+      summaries: backupSummaries(result.backup),
+    };
+    this.screen = 'restore';
+  }
+
+  /**
+   * Section 10.7's steps 7 to 10: replace everything, then read it back.
+   *
+   * The read-back is the ninth step and it is not ceremony. `replaceAll` in the
+   * IndexedDB store is one transaction across all four object stores, so on that store
+   * a half-landed restore is not reachable -- but the in-memory store cannot be
+   * transactional, a host may hand in its own, and this is the one write in the tool
+   * whose failure destroys the thing it was asked to protect. Comparing what came back
+   * out is what turns "the write did not throw" into "the database holds the file".
+   *
+   * The screen is left before the write rather than after it. A confirmation still up
+   * while the restore runs is a second press away from running it twice, and the two
+   * outcomes are both reported on the home screen anyway.
+   *
+   * `backupDone` is cleared on the way out. It would otherwise say a backup had been
+   * downloaded of a logbook that no longer exists.
+   */
+  async #restore(): Promise<void> {
+    const repository = this.repository;
+    const pending = this.pending;
+    if (repository === null || pending === null) return;
+
+    this.pending = null;
+    this.screen = 'home';
+    this.backupDone = false;
+    if (repository.durable) this.saveState = 'unsaved';
+
+    try {
+      await repository.replaceFromBackup(pending.backup);
+    } catch {
+      this.restoreProblem = 'write';
+      if (repository.durable) this.saveState = 'failed';
+      return;
+    }
+
+    let written: TrainingLogbookBackup;
+    try {
+      written = await repository.exportSnapshot();
+    } catch {
+      // A read-back that will not run is the ninth step answering no. The write
+      // landed, and nothing here can say what it landed as.
+      this.restoreProblem = 'verify';
+      if (repository.durable) this.saveState = 'failed';
+      return;
+    }
+
+    // Before the verdict either way, because the screen has to show what the database
+    // actually holds -- most of all when the two disagree.
+    await this.#reload();
+
+    if (!sameShape(written.data, pending.backup.data)) {
+      this.restoreProblem = 'verify';
+      if (repository.durable) this.saveState = 'failed';
+      return;
+    }
+
+    if (repository.durable) this.saveState = 'saved';
+    this.restoreDone = true;
+    this.dispatchEvent(
+      new CustomEvent<BackupRestoredDetail>(BACKUP_RESTORED_EVENT, {
+        detail: { workoutCount: pending.preview.workoutCount },
         bubbles: true,
         composed: true,
       }),

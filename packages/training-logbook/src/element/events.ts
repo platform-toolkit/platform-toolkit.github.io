@@ -13,12 +13,12 @@
  * strongest form of that: a listener can tell that something happened and can
  * correlate two of these events with each other, and can learn nothing else.
  *
- * WHY FIVE AND NOT SEVEN
+ * WHY SIX AND NOT SEVEN
  *
- * Section 12.5 suggests seven. Restore and local-data-clearing are Milestone 4, and
- * the events for them arrive with the flows that fire them. A constant exported now
- * for an event nothing dispatches is an API a consumer can subscribe to and wait
- * forever on, which is worse than its absence -- absence is a compile error.
+ * Section 12.5 suggests seven. Local-data-clearing is still to be built, and the event
+ * for it arrives with the flow that fires it. A constant exported now for an event
+ * nothing dispatches is an API a consumer can subscribe to and wait forever on, which
+ * is worse than its absence -- absence is a compile error.
  */
 
 import type { LogbookId } from '../types.js';
@@ -33,6 +33,8 @@ export const WORKOUT_COMPLETED_EVENT = 'training-workout-completed';
 export const WORKOUT_SAVED_EVENT = 'training-workout-saved';
 /** A backup file was handed to the browser to download. */
 export const BACKUP_EXPORTED_EVENT = 'training-backup-exported';
+/** A backup file was read back in and everything on the device replaced from it. */
+export const BACKUP_RESTORED_EVENT = 'training-backup-restored';
 
 /** Which workout. Nothing about what is in it. */
 export interface WorkoutEventDetail {
@@ -56,6 +58,21 @@ export interface BackupExportedDetail {
   readonly workoutCount: number;
 }
 
+/**
+ * How much came out of the file, and so how much is now on the device.
+ *
+ * The same count as {@link BackupExportedDetail} and a separate type anyway, because
+ * the two are separate promises: a host reacting to a restore is reacting to its whole
+ * view having been replaced, and a shared interface is how the day one of them grows a
+ * field the other must not have becomes a breaking change to both.
+ *
+ * Fired only after the write landed *and* was read back. A listener that refreshes on
+ * this event must not be told to refresh onto a database that does not hold the file.
+ */
+export interface BackupRestoredDetail {
+  readonly workoutCount: number;
+}
+
 declare global {
   /**
    * So `addEventListener` types the detail without the listener casting it.
@@ -69,5 +86,6 @@ declare global {
     [WORKOUT_COMPLETED_EVENT]: CustomEvent<WorkoutEventDetail>;
     [WORKOUT_SAVED_EVENT]: CustomEvent<WorkoutEventDetail>;
     [BACKUP_EXPORTED_EVENT]: CustomEvent<BackupExportedDetail>;
+    [BACKUP_RESTORED_EVENT]: CustomEvent<BackupRestoredDetail>;
   }
 }

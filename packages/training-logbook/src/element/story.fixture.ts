@@ -24,6 +24,7 @@
 
 import type { Weight } from '@platform-toolkit/domain';
 
+import { backupFilename, serializeBackup } from '../core/backup.js';
 import { findExercise, loadFor } from '../core/catalog.js';
 import { AT_LATER, AT_START, ON_DAY } from '../core/context.fixture.js';
 import { previousPerformanceIn, type PreviousPerformance } from '../core/previous.js';
@@ -341,6 +342,23 @@ export function aRepository(store: LogbookStore = storyStore()): TrainingLogbook
 /** The one that tells the truth about a `Map`: no storage, and the tool saying so. */
 export function anUnstoredRepository(): TrainingLogbookRepository {
   return aRepository(memoryLogbookStore());
+}
+
+/**
+ * A backup file holding one finished session, written by the export path itself.
+ *
+ * Through `exportSnapshot` and `serializeBackup` rather than out of a literal, for this
+ * file's usual reason turned around: the document the restore screen has to read is
+ * whatever the download button writes, and a hand-typed one would document a screen for a
+ * file this tool never produces.
+ *
+ * A `File` and not a string, because what the story exercises is the picker.
+ */
+export async function aBackupFile(): Promise<File> {
+  const store = memoryLogbookStore();
+  await store.writeWorkout(aFinishedSession('backup'), { kind: 'unchanged' });
+  const text = serializeBackup(await aRepository(store).exportSnapshot());
+  return new File([text], backupFilename(A_TRAINING_DAY), { type: 'application/json' });
 }
 
 /** What the root element needs to be a working tool, and nothing else. */

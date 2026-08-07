@@ -248,7 +248,7 @@ point afterwards.
 
 ### Events
 
-Five, all of them local browser events, and **none of them carries training data**.
+Six, all of them local browser events, and **none of them carries training data**.
 
 | Event                        | Detail                 |
 | ---------------------------- | ---------------------- |
@@ -257,6 +257,10 @@ Five, all of them local browser events, and **none of them carries training data
 | `training-workout-completed` | `{ workoutId }`        |
 | `training-workout-saved`     | `{ workoutId }`        |
 | `training-backup-exported`   | `{ workoutCount }`     |
+| `training-backup-restored`   | `{ workoutCount }`     |
+
+`training-backup-restored` fires only once the write has landed **and** been read back, so a host
+acting on it is acting on a device that holds what the file did.
 
 An identifier and a count, never a weight, a rep count, a note or an exercise. A listener that wants
 to know a backup happened is served by the count; one that wants the contents is asking the page to
