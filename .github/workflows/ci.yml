@@ -18,7 +18,10 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Matched to the deploy's ceiling, and raised for the same reason: this job
+    # runs the same `verify` behind the same apt-backed Playwright install, so a
+    # slow Ubuntu mirror stalls it identically. See the note in pages.yml.
+    timeout-minutes: 35
     steps:
       # Actions are pinned to commit SHAs, not tags. A tag can be moved to point
       # at different code; a SHA cannot. Dependabot proposes the bumps.

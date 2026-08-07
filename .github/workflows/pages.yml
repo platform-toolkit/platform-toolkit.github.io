@@ -39,7 +39,16 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The job's own work is about fourteen minutes and grows with the test
+    # suite. The slack is for the step below that shells out to apt: run
+    # 31198747556 was cancelled at the old ceiling of 20 having spent 10m12s in
+    # `playwright install --with-deps`, nine of them waiting on font packages
+    # from an Ubuntu mirror in four stalls of up to 215 seconds. Nothing was
+    # wrong with the build and the commits it was publishing went out on the
+    # next push instead, which is the failure mode worth avoiding: a deploy that
+    # reports red for a reason that has nothing to do with the commit teaches
+    # everyone to disregard it.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
