@@ -194,8 +194,11 @@ packages/ingestion/       Source adapters and anomaly checks. CI only.
 packages/configuration/   Theme rules, and the protocol an embedding page speaks to a frame
 packages/ui/              Shared elements, design tokens, theme wiring. The only DOM package.
 data/                     Reviewed rule files, fixtures, change-detection state
-docs/                     ADRs, source notes, embedding and operations guides
+docs/                     Architecture decision records, and the dependency licence inventory
 ```
+
+Every app and package directory carries its own README covering what it is, who consumes it, and the
+one or two things a consumer gets wrong.
 
 Data arrives from outside the program, so it is validated on read with a runtime schema, not
 assumed. A source that changes shape produces a visible status, never a silently coerced number.
@@ -288,14 +291,13 @@ allow it.
 ></iframe>
 ```
 
-Framing grants the parent page no access to application data and no control over it. Theme and
-defaults are set through documented query parameters — see [Theming](#theming). Inbound
-`postMessage` payloads are accepted only from the framing window and are schema-validated, and no
-arbitrary URL, CSS, HTML, or script is ever accepted from a parent. The only message sent outward is
-the content height, which is a layout measurement and contains nothing else — imported athlete
-information is never transmitted to a parent. That message names both the collection and the tool,
-so a page embedding two tools can tell them apart rather than sizing both frames to whichever spoke
-last.
+Framing grants the parent page no access to application data and no control over it. `theme` is the
+only query parameter an embed route reads — see [Theming](#theming). Inbound `postMessage` payloads
+are accepted only from the framing window and are schema-validated, and no arbitrary URL, CSS, HTML,
+or script is ever accepted from a parent. The only message sent outward is the content height, which
+is a layout measurement and contains nothing else — imported athlete information is never
+transmitted to a parent. That message names both the collection and the tool, so a page embedding
+two tools can tell them apart rather than sizing both frames to whichever spoke last.
 
 Both directions of that protocol are declared together in `packages/configuration/src/embedding.ts`,
 so the whole framing surface can be read in one file rather than inferred from the absence of code
@@ -362,6 +364,8 @@ If your page has its own light/dark switch, the frame can follow it without bein
 reload would discard whatever the visitor had entered. Post to the frame:
 
 ```js
+const frame = document.querySelector('iframe[title="Platform Targets"]');
+
 frame.contentWindow.postMessage(
   { source: 'platform-toolkit', version: 1, type: 'set-theme', mode: 'dark' },
   'https://example.invalid',

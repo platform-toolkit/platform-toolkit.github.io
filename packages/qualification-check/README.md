@@ -41,7 +41,10 @@ The framed view posts its rendered height to the parent so you can size the fram
 scrollbar:
 
 ```js
+const frame = document.querySelector('iframe[title="Qualification Check"]');
+
 window.addEventListener('message', (event) => {
+  if (event.source !== frame.contentWindow) return;
   const message = event.data;
   if (message?.source !== 'platform-toolkit' || message.type !== 'height') return;
   if (message.tool !== 'qualify') return;

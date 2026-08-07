@@ -64,7 +64,10 @@ The framed view posts its rendered height to the parent so you can size the fram
 scrollbar:
 
 ```js
+const frame = document.querySelector('iframe[title="Training Logbook"]');
+
 window.addEventListener('message', (event) => {
+  if (event.source !== frame.contentWindow) return;
   const message = event.data;
   if (message?.source !== 'platform-toolkit' || message.type !== 'height') return;
   if (message.tool !== 'logbook') return;
@@ -169,12 +172,19 @@ including tap targets below the 44 px floor the gym flow is built to.
 | `applicationVersion` | `string`                            | Stamped into a backup file, for a human reading it much later. |
 | `handoff`            | `HandoffSource \| null`             | Where a session handed over by the warm-up calculator waits.   |
 | `persistence`        | `StoragePersistence \| null`        | How to ask the browser not to evict this origin's storage.     |
+| `pageTitled`         | `boolean`                           | Set when the page already has a heading naming this tool.      |
 
 `today` is a string and not a `Date` on purpose: `new Date('2026-05-15')` is midnight UTC, which is
 the fourteenth of May anywhere west of Greenwich — and a training log is a record of which day
 somebody trained on. It is a separate property from `now` for the same reason. Derive it from the
 lifter's own locale, and refresh it when the tab becomes visible again, or a session logged after
-midnight lands on the day the tab was opened.
+midnight lands on the day the tab was opened. Left unset it falls back to the local day read off
+`now`, so a bare mount dates things correctly rather than filing them under the empty string.
+
+`pageTitled` is the only property here that is about the document rather than the training. The
+element draws a visually clipped `<h1>` so that a page which is nothing but this tool -- the framed
+route -- still has a heading; set it on a page that already draws one, or the outline says the same
+thing twice. Unset draws the heading, because redundant beats absent.
 
 ### Storage is an adapter you supply
 
