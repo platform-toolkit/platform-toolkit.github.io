@@ -102,6 +102,12 @@ export {
   type ToggleGroupChangeDetail,
 } from './ptk-toggle-group.js';
 export {
+  measureEmbedHeight,
+  publishEmbedHeight,
+  publishEmbedHeightOnResize,
+  type EmbedHeightOptions,
+} from './embed-height.js';
+export {
   applyThemeMode,
   currentThemeMode,
   effectiveTheme,

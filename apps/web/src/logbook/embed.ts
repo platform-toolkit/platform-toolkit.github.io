@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  MESSAGE_SOURCE,
-  MESSAGE_VERSION,
-  type HeightMessage,
-} from '@platform-toolkit/configuration';
-import { initializeTheme } from '@platform-toolkit/ui';
+  initializeTheme,
+  publishEmbedHeight,
+  publishEmbedHeightOnResize,
+} from '@platform-toolkit/ui';
 
 import { TOOL_ID, createTrainingLogbookView } from './view.js';
 
@@ -19,7 +18,7 @@ if (app === null) {
 // its old height is the visible symptom -- on somebody else's page.
 initializeTheme({
   onChange: () => {
-    publishHeight();
+    publishEmbedHeight({ tool: TOOL_ID });
   },
 });
 
@@ -42,40 +41,15 @@ initializeTheme({
 // this being kept.
 app.replaceChildren(createTrainingLogbookView());
 
-/**
- * Tells the embedding page how tall this view is.
- *
- * A broad target origin is acceptable here, and only here, because the payload is
- * a layout measurement and nothing else. This is the tool where that distinction
- * carries the most weight -- what a lifter types into it is a training history,
- * the one body of data in the collection that is theirs rather than published --
- * and the protocol has no message that could carry any of it outward. There is no
- * "workout" message and there must never be one. A host wanting the data has the
- * documented route the lifter controls: the backup they download themselves.
- */
-function publishHeight(): void {
-  if (window.parent === window) {
-    return;
-  }
-
-  const message: HeightMessage = {
-    source: MESSAGE_SOURCE,
-    version: MESSAGE_VERSION,
-    tool: TOOL_ID,
-    type: 'height',
-    height: document.documentElement.scrollHeight,
-  };
-
-  window.parent.postMessage(message, '*');
-}
-
 // This tool changes height on almost every tap -- a set completed, an exercise
 // added, a plan row removed, a screen swapped for another -- so the observer
 // earns its keep here rather than guarding against an eventual layout change.
-if (typeof ResizeObserver === 'function') {
-  new ResizeObserver(() => {
-    publishHeight();
-  }).observe(document.documentElement);
-}
-
-publishHeight();
+//
+// The height is the only thing that leaves, and this is the tool where that
+// distinction carries the most weight: what a lifter types into it is a training
+// history, the one body of data in the collection that is theirs rather than
+// published, and the protocol has no message that could carry any of it outward.
+// There is no "workout" message and there must never be one. A host wanting the
+// data has the documented route the lifter controls -- the backup they download
+// themselves.
+publishEmbedHeightOnResize({ tool: TOOL_ID });

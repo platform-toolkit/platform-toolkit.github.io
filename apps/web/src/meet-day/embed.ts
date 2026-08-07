@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  MESSAGE_SOURCE,
-  MESSAGE_VERSION,
-  type HeightMessage,
-} from '@platform-toolkit/configuration';
-import { initializeTheme } from '@platform-toolkit/ui';
+  initializeTheme,
+  publishEmbedHeight,
+  publishEmbedHeightOnResize,
+} from '@platform-toolkit/ui';
 
 import { noMeetStore } from './meet-store.js';
 import { TOOL_ID, createPlannerView } from './view.js';
@@ -20,7 +19,7 @@ if (app === null) {
 // at its old height is the visible symptom -- on somebody else's page.
 initializeTheme({
   onChange: () => {
-    publishHeight();
+    publishEmbedHeight({ tool: TOOL_ID });
   },
 });
 
@@ -37,40 +36,14 @@ initializeTheme({
 // the next person reading this file has no way to see was made.
 app.replaceChildren(createPlannerView({ store: noMeetStore() }));
 
-/**
- * Tells the embedding page how tall this view is.
- *
- * A broad target origin is acceptable here, and only here, because the payload
- * is a layout measurement and nothing else. Nothing a lifter typed into this
- * planner is ever sent to a parent page, and there is no message that could
- * carry it -- which matters more here than in the other tools, because what is
- * typed into this one is a bodyweight, an age and three maximums.
- */
-function publishHeight(): void {
-  if (window.parent === window) {
-    return;
-  }
-
-  const message: HeightMessage = {
-    source: MESSAGE_SOURCE,
-    version: MESSAGE_VERSION,
-    tool: TOOL_ID,
-    type: 'height',
-    height: document.documentElement.scrollHeight,
-  };
-
-  window.parent.postMessage(message, '*');
-}
-
 // This tool's height moves on nearly every answer: choosing a method swaps a
 // whole block of fields, unfolding §8 adds a dozen more, and the plan itself
 // appears only once every lift has been agreed to. An embedder left at the
 // height of the setup questions would show the plan through a scrollbar, or not
 // at all.
-if (typeof ResizeObserver === 'function') {
-  new ResizeObserver(() => {
-    publishHeight();
-  }).observe(document.documentElement);
-}
-
-publishHeight();
+//
+// The height is all that leaves, which matters more here than in the other tools
+// because what is typed into this one is a bodyweight, an age and three
+// maximums. None of it is ever sent to a parent page and there is no message
+// that could carry it.
+publishEmbedHeightOnResize({ tool: TOOL_ID });
