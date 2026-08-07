@@ -528,6 +528,27 @@ export interface MeetReading {
   readonly rules: QualifyingFederationRules | null;
 }
 
+/**
+ * Whether a staged route has opened yet, on a day the caller supplies.
+ *
+ * Three states and not two. `unstaged` is most routes and it is not the same
+ * answer as `open`: collapsing them would leave the screen unable to say that a
+ * route opened last week, which is the fact a lifter reading a staged
+ * announcement is looking for.
+ *
+ * Nothing here reports on the *contingency* half of an availability. "If any
+ * available slots remain" is a roster fact, this project has no roster, and a
+ * verdict either way would be invented -- so it is quoted beside whichever of
+ * these three applies and never folded into one of them.
+ */
+export type RouteAvailability =
+  /** The criteria stage nothing; the route is as open as the meet's entry is. */
+  | 'unstaged'
+  /** The published opening day has not arrived. */
+  | 'not-yet-open'
+  /** The published opening day has arrived or passed. */
+  | 'open';
+
 /** Where a meet sits relative to a day the caller supplies. */
 export type MeetTiming =
   /** Entry is open, or the announcement names no closing day. */

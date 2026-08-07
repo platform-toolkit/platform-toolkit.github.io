@@ -376,6 +376,24 @@ function meetProblems(meet: QualifyingMeet, standards: ReadonlySet<string>): rea
       );
     }
 
+    if (route.availability !== null) {
+      // The last day this route could admit anybody. The published deadline where
+      // there is one; the meet's final day where there is not, because an
+      // announcement that did not say when entry closes has still said when the
+      // meet ends. A route that opens after that is one nobody can ever take, and
+      // it renders as a perfectly ordinary way in with a date beside it.
+      const lastUsableDay = meet.entryClosesOn ?? meet.held.to;
+      if (route.availability.opensOn > lastUsableDay) {
+        problems.push(
+          `meet "${meet.id}", route "${route.id}": it opens on ` +
+            `${route.availability.opensOn}, after ` +
+            (meet.entryClosesOn === null
+              ? `the meet finishes on ${meet.held.to}.`
+              : `entries close on ${meet.entryClosesOn}.`),
+        );
+      }
+    }
+
     if (route.appliesToTested === true && meet.testedOffering === 'untested') {
       problems.push(
         `meet "${meet.id}", route "${route.id}": it opens tested entry at a meet that runs no ` +

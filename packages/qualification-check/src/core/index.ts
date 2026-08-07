@@ -23,6 +23,7 @@ export {
   meetTiming,
   readMeetCriteria,
   readRoute,
+  routeAvailability,
   type CriteriaContext,
 } from './criteria.js';
 

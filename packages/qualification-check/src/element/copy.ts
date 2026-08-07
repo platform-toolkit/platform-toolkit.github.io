@@ -18,6 +18,7 @@ import type {
   MeetTiming,
   ReadingBasis,
   RegistrationLabels,
+  RouteAvailability,
   SetAsideResult,
   UncheckableCondition,
   UngradedReason,
@@ -522,7 +523,40 @@ export const MEET_NOTES = {
 
   /** Territory is published and shown, never matched. Saying so prevents a bug report. */
   territoryHeading: 'Held in:',
+
+  /**
+   * A staged route's opening day, which a reader will otherwise take for the window.
+   *
+   * Two dates on one route is confusing enough that both need naming: the window is
+   * when the *total* had to be set, and this is when the *entry form* starts taking
+   * this route. A lifter who reads the second as the first concludes they qualified
+   * on a total they set after the cutoff.
+   */
+  routeOpensOnHeading: 'This way in opens',
+
+  /**
+   * The half of a staged route this project will not resolve.
+   *
+   * "if any available slots remain" is a fact about a roster, there is no roster
+   * here, and a tool that answered it either way would be inventing the one thing
+   * the lifter has to ring the meet about. Same treatment the planner gives
+   * `moveUpRequiresVacancy`: carried in order to be said.
+   */
+  routeContingencyHeading: 'And a condition nothing here can check:',
 } as const;
+
+/**
+ * Whether a staged route has opened yet, for the two states that print.
+ *
+ * `unstaged` is deliberately not in the record and the type says so. A badge on
+ * every ordinary route would make staging look like the normal case, and the
+ * reader would start hunting for the one on the routes that do not have it.
+ */
+export const ROUTE_AVAILABILITY: Readonly<Record<Exclude<RouteAvailability, 'unstaged'>, string>> =
+  {
+    'not-yet-open': 'Not open yet',
+    open: 'Open now',
+  };
 
 /** Where a meet sits relative to today. */
 export const MEET_TIMING: Readonly<Record<MeetTiming, string>> = {

@@ -43,7 +43,9 @@ import '@platform-toolkit/ui';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { property } from 'lit/decorators.js';
 
+import { routeAvailability } from '../core/criteria.js';
 import type {
+  CalendarDay,
   CatalogVocabulary,
   DisregardedResult,
   MeetReading,
@@ -60,6 +62,7 @@ import {
   MEET_NOTES,
   MEET_TIMING,
   READING_BASIS,
+  ROUTE_AVAILABILITY,
   REPORT_NOTES,
   TESTED_OFFERING,
   UNREADABLE_STANDARD_REASONS,
@@ -132,7 +135,8 @@ export class PtkMeetReading extends LitElement {
      * closing day is a fact and not a warning, and a filled amber chip would read as
      * one -- next to a figure a lifter is already anxious about.
      */
-    .timing {
+    .timing,
+    .availability {
       display: inline-block;
       padding: var(--ptk-space-xs) var(--ptk-space-sm);
       border: 1px solid var(--ptk-color-border-strong);
@@ -272,6 +276,17 @@ export class PtkMeetReading extends LitElement {
    * 15) and an element that read one would be untestable at any date but today.
    */
   @property({ attribute: false }) timing: MeetTiming | null = null;
+
+  /**
+   * The day a staged route's opening date is read against.
+   *
+   * A date and not a clock, which is the distinction section 15 draws: this
+   * element may be handed a day, and it may not go and find one. `null` leaves a
+   * staged route printing its opening date with no claim about whether it has
+   * arrived -- the honest answer for a consumer that has not said what day it is,
+   * and better than assuming today.
+   */
+  @property({ attribute: false }) today: CalendarDay | null = null;
 
   /** This federation's own names for the identifiers a registration is keyed on. */
   @property({ attribute: false }) vocabulary: CatalogVocabulary | null = null;
@@ -437,11 +452,44 @@ export class PtkMeetReading extends LitElement {
     `;
   }
 
+  /**
+   * When a staged route starts taking entries, and what else the meet attaches.
+   *
+   * Rendered above the window rather than below it because the two are different
+   * dates about different things -- this one is when the entry form opens, the
+   * window is when the total had to be set -- and a reader who meets the window
+   * first reads this as a correction to it.
+   */
+  #renderAvailability(route: QualifyingRoute): TemplateResult | typeof nothing {
+    const { availability } = route;
+    if (availability === null) return nothing;
+
+    const state = this.today === null ? null : routeAvailability(route, this.today);
+    return html`
+      <p class="small">
+        ${MEET_NOTES.routeOpensOnHeading}
+        <time datetime=${availability.opensOn}>${availability.opensOn}</time>.
+        ${
+          state === null || state === 'unstaged'
+            ? nothing
+            : html`<span class="availability">${ROUTE_AVAILABILITY[state]}</span>`
+        }
+      </p>
+      ${
+        availability.contingency === null
+          ? nothing
+          : html`<p class="small">${MEET_NOTES.routeContingencyHeading}</p>
+              <blockquote>${availability.contingency}</blockquote>`
+      }
+    `;
+  }
+
   /** What a route asks of the meet the qualifying total was set at. */
   #renderRouteTerms(route: QualifyingRoute): TemplateResult {
     const { performance } = route;
     return html`
       <p class="detail">${performance.description}</p>
+      ${this.#renderAvailability(route)}
       <p class="small">
         ${MEET_NOTES.windowHeading}
         <time datetime=${route.window.from}>${route.window.from}</time> and

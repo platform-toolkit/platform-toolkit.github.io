@@ -9,6 +9,7 @@ import {
   QualifyingFederationRulesSchema,
   QualifyingMeetBookSchema,
   QualifyingMeetSchema,
+  QualifyingRouteSchema,
   QualifyingStandardSchema,
   QualifyingWindowSchema,
   findQualifyingFederationRules,
@@ -42,6 +43,7 @@ const ROUTE = {
   window: { from: '2026-01-01', to: '2026-09-30' },
   appliesToTested: true,
   quotation: 'Invented Class total or above is required to qualify, from a tested event.',
+  availability: null,
   dispute: null,
 };
 
@@ -241,6 +243,60 @@ describe('QualifyingEntrySchema', () => {
     // A bare marker is reachable by giving up on a page, and giving up is the one
     // state this variant must never be confused with.
     expect(v.safeParse(QualifyingEntrySchema, { kind: 'unstated' }).success).toBe(false);
+  });
+});
+
+describe('QualifyingRouteSchema availability', () => {
+  const staged = (availability: unknown): unknown => ({ ...ROUTE, availability });
+
+  it('takes a route the meet does not open until a published day', () => {
+    expect(
+      v.safeParse(QualifyingRouteSchema, staged({ opensOn: '2026-11-01', contingency: null }))
+        .success,
+    ).toBe(true);
+  });
+
+  it('carries a condition on the date that it does not try to settle', () => {
+    // The half of a staged route this project has no way to answer: a vacancy is a
+    // roster fact and there is no roster here. Carried as a sentence so a screen
+    // can quote it, which is the same treatment the planner gives a deadline it
+    // cannot observe.
+    const parsed = v.parse(
+      QualifyingRouteSchema,
+      staged({
+        opensOn: '2026-11-01',
+        contingency: 'Only if any available slots remain after the earlier tier.',
+      }),
+    );
+    expect(parsed.availability?.contingency).toContain('slots remain');
+  });
+
+  it('distinguishes a route that stages nothing from one that opened yesterday', () => {
+    // The reason `availability` is nullable rather than defaulted to a past date.
+    // Flattened, a screen could no longer say that a staged route is still shut,
+    // which is the one fact a lifter reading a staged announcement is after.
+    expect(v.parse(QualifyingRouteSchema, staged(null)).availability).toBeNull();
+    expect(
+      v.parse(QualifyingRouteSchema, staged({ opensOn: '2026-01-01', contingency: null }))
+        .availability,
+    ).not.toBeNull();
+  });
+
+  it('refuses an opening day that is not a calendar day', () => {
+    // A month is what an announcement usually says -- "registration opens in
+    // February" -- and it is not something a comparison can be made against. The
+    // transcriber has to find the day or leave the route unstaged.
+    expect(
+      v.safeParse(QualifyingRouteSchema, staged({ opensOn: '2026-02', contingency: null })).success,
+    ).toBe(false);
+  });
+
+  it('refuses a route with no availability key at all', () => {
+    // Nullable and not optional, deliberately. A transcriber who forgets the field
+    // publishes a route that reads as staging nothing, and a staged route silently
+    // becoming an open one is the over-reporting this whole field exists to stop.
+    const { availability: _unused, ...withoutIt } = ROUTE;
+    expect(v.safeParse(QualifyingRouteSchema, withoutIt).success).toBe(false);
   });
 });
 

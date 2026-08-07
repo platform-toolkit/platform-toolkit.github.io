@@ -285,6 +285,46 @@ export const QualifyingDisputeSchema = v.object({
 export type QualifyingDispute = v.InferOutput<typeof QualifyingDisputeSchema>;
 
 /**
+ * A route the meet does not open on the day it publishes its criteria.
+ *
+ * Real meets stage their standards over time. One in the corpus asks
+ * International Elite to register for the pro day, then opens Elite on a named
+ * date, then opens Master "if any available slots remain" on a later one -- and
+ * the amateur day does the same thing from Class 1 down to Class 4. A contract
+ * with only a window has three bad answers to that and no good one: publish the
+ * strictest route and under-report who may enter, publish the loosest and
+ * over-report, or split one meet into three. All three are wrong in a way the
+ * reader cannot see.
+ *
+ * So the shape is **a date this project can compare against and a sentence it can
+ * only quote**. The vacancy half is not modelled and must not be: a slot count is
+ * a roster fact, there is no roster here, and it is the same treatment
+ * `meet-rules.ts` gives `moveUpRequiresVacancy` -- carried in order to be *said*
+ * and never enforced.
+ */
+export const QualifyingAvailabilitySchema = v.object({
+  /**
+   * The published day this route starts admitting entries, inclusive.
+   *
+   * Inclusive for the reason a window is: "registration opens up February 1st"
+   * admits an entry on February 1st, and the exclusive reading would close the
+   * route on the one day the announcement is actually about.
+   */
+  opensOn: CalendarDay,
+
+  /**
+   * What the meet attaches to the date on top of the date itself, verbatim.
+   *
+   * `null` where the date is the whole of it. Where it is set, it is shown and
+   * never evaluated -- "if any available slots remain" is a fact about a roster
+   * this project does not have, and a tool that resolved it either way would be
+   * inventing the one thing the lifter has to ring the meet about.
+   */
+  contingency: v.nullable(Sentence),
+});
+export type QualifyingAvailability = v.InferOutput<typeof QualifyingAvailabilitySchema>;
+
+/**
  * One published way into a meet.
  *
  * Routes are *alternatives*: a lifter satisfying any one of them has met the
@@ -316,6 +356,15 @@ export const QualifyingRouteSchema = v.object({
 
   /** The published sentence this route was read from. */
   quotation: Sentence,
+
+  /**
+   * Set where the route only opens from a published date.
+   *
+   * `null` is "the criteria stage nothing", which is most routes, and it is not
+   * the same as a route that opened yesterday -- a screen that flattened the two
+   * would stop being able to say a staged route is still shut.
+   */
+  availability: v.nullable(QualifyingAvailabilitySchema),
 
   /** Set where the document states this route two incompatible ways. */
   dispute: v.nullable(QualifyingDisputeSchema),

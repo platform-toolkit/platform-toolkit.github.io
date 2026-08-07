@@ -106,6 +106,7 @@ function route(overrides: Record<string, unknown> = {}): Record<string, unknown>
     window: { from: '2026-01-01', to: '2026-12-31' },
     appliesToTested: null,
     quotation: 'An Invented Class total or above is required to qualify.',
+    availability: null,
     dispute: null,
     ...overrides,
   };
@@ -301,6 +302,69 @@ describe('buildQualifyingMeetBook', () => {
 
   it('accepts a meet whose announcement prints no closing date', () => {
     expect(problemsFrom([document({ meets: [meet({ entryClosesOn: null })] })])).toEqual([]);
+  });
+
+  it('refuses a staged route that does not open until after entries have closed', () => {
+    // A staged route is one nobody can take until a date, so a date past the
+    // deadline is a route nobody can ever take -- and it renders as an ordinary
+    // way in with a date beside it, which is a way in that does not exist.
+    const problems = problemsFrom([
+      document({
+        meets: [
+          meet({
+            entry: {
+              kind: 'standard',
+              routes: [route({ availability: { opensOn: '2027-01-10', contingency: null } })],
+            },
+          }),
+        ],
+      }),
+    ]);
+    expect(problems).toEqual([expect.stringContaining('after entries close on 2027-01-02')]);
+  });
+
+  it('accepts a staged route that opens on the closing day itself', () => {
+    // Inclusive, matching every other boundary in this adapter: a meet may open
+    // its last tier on the morning entry closes, and refusing that fails a correct
+    // transcription rather than catching a slip.
+    expect(
+      problemsFrom([
+        document({
+          meets: [
+            meet({
+              entry: {
+                kind: 'standard',
+                routes: [route({ availability: { opensOn: '2027-01-02', contingency: null } })],
+              },
+            }),
+          ],
+        }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it('measures a staged route against the end of the meet where no closing day is published', () => {
+    // An announcement that did not say when entry closes has still said when the
+    // meet ends. Without the fallback there is no bound at all on these meets, so
+    // a route opening the month after would publish cleanly -- and it is exactly
+    // the meets with the loosest paperwork that get the loosest transcription.
+    const staged = (opensOn: string): Record<string, unknown> =>
+      document({
+        meets: [
+          meet({
+            entryClosesOn: null,
+            entry: {
+              kind: 'standard',
+              routes: [route({ availability: { opensOn, contingency: null } })],
+            },
+          }),
+        ],
+      });
+
+    expect(problemsFrom([staged('2027-02-01')])).toEqual([
+      expect.stringContaining('after the meet finishes on 2027-01-17'),
+    ]);
+    expect(problemsFrom([staged('2027-01-17')])).toEqual([]);
   });
 
   it('refuses two meets sharing an id', () => {

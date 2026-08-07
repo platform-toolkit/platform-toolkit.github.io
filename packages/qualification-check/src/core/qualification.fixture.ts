@@ -314,6 +314,7 @@ export function classificationRoute(patch: Partial<QualifyingRoute> = {}): Quali
     window: { from: '2026-01-01', to: '2026-12-31' },
     appliesToTested: null,
     quotation: 'Entrants must have a First Class total or above from a tested meet.',
+    availability: null,
     dispute: null,
     ...patch,
   };
@@ -348,6 +349,7 @@ export function pointsRoute(patch: Partial<QualifyingRoute> = {}): QualifyingRou
     window: { from: '2026-01-01', to: '2026-12-31' },
     appliesToTested: null,
     quotation: 'Lifters scoring 471.3 or better may request an invitation.',
+    availability: null,
     dispute: null,
     ...patch,
   };

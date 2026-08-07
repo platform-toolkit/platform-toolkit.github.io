@@ -23,9 +23,11 @@
 import {
   TABLES_FIXTURE,
   VOCABULARY_FIXTURE,
+  classificationRoute,
   entry,
   meet,
   meetBook,
+  pointsRoute,
   wholeYearWindow,
 } from '../core/qualification.fixture.js';
 import { readMeetCriteria } from '../core/criteria.js';
@@ -37,6 +39,7 @@ import type {
   AthleteHistory,
   AthleteMirrorInfo,
   ClassificationTable,
+  QualifyingMeet,
 } from '@platform-toolkit/data-contracts';
 import { athleteLookupKey } from '@platform-toolkit/data-contracts';
 
@@ -47,7 +50,15 @@ import type {
   StandingReport,
 } from '../types.js';
 
-export { TABLES_FIXTURE, VOCABULARY_FIXTURE, entry, meet, meetBook };
+export {
+  TABLES_FIXTURE,
+  VOCABULARY_FIXTURE,
+  classificationRoute,
+  entry,
+  meet,
+  meetBook,
+  pointsRoute,
+};
 
 /**
  * A day inside the fixture meet's entry window.
@@ -194,14 +205,23 @@ export function twoNamesakes(): readonly AthleteHistory[] {
   ];
 }
 
-/** One meet's published criteria, read against those same results. */
+/**
+ * One meet's published criteria, read against those same results.
+ *
+ * `meetPatch` patches the *meet*, not the reading, so a story that wants a staged route
+ * or a different deadline still gets a page `readMeetCriteria` actually produced. A
+ * hand-assembled `MeetReading` would let a story print a route beside a verdict the core
+ * would never have reached for it, which is the failure this whole file exists to avoid.
+ */
 export function aMeetReading(
   overrides: Partial<ResolvedRegistration> = {},
   standing: ObservedStanding = aStanding(),
+  meetPatch: Partial<QualifyingMeet> = {},
 ): MeetReading {
   const book = meetBook();
   const [only] = book.meets;
-  return readMeetCriteria(only ?? meet(), standing, aRegistration(overrides, standing), {
+  const subject = { ...(only ?? meet()), ...meetPatch };
+  return readMeetCriteria(subject, standing, aRegistration(overrides, standing), {
     tables: TABLES_FIXTURE,
     vocabulary: VOCABULARY_FIXTURE,
     rules: book.federations[0] ?? null,

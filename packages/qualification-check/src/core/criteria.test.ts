@@ -12,6 +12,7 @@ import {
   meetTiming,
   readMeetCriteria,
   readRoute,
+  routeAvailability,
   type CriteriaContext,
 } from './criteria.js';
 import { collectStandings } from './history.js';
@@ -599,6 +600,46 @@ describe('findQualifyingMeet', () => {
   it('returns the meet with no rules where the book carries none for its federation', () => {
     const book = meetBook({ federations: [federationRules({ federationId: 'elsewhere' })] });
     expect(findQualifyingMeet(book, 'invented-national-2026')?.rules).toBeNull();
+  });
+});
+
+describe('routeAvailability', () => {
+  const staged = (opensOn: string, contingency: string | null = null): QualifyingRoute =>
+    classificationRoute({ availability: { opensOn, contingency } });
+
+  it('says nothing about staging for a route that stages nothing', () => {
+    // Not folded into `open`. A badge on every ordinary route would make staging
+    // look like the normal case, and the reader would start hunting for one on the
+    // routes that do not carry it.
+    expect(routeAvailability(classificationRoute(), '2027-03-01')).toBe('unstaged');
+  });
+
+  it('opens on the published day and not the one after it', () => {
+    // "Registration opens up February 1st" admits an entry on February 1st. The
+    // exclusive reading shuts the route on the single day the announcement is
+    // actually about, which is also the day somebody is refreshing the page.
+    expect(routeAvailability(staged('2027-02-01'), '2027-01-31')).toBe('not-yet-open');
+    expect(routeAvailability(staged('2027-02-01'), '2027-02-01')).toBe('open');
+    expect(routeAvailability(staged('2027-02-01'), '2027-02-02')).toBe('open');
+  });
+
+  it('compares dates across a month and a year boundary rather than by digits', () => {
+    // The comparison is `YYYY-MM-DD` string ordering, which is date ordering only
+    // because every field is zero-padded. A route opening on the 2nd of a month
+    // read against the 30th of the one before is where a comparison on day numbers
+    // alone would say the route is already open.
+    expect(routeAvailability(staged('2027-02-02'), '2027-01-30')).toBe('not-yet-open');
+    expect(routeAvailability(staged('2027-01-02'), '2026-12-30')).toBe('not-yet-open');
+  });
+
+  it('reports on the date and never on the condition attached to it', () => {
+    // The vacancy half is a roster fact and there is no roster here. A route whose
+    // date has arrived reads as open even where the meet may have filled, because
+    // the alternative is this project inventing the one thing the lifter has to
+    // ring the meet about. The sentence is carried for the screen to quote.
+    const route = staged('2027-02-01', 'Only if any available slots remain.');
+    expect(routeAvailability(route, '2027-03-01')).toBe('open');
+    expect(route.availability?.contingency).toContain('slots remain');
   });
 });
 

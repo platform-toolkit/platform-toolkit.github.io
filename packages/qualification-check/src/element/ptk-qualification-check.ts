@@ -635,6 +635,7 @@ export class PtkQualificationCheck extends LitElement {
           : html`<ptk-meet-reading
               .reading=${reading}
               .timing=${this.today === null ? null : meetTiming(reading.meet, this.today)}
+              .today=${this.today}
               .vocabulary=${vocabulary}
             ></ptk-meet-reading>`
       }

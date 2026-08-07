@@ -28,6 +28,7 @@ import type {
   MeetTiming,
   ObservedStanding,
   ResolvedRegistration,
+  RouteAvailability,
   RouteOutcome,
   RouteReading,
   StandardReading,
@@ -170,6 +171,29 @@ export function meetTiming(meet: QualifyingMeet, today: CalendarDay): MeetTiming
     return 'entry-closed';
   }
   return 'entry-open';
+}
+
+/**
+ * Whether a staged route has opened yet, on a day the caller supplies.
+ *
+ * Beside {@link meetTiming} and taking the day the same way, for the same two
+ * reasons: this package holds no clock (section 15), and a rule that read one
+ * would be untestable at any date but today.
+ *
+ * The comparison is a string comparison and that is deliberate. Both sides are
+ * `YYYY-MM-DD`, which sorts lexicographically in date order, and the alternative
+ * -- parsing to a `Date` -- makes the answer depend on the reader's timezone on
+ * exactly the day the route opens, which is the day somebody is refreshing the
+ * page (section 5.5).
+ */
+export function routeAvailability(route: QualifyingRoute, today: CalendarDay): RouteAvailability {
+  if (route.availability === null) {
+    return 'unstaged';
+  }
+  // Inclusive, matching the contract: "registration opens up February 1st" admits
+  // an entry on February 1st, and the exclusive reading shuts the route on the one
+  // day the announcement is about.
+  return today >= route.availability.opensOn ? 'open' : 'not-yet-open';
 }
 
 /** Whether a meet's sanction covers a tested or an untested registration. */

@@ -749,6 +749,7 @@ const QUALIFYING_MEET_BOOK = {
             window: { from: '2026-01-01', to: '2026-12-31' },
             appliesToTested: null,
             quotation: 'An Example Class total or above is required to qualify.',
+            availability: null,
             dispute: null,
           },
         ],

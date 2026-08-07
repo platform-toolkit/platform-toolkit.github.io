@@ -24,7 +24,14 @@ import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 
 import type { PtkMeetReading } from './ptk-meet-reading.js';
-import { VOCABULARY_FIXTURE, aMeetReading } from './story.fixture.js';
+import {
+  A_DAY_BEFORE_ENTRY_CLOSES,
+  VOCABULARY_FIXTURE,
+  aMeetReading,
+  aStanding,
+  classificationRoute,
+  pointsRoute,
+} from './story.fixture.js';
 
 // The registry is written once, explicitly. See the note in the composite root's stories.
 defineQualificationCheck();
@@ -36,12 +43,14 @@ const meta: Meta<PtkMeetReading> = {
   args: {
     reading: aMeetReading(),
     timing: 'entry-open',
+    today: A_DAY_BEFORE_ENTRY_CLOSES,
     vocabulary: VOCABULARY_FIXTURE,
   },
   render: (args) => html`
     <ptk-meet-reading
       .reading=${args.reading}
       .timing=${args.timing}
+      .today=${args.today}
       .vocabulary=${args.vocabulary}
     ></ptk-meet-reading>
   `,
@@ -107,6 +116,39 @@ export const BeforeAMeetIsChosen: Story = {
 };
 
 /**
+ * A meet that opens its two ways in on two different days.
+ *
+ * Staged entry is how the larger meets in the corpus are written -- one tier opens with
+ * registration, another opens weeks later, and the announcement says so in a sentence
+ * that also attaches a condition nothing here can check. Both halves are on this page:
+ * the date, which the tool compares against and labels, and the condition, which it
+ * quotes and leaves alone.
+ *
+ * The coefficient route opened months ago and reads "Open now"; the classification route
+ * has not opened yet and says so. A route that stages nothing carries no badge at all --
+ * see {@link EntryOpen} -- because a badge on every route would make staging look like
+ * the normal case and send the reader hunting for one on the routes that never have it.
+ */
+export const StagedEntry: Story = {
+  args: {
+    reading: aMeetReading({}, aStanding(), {
+      entry: {
+        kind: 'standard',
+        routes: [
+          classificationRoute({ availability: { opensOn: '2027-01-15', contingency: null } }),
+          pointsRoute({
+            availability: {
+              opensOn: '2026-02-01',
+              contingency: 'Only if any available slots remain at that time.',
+            },
+          }),
+        ],
+      },
+    }),
+  },
+};
+
+/**
  * The narrowest phone still in use (section 5.7), constrained by a wrapper rather than by
  * a viewport parameter.
  *
@@ -121,6 +163,7 @@ export const Narrow: Story = {
       <ptk-meet-reading
         .reading=${args.reading}
         .timing=${args.timing}
+        .today=${args.today}
         .vocabulary=${args.vocabulary}
       ></ptk-meet-reading>
     </div>
