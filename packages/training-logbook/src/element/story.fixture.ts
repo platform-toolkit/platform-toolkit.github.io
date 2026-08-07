@@ -41,6 +41,7 @@ import {
 } from '../core/session.js';
 import { summarize, type WorkoutSummary } from '../core/summary.js';
 import { memoryLogbookStore } from '../storage/memory.js';
+import { createStoragePersistence, type StoragePersistence } from '../storage/persistence.js';
 import type { LogbookStore } from '../storage/port.js';
 import { createRepository, type TrainingLogbookRepository } from '../storage/repository.js';
 import type {
@@ -359,6 +360,35 @@ export async function aBackupFile(): Promise<File> {
   await store.writeWorkout(aFinishedSession('backup'), { kind: 'unchanged' });
   const text = serializeBackup(await aRepository(store).exportSnapshot());
   return new File([text], backupFilename(A_TRAINING_DAY), { type: 'application/json' });
+}
+
+/**
+ * A browser that has not committed to keeping this origin, and one that has.
+ *
+ * Through the real port over a two-function manager rather than a hand-written
+ * `StoragePersistence`, so the mapping from what a browser answers to what the screen
+ * says is the same code every other test exercises.
+ *
+ * Not `navigator.storage`, for `storyStore`'s reason: the answer has to be the same one
+ * every time the page is opened, and the real manager would draw the offer on a fresh
+ * machine and the statement on one that had opened Storybook a few times -- with no way
+ * to tell which screen was intended. `persist` resolves false in both because no story
+ * presses it; the request belongs to a lifter, and a play function that made it would be
+ * asking a reviewer's browser for storage on their behalf.
+ */
+export function aBrowserThatMayClear(): StoragePersistence {
+  return createStoragePersistence({
+    persisted: () => Promise.resolve(false),
+    persist: () => Promise.resolve(false),
+  });
+}
+
+/** The same browser after it has agreed, which is a screen with no control on it. */
+export function aBrowserThatKeeps(): StoragePersistence {
+  return createStoragePersistence({
+    persisted: () => Promise.resolve(true),
+    persist: () => Promise.resolve(true),
+  });
 }
 
 /** What the root element needs to be a working tool, and nothing else. */

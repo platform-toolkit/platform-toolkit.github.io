@@ -45,6 +45,8 @@ import {
   AT_START,
   A_TRAINING_DAY,
   aBackupFile,
+  aBrowserThatKeeps,
+  aBrowserThatMayClear,
   aFreshTool,
   aKilogramRack,
   aStartedSession,
@@ -315,6 +317,10 @@ const meta: Meta<PtkTrainingLogbook> = {
     // and `undefined` is not `null`, so an arg the render binds but the meta never
     // declares would have the tool asking an absent reader what is waiting.
     handoff: null,
+    // Spelled out for the same reason, and with a sharper edge: an absent port draws
+    // no offer at all, so a story that forgot it would document a home screen missing
+    // a section and look exactly like the correct answer for an embed.
+    persistence: null,
   },
   render: (args) => html`
     <ptk-training-logbook
@@ -324,6 +330,7 @@ const meta: Meta<PtkTrainingLogbook> = {
       .nextId=${args.nextId}
       .applicationVersion=${args.applicationVersion}
       .handoff=${args.handoff}
+      .persistence=${args.persistence}
     ></ptk-training-logbook>
   `,
 };
@@ -570,6 +577,51 @@ export const ConfirmingADelete: Story = {
     await until(
       'the delete confirmation',
       () => deepAll(shadow(element), 'section.erase').length > 0,
+    );
+  },
+};
+
+/**
+ * The offer to keep this on the device, which is section 10.3's whole visible surface.
+ *
+ * Reached through a restore because the offer is drawn only where there is something to
+ * lose -- on a bare logbook it is correctly absent, which is the state `NothingLoggedYet`
+ * already documents. Two sentences and a button: what the browser is allowed to do, the
+ * ask, and the line that stays true either way.
+ *
+ * The press is not made here. It belongs to a lifter, and it may raise a permission
+ * prompt; a play function that made it would be asking the reviewer's browser for
+ * storage.
+ */
+export const AskedToKeepThisOnTheDevice: Story = {
+  args: { ...aFreshTool('keep'), persistence: aBrowserThatMayClear() },
+  play: async ({ canvasElement }) => {
+    const element = await logbook(canvasElement);
+    await chooseFile(element, await aBackupFile());
+    await press(element, 'restore-confirm');
+    await until(
+      'the offer to keep this',
+      () => deepAll(shadow(element), 'section.keep').length > 0,
+    );
+  },
+};
+
+/**
+ * The same section once the browser has agreed, which is the version with no control.
+ *
+ * Worth its own story because section 0.4 forbids a dead control standing in for a
+ * feature, and the obvious mistake here is a button that stays on screen asking for
+ * something already granted. What is left is a statement and the backup line under it.
+ */
+export const AlreadyKeptOnThisDevice: Story = {
+  args: { ...aFreshTool('kept'), persistence: aBrowserThatKeeps() },
+  play: async ({ canvasElement }) => {
+    const element = await logbook(canvasElement);
+    await chooseFile(element, await aBackupFile());
+    await press(element, 'restore-confirm');
+    await until(
+      'the offer to keep this',
+      () => deepAll(shadow(element), 'section.keep').length > 0,
     );
   },
 };

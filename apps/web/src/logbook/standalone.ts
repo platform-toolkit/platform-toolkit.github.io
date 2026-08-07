@@ -4,7 +4,11 @@
 import { initializeTheme } from '@platform-toolkit/ui';
 
 import { registerServiceWorker } from '../pwa.js';
-import { browserHandoffSource, createTrainingLogbookView } from './view.js';
+import {
+  browserHandoffSource,
+  browserStoragePersistence,
+  createTrainingLogbookView,
+} from './view.js';
 
 const app = document.querySelector<HTMLElement>('#app');
 if (app === null) {
@@ -35,4 +39,13 @@ registerServiceWorker();
 // partitioned to the embedding site, where the key has never existed and never
 // will. Offering the framed copy a reader would give it one that always answers
 // nothing, which is the same screen with a moving part behind it.
-app.replaceChildren(createTrainingLogbookView({ handoff: browserHandoffSource() }));
+// The persistence port is supplied here and not on the embed route, for a related
+// reason: persistence is granted to a top-level site, so a framed copy would be
+// asking on behalf of somebody else's page and reporting the answer as though it
+// were about the lifter's own device.
+app.replaceChildren(
+  createTrainingLogbookView({
+    handoff: browserHandoffSource(),
+    persistence: browserStoragePersistence(),
+  }),
+);

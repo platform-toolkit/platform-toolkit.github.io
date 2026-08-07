@@ -27,6 +27,13 @@ export {
   type StorageFailure,
 } from './indexed-db.js';
 
+export {
+  createStoragePersistence,
+  type StorageDurability,
+  type StorageManagerLike,
+  type StoragePersistence,
+} from './persistence.js';
+
 export type { ActiveWorkoutPointer, LogbookStore } from './port.js';
 
 export {

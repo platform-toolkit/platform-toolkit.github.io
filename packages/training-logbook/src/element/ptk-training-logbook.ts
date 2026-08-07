@@ -111,6 +111,8 @@ import {
   type SessionContext,
 } from '../core/session.js';
 import { workoutDurationMillis, type WorkoutSummary } from '../core/summary.js';
+// Type-only for the same reason the handoff import above is: the port is supplied.
+import type { StorageDurability, StoragePersistence } from '../storage/persistence.js';
 import { defaultSettings, type TrainingLogbookRepository } from '../storage/repository.js';
 import type {
   CalendarDay,
@@ -136,6 +138,7 @@ import {
   EFFORT_SETTING_NOTES,
   HANDOFF_NOTES,
   HOME_NOTES,
+  PERSIST_NOTES,
   RECORDS_NOTES,
   RESTORE_NOTES,
   RESTORE_REFUSALS,
@@ -250,6 +253,7 @@ const BACKUP_ACTION = 'backup';
 const MARKDOWN_ACTION = 'markdown';
 const RESTORE_PICK_ACTION = 'restore-pick';
 const RESTORE_CONFIRM_ACTION = 'restore-confirm';
+const PERSIST_ASK_ACTION = 'persist-ask';
 const DELETE_PICK_ACTION = 'delete-pick';
 const DELETE_CONFIRM_ACTION = 'delete-confirm';
 const DELETE_CANCEL_ACTION = 'delete-cancel';
@@ -634,6 +638,21 @@ export class PtkTrainingLogbook extends LitElement {
    */
   @property({ attribute: false }) handoff: HandoffSource | null = null;
 
+  /**
+   * How this browser is asked to keep what is written here. Section 10.3.
+   *
+   * Supplied and not reached for, like everything else that touches the platform,
+   * and `null` is an ordinary answer rather than an error: a host with no Storage
+   * API, a frame whose storage is partitioned away, and every story and test that
+   * does not care all arrive here as `null`, and the offer simply is not drawn.
+   *
+   * Nothing on this element calls {@link StoragePersistence.request} except the
+   * press that offers it. Section 10.3 makes the timing part of the requirement,
+   * and it is a requirement with teeth: a browser asked on load by a visitor who
+   * has logged nothing is a browser that says no and remembers.
+   */
+  @property({ attribute: false }) persistence: StoragePersistence | null = null;
+
   @state() private screen: Screen = 'home';
   @state() private settings: LogbookSettings = defaultSettings();
   @state() private active: WorkoutSession | null = null;
@@ -802,6 +821,26 @@ export class PtkTrainingLogbook extends LitElement {
    */
   @state() private deleteProblem: 'write' | 'verify' | null = null;
 
+  /**
+   * What this browser last said about keeping the data. Section 10.3.
+   *
+   * `'unknown'` until the port answers, and `'unknown'` for good where there is no
+   * port -- which is why it is the initial value rather than a `null` meaning not yet
+   * read. A screen has the same nothing to offer in both cases.
+   */
+  @state() private durability: StorageDurability = 'unknown';
+
+  /**
+   * Whether the lifter has pressed the ask and the browser has answered.
+   *
+   * Needed because {@link durability} cannot tell the two `'best-effort'` cases
+   * apart, and they say different things: one is a device nobody has asked about
+   * yet, and the other is a device whose browser has just declined. Without this,
+   * the press would produce a screen identical to the one before it and read as a
+   * button that does nothing.
+   */
+  @state() private persistAsked = false;
+
   /** The record waiting to be offered, or `null` when there is nothing to offer. */
   @state() private offer: WarmupHandoff | null = null;
 
@@ -886,6 +925,11 @@ export class PtkTrainingLogbook extends LitElement {
     // it on every keystroke of a session -- and would answer differently halfway
     // through one, because another tab can write the key at any time.
     if (changed.has('handoff')) this.#readHandoff();
+    // A read and never an ask. `durability` raises no prompt and grants nothing --
+    // section 10.3's request happens on a press, and calling it here is the one
+    // mistake in this feature that cannot be undone, because a browser that refuses
+    // an unengaged visitor may not offer to be asked again.
+    if (changed.has('persistence')) void this.#readDurability();
     // Unconditional, because `changed` is keyed by the public properties and the
     // session lives in private state it cannot name. The guard is inside instead,
     // and it is a better one than a dirty check would be: `active` is replaced whole
@@ -1107,6 +1151,8 @@ export class PtkTrainingLogbook extends LitElement {
         }
       </section>
 
+      ${this.#keepSection()}
+
       <section class="section">
         <h2>${HOME_NOTES.backupHeading}</h2>
         <p class="note">${HOME_NOTES.backupNote}</p>
@@ -1136,6 +1182,88 @@ export class PtkTrainingLogbook extends LitElement {
           @change=${this.#onFileChosen}
         />
         ${this.#restoreOutcome()} ${this.#deleteOutcome()}
+      </section>
+    `;
+  }
+
+  /**
+   * Whether this device holds anything worth asking the browser to keep.
+   *
+   * All four of the things a delete removes, and not the workout count alone. Section
+   * 10.3 asks for the request to come *after the tool has demonstrated value*, and a
+   * lifter who has entered four gyms and two movements of their own before their first
+   * session has done the work this feature exists to protect -- offering them nothing
+   * until they finish a workout would leave the setup evictable for exactly as long as
+   * it is the only thing on the device.
+   *
+   * The history list is capped, so this reads "at least one" and never a total. That is
+   * all the question needs.
+   *
+   * `active` is the one conjunct with no test, and it cannot have one today: the
+   * history list is not filtered by status (#97), so a session in progress is already
+   * in `history`, and the only screen that draws this is the home one -- which the
+   * logging screen has no way back to. Mutating it away leaves the whole suite green.
+   * It stays because the redundancy is a coincidence of two other decisions rather
+   * than a property of this question: filtering #97's list is a change one task away,
+   * and it would silently take the offer off the device of somebody in the middle of
+   * their first workout, which is the device this feature is most for.
+   */
+  #hasSomethingToKeep(): boolean {
+    return (
+      this.history.length > 0 ||
+      this.active !== null ||
+      this.customs.length > 0 ||
+      this.profiles.length > 0
+    );
+  }
+
+  /**
+   * The offer to have this browser keep the logbook. Section 10.3.
+   *
+   * Drawn nowhere else and drawn conditionally, which is the whole of 10.3's timing
+   * requirement expressed as structure rather than as a comment somebody can edit
+   * around: no device content, no section; no port or a port that knows nothing, no
+   * section. Section 0.4 forbids a disabled control standing in for a feature, and a
+   * greyed-out ask on a browser with no Storage API would be exactly that.
+   *
+   * The last sentence is outside every branch on purpose -- see {@link PERSIST_NOTES}.
+   * The lifter who most needs to hear that a backup is the only copy that outlives this
+   * browser is the one who has just been told the browser agreed to keep it.
+   */
+  #keepSection(): TemplateResult | typeof nothing {
+    if (!this.#hasSomethingToKeep()) return nothing;
+    if (this.durability === 'unknown' && !this.persistAsked) return nothing;
+
+    return html`
+      <section class="section keep">
+        <h2>${PERSIST_NOTES.heading}</h2>
+        ${
+          this.durability === 'persisted'
+            ? html`<p class="note">${PERSIST_NOTES.persisted}</p>`
+            : html`
+                <p class="note">${PERSIST_NOTES.atRisk}</p>
+                <div class="actions">
+                  <ptk-button variant="secondary" data-action=${PERSIST_ASK_ACTION}
+                    >${PERSIST_NOTES.action}</ptk-button
+                  >
+                </div>
+                ${
+                  // Only after a press. Before one, the sentence above already says what
+                  // is true, and an answer printed without a question asked reads as a
+                  // refusal the lifter never triggered.
+                  this.persistAsked
+                    ? html`<p class="note">
+                        ${
+                          this.durability === 'unknown'
+                            ? PERSIST_NOTES.noAnswer
+                            : PERSIST_NOTES.declined
+                        }
+                      </p>`
+                    : nothing
+                }
+              `
+        }
+        <p class="note">${PERSIST_NOTES.stillClearable}</p>
       </section>
     `;
   }
@@ -2489,6 +2617,9 @@ export class PtkTrainingLogbook extends LitElement {
       case RESTORE_CONFIRM_ACTION:
         void this.#restore();
         return;
+      case PERSIST_ASK_ACTION:
+        void this.#askToKeep();
+        return;
       case DELETE_PICK_ACTION:
         void this.#openDelete();
         return;
@@ -2834,6 +2965,39 @@ export class PtkTrainingLogbook extends LitElement {
         composed: true,
       }),
     );
+  }
+
+  /**
+   * Reads what the browser already thinks, asking it for nothing.
+   *
+   * Called when the port arrives and at no other time. {@link persistAsked} is cleared
+   * with it, because a host that swaps the port has swapped the thing that answered,
+   * and a refusal note left over from the old one would be reporting a press made
+   * against something else.
+   */
+  async #readDurability(): Promise<void> {
+    const persistence = this.persistence;
+    this.persistAsked = false;
+    this.durability = persistence === null ? 'unknown' : await persistence.durability();
+  }
+
+  /**
+   * Asks. Section 10.3's request, from the press and from nowhere else.
+   *
+   * The flag is set after the answer rather than before the ask, so a browser still
+   * showing its own permission prompt is not yet being told what it decided.
+   *
+   * There is no failure branch, because there is no failure: the port maps a rejection
+   * to `'unknown'`, and a browser that gave no answer is a browser that changed
+   * nothing. The screen says exactly that and offers the press again.
+   */
+  async #askToKeep(): Promise<void> {
+    const persistence = this.persistence;
+    if (persistence === null) return;
+
+    const answer = await persistence.request();
+    this.durability = answer;
+    this.persistAsked = true;
   }
 
   /**

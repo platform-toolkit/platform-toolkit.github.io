@@ -68,6 +68,7 @@ import { rampLastExercise } from '../core/warmup.js';
 import type { HandoffSource } from '../handoff.js';
 import { indexedDbLogbookStore } from '../storage/indexed-db.js';
 import { memoryLogbookStore } from '../storage/memory.js';
+import type { StorageDurability, StoragePersistence } from '../storage/persistence.js';
 import type { LogbookStore } from '../storage/port.js';
 import {
   createRepository,
@@ -100,6 +101,7 @@ import {
   HANDOFF_NOTES,
   HISTORY_NOTES,
   HOME_NOTES,
+  PERSIST_NOTES,
   RECORDS_NOTES,
   DELETE_NOTES,
   RESTORE_NOTES,
@@ -204,7 +206,11 @@ async function reopen(databaseName: string): Promise<LogbookStore> {
   return store;
 }
 
-async function mount(store: LogbookStore, handoff?: HandoffSource): Promise<PtkTrainingLogbook> {
+async function mount(
+  store: LogbookStore,
+  handoff?: HandoffSource,
+  persistence?: StoragePersistence,
+): Promise<PtkTrainingLogbook> {
   const element = document.createElement('ptk-training-logbook');
   let next = 0;
   element.repository = createRepository(store, {
@@ -212,6 +218,7 @@ async function mount(store: LogbookStore, handoff?: HandoffSource): Promise<PtkT
     applicationVersion: VERSION,
   });
   element.handoff = handoff ?? null;
+  element.persistence = persistence ?? null;
   element.today = TODAY;
   element.now = (): Instant => clock;
   // Sequential rather than random: a failing assertion naming `id-4` can be traced to
@@ -1450,6 +1457,66 @@ async function withRepository(
   if (repository === null) throw new Error('This tool was mounted without a repository.');
   element.repository = swap(repository);
   await settle(element);
+}
+
+/**
+ * A browser that answers the two storage questions, and counts them.
+ *
+ * Both answers are supplied separately because the pair is what half of these cases
+ * are about: a browser that has not committed and then grants the request draws a
+ * different screen from one that has not committed and refuses it, and the element
+ * cannot tell them apart from the state it starts in.
+ */
+interface FakePersistence extends StoragePersistence {
+  /** Every promise handed out, so a case can wait for the element to have taken it in. */
+  readonly given: Promise<unknown>[];
+  readonly calls: { reads: number; asks: number };
+}
+
+function persistencePort(now: StorageDurability, answer: StorageDurability = now): FakePersistence {
+  const given: Promise<unknown>[] = [];
+  const calls = { reads: 0, asks: 0 };
+  const hand = (value: StorageDurability): Promise<StorageDurability> => {
+    const promise = Promise.resolve(value);
+    given.push(promise);
+    return promise;
+  };
+  return {
+    given,
+    calls,
+    durability: (): Promise<StorageDurability> => {
+      calls.reads += 1;
+      return hand(now);
+    },
+    request: (): Promise<StorageDurability> => {
+      calls.asks += 1;
+      return hand(answer);
+    },
+  };
+}
+
+/**
+ * Waits for the element to have taken in everything the port handed it.
+ *
+ * The offer's *absence* is what four of these cases assert, and a negative cannot be
+ * polled for -- so the wait has to be on the port's side rather than on the screen.
+ * Awaiting the same promises the element awaited is enough, and is not a sleep: the
+ * element registered its continuations on those promises before this did, so by the
+ * time it resumes the state is assigned and the render already requested.
+ */
+async function quiet(element: PtkTrainingLogbook, port: FakePersistence): Promise<void> {
+  await Promise.all(port.given);
+  await element.updateComplete;
+}
+
+/** The tool over a device whose browser will answer, with the first answer already in. */
+async function mountKeeping(
+  store: LogbookStore,
+  port: FakePersistence,
+): Promise<PtkTrainingLogbook> {
+  const element = await mount(store, undefined, port);
+  await quiet(element, port);
+  return element;
 }
 
 describe('the training logbook', () => {
@@ -3712,6 +3779,169 @@ describe('the training logbook', () => {
 
         await waitForText(element, DELETE_NOTES.verifyProblem);
         expect(readAll(element)).not.toContain(DELETE_NOTES.done);
+      });
+    }
+  });
+
+  describe('keeping this on the device', () => {
+    it('offers nothing while there is nothing here to keep', async () => {
+      const { store } = await durableStore();
+      const port = persistencePort('best-effort');
+      const element = await mountKeeping(store, port);
+
+      expect(readAll(element)).not.toContain(PERSIST_NOTES.heading);
+      // Reading is free and silent, so it happens on a bare device too. What must not
+      // happen is the offer -- asking a browser to hold on to nothing, and telling
+      // somebody who has typed nothing that they are about to lose it.
+      expect(port.calls.reads).toBe(1);
+    });
+
+    /**
+     * Three of the four things that count, and one device per thing proves it.
+     *
+     * Same shape and same reason as the delete read-back above: a device holding all
+     * of them at once cannot show a broken conjunct, because each is covered by
+     * whichever of its neighbours also fires. Two of the three are work a lifter does
+     * *before* their first finished session -- setting up a gym, inventing a movement
+     * -- and a check keyed on finished sessions alone would tell both of those people
+     * there was nothing here worth keeping.
+     *
+     * The fourth conjunct, `active`, is deliberately not here and cannot be reached
+     * from this screen. A session in progress is in the history list as well, because
+     * that list is not filtered by status (#97), and the logging screen has no way
+     * back to the home one -- so a device seeded with one would pass through
+     * `history` while appearing to prove `active`, which is the exact failure the
+     * one-device-per-conjunct rule exists to stop. Why the conjunct stays anyway is on
+     * `#hasSomethingToKeep`. Do not add a case here claiming to cover it.
+     */
+    const keepable: readonly { readonly what: string; readonly seed: Seeder }[] = [
+      { what: 'a finished session', seed: seedRepeatable },
+      { what: 'a saved gym', seed: (store) => store.writeProfile(aProfile()) },
+      {
+        what: 'a movement the lifter invented',
+        seed: (store) => store.writeExercise(anInventedExercise()),
+      },
+    ];
+
+    for (const { what, seed } of keepable) {
+      it(`offers to keep a device holding ${what}`, async () => {
+        const { store } = await durableStore();
+        await seed(store);
+        const element = await mountKeeping(store, persistencePort('best-effort'));
+
+        await waitForText(element, PERSIST_NOTES.heading);
+        expect(readAll(element)).toContain(PERSIST_NOTES.atRisk);
+      });
+    }
+
+    it('offers nothing when the host handed over no way to ask', async () => {
+      const { store } = await durableStore();
+      await seedRepeatable(store);
+      const element = await mount(store);
+      await settle(element);
+
+      // The device is not empty, so the first case's guard is not what is being
+      // measured here -- this is the embed, which gets no port on purpose.
+      expect(readAll(element)).toContain(REPEATED_TITLE);
+      expect(readAll(element)).not.toContain(PERSIST_NOTES.heading);
+    });
+
+    it('offers nothing while the browser has said nothing', async () => {
+      const { store } = await durableStore();
+      await seedRepeatable(store);
+      const port = persistencePort('unknown');
+      const element = await mountKeeping(store, port);
+
+      expect(port.calls.reads).toBe(1);
+      expect(readAll(element)).toContain(REPEATED_TITLE);
+      expect(readAll(element)).not.toContain(PERSIST_NOTES.heading);
+    });
+
+    it('asks the browser for nothing until the lifter presses', async () => {
+      const { store } = await durableStore();
+      await seedRepeatable(store);
+      const port = persistencePort('best-effort', 'persisted');
+      const element = await mountKeeping(store, port);
+      await waitForText(element, PERSIST_NOTES.heading);
+
+      // Section 10.3 is as much about when as about what. Firefox puts a permission
+      // prompt behind the request, so a load-time ask is a dialog in front of somebody
+      // who has not yet decided they want this -- and the refusal it earns is the one
+      // answer that does not soften with time.
+      expect(port.calls.asks).toBe(0);
+
+      await press(element, 'persist-ask');
+      await quiet(element, port);
+
+      expect(port.calls.asks).toBe(1);
+      const text = readAll(element);
+      expect(text).toContain(PERSIST_NOTES.persisted);
+      expect(text).not.toContain(PERSIST_NOTES.atRisk);
+    });
+
+    it('states an agreement already in place rather than offering to ask for it', async () => {
+      const { store } = await durableStore();
+      await seedRepeatable(store);
+      const port = persistencePort('persisted');
+      const element = await mountKeeping(store, port);
+      await waitForText(element, PERSIST_NOTES.heading);
+
+      const text = readAll(element);
+      expect(text).toContain(PERSIST_NOTES.persisted);
+      expect(text).not.toContain(PERSIST_NOTES.atRisk);
+      expect(text).not.toContain(PERSIST_NOTES.action);
+      expect(port.calls.asks).toBe(0);
+    });
+
+    it('reports a decline as the browser deciding, and leaves the offer up', async () => {
+      const { store } = await durableStore();
+      await seedRepeatable(store);
+      const port = persistencePort('best-effort');
+      const element = await mountKeeping(store, port);
+      await waitForText(element, PERSIST_NOTES.heading);
+
+      await press(element, 'persist-ask');
+      await quiet(element, port);
+
+      const text = readAll(element);
+      expect(text).toContain(PERSIST_NOTES.declined);
+      expect(text).not.toContain(PERSIST_NOTES.noAnswer);
+      // Chromium decides from its own engagement heuristics, so the same press in a
+      // month is a different question. Taking the control away would turn one no into
+      // a permanent one on the strength of a decision the browser did not make.
+      expect(text).toContain(PERSIST_NOTES.action);
+    });
+
+    it('says nothing changed when the browser gives no answer at all', async () => {
+      const { store } = await durableStore();
+      await seedRepeatable(store);
+      const port = persistencePort('best-effort', 'unknown');
+      const element = await mountKeeping(store, port);
+      await waitForText(element, PERSIST_NOTES.heading);
+
+      await press(element, 'persist-ask');
+      await quiet(element, port);
+
+      // A rejected request is not a refusal, and the screen must not read as though
+      // somebody said no. The offer stays where it was, and so does the answer.
+      const text = readAll(element);
+      expect(text).toContain(PERSIST_NOTES.noAnswer);
+      expect(text).not.toContain(PERSIST_NOTES.declined);
+      expect(text).toContain(PERSIST_NOTES.atRisk);
+    });
+
+    /** Both branches end in the same sentence, because both leave the same thing true. */
+    for (const [what, now] of [
+      ['may still be cleared', 'best-effort'],
+      ['has been agreed to', 'persisted'],
+    ] as const) {
+      it(`says a downloaded backup is the only other copy when storage ${what}`, async () => {
+        const { store } = await durableStore();
+        await seedRepeatable(store);
+        const element = await mountKeeping(store, persistencePort(now));
+
+        await waitForText(element, PERSIST_NOTES.heading);
+        expect(readAll(element)).toContain(PERSIST_NOTES.stillClearable);
       });
     }
   });

@@ -168,6 +168,7 @@ including tap targets below the 44 px floor the gym flow is built to.
 | `nextId`             | `() => LogbookId`                   | A fresh opaque identifier. Defaults to `crypto.randomUUID()`.  |
 | `applicationVersion` | `string`                            | Stamped into a backup file, for a human reading it much later. |
 | `handoff`            | `HandoffSource \| null`             | Where a session handed over by the warm-up calculator waits.   |
+| `persistence`        | `StoragePersistence \| null`        | How to ask the browser not to evict this origin's storage.     |
 
 `today` is a string and not a `Date` on purpose: `new Date('2026-05-15')` is midnight UTC, which is
 the fourteenth of May anywhere west of Greenwich — and a training log is a record of which day
@@ -207,6 +208,31 @@ element uses, and that is where the rules about what may be written when live.
 another tab holding an older version open. Catch it and fall back to `memoryLogbookStore()`, which
 is what this repository's own shell does. The error type has nowhere to put a workout, a note or an
 exercise name, and that is the enforcement of the privacy rule rather than a habit.
+
+### Durable is not the same as safe from eviction
+
+`durable` answers whether a write survives the tab closing. It says nothing about whether the
+browser will throw the whole origin away when the device runs short of room — and a logbook can be
+perfectly durable and still be the first thing evicted. That second question is `persistence`, and
+it is a port for the same reason storage is.
+
+```js
+import { createStoragePersistence } from '@platform-toolkit/training-logbook/storage';
+
+element.persistence = createStoragePersistence(navigator.storage);
+```
+
+`durability()` reads what the browser has already decided and asks it for nothing; `request()` asks.
+The element calls the first when the property arrives and the second only from a press, and that
+split is the point of there being two methods. Firefox puts a permission prompt behind the request,
+so a page that asked on load would put a dialog in front of somebody who has not yet logged a set —
+the surest way to be refused by a person who would have said yes in a month.
+
+Three answers, because a browser with no Storage API has not declined anything: `'persisted'`,
+`'best-effort'` and `'unknown'`. A rejected call — a partitioned frame, a sandboxed one — reads as
+`'unknown'` rather than as a refusal, so the screen never reports a decision nobody made. Pass
+`null` and the offer is not drawn at all, which is the right answer for a framed copy: persistence
+is granted to a top-level site, and a frame would be collecting an answer about the embedding page.
 
 ### The handoff reader is the other thing you supply
 

@@ -333,6 +333,69 @@ export const HOME_NOTES = {
 } as const;
 
 /**
+ * The sentences the persistence offer says. Section 10.3.
+ *
+ * A different question from the storage line above the screen, and the copy has to keep
+ * them apart or it makes the tool sound like it is saying the same thing twice. The save
+ * line answers "did that write land somewhere that survives the tab closing". This
+ * answers "will the browser throw the lot away when the phone runs short of room" -- and
+ * the second is worse, because it happens to a device that has been working correctly
+ * for a year and gives no warning when it does.
+ *
+ * WHY THE ASK IS A BUTTON AND NOT SOMETHING THAT HAPPENS ON LOAD
+ *
+ * Because section 10.3 says so, and because the browsers make it the difference between
+ * being kept and being refused for good. Firefox puts a permission prompt behind the
+ * request; Chromium decides from its own engagement heuristics. Asking a first-time
+ * visitor who has logged nothing is the surest way to collect a no from somebody who
+ * would have said yes in a month. So the offer does not appear until the device holds
+ * something, and then it waits to be pressed.
+ *
+ * WHY EVERY BRANCH ENDS IN THE SAME SENTENCE
+ *
+ * Section 10.3's second half: whatever the browser answered, browser data can still be
+ * cleared and the JSON backup is the copy that survives it. That is most necessary in the
+ * branch it reads least naturally -- the one where the browser agreed -- because a lifter
+ * who has just been told their training is being kept is the one most likely to stop
+ * taking backups. So it is not conditional.
+ */
+export const PERSIST_NOTES = {
+  heading: 'Keeping this on the device',
+
+  /**
+   * What "best-effort" means, in the words of the thing that actually happens.
+   *
+   * Not "your storage is not persisted". Eviction under storage pressure is invisible
+   * and has no error attached, so the only way a lifter finds out is by opening an empty
+   * logbook, and a sentence that named the mechanism would be true and useless.
+   */
+  atRisk:
+    'Your browser is allowed to clear this to make room when the device runs short. You can ask it not to.',
+
+  action: 'Ask the browser to keep this',
+
+  /** The browser agreed -- on this visit or on one before it; the sentence reads the same either way. */
+  persisted: 'Your browser has agreed to keep this until you remove it yourself.',
+
+  /**
+   * The browser said no.
+   *
+   * "Did not agree" and not a word from the vocabulary list. A refusal here is a decision
+   * the browser makes about how much the lifter uses the site, so it is worth saying that
+   * asking again later is a real option rather than a polite one.
+   */
+  declined:
+    'Your browser did not agree this time. It decides on its own, and asking again after you have used this a while may go differently.',
+
+  /** The request went nowhere -- no answer to report, and nothing changed. */
+  noAnswer: 'Your browser gave no answer, so nothing has changed.',
+
+  /** Section 10.3's second requirement, said under every branch. */
+  stillClearable:
+    'Either way, clearing site data removes it, and so does losing this device. A downloaded backup is the only copy that does not depend on this browser.',
+} as const;
+
+/**
  * The sentences the deletion confirmation says. Section 10.8.
  *
  * Every one of them is written for somebody who means it, and none of them is written

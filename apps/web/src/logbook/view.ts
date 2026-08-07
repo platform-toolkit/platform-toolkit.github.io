@@ -5,9 +5,11 @@ import { browserPreferenceStorage } from '@platform-toolkit/preferences';
 import {
   LogbookStorageError,
   createRepository,
+  createStoragePersistence,
   memoryLogbookStore,
   openLogbookStore,
   type LogbookStore,
+  type StoragePersistence,
 } from '@platform-toolkit/training-logbook/storage';
 import {
   TRAINING_LOGBOOK_TAG,
@@ -50,6 +52,18 @@ export interface TrainingLogbookViewOptions {
    * partitioned away from the origin the calculator's own page writes to.
    */
   readonly handoff?: HandoffSource;
+
+  /**
+   * How the browser is asked to keep this origin's storage. Section 10.3.
+   *
+   * Undefined by default and supplied only by `standalone.ts`, the same asymmetry
+   * the handoff has and for a closely related reason. Persistence is granted to a
+   * top-level site, and a third-party frame's storage belongs to whoever embedded
+   * it; a framed copy asking would be asking on behalf of a page it does not own,
+   * collecting an answer it cannot act on, and printing it as though it were about
+   * the lifter's own device.
+   */
+  readonly persistence?: StoragePersistence;
 }
 
 /**
@@ -69,6 +83,20 @@ export interface TrainingLogbookViewOptions {
 export function browserHandoffSource(): HandoffSource {
   const clock = systemClock();
   return createHandoffSource(browserPreferenceStorage(), { now: () => clock.now() });
+}
+
+/**
+ * The persistence port over this browser's storage manager.
+ *
+ * Handed over unguarded, which is deliberate: the DOM lib declares `navigator.storage`
+ * as always present and it is `undefined` on an insecure origin -- every plain-HTTP
+ * copy of this tool somebody runs off a laptop in a gym. A guard here would be a
+ * condition this file's own compiler calls dead, so the factory takes `undefined` and
+ * the reasoning lives in `persistence.ts` with it. Either way the element is handed a
+ * port that knows nothing and draws no offer.
+ */
+export function browserStoragePersistence(): StoragePersistence {
+  return createStoragePersistence(navigator.storage);
 }
 
 /**
@@ -111,6 +139,7 @@ export function createTrainingLogbookView(
   element.now = () => new Date(clock.now()).toISOString();
   element.applicationVersion = __PTK_APPLICATION_VERSION__;
   element.handoff = options.handoff ?? null;
+  element.persistence = options.persistence ?? null;
 
   startToday(element, clock);
   startStorage(element, clock, options.openStore ?? (() => openLogbookStore()));

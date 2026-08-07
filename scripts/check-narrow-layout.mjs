@@ -1998,8 +1998,8 @@ const LOGBOOK_RESTORE_SETTLE = [
   'ptk-training-logbook section.restore ptk-button[data-action="restore-confirm"] button',
 ];
 
-/** Restore that file, so the delete screen below has something to count. */
-const LOGBOOK_DELETE_RESTORE = [
+/** Take the restore, so the two screens below have something to be about. */
+const LOGBOOK_RESTORE_CONFIRM = [
   'ptk-training-logbook section.restore ptk-button[data-action="restore-confirm"] button',
 ];
 
@@ -2015,6 +2015,26 @@ const LOGBOOK_DELETE_OPEN = ['ptk-training-logbook ptk-button[data-action="delet
 const LOGBOOK_DELETE_SETTLE = [
   'ptk-training-logbook section.erase dl.facts dd',
   'ptk-training-logbook section.erase ptk-button[data-action="delete-confirm"] button',
+];
+
+/**
+ * The offer to keep this on the device, which only exists once there is training.
+ *
+ * The button and not the section: the heading and the two sentences around it are
+ * constants and would draw against a browser that answered nothing, so settling on
+ * `section.keep` alone would measure a card the lifter cannot act on. The button is
+ * also the part at risk -- its label is the longest control text on the home screen,
+ * and at 320px and 200% text it is the one that stops fitting.
+ *
+ * An unmatched selector fails this check rather than skipping it, which is the answer
+ * wanted here: the button is absent when the browser has already agreed to keep the
+ * origin, and a fresh context per pass is what makes that not the case. If a Chromium
+ * ever starts granting persistence unasked, this route saying so is better than it
+ * quietly measuring a screen with no control on it.
+ */
+const LOGBOOK_KEEP_SETTLE = [
+  'ptk-training-logbook section.keep ptk-button[data-action="persist-ask"] button',
+  'ptk-training-logbook section.keep p.note',
 ];
 
 /**
@@ -2672,9 +2692,26 @@ const ROUTES = [
     reveal: [],
     fill: [],
     upload: LOGBOOK_RESTORE_UPLOAD,
-    clickAfter: LOGBOOK_DELETE_RESTORE,
+    clickAfter: LOGBOOK_RESTORE_CONFIRM,
     clickLast: LOGBOOK_DELETE_OPEN,
     settle: LOGBOOK_DELETE_SETTLE,
+  },
+  {
+    // Section 10.3's offer, which is drawn only where the device holds something
+    // and the browser has answered -- so it is reached the same way the delete
+    // screen is, and for the same reason: on an empty logbook it does not exist.
+    //
+    // Its own entry rather than a settle added to the home row, because the offer
+    // is between the settings and the backup card and only appears after a
+    // restore, so the home row measures a page this one cannot be folded into.
+    path: '/logbook/',
+    label: '/logbook/ (keep)',
+    click: [],
+    reveal: [],
+    fill: [],
+    upload: LOGBOOK_RESTORE_UPLOAD,
+    clickAfter: LOGBOOK_RESTORE_CONFIRM,
+    settle: LOGBOOK_KEEP_SETTLE,
   },
   {
     // Its own entry rather than a seed on the home row, because the offer sits
