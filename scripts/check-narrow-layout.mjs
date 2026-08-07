@@ -3181,10 +3181,17 @@ async function reveal(page, route, pass, failures) {
  * value from the second kind would mean settling on the field just typed into,
  * which reports success the moment the keystroke lands and before anything has
  * been calculated from it.
+ *
+ * Eight seconds and not the two it was. The logbook routes reach their screen by
+ * writing a workout to IndexedDB and reading it back, and under the load of a full
+ * `verify` that round trip does not always finish inside two -- twice now, on the
+ * two routes that wait for a history row, on a machine where the same check passes
+ * on its own a minute later. A poll costs nothing when it succeeds, so the only
+ * thing a longer cap buys a genuine failure is a slower report of it.
  */
 async function settled(page, selector) {
   const target = page.locator(selector).first();
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
     if ((await target.count()) > 0) {
       // `tagName` rather than `instanceof HTMLInputElement`. This callback is
       // serialised and run inside the page, but it is *written* in a Node module
