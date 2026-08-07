@@ -117,6 +117,11 @@ async function mount(store: LogbookStore): Promise<PtkTrainingLogbook> {
 
   // The first read is asynchronous and `updateComplete` says nothing about it. The
   // storage line is what that read sets, so waiting for the line is waiting for the load.
+  //
+  // It is not waiting for *this* library. `#reloadExercises` runs after the boot read
+  // rather than inside it, deliberately, so a mount that has a storage line can still be
+  // one round trip short of its custom movements. A case that expects a stored row on a
+  // freshly mounted element has to wait for the row itself -- see the reopen case below.
   await vi.waitFor(async () => {
     await element.updateComplete;
     expect(shadow(element).querySelector('.save')).not.toBeNull();
@@ -437,7 +442,14 @@ describe('adding a movement', () => {
     store.close();
 
     const second = await mount(await reopen(databaseName));
-    expect(exerciseRows(second)).toHaveLength(1);
+    // Waited for rather than asserted outright. The row arrives on the read that runs
+    // after the boot one, so a machine slow enough to put a scheduler tick between them
+    // renders the library empty first -- which CI did on 2026-08-07, nought rows against
+    // a database that had one, on a change that touched none of this.
+    await vi.waitFor(async () => {
+      await second.updateComplete;
+      expect(exerciseRows(second)).toHaveLength(1);
+    });
     expect(readAll(second)).toContain(A_MOVEMENT);
   });
 });
@@ -510,7 +522,14 @@ describe('editing and removing', () => {
     };
     const element = await mount(store);
 
-    expect(readAll(element)).toContain(EXERCISE_NOTES.libraryUnreadable);
+    // Waited for, like the reopen case above and for the same reason: the sentence is
+    // written by the read that runs after the boot one, and an element that has a storage
+    // line has not necessarily had its answer yet. Unwaited, this passes on a fast machine
+    // and reports the empty library as unreadable on a slow one.
+    await vi.waitFor(async () => {
+      await element.updateComplete;
+      expect(readAll(element)).toContain(EXERCISE_NOTES.libraryUnreadable);
+    });
     expect(readAll(element)).not.toContain(EXERCISE_NOTES.libraryEmpty);
     // The rest of the tool is untouched: a session can still be planned.
     await pressAction(element, 'start-workout', shadow(element));

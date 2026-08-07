@@ -432,7 +432,14 @@ describe('the library of saved gyms', () => {
     };
     const element = await mount(store);
 
-    expect(readAll(element)).toContain(EQUIPMENT_NOTES.libraryUnreadable);
+    // Waited for rather than asserted outright. `#reloadProfiles` runs after the boot read
+    // and not inside it, so an element that already has a storage line can still be one
+    // round trip short of this sentence -- and unwaited, the case reports an empty library
+    // as unreadable on any machine slow enough to put a tick between the two.
+    await vi.waitFor(async () => {
+      await element.updateComplete;
+      expect(readAll(element)).toContain(EQUIPMENT_NOTES.libraryUnreadable);
+    });
     expect(readAll(element)).not.toContain(EQUIPMENT_NOTES.libraryEmpty);
     // The rack above still works, and so does everything else on the screen.
     await chooseRack(element, 'bar', A_BAR);
