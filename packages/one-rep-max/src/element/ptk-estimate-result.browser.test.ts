@@ -12,7 +12,7 @@
  * for the words it contains, but what matters is which of them reach a screen
  * for a given set, and that is a composition of five functions and a switch.
  *
- * Every estimate below comes from `estimate-fixture.ts`, which describes a set
+ * Every estimate below comes from `estimate.fixture.ts`, which describes a set
  * and asks the domain. Nothing here hand-writes an estimate -- see the note at
  * the top of that file for why a fixture with a grade nobody computed is worse
  * than no fixture.
@@ -21,13 +21,17 @@ import type { OneRepMaxEstimate, OneRepMaxProblem } from '@platform-toolkit/doma
 // Sizes are measured below and every rule that sets one reads a custom property.
 import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { deepText } from '@platform-toolkit/ui/deep-text';
-import { estimateFor, problemsFor, weighing } from './estimate-fixture.js';
-import type { EstimateEntry } from './session.js';
+import { estimateFor, problemsFor, weighing } from '../core/estimate.fixture.js';
+import type { EstimateEntry } from '../types.js';
 import type { PtkEstimateResult } from './ptk-estimate-result.js';
-import './ptk-estimate-result.js';
+import { defineOneRepMax } from './index.js';
+
+beforeAll(() => {
+  defineOneRepMax();
+});
 
 const teardown: (() => void)[] = [];
 

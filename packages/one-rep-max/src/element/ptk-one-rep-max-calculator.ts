@@ -40,6 +40,7 @@ import { createPreferenceStore, type PreferenceStore } from '@platform-toolkit/p
 import '@platform-toolkit/ui/ptk-button';
 import '@platform-toolkit/ui/ptk-choice-group';
 import '@platform-toolkit/ui/ptk-number-field';
+import '@platform-toolkit/ui/ptk-toggle-group';
 import {
   CHOICE_CHANGE_EVENT,
   type ChoiceChangeDetail,
@@ -53,12 +54,7 @@ import {
   type ToggleGroupChangeDetail,
 } from '@platform-toolkit/ui/ptk-toggle-group';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
-import { customElement, property, state } from 'lit/decorators.js';
-
-import './ptk-estimate-result.js';
-import './ptk-formula-comparison.js';
-import './ptk-set-refinements.js';
-import './ptk-training-percentages.js';
+import { property, state } from 'lit/decorators.js';
 
 import { UNIT_CHOICES, liftChoices, reserveChoices } from './copy.js';
 import {
@@ -97,10 +93,12 @@ import {
   typeWeight,
   unitFromValue,
   weightProblem,
-  type EstimateEntry,
-} from './session.js';
+} from '../core/session.js';
+import type { EstimateEntry } from '../types.js';
 
-@customElement('ptk-one-rep-max-calculator')
+/** The tag this element registers under. Written to the registry only by `element/index.ts`. */
+export const CALCULATOR_TAG = 'ptk-one-rep-max-calculator';
+
 export class PtkOneRepMaxCalculator extends LitElement {
   static override styles = css`
     :host {

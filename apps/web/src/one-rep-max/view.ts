@@ -33,14 +33,16 @@
  * that edit reads as a tidy-up.
  */
 import {
+  CALCULATOR_TAG,
+  defineOneRepMax,
+  type PtkOneRepMaxCalculator,
+} from '@platform-toolkit/one-rep-max/element';
+import {
   browserPreferenceStorage,
   browserSessionStorage,
   createPreferenceStore,
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
-
-import './ptk-one-rep-max-calculator.js';
-import type { PtkOneRepMaxCalculator } from './ptk-one-rep-max-calculator.js';
 
 /** Identifier for this tool, and what it calls itself in a height message. */
 export const TOOL_ID = 'one-rep-max';
@@ -62,7 +64,8 @@ export interface OneRepMaxViewOptions {
  * into, so it is the supported path rather than a failure to mount.
  */
 export function createOneRepMaxView(options: OneRepMaxViewOptions = {}): PtkOneRepMaxCalculator {
-  const element = document.createElement('ptk-one-rep-max-calculator');
+  defineOneRepMax();
+  const element = document.createElement(CALCULATOR_TAG);
   element.settings = options.settings ?? createPreferenceStore(browserPreferenceStorage());
   element.session = options.session ?? createPreferenceStore(browserSessionStorage());
   return element;

@@ -26,14 +26,8 @@ import {
   type Weight,
 } from '@platform-toolkit/domain';
 
-import {
-  EMPTY_ENTRY,
-  requestFor,
-  setLift,
-  typeReps,
-  typeWeight,
-  type EstimateEntry,
-} from './session.js';
+import { EMPTY_ENTRY, requestFor, setLift, typeReps, typeWeight } from './session.js';
+import type { EstimateEntry } from '../types.js';
 
 /**
  * A set somebody could have done, with anything about it replaced.

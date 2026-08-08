@@ -208,6 +208,72 @@ if (entry.direction !== typed.direction) throw new Error('fifty reversals moved 
 `,
   },
   {
+    name: '@platform-toolkit/one-rep-max',
+    slug: 'one-rep-max',
+    consumer: `import {
+  CALCULATOR_TAG,
+  ESTIMATE_RESULT_TAG,
+  defineOneRepMax,
+} from '@platform-toolkit/one-rep-max/element';
+import {
+  EMPTY_ENTRY,
+  LIFTS,
+  requestFor,
+  reserveFrom,
+  typeReps,
+  typeWeight,
+} from '@platform-toolkit/one-rep-max/core';
+import { QUICK_REPS } from '@platform-toolkit/one-rep-max';
+import type { EstimateEntry, ReserveChoice } from '@platform-toolkit/one-rep-max/types';
+
+export function consumeOneRepMax(): string {
+  // Annotated on purpose: an inferred type would still compile if the shipped
+  // \`./types\` entry point resolved to nothing, and \`EstimateEntry\` is what a
+  // consumer describing a set for itself has to name.
+  const typed: EstimateEntry = typeReps(typeWeight(EMPTY_ENTRY, '140'), '5');
+  // The reserve answer is a string here and a number in the domain, and this is
+  // the crossing. A build that shipped the element without its declarations would
+  // leave a host writing the domain's spelling into the tool's field, which
+  // produces an answer -- the wrong one, silently.
+  const reserve: ReserveChoice = 'four-or-more';
+  const define: () => unknown = defineOneRepMax;
+  return [
+    CALCULATOR_TAG,
+    ESTIMATE_RESULT_TAG,
+    typed.weightText,
+    String(requestFor(typed) !== null),
+    String(reserveFrom(reserve)),
+    String(LIFTS.length),
+    String(QUICK_REPS.length),
+    typeof define,
+  ].join(' ');
+}
+`,
+    // Core only, and it asserts rather than prints. The unit flick is the assertion
+    // worth making in Node: converting rather than reinterpreting is a stated
+    // acceptance test, and a rewrite can break it while every screen still looks
+    // right, because the drift only shows up after several flicks.
+    smoke: `import {
+  EMPTY_ENTRY,
+  requestFor,
+  setUnit,
+  typeReps,
+  typeWeight,
+} from '@platform-toolkit/one-rep-max/core';
+
+const typed = typeReps(typeWeight(EMPTY_ENTRY, '140'), '5');
+if (typed.weight === null) throw new Error('a plain figure did not parse');
+if (requestFor(typed) === null) throw new Error('a described set produced no request');
+
+let entry = typed;
+for (let flick = 0; flick < 50; flick += 1) {
+  entry = setUnit(entry, entry.unit === 'kg' ? 'lb' : 'kg');
+}
+if (entry.unit !== typed.unit) throw new Error('fifty flicks landed on the wrong unit');
+if (entry.weightText !== typed.weightText) throw new Error('fifty flicks moved the number');
+`,
+  },
+  {
     name: '@platform-toolkit/qualification-check',
     slug: 'qualification-check',
     consumer: `import {

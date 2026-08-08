@@ -95,6 +95,9 @@ importers:
       '@platform-toolkit/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@platform-toolkit/one-rep-max':
+        specifier: workspace:*
+        version: link:../../packages/one-rep-max
       '@platform-toolkit/preferences':
         specifier: workspace:*
         version: link:../../packages/preferences
@@ -178,6 +181,22 @@ importers:
       valibot:
         specifier: 1.4.2
         version: 1.4.2(typescript@6.0.3)
+
+  packages/one-rep-max:
+    dependencies:
+      '@platform-toolkit/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@platform-toolkit/preferences':
+        specifier: workspace:*
+        version: link:../preferences
+      '@platform-toolkit/ui':
+        specifier: workspace:*
+        version: link:../ui
+    devDependencies:
+      lit:
+        specifier: 3.3.3
+        version: 3.3.3
 
   packages/preferences:
     dependencies:

@@ -33,10 +33,10 @@ import {
 // layout measured at 320px below is not the layout that ships.
 import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { deepText } from '@platform-toolkit/ui/deep-text';
-import { describedSet, weighing } from './estimate-fixture.js';
+import { describedSet, weighing } from '../core/estimate.fixture.js';
 import {
   ASSISTED_FIELD,
   EXPERIENCE_FIELD,
@@ -46,9 +46,13 @@ import {
   SEX_FIELD,
   TECHNIQUE_FIELD,
 } from './fields.js';
-import type { EstimateEntry } from './session.js';
+import type { EstimateEntry } from '../types.js';
 import type { PtkSetRefinements } from './ptk-set-refinements.js';
-import './ptk-set-refinements.js';
+import { defineOneRepMax } from './index.js';
+
+beforeAll(() => {
+  defineOneRepMax();
+});
 
 const teardown: (() => void)[] = [];
 

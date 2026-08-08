@@ -36,10 +36,10 @@ import { PtkChoiceGroup } from '@platform-toolkit/ui/ptk-choice-group';
 // the stylesheet the 320px measurement below is of a layout that never ships.
 import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { deepText } from '@platform-toolkit/ui/deep-text';
-import { describedSet } from './estimate-fixture.js';
+import { describedSet } from '../core/estimate.fixture.js';
 import {
   LIFT_FIELD,
   REPS_FIELD,
@@ -49,9 +49,14 @@ import {
   WEIGHT_FIELD,
 } from './fields.js';
 import type { PtkOneRepMaxCalculator } from './ptk-one-rep-max-calculator.js';
-import './ptk-one-rep-max-calculator.js';
+import { defineOneRepMax } from './index.js';
 import type { PtkSetRefinements } from './ptk-set-refinements.js';
-import { DISPLAY_PREFERENCES, SET_PREFERENCES, saveEntry, type EstimateEntry } from './session.js';
+import { DISPLAY_PREFERENCES, SET_PREFERENCES, saveEntry } from '../core/session.js';
+import type { EstimateEntry } from '../types.js';
+
+beforeAll(() => {
+  defineOneRepMax();
+});
 
 /**
  * Three storage keys, built the way the store builds them.

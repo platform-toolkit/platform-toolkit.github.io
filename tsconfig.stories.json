@@ -39,6 +39,7 @@
       "@platform-toolkit/data-contracts": ["./packages/data-contracts/src/index.ts"],
       "@platform-toolkit/domain": ["./packages/domain/src/index.ts"],
       "@platform-toolkit/ingestion": ["./packages/ingestion/src/index.ts"],
+      "@platform-toolkit/one-rep-max/element": ["./packages/one-rep-max/src/element/index.ts"],
       "@platform-toolkit/preferences": ["./packages/preferences/src/index.ts"],
       "@platform-toolkit/qualification-check": ["./packages/qualification-check/src/index.ts"],
       "@platform-toolkit/qualification-check/element": [

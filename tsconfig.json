@@ -10,6 +10,7 @@
     { "path": "./packages/preferences" },
     { "path": "./packages/qualification-check" },
     { "path": "./packages/convert" },
+    { "path": "./packages/one-rep-max" },
     { "path": "./packages/ui" },
     { "path": "./packages/training-logbook" },
     { "path": "./apps/web" }

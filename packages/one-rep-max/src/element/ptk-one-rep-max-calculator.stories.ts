@@ -1,6 +1,7 @@
 // Copyright 2026 Jason Smathers
 // SPDX-License-Identifier: Apache-2.0
 
+import { defineOneRepMax } from '@platform-toolkit/one-rep-max/element';
 import {
   createPreferenceStore,
   memoryPreferenceStorage,
@@ -9,10 +10,17 @@ import {
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 
-import { describedSet, weighing } from './estimate-fixture.js';
+import { describedSet, weighing } from '../core/estimate.fixture.js';
 import type { PtkOneRepMaxCalculator } from './ptk-one-rep-max-calculator.js';
-import './ptk-one-rep-max-calculator.js';
-import { saveEntry, type EstimateEntry } from './session.js';
+import { saveEntry } from '../core/session.js';
+import type { EstimateEntry } from '../types.js';
+
+// Through the package entry and behind an explicit call, not a side-effecting relative
+// import. A relative import here would load the source copy of every element and define
+// five tags a second time: the registry throws on the second write, the story still looks
+// right because the first definition already won, and the only symptom is a console
+// error -- which `smoke-stories.mjs` fails on, for exactly this reason.
+defineOneRepMax();
 
 /**
  * The whole tool, composed.

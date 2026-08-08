@@ -50,7 +50,6 @@ import {
   parseWeightInput,
   showEntryIn,
   techniquesFor,
-  type EnteredWeight,
   type EstimateLift,
   type FormQuality,
   type OneRepMaxRequest,
@@ -65,6 +64,8 @@ import {
   definePreference,
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
+
+import type { EstimateEntry, ReserveChoice } from '../types.js';
 
 /**
  * Repetition counts offered as one tap each.
@@ -84,8 +85,6 @@ export const QUICK_REPS: readonly number[] = [1, 2, 3, 5, 8, 10];
  * strings -- and because the domain's own type mixes numbers with words. The
  * mapping to that type is `reserveFrom`, which is total in both directions.
  */
-export type ReserveChoice = '0' | '1' | '2' | '3' | 'four-or-more' | 'unknown';
-
 export const RESERVE_CHOICES: readonly ReserveChoice[] = [
   '0',
   '1',
@@ -241,44 +240,7 @@ export function openingTechniqueFor(lift: EstimateLift): string {
   return (unsure ?? defaultTechniqueFor(lift))?.id ?? '';
 }
 
-/**
- * Everything the tool is currently being asked about.
- *
- * `unit` is held beside the weight rather than read off it because an empty
- * field has no weight to read a unit from, and the unit control has to keep
- * working before anything is typed.
- */
-export interface EstimateEntry {
-  /** Exactly what is in the weight field. */
-  readonly weightText: string;
-  /**
-   * The drift-free origin behind the weight field, or `null` when nothing parses.
-   *
-   * Tool 4's `EnteredWeight`, reused rather than re-derived: §15 makes
-   * "converting between units repeatedly introduces no cumulative drift" an
-   * acceptance test, and the only way to pass it is to never rewrite the number
-   * the lifter typed. Flicking kg/lb changes which unit the origin is *shown*
-   * in and touches the origin not at all.
-   */
-  readonly weight: EnteredWeight | null;
-  readonly unit: WeightUnit;
-  /** Exactly what is in the repetitions field. */
-  readonly repsText: string;
-  readonly reserve: ReserveChoice;
-  readonly lift: EstimateLift;
-  /** Always an identifier `techniquesFor(lift)` offers. */
-  readonly techniqueId: string;
-  readonly sex: ReportedSex;
-  readonly experience: TrainingExperience;
-  readonly freshness: SetFreshness;
-  readonly formQuality: FormQuality;
-  readonly assisted: boolean;
-  /** The step the three displayed figures are rounded to, in `unit`. */
-  readonly roundTo: number;
-  /** The gap between rows of the training-percentage table, in whole percent. */
-  readonly percentageStep: number;
-}
-
+/** What the tool holds before the lifter has said anything. */
 export const EMPTY_ENTRY: EstimateEntry = {
   weightText: '',
   weight: null,

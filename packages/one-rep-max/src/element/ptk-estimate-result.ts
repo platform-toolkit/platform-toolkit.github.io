@@ -32,7 +32,7 @@ import {
 } from '@platform-toolkit/domain';
 import '@platform-toolkit/ui/ptk-notice';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
-import { customElement, property } from 'lit/decorators.js';
+import { property } from 'lit/decorators.js';
 
 import {
   SCENARIO_NOTES,
@@ -44,7 +44,9 @@ import {
   problemSentence,
 } from './copy.js';
 
-@customElement('ptk-estimate-result')
+/** The tag this element registers under. Written to the registry only by `element/index.ts`. */
+export const ESTIMATE_RESULT_TAG = 'ptk-estimate-result';
+
 export class PtkEstimateResult extends LitElement {
   static override styles = css`
     :host {

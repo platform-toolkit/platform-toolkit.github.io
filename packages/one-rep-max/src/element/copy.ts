@@ -39,7 +39,8 @@ import {
 } from '@platform-toolkit/domain';
 import { type Choice } from '@platform-toolkit/ui/ptk-choice-group';
 
-import { LIFTS, RESERVE_CHOICES, type ReserveChoice, reserveChoiceOf } from './session.js';
+import { LIFTS, RESERVE_CHOICES, reserveChoiceOf } from '../core/session.js';
+import type { ReserveChoice } from '../types.js';
 
 export function liftLabel(lift: EstimateLift): string {
   switch (lift) {

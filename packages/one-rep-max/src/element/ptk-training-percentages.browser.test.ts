@@ -26,13 +26,17 @@ import {
 // no floor at all and the test passes by measuring nothing (§5.7).
 import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { deepText } from '@platform-toolkit/ui/deep-text';
-import { toolkitFigureFor, weighing } from './estimate-fixture.js';
+import { toolkitFigureFor, weighing } from '../core/estimate.fixture.js';
 import { PERCENTAGE_STEP_FIELD } from './fields.js';
 import type { PtkTrainingPercentages } from './ptk-training-percentages.js';
-import './ptk-training-percentages.js';
+import { defineOneRepMax } from './index.js';
+
+beforeAll(() => {
+  defineOneRepMax();
+});
 
 /** The headline figure of the default described set, already rounded to 0.5 kg. */
 const ESTIMATE = toolkitFigureFor();

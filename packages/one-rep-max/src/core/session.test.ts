@@ -49,8 +49,8 @@ import {
   typeWeight,
   unitFromValue,
   weightProblem,
-  type EstimateEntry,
 } from './session.js';
+import type { EstimateEntry } from '../types.js';
 
 function store() {
   return createPreferenceStore(memoryPreferenceStorage());

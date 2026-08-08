@@ -1,12 +1,15 @@
 // Copyright 2026 Jason Smathers
 // SPDX-License-Identifier: Apache-2.0
 
+import { defineOneRepMax } from '@platform-toolkit/one-rep-max/element';
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 
-import { describedSet, weighing } from './estimate-fixture.js';
+import { describedSet, weighing } from '../core/estimate.fixture.js';
 import type { PtkSetRefinements } from './ptk-set-refinements.js';
-import './ptk-set-refinements.js';
+
+// The registry is written once, explicitly. See the note in the composite root's stories.
+defineOneRepMax();
 
 /**
  * The seven optional questions, and the sentence that stands in for them folded.

@@ -1,12 +1,15 @@
 // Copyright 2026 Jason Smathers
 // SPDX-License-Identifier: Apache-2.0
 
+import { defineOneRepMax } from '@platform-toolkit/one-rep-max/element';
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 
-import { estimateFor, weighing } from './estimate-fixture.js';
+import { estimateFor, weighing } from '../core/estimate.fixture.js';
 import type { PtkFormulaComparison } from './ptk-formula-comparison.js';
-import './ptk-formula-comparison.js';
+
+// The registry is written once, explicitly. See the note in the composite root's stories.
+defineOneRepMax();
 
 /**
  * The tool showing its work: every published equation, what it answered, and why

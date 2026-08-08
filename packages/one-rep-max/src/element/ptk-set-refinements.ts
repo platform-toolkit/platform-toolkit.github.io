@@ -30,7 +30,7 @@ import '@platform-toolkit/ui/ptk-choice-group';
 import '@platform-toolkit/ui/ptk-disclosure';
 import '@platform-toolkit/ui/ptk-toggle-group';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
-import { customElement, property } from 'lit/decorators.js';
+import { property } from 'lit/decorators.js';
 
 import {
   ASSISTED_CHOICES,
@@ -51,9 +51,12 @@ import {
   SEX_FIELD,
   TECHNIQUE_FIELD,
 } from './fields.js';
-import { EMPTY_ENTRY, experienceValueOf, sexValueOf, type EstimateEntry } from './session.js';
+import { EMPTY_ENTRY, experienceValueOf, sexValueOf } from '../core/session.js';
+import type { EstimateEntry } from '../types.js';
 
-@customElement('ptk-set-refinements')
+/** The tag this element registers under. Written to the registry only by `element/index.ts`. */
+export const SET_REFINEMENTS_TAG = 'ptk-set-refinements';
+
 export class PtkSetRefinements extends LitElement {
   static override styles = css`
     :host {

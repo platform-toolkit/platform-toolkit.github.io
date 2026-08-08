@@ -1,12 +1,15 @@
 // Copyright 2026 Jason Smathers
 // SPDX-License-Identifier: Apache-2.0
 
+import { defineOneRepMax } from '@platform-toolkit/one-rep-max/element';
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 
-import { toolkitFigureFor, weighing } from './estimate-fixture.js';
+import { toolkitFigureFor, weighing } from '../core/estimate.fixture.js';
 import type { PtkTrainingPercentages } from './ptk-training-percentages.js';
-import './ptk-training-percentages.js';
+
+// The registry is written once, explicitly. See the note in the composite root's stories.
+defineOneRepMax();
 
 /**
  * Percentages of the estimate, and not one of them told what it is for.

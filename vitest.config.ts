@@ -34,6 +34,7 @@ const workspaceSource = [
   'data-contracts',
   'domain',
   'ingestion',
+  'one-rep-max',
   'preferences',
   'qualification-check',
   'training-logbook',
@@ -243,6 +244,44 @@ const projects: TestProjectInlineConfiguration[] = [
     test: {
       name: 'convert-browser',
       root: './packages/convert',
+      include: ['src/**/*.browser.test.ts'],
+      testTimeout: BROWSER_TEST_TIMEOUT_MS,
+      browser: {
+        enabled: true,
+        provider: playwright(),
+        instances: [{ browser: 'chromium' }],
+        headless: true,
+        screenshotFailures: false,
+      },
+    },
+  },
+  {
+    test: {
+      // Node, for the same section 15 reason as `convert` above. The core here is
+      // the two mappings a control's answer crosses -- a radio reports `'2'` and
+      // the domain wants `2` -- plus what survives a lock screen and what must
+      // not, and none of that needs a browser to state or a browser to test.
+      name: 'one-rep-max',
+      root: './packages/one-rep-max',
+      environment: 'node',
+      include: ['src/**/*.test.ts'],
+      // The browser suite below matches the same glob, so it has to be excluded
+      // by name. Vitest replaces the default exclude list rather than adding to
+      // it, so the standard entries are repeated here.
+      exclude: ['**/node_modules/**', '**/dist/**', 'src/**/*.browser.test.ts'],
+    },
+  },
+  {
+    // The five elements, in a real browser, for the same reason `convert` is. A
+    // `ptk-choice-change` event leaves a control's shadow root and has to reach the
+    // root's delegated listener by the `data-field` it carries, and the assertions
+    // that matter read text through several shadow boundaries at once -- the
+    // equation cards and the percentage table are both rendered inside
+    // `ptk-disclosure`'s root, so a host-only read comes back empty and an
+    // assertion that a phrase is absent then passes by measuring nothing.
+    test: {
+      name: 'one-rep-max-browser',
+      root: './packages/one-rep-max',
       include: ['src/**/*.browser.test.ts'],
       testTimeout: BROWSER_TEST_TIMEOUT_MS,
       browser: {

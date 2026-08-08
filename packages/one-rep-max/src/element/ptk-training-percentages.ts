@@ -23,12 +23,14 @@ import { formatWeight, trainingPercentages, type Weight } from '@platform-toolki
 import '@platform-toolkit/ui/ptk-choice-group';
 import '@platform-toolkit/ui/ptk-disclosure';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
-import { customElement, property } from 'lit/decorators.js';
+import { property } from 'lit/decorators.js';
 
 import { percentageStepChoices } from './copy.js';
 import { PERCENTAGE_STEP_FIELD } from './fields.js';
 
-@customElement('ptk-training-percentages')
+/** The tag this element registers under. Written to the registry only by `element/index.ts`. */
+export const TRAINING_PERCENTAGES_TAG = 'ptk-training-percentages';
+
 export class PtkTrainingPercentages extends LitElement {
   static override styles = css`
     :host {

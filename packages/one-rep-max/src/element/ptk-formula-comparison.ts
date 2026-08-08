@@ -47,11 +47,13 @@ import {
 } from '@platform-toolkit/domain';
 import '@platform-toolkit/ui/ptk-disclosure';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
-import { customElement, property } from 'lit/decorators.js';
+import { property } from 'lit/decorators.js';
 
 import { BODY_WEIGHT_NOTE, NOTATION_LEGEND, reasonLabel } from './copy.js';
 
-@customElement('ptk-formula-comparison')
+/** The tag this element registers under. Written to the registry only by `element/index.ts`. */
+export const FORMULA_COMPARISON_TAG = 'ptk-formula-comparison';
+
 export class PtkFormulaComparison extends LitElement {
   static override styles = css`
     :host {
