@@ -189,6 +189,17 @@ interpreted, and nothing derives a programme from a history.
 
 ### Distribution and hardening
 
+- **Every tool is now a package.** Platform Targets, the One-Rep Max Estimator and Pounds and
+  Kilograms were the last three that existed only as directories inside the site, so reusing one
+  meant copying files out of it. Each is its own package now, with a pure core, its elements behind
+  a single explicit register call, and subpath exports; the site keeps a view, a standalone entry
+  and an embed entry per tool and nothing else. A tool's transport stayed with the site, so no
+  package fetches anything or knows where a federation's figures come from.
+
+  The move found one thing a passing test suite could not: a rule module in Platform Targets was
+  importing a type declared inside one of its own on-screen components — backwards, and invisible
+  for exactly as long as the two files sat in the same folder.
+
 - **Every package installs outside this workspace.** Lit was an exact dependency in three of them,
   so a consumer with their own copy would have got two Lit versions and two custom-element
   registries — a silent registration conflict rather than a build error. It is a peer dependency
