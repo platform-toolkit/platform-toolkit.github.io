@@ -1,7 +1,7 @@
 // Copyright 2026 Jason Smathers
 // SPDX-License-Identifier: Apache-2.0
 
-import { initializeTheme } from '@platform-toolkit/ui';
+import { initializeTheme } from '@platform-toolkit/ui/theme';
 
 import { FEDERATION_ATTRIBUTE, parseFederationId } from '../federation.js';
 import { createInstallPrompt } from '../install.js';

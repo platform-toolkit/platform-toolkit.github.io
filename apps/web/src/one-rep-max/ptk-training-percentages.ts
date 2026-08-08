@@ -20,7 +20,8 @@
  * in the tool rather than as a rounding choice.
  */
 import { formatWeight, trainingPercentages, type Weight } from '@platform-toolkit/domain';
-import '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-choice-group';
+import '@platform-toolkit/ui/ptk-disclosure';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 

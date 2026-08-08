@@ -44,8 +44,11 @@
  * the lifter is left to work out that the tool has an opinion about length. One
  * refusal in words beats a control that goes quiet.
  */
-import '@platform-toolkit/ui';
-import { type NoticeTone, type TextFieldChangeDetail } from '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-notice';
+import '@platform-toolkit/ui/ptk-text-field';
+import { type NoticeTone } from '@platform-toolkit/ui/ptk-notice';
+import { type TextFieldChangeDetail } from '@platform-toolkit/ui/ptk-text-field';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { repeat } from 'lit/directives/repeat.js';

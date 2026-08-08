@@ -103,20 +103,32 @@ import {
   undoableAction,
 } from '@platform-toolkit/domain';
 import { createPreferenceStore, type PreferenceStore } from '@platform-toolkit/preferences';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-choice-group';
+import '@platform-toolkit/ui/ptk-disclosure';
+import '@platform-toolkit/ui/ptk-notice';
+import '@platform-toolkit/ui/ptk-text-field';
 import {
   CHOICE_CHANGE_EVENT,
-  NUMBER_FIELD_CHANGE_EVENT,
-  TEXT_AREA_CHANGE_EVENT,
-  TEXT_FIELD_CHANGE_EVENT,
-  TOGGLE_GROUP_CHANGE_EVENT,
   type ChoiceChangeDetail,
-  type NoticeTone,
+} from '@platform-toolkit/ui/ptk-choice-group';
+import { type NoticeTone } from '@platform-toolkit/ui/ptk-notice';
+import {
+  NUMBER_FIELD_CHANGE_EVENT,
   type NumberFieldChangeDetail,
+} from '@platform-toolkit/ui/ptk-number-field';
+import {
+  TEXT_AREA_CHANGE_EVENT,
   type TextAreaChangeDetail,
+} from '@platform-toolkit/ui/ptk-text-area';
+import {
+  TEXT_FIELD_CHANGE_EVENT,
   type TextFieldChangeDetail,
+} from '@platform-toolkit/ui/ptk-text-field';
+import {
+  TOGGLE_GROUP_CHANGE_EVENT,
   type ToggleGroupChangeDetail,
-} from '@platform-toolkit/ui';
-import '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-toggle-group';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 

@@ -30,7 +30,7 @@
  * anything. A failed read of one record partition is offered its own "Try again"
  * beside the notice that reports it, where the reader is already looking.
  */
-import '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-button';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 

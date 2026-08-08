@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { CategoryCatalog, WeightClassLadderData } from '@platform-toolkit/data-contracts';
-import type { PtkChoiceGroup, PtkSelect } from '@platform-toolkit/ui';
+import type { PtkChoiceGroup } from '@platform-toolkit/ui/ptk-choice-group';
+import type { PtkSelect } from '@platform-toolkit/ui/ptk-select';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 

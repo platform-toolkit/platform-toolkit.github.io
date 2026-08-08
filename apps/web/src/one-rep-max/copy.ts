@@ -37,7 +37,7 @@ import {
   type WeightUnit,
   type WithheldReasonCode,
 } from '@platform-toolkit/domain';
-import { type Choice } from '@platform-toolkit/ui';
+import { type Choice } from '@platform-toolkit/ui/ptk-choice-group';
 
 import { LIFTS, RESERVE_CHOICES, type ReserveChoice, reserveChoiceOf } from './session.js';
 

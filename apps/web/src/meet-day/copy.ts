@@ -90,7 +90,7 @@ import {
   type WeightUnit,
 } from '@platform-toolkit/domain';
 import type { MeetFormat, PlatformLift } from '@platform-toolkit/data-contracts';
-import { type Choice } from '@platform-toolkit/ui';
+import { type Choice } from '@platform-toolkit/ui/ptk-choice-group';
 
 import { describeEquipment, type Equipment } from '../warm-up/equipment.js';
 import type { BoardLifterRef, BoardRowConflict, WarmupLead } from './board.js';

@@ -18,7 +18,8 @@
  * rather than clicking them. Clicking them in isolation would test nothing and
  * would look like it tested something.
  */
-import { DISCLOSURE_TOGGLE_EVENT, type PtkNumberField } from '@platform-toolkit/ui';
+import { DISCLOSURE_TOGGLE_EVENT } from '@platform-toolkit/ui/ptk-disclosure';
+import { type PtkNumberField } from '@platform-toolkit/ui/ptk-number-field';
 // Sizes are measured below, and every rule that sets one reads a custom property.
 import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';

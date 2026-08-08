@@ -28,7 +28,7 @@
  * own shadow tree as a composed event, and the delegated reads would see the
  * host with an empty dataset under `event.target`.
  */
-import { NUMBER_FIELD_CHANGE_EVENT } from '@platform-toolkit/ui';
+import { NUMBER_FIELD_CHANGE_EVENT } from '@platform-toolkit/ui/ptk-number-field';
 // The card padding, the badge and the 44px tap-target floor all read custom
 // properties, and a declaration referencing an undefined one is dropped -- so
 // without this the layout measured at 320px below is not the layout that ships.

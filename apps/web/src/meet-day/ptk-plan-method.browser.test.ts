@@ -18,13 +18,13 @@
  * cannot reach -- which matters most for the confirmation, because a hand-written
  * view could show a ticked box beside a figure the rules would have refused.
  */
+import { CHOICE_CHANGE_EVENT } from '@platform-toolkit/ui/ptk-choice-group';
+import { NUMBER_FIELD_CHANGE_EVENT } from '@platform-toolkit/ui/ptk-number-field';
 import {
-  CHOICE_CHANGE_EVENT,
-  NUMBER_FIELD_CHANGE_EVENT,
   PtkToggleGroup,
   TOGGLE_GROUP_CHANGE_EVENT,
   type ToggleGroupChangeDetail,
-} from '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-toggle-group';
 // Padding, gaps and the 44px tap-target floor all read custom properties, and a
 // declaration referencing an undefined one is dropped -- so without this the
 // layout measured at 320px below is not the layout that ships.

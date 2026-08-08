@@ -22,7 +22,11 @@
  * shadow tree as a composed event, and a root reading `event.target` rather than
  * `composedPath()` would see the host with an empty dataset.
  */
-import { CHOICE_CHANGE_EVENT, PtkDisclosure, type ChoiceChangeDetail } from '@platform-toolkit/ui';
+import {
+  CHOICE_CHANGE_EVENT,
+  type ChoiceChangeDetail,
+} from '@platform-toolkit/ui/ptk-choice-group';
+import { PtkDisclosure } from '@platform-toolkit/ui/ptk-disclosure';
 // Padding, gaps and the 44px tap-target floor all read custom properties, and a
 // declaration referencing an undefined one is dropped -- so without this the
 // layout measured at 320px below is not the layout that ships.

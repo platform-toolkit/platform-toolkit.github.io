@@ -28,11 +28,15 @@
 import {
   CHOICE_CHANGE_EVENT,
   type ChoiceChangeDetail,
+} from '@platform-toolkit/ui/ptk-choice-group';
+import {
   TEXT_AREA_CHANGE_EVENT,
   type TextAreaChangeDetail,
+} from '@platform-toolkit/ui/ptk-text-area';
+import {
   TEXT_FIELD_CHANGE_EVENT,
   type TextFieldChangeDetail,
-} from '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-text-field';
 // Padding, gaps and the 44px tap-target floor all read custom properties, and a
 // declaration referencing an undefined one is dropped -- so without this the
 // layout measured at 320px below is not the layout that ships.

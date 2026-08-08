@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Lift } from '@platform-toolkit/data-contracts';
-import { PtkNotice, PtkSegmented } from '@platform-toolkit/ui';
+import { PtkNotice } from '@platform-toolkit/ui/ptk-notice';
+import { PtkSegmented } from '@platform-toolkit/ui/ptk-segmented';
 // Every measurement at the bottom of this file reads a spacing or tap-target
 // token, and a declaration referencing an undefined custom property is dropped
 // -- so without the stylesheet the 320 px check measures a layout with no gaps

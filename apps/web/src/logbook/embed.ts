@@ -1,11 +1,8 @@
 // Copyright 2026 Jason Smathers
 // SPDX-License-Identifier: Apache-2.0
 
-import {
-  initializeTheme,
-  publishEmbedHeight,
-  publishEmbedHeightOnResize,
-} from '@platform-toolkit/ui';
+import { publishEmbedHeight, publishEmbedHeightOnResize } from '@platform-toolkit/ui/embed-height';
+import { initializeTheme } from '@platform-toolkit/ui/theme';
 
 import { TOOL_ID, createTrainingLogbookView } from './view.js';
 

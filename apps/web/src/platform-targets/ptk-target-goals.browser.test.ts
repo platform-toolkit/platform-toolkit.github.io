@@ -1,7 +1,7 @@
 // Copyright 2026 Jason Smathers
 // SPDX-License-Identifier: Apache-2.0
 
-import { PtkSelect } from '@platform-toolkit/ui';
+import { PtkSelect } from '@platform-toolkit/ui/ptk-select';
 // Every spacing and tap-target declaration in the tray reads a custom property,
 // and a declaration referencing an undefined one is dropped -- so without the
 // stylesheet the 320 px check measures a layout with no gutters and the remove

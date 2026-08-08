@@ -39,11 +39,14 @@
  * away, which is also the only thing that distinguishes them to somebody
  * reading one control at a time.
  */
-import '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-disclosure';
+import '@platform-toolkit/ui/ptk-text-area';
+import '@platform-toolkit/ui/ptk-text-field';
+import '@platform-toolkit/ui/ptk-toggle-group';
+import type { Choice } from '@platform-toolkit/ui/ptk-choice-group';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
-
-import type { Choice } from '@platform-toolkit/ui';
 
 import {
   ADD_CUSTOM_ITEM_LABEL,

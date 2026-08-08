@@ -53,7 +53,8 @@ import type {
   WeightClass,
 } from '@platform-toolkit/data-contracts';
 import { openAgeDivision } from '@platform-toolkit/domain';
-import type { Choice, SelectOption } from '@platform-toolkit/ui';
+import type { Choice } from '@platform-toolkit/ui/ptk-choice-group';
+import type { SelectOption } from '@platform-toolkit/ui/ptk-select';
 
 /** Every answer the screen collects. */
 export type SelectionField =

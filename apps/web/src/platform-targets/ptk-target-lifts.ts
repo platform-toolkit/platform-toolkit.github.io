@@ -34,13 +34,18 @@
  */
 import type { Lift } from '@platform-toolkit/data-contracts';
 import type { WeightUnit } from '@platform-toolkit/domain';
+import '@platform-toolkit/ui/ptk-choice-group';
+import '@platform-toolkit/ui/ptk-disclosure';
+import '@platform-toolkit/ui/ptk-number-field';
 import {
   CHOICE_CHANGE_EVENT,
-  NUMBER_FIELD_CHANGE_EVENT,
   type Choice,
   type ChoiceChangeDetail,
+} from '@platform-toolkit/ui/ptk-choice-group';
+import {
+  NUMBER_FIELD_CHANGE_EVENT,
   type NumberFieldChangeDetail,
-} from '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-number-field';
 import { LitElement, css, html, type TemplateResult } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 

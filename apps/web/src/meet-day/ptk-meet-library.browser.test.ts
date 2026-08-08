@@ -26,7 +26,7 @@
  * a `SavedMeet` literal can hold a shelf the transitions cannot produce, and a
  * screen proved to cope with one of those is proved to cope with nothing.
  */
-import { type NoticeTone } from '@platform-toolkit/ui';
+import { type NoticeTone } from '@platform-toolkit/ui/ptk-notice';
 import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';

@@ -7,7 +7,8 @@ import {
   PREFERENCE_KEY_PREFIX,
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
-import type { PtkButton, PtkChoiceGroup } from '@platform-toolkit/ui';
+import type { PtkButton } from '@platform-toolkit/ui/ptk-button';
+import type { PtkChoiceGroup } from '@platform-toolkit/ui/ptk-choice-group';
 // Without the stylesheet every declaration reading a custom property is
 // dropped, so the column measured below has no padding and no gaps -- a layout
 // that never ships, and one that both passes and fails for the wrong reasons.

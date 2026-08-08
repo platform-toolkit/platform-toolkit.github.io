@@ -58,15 +58,22 @@ import type {
   RecordRouteAnswer,
   RecordRouteBlockCode,
 } from '@platform-toolkit/domain';
+import '@platform-toolkit/ui/ptk-notice';
+import '@platform-toolkit/ui/ptk-number-field';
+import '@platform-toolkit/ui/ptk-segmented';
+import '@platform-toolkit/ui/ptk-text-field';
 import {
   NUMBER_FIELD_CHANGE_EVENT,
-  SEGMENTED_CHANGE_EVENT,
-  TEXT_FIELD_CHANGE_EVENT,
   type NumberFieldChangeDetail,
+} from '@platform-toolkit/ui/ptk-number-field';
+import {
+  SEGMENTED_CHANGE_EVENT,
   type SegmentedChangeDetail,
+} from '@platform-toolkit/ui/ptk-segmented';
+import {
+  TEXT_FIELD_CHANGE_EVENT,
   type TextFieldChangeDetail,
-} from '@platform-toolkit/ui';
-import '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-text-field';
 
 import {
   RECORD_FOURTH_ATTEMPT_HEADING,

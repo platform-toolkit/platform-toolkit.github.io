@@ -18,7 +18,8 @@
  * shadow boundary, and that is a platform behaviour rather than a function call.
  */
 import { createPreferenceStore, memoryPreferenceStorage } from '@platform-toolkit/preferences';
-import { PtkButton, PtkNumberField } from '@platform-toolkit/ui';
+import { PtkButton } from '@platform-toolkit/ui/ptk-button';
+import { PtkNumberField } from '@platform-toolkit/ui/ptk-number-field';
 // Sizes are measured below and every rule that sets one reads a custom property.
 import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';

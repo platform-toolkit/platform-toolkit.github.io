@@ -30,12 +30,12 @@
  * removed, a custom id that collides with a default one -- and a screen proved
  * to cope with one is proved to cope with something that will never arrive.
  */
+import { TEXT_AREA_CHANGE_EVENT } from '@platform-toolkit/ui/ptk-text-area';
+import { TEXT_FIELD_CHANGE_EVENT } from '@platform-toolkit/ui/ptk-text-field';
 import {
-  TEXT_AREA_CHANGE_EVENT,
-  TEXT_FIELD_CHANGE_EVENT,
   TOGGLE_GROUP_CHANGE_EVENT,
   type ToggleGroupChangeDetail,
-} from '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-toggle-group';
 // Padding, gaps and the 44px tap-target floor all read custom properties, and a
 // declaration referencing an undefined one is dropped -- so without this the
 // layout measured at 320px below is not the layout that ships.

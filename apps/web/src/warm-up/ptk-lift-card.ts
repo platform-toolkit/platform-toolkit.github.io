@@ -24,13 +24,21 @@ import {
   type WarmupPlan,
   type WeightUnit,
 } from '@platform-toolkit/domain';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-choice-group';
+import '@platform-toolkit/ui/ptk-disclosure';
+import '@platform-toolkit/ui/ptk-notice';
+import '@platform-toolkit/ui/ptk-number-field';
+import '@platform-toolkit/ui/ptk-plate-stack';
 import {
   CHOICE_CHANGE_EVENT,
-  NUMBER_FIELD_CHANGE_EVENT,
   type Choice,
   type ChoiceChangeDetail,
+} from '@platform-toolkit/ui/ptk-choice-group';
+import {
+  NUMBER_FIELD_CHANGE_EVENT,
   type NumberFieldChangeDetail,
-} from '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-number-field';
 import { parseCount, parseWeight, type FieldReading } from '@platform-toolkit/ui/field-reading';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';

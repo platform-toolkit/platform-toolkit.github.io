@@ -77,11 +77,15 @@ import type {
   Lift,
   RecordBook,
 } from '@platform-toolkit/data-contracts';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-disclosure';
+import '@platform-toolkit/ui/ptk-notice';
+import '@platform-toolkit/ui/ptk-segmented';
+import { type Choice } from '@platform-toolkit/ui/ptk-choice-group';
 import {
   SEGMENTED_CHANGE_EVENT,
-  type Choice,
   type SegmentedChangeDetail,
-} from '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-segmented';
 // Side-effect only, and it has to be written out: this file names `ptk-notice`,
 // `ptk-segmented` and `ptk-disclosure` in templates and imports no value from
 // the package other than types and one event name. An unregistered custom
@@ -90,7 +94,6 @@ import {
 // happens to work today because a sibling element imports the package; a story
 // or a test mounting this one alone does not, and that difference is the whole
 // reason this line is explicit.
-import '@platform-toolkit/ui';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 

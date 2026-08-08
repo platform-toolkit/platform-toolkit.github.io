@@ -28,7 +28,7 @@
  * drawn for.
  */
 import type { CategoryCatalog } from '@platform-toolkit/data-contracts';
-import '@platform-toolkit/ui';
+
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 

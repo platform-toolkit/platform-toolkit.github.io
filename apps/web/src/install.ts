@@ -47,7 +47,8 @@
  * `[hidden]` reset that wins, and the tests beside this file measure computed
  * style rather than the property.
  */
-import '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-disclosure';
 
 /**
  * The event Chromium fires when it is willing to install the site.

@@ -60,8 +60,13 @@ import {
   type CoachBoardUrgency,
   type WeightUnit,
 } from '@platform-toolkit/domain';
-import '@platform-toolkit/ui';
-import { TOGGLE_GROUP_CHANGE_EVENT, type ToggleGroupChangeDetail } from '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-notice';
+import '@platform-toolkit/ui/ptk-toggle-group';
+import {
+  TOGGLE_GROUP_CHANGE_EVENT,
+  type ToggleGroupChangeDetail,
+} from '@platform-toolkit/ui/ptk-toggle-group';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { styleMap } from 'lit/directives/style-map.js';

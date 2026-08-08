@@ -16,7 +16,11 @@
  * number printed above it — two figures on one screen that should be identical
  * and are not, which reads as an arithmetic bug rather than as a rounding choice.
  */
-import { PtkChoiceGroup, type ChoiceChangeDetail, CHOICE_CHANGE_EVENT } from '@platform-toolkit/ui';
+import {
+  CHOICE_CHANGE_EVENT,
+  PtkChoiceGroup,
+  type ChoiceChangeDetail,
+} from '@platform-toolkit/ui/ptk-choice-group';
 // The row height is `var(--ptk-tap-target-min)`, and a declaration referencing an
 // undefined property is dropped -- so without this the rows measured below have
 // no floor at all and the test passes by measuring nothing (§5.7).

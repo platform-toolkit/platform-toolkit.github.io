@@ -26,7 +26,9 @@
  * root owns every piece of state (§10.2).
  */
 import { findTechnique } from '@platform-toolkit/domain';
-import '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-choice-group';
+import '@platform-toolkit/ui/ptk-disclosure';
+import '@platform-toolkit/ui/ptk-toggle-group';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 

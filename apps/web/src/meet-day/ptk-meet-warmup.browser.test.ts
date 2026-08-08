@@ -40,7 +40,7 @@
  * rather than on the element, because what is being proved is that the event
  * crossed the shadow boundary carrying a state a root can store.
  */
-import { EQUIPMENT_CHANGE_EVENT } from '@platform-toolkit/ui';
+import { EQUIPMENT_CHANGE_EVENT } from '@platform-toolkit/ui/ptk-equipment-setup';
 import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';

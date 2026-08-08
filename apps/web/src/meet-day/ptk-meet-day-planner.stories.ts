@@ -9,7 +9,7 @@ import {
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 
-import { PtkDisclosure } from '@platform-toolkit/ui';
+import { PtkDisclosure } from '@platform-toolkit/ui/ptk-disclosure';
 
 import { manualClock } from '../clock.js';
 import { COACH_MODE } from './copy.js';

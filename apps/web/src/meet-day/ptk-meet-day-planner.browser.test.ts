@@ -38,14 +38,20 @@ import {
 import {
   CHOICE_CHANGE_EVENT,
   type ChoiceChangeDetail,
+} from '@platform-toolkit/ui/ptk-choice-group';
+import { PtkDisclosure } from '@platform-toolkit/ui/ptk-disclosure';
+import {
   NUMBER_FIELD_CHANGE_EVENT,
   type NumberFieldChangeDetail,
-  PtkDisclosure,
+} from '@platform-toolkit/ui/ptk-number-field';
+import {
   TEXT_FIELD_CHANGE_EVENT,
   type TextFieldChangeDetail,
+} from '@platform-toolkit/ui/ptk-text-field';
+import {
   TOGGLE_GROUP_CHANGE_EVENT,
   type ToggleGroupChangeDetail,
-} from '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-toggle-group';
 // Padding, gaps and the 44px tap-target floor all read custom properties, and a
 // declaration referencing an undefined one is dropped -- so without this the
 // layout measured at 320px below is not the layout that ships.

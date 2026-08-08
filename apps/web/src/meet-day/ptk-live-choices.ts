@@ -47,8 +47,13 @@ import {
   type LiveChoices,
   type WeightUnit,
 } from '@platform-toolkit/domain';
-import '@platform-toolkit/ui';
-import { NUMBER_FIELD_CHANGE_EVENT, type NumberFieldChangeDetail } from '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-notice';
+import '@platform-toolkit/ui/ptk-number-field';
+import {
+  NUMBER_FIELD_CHANGE_EVENT,
+  type NumberFieldChangeDetail,
+} from '@platform-toolkit/ui/ptk-number-field';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 

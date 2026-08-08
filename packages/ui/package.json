@@ -15,9 +15,73 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./embed-height": {
+      "types": "./dist/embed-height.d.ts",
+      "default": "./dist/embed-height.js"
+    },
     "./field-reading": {
       "types": "./dist/field-reading.d.ts",
       "default": "./dist/field-reading.js"
+    },
+    "./ptk-button": {
+      "types": "./dist/ptk-button.d.ts",
+      "default": "./dist/ptk-button.js"
+    },
+    "./ptk-choice-group": {
+      "types": "./dist/ptk-choice-group.d.ts",
+      "default": "./dist/ptk-choice-group.js"
+    },
+    "./ptk-copy-button": {
+      "types": "./dist/ptk-copy-button.d.ts",
+      "default": "./dist/ptk-copy-button.js"
+    },
+    "./ptk-date-field": {
+      "types": "./dist/ptk-date-field.d.ts",
+      "default": "./dist/ptk-date-field.js"
+    },
+    "./ptk-disclosure": {
+      "types": "./dist/ptk-disclosure.d.ts",
+      "default": "./dist/ptk-disclosure.js"
+    },
+    "./ptk-equipment-setup": {
+      "types": "./dist/ptk-equipment-setup.d.ts",
+      "default": "./dist/ptk-equipment-setup.js"
+    },
+    "./ptk-notice": {
+      "types": "./dist/ptk-notice.d.ts",
+      "default": "./dist/ptk-notice.js"
+    },
+    "./ptk-number-field": {
+      "types": "./dist/ptk-number-field.d.ts",
+      "default": "./dist/ptk-number-field.js"
+    },
+    "./ptk-plate-stack": {
+      "types": "./dist/ptk-plate-stack.d.ts",
+      "default": "./dist/ptk-plate-stack.js"
+    },
+    "./ptk-segmented": {
+      "types": "./dist/ptk-segmented.d.ts",
+      "default": "./dist/ptk-segmented.js"
+    },
+    "./ptk-select": {
+      "types": "./dist/ptk-select.d.ts",
+      "default": "./dist/ptk-select.js"
+    },
+    "./ptk-text-area": {
+      "types": "./dist/ptk-text-area.d.ts",
+      "default": "./dist/ptk-text-area.js"
+    },
+    "./ptk-text-field": {
+      "types": "./dist/ptk-text-field.d.ts",
+      "default": "./dist/ptk-text-field.js"
+    },
+    "./ptk-toggle-group": {
+      "types": "./dist/ptk-toggle-group.d.ts",
+      "default": "./dist/ptk-toggle-group.js"
+    },
+    "./theme": {
+      "types": "./dist/theme.d.ts",
+      "default": "./dist/theme.js"
     },
     "./tokens.css": "./src/tokens.css"
   },

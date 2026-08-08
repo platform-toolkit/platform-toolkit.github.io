@@ -34,7 +34,11 @@ import {
   type WeightUnit,
 } from '@platform-toolkit/domain';
 import type { ConversionRow } from '@platform-toolkit/data-contracts';
-import '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-choice-group';
+import '@platform-toolkit/ui/ptk-copy-button';
+import '@platform-toolkit/ui/ptk-disclosure';
+import '@platform-toolkit/ui/ptk-notice';
+import '@platform-toolkit/ui/ptk-number-field';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 

@@ -31,13 +31,18 @@ import {
   type ConversionDirection,
 } from '@platform-toolkit/domain';
 import { createPreferenceStore, type PreferenceStore } from '@platform-toolkit/preferences';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-choice-group';
+import '@platform-toolkit/ui/ptk-disclosure';
+import '@platform-toolkit/ui/ptk-number-field';
 import {
   CHOICE_CHANGE_EVENT,
-  NUMBER_FIELD_CHANGE_EVENT,
   type ChoiceChangeDetail,
+} from '@platform-toolkit/ui/ptk-choice-group';
+import {
+  NUMBER_FIELD_CHANGE_EVENT,
   type NumberFieldChangeDetail,
-} from '@platform-toolkit/ui';
-import '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-number-field';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 

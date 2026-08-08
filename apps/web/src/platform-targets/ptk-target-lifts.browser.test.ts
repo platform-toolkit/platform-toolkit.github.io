@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { Lift } from '@platform-toolkit/data-contracts';
-import { PtkChoiceGroup, PtkDisclosure, PtkNumberField } from '@platform-toolkit/ui';
+import { PtkChoiceGroup } from '@platform-toolkit/ui/ptk-choice-group';
+import { PtkDisclosure } from '@platform-toolkit/ui/ptk-disclosure';
+import { PtkNumberField } from '@platform-toolkit/ui/ptk-number-field';
 // Every spacing declaration in this panel reads a custom property, and a
 // declaration referencing an undefined one is dropped -- so without the
 // stylesheet the layout measured at the bottom of this file is not the shipped

@@ -45,7 +45,8 @@ import {
   type MilestoneConversion,
   type WeightUnit,
 } from '@platform-toolkit/domain';
-import '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-notice';
+import '@platform-toolkit/ui/ptk-plate-stack';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 

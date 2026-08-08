@@ -42,17 +42,29 @@ import {
   type RefereeLight,
 } from '@platform-toolkit/domain';
 import type { PlatformLift } from '@platform-toolkit/data-contracts';
-import '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-choice-group';
+import '@platform-toolkit/ui/ptk-disclosure';
+import '@platform-toolkit/ui/ptk-notice';
+import '@platform-toolkit/ui/ptk-number-field';
+import '@platform-toolkit/ui/ptk-segmented';
+import '@platform-toolkit/ui/ptk-text-area';
 import {
   CHOICE_CHANGE_EVENT,
-  NUMBER_FIELD_CHANGE_EVENT,
-  SEGMENTED_CHANGE_EVENT,
-  TEXT_AREA_CHANGE_EVENT,
   type ChoiceChangeDetail,
+} from '@platform-toolkit/ui/ptk-choice-group';
+import {
+  NUMBER_FIELD_CHANGE_EVENT,
   type NumberFieldChangeDetail,
+} from '@platform-toolkit/ui/ptk-number-field';
+import {
+  SEGMENTED_CHANGE_EVENT,
   type SegmentedChangeDetail,
+} from '@platform-toolkit/ui/ptk-segmented';
+import {
+  TEXT_AREA_CHANGE_EVENT,
   type TextAreaChangeDetail,
-} from '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-text-area';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 

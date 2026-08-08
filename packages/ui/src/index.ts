@@ -15,6 +15,14 @@
  *
  * Design tokens are not exported from this module because they are CSS, not
  * JavaScript. Import them at `@platform-toolkit/ui/tokens.css`.
+ *
+ * **Every element is also published on a subpath named after its file** --
+ * `@platform-toolkit/ui/ptk-button`, and so on -- and a page that renders one or
+ * two of them should reach for those instead. `customElements.define` is not
+ * tree-shakeable: the bundler cannot prove a registration is unused, so importing
+ * this module for one element ships all fourteen. The hub was paying 145 KB of
+ * eager JavaScript for elements it never rendered. This barrel stays, and stays
+ * the right answer for a consumer that genuinely wants the set.
  */
 
 // Side-effect import: defining a custom element is what makes the tag usable in

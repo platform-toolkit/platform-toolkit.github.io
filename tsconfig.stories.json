@@ -47,7 +47,24 @@
         "./packages/training-logbook/src/element/index.ts"
       ],
       "@platform-toolkit/training-logbook/handoff": ["./packages/training-logbook/src/handoff.ts"],
-      "@platform-toolkit/ui": ["./packages/ui/src/index.ts"]
+      "@platform-toolkit/ui": ["./packages/ui/src/index.ts"],
+      "@platform-toolkit/ui/embed-height": ["./packages/ui/src/embed-height.ts"],
+      "@platform-toolkit/ui/field-reading": ["./packages/ui/src/field-reading.ts"],
+      "@platform-toolkit/ui/ptk-button": ["./packages/ui/src/ptk-button.ts"],
+      "@platform-toolkit/ui/ptk-choice-group": ["./packages/ui/src/ptk-choice-group.ts"],
+      "@platform-toolkit/ui/ptk-copy-button": ["./packages/ui/src/ptk-copy-button.ts"],
+      "@platform-toolkit/ui/ptk-date-field": ["./packages/ui/src/ptk-date-field.ts"],
+      "@platform-toolkit/ui/ptk-disclosure": ["./packages/ui/src/ptk-disclosure.ts"],
+      "@platform-toolkit/ui/ptk-equipment-setup": ["./packages/ui/src/ptk-equipment-setup.ts"],
+      "@platform-toolkit/ui/ptk-notice": ["./packages/ui/src/ptk-notice.ts"],
+      "@platform-toolkit/ui/ptk-number-field": ["./packages/ui/src/ptk-number-field.ts"],
+      "@platform-toolkit/ui/ptk-plate-stack": ["./packages/ui/src/ptk-plate-stack.ts"],
+      "@platform-toolkit/ui/ptk-segmented": ["./packages/ui/src/ptk-segmented.ts"],
+      "@platform-toolkit/ui/ptk-select": ["./packages/ui/src/ptk-select.ts"],
+      "@platform-toolkit/ui/ptk-text-area": ["./packages/ui/src/ptk-text-area.ts"],
+      "@platform-toolkit/ui/ptk-text-field": ["./packages/ui/src/ptk-text-field.ts"],
+      "@platform-toolkit/ui/ptk-toggle-group": ["./packages/ui/src/ptk-toggle-group.ts"],
+      "@platform-toolkit/ui/theme": ["./packages/ui/src/theme.ts"]
     }
   },
   "include": [

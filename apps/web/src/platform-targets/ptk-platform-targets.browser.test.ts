@@ -3,7 +3,8 @@
 
 import type { DataMeta } from '@platform-toolkit/data-contracts';
 import { createPreferenceStore, memoryPreferenceStorage } from '@platform-toolkit/preferences';
-import { PtkChoiceGroup, PtkSelect } from '@platform-toolkit/ui';
+import { PtkChoiceGroup } from '@platform-toolkit/ui/ptk-choice-group';
+import { PtkSelect } from '@platform-toolkit/ui/ptk-select';
 // The tap-target and 320 px measurements at the bottom read spacing tokens, and
 // a declaration referencing an undefined custom property is dropped -- so
 // without the stylesheet they measure a layout that is not the shipped one.

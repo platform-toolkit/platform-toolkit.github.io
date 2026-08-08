@@ -17,7 +17,9 @@ import {
   memoryPreferenceStorage,
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
-import type { PtkChoiceGroup, PtkSegmented, PtkSelect } from '@platform-toolkit/ui';
+import type { PtkChoiceGroup } from '@platform-toolkit/ui/ptk-choice-group';
+import type { PtkSegmented } from '@platform-toolkit/ui/ptk-segmented';
+import type { PtkSelect } from '@platform-toolkit/ui/ptk-select';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { deepText } from '../testing/deep-text.js';

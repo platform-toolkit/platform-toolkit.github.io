@@ -30,7 +30,7 @@ import {
   createPreferenceStore,
   memoryPreferenceStorage,
 } from '@platform-toolkit/preferences';
-import { PtkChoiceGroup } from '@platform-toolkit/ui';
+import { PtkChoiceGroup } from '@platform-toolkit/ui/ptk-choice-group';
 // Every gap, every column track and the 44px tap-target floor is a custom
 // property, and a declaration reading an undefined one is dropped -- so without
 // the stylesheet the 320px measurement below is of a layout that never ships.

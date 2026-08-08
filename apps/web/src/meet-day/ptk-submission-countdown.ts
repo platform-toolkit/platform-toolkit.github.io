@@ -38,7 +38,7 @@
  * why the official-clock sentence is on the panel rather than in a fold.
  */
 import type { AttemptWeight } from '@platform-toolkit/domain';
-import '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-button';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 

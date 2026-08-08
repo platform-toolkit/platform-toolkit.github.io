@@ -21,11 +21,13 @@
 import {
   CHOICE_CHANGE_EVENT,
   PtkChoiceGroup,
+  type ChoiceChangeDetail,
+} from '@platform-toolkit/ui/ptk-choice-group';
+import {
   PtkToggleGroup,
   TOGGLE_GROUP_CHANGE_EVENT,
-  type ChoiceChangeDetail,
   type ToggleGroupChangeDetail,
-} from '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-toggle-group';
 // Padding, gaps and the 44px tap-target floor all read custom properties, and a
 // declaration referencing an undefined one is dropped -- so without this the
 // layout measured at 320px below is not the layout that ships.

@@ -30,12 +30,15 @@
  * failure this avoids -- it looks like a working page that is asking nothing.
  */
 import type { CategoryCatalog } from '@platform-toolkit/data-contracts';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-choice-group';
+import '@platform-toolkit/ui/ptk-notice';
+import '@platform-toolkit/ui/ptk-select';
 import {
   CHOICE_CHANGE_EVENT,
-  SELECT_CHANGE_EVENT,
   type ChoiceChangeDetail,
-  type SelectChangeDetail,
-} from '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-choice-group';
+import { SELECT_CHANGE_EVENT, type SelectChangeDetail } from '@platform-toolkit/ui/ptk-select';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 

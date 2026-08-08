@@ -38,7 +38,9 @@
  * events tagged with `data-field` (§5.8), where the field name *is* the
  * `LifterSetup` key it writes -- see `SETUP_FIELDS` in `fields.ts`.
  */
-import '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-choice-group';
+import '@platform-toolkit/ui/ptk-text-area';
+import '@platform-toolkit/ui/ptk-text-field';
 import { LitElement, css, html, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 

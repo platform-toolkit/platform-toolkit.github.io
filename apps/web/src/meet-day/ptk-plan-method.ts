@@ -35,7 +35,10 @@
  * `data-lift`. The root owns every piece of state.
  */
 import type { PlatformLift } from '@platform-toolkit/data-contracts';
-import '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-choice-group';
+import '@platform-toolkit/ui/ptk-notice';
+import '@platform-toolkit/ui/ptk-number-field';
+import '@platform-toolkit/ui/ptk-toggle-group';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 

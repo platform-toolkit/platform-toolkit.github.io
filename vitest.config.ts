@@ -42,22 +42,49 @@ const workspaceSource = [
   replacement: fileURLToPath(new URL(`./packages/${name}/src/index.ts`, import.meta.url)),
 }));
 
-// The two subpaths a test reaches through. Left to the `exports` map either one
+/**
+ * Every module `packages/ui` publishes as a subpath, mirroring its `exports` map
+ * and the `paths` blocks in `tsconfig.tests.json` and `tsconfig.stories.json`.
+ *
+ * One per element, because `customElements.define` is not tree-shakeable: a page
+ * that names the barrel downloads all fourteen whether or not it renders one, and
+ * the hub rendered none of them. `field-reading` and `theme` are not elements and
+ * are here so that a consumer of either does not pull the registry in sideways.
+ */
+const uiSubpaths = [
+  'embed-height',
+  'field-reading',
+  'ptk-button',
+  'ptk-choice-group',
+  'ptk-copy-button',
+  'ptk-date-field',
+  'ptk-disclosure',
+  'ptk-equipment-setup',
+  'ptk-notice',
+  'ptk-number-field',
+  'ptk-plate-stack',
+  'ptk-segmented',
+  'ptk-select',
+  'ptk-text-area',
+  'ptk-text-field',
+  'ptk-toggle-group',
+  'theme',
+];
+
+// The subpaths a test reaches through. Left to the `exports` map each one
 // resolves to `dist`, which is the stale-output trap the block above exists to
-// close, so both are aliased to source like the rest.
+// close, so they are aliased to source like the rest.
 //
-// `ui/field-reading` exists so that `session.ts` -- pure, and run in a bare Node
-// project on purpose -- can have the field parsers without pulling the element
-// barrel, which calls `customElements.define` on import. `training-logbook/
-// handoff` is the one module of tool 2 that imports the logbook at all, and it
-// is the seam where a shape written on one side is read on the other: tested
-// against `dist` it would go on passing for as long as nobody rebuilt, which is
-// the one place a stale answer is indistinguishable from agreement.
+// `training-logbook/handoff` is the one module of tool 2 that imports the logbook
+// at all, and it is the seam where a shape written on one side is read on the
+// other: tested against `dist` it would go on passing for as long as nobody
+// rebuilt, which is the one place a stale answer is indistinguishable from
+// agreement.
 workspaceSource.push(
-  {
-    find: /^@platform-toolkit\/ui\/field-reading$/,
-    replacement: fileURLToPath(new URL('./packages/ui/src/field-reading.ts', import.meta.url)),
-  },
+  ...uiSubpaths.map((name) => ({
+    find: new RegExp(`^@platform-toolkit/ui/${name}$`),
+    replacement: fileURLToPath(new URL(`./packages/ui/src/${name}.ts`, import.meta.url)),
+  })),
   {
     find: /^@platform-toolkit\/training-logbook\/handoff$/,
     replacement: fileURLToPath(

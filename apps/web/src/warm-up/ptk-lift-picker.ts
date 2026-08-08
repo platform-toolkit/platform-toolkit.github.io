@@ -22,7 +22,14 @@ import {
   type LiftGroup,
   type WarmupFamily,
 } from '@platform-toolkit/domain';
-import { CHOICE_CHANGE_EVENT, type Choice, type ChoiceChangeDetail } from '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-choice-group';
+import '@platform-toolkit/ui/ptk-disclosure';
+import {
+  CHOICE_CHANGE_EVENT,
+  type Choice,
+  type ChoiceChangeDetail,
+} from '@platform-toolkit/ui/ptk-choice-group';
 import { LitElement, css, html, type TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 

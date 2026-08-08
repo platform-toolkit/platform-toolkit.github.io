@@ -35,7 +35,7 @@
  * there is no control on it, because every answer that could change this plan is
  * asked on the screens above it.
  */
-import '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-notice';
 import type { JumpAdvisory, RoundingNote, TargetTotalProposal } from '@platform-toolkit/domain';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';

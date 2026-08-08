@@ -22,7 +22,7 @@ import {
   type ConversionAnswer,
   type WeightUnit,
 } from '@platform-toolkit/domain';
-import type { PtkButton } from '@platform-toolkit/ui';
+import type { PtkButton } from '@platform-toolkit/ui/ptk-button';
 // Without the stylesheet every declaration reading a custom property is dropped,
 // so the panel measured below has no padding and the option cards no track
 // minimum -- a layout that never ships, passing and failing for the wrong reasons.

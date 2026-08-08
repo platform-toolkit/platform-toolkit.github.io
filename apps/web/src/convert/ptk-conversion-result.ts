@@ -42,7 +42,9 @@ import {
   type Weight,
   type WeightUnit,
 } from '@platform-toolkit/domain';
-import '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-copy-button';
+import '@platform-toolkit/ui/ptk-notice';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 
