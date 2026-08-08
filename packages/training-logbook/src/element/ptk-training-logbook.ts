@@ -77,6 +77,7 @@ import {
   adjustRest,
   clampRestSeconds,
   pauseRest,
+  readAlerts,
   resetRest,
   restSecondsFor,
   resumeRest,
@@ -443,9 +444,13 @@ function distinctRefusals(problems: readonly RestoreProblem[]): readonly Restore
  * of training twice to say the same thing would cost more than the restore did.
  *
  * The settings are the exception, because a store of exactly one record has no count
- * to compare -- so two of its fields stand in for it. They are the two a lifter would
- * notice within a minute of the restore, which is the point: a settings row that
+ * to compare -- so a few of its fields stand in for it. They are the ones a lifter
+ * would notice within a minute of the restore, which is the point: a settings row that
  * silently did not land is the failure this step exists to catch.
+ *
+ * The three alert flags are here because of #119, where they *were* the settings row
+ * not landing: the restore schema stripped them and this step compared two fields that
+ * both survived, so the read-back agreed with a file it had just half-applied.
  */
 function sameShape(written: LogbookSnapshot, file: LogbookSnapshot): boolean {
   return (
@@ -454,7 +459,8 @@ function sameShape(written: LogbookSnapshot, file: LogbookSnapshot): boolean {
     written.equipmentProfiles.length === file.equipmentProfiles.length &&
     (written.activeWorkout === null) === (file.activeWorkout === null) &&
     written.settings.displayUnit === file.settings.displayUnit &&
-    written.settings.effort === file.settings.effort
+    written.settings.effort === file.settings.effort &&
+    sameAlerts(written.settings.restTimer.alerts, readAlerts(file.settings.restTimer.alerts))
   );
 }
 

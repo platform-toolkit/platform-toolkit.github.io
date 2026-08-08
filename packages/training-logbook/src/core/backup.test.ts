@@ -41,11 +41,21 @@ import {
   startWorkout,
 } from './session.js';
 
+// The alert flags are here because the tool never writes a settings record without
+// them -- `defaultSettings` supplies them and `normalizeSettings` fills them in on
+// every read. A fixture omitting them would be modelling a file from before section
+// 7.11 shipped, which is a real case and has its own test rather than being the
+// silent default for every other one.
 const SETTINGS: LogbookSettings = {
   schemaVersion: 1,
   displayUnit: 'kg',
   effort: 'none',
-  restTimer: { enabled: false, defaultSeconds: 180, perExerciseSeconds: {} },
+  restTimer: {
+    enabled: false,
+    defaultSeconds: 180,
+    perExerciseSeconds: {},
+    alerts: { sound: false, vibrate: false, notify: false },
+  },
   equipment: null,
   acceptedTerms: {},
   lastBackupAt: null,
@@ -321,6 +331,95 @@ describe('readBackup', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('expected a valid backup');
     expect('somethingElse' in result.backup).toBe(false);
+  });
+});
+
+/**
+ * The one field the schema drops on purpose and this must not.
+ *
+ * `LogbookSettingsSchema` does not declare `restTimer.alerts`, and the case above
+ * records what `v.object` does with a key it does not declare: it strips it. That is
+ * the right answer for a stray key and the wrong one for this field, which the storage
+ * layer reads with `v.is` -- neither stripping nor rejecting -- and so has always kept.
+ * Between the two, a lifter who exported, wiped a phone and restored got their training
+ * back with all three alerts silently off, under a screen reading restored.
+ */
+describe('readBackup and the rest alerts', () => {
+  function alerts(value: unknown) {
+    const document = backup();
+    const result = read({
+      ...document,
+      data: {
+        ...document.data,
+        settings: { ...SETTINGS, restTimer: { ...SETTINGS.restTimer, alerts: value } },
+      },
+    });
+    if (!result.ok) throw new Error('expected a valid backup');
+    return result.backup.data.settings.restTimer.alerts;
+  }
+
+  it('carries the three flags across the restore', () => {
+    expect(alerts({ sound: true, vibrate: false, notify: true })).toEqual({
+      sound: true,
+      vibrate: false,
+      notify: true,
+    });
+  });
+
+  it('survives being written and read back', () => {
+    const document = backup();
+    const withAlerts: TrainingLogbookBackup = {
+      ...document,
+      data: {
+        ...document.data,
+        settings: {
+          ...SETTINGS,
+          restTimer: {
+            ...SETTINGS.restTimer,
+            alerts: { sound: false, vibrate: true, notify: false },
+          },
+        },
+      },
+    };
+
+    const result = read(serializeBackup(withAlerts));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected a valid backup');
+    expect(result.backup.data.settings.restTimer.alerts).toEqual({
+      sound: false,
+      vibrate: true,
+      notify: false,
+    });
+  });
+
+  it('reads a file written before the flags existed as all off', () => {
+    // SETTINGS carries no `alerts` key at all, which is every backup taken before
+    // section 7.11 shipped. Off is the only safe answer: an alert nobody switched on
+    // must not start firing because a lifter restored a phone.
+    expect(alerts(undefined)).toEqual({ sound: false, vibrate: false, notify: false });
+  });
+
+  it('does not let a value that is not the boolean true switch an alert on', () => {
+    expect(alerts({ sound: 'yes', vibrate: 1, notify: {} })).toEqual({
+      sound: false,
+      vibrate: false,
+      notify: false,
+    });
+  });
+
+  it('reads a null where the flags should be as all off, and still restores the file', () => {
+    // The whole reason the schema stays silent about this field: refusing here would
+    // fail the restore over three booleans that decide whether a phone beeps.
+    expect(alerts(null)).toEqual({ sound: false, vibrate: false, notify: false });
+  });
+
+  it('ignores flags that are not the ones section 7.11 names', () => {
+    expect(alerts({ sound: true, flash: true })).toEqual({
+      sound: true,
+      vibrate: false,
+      notify: false,
+    });
   });
 });
 

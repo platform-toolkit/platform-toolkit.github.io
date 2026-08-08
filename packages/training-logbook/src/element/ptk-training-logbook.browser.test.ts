@@ -3987,6 +3987,127 @@ describe('the training logbook', () => {
     });
 
     /**
+     * The field the restore schema does not describe, and used to drop. #119.
+     *
+     * `LogbookSettingsSchema` deliberately says nothing about `restTimer.alerts`, so
+     * that a stored record holding something odd there reads as off rather than
+     * locking a lifter out of an intact database. The storage layer validates with
+     * `v.is`, which neither strips nor rejects an undeclared key. The restore layer
+     * reads `v.safeParse(...).output`, and `v.object` strips -- so the flags went in
+     * and did not come out, `normalizeSettings` filled all three in as off, and the
+     * screen said restored over it.
+     *
+     * A whole-journey test rather than a unit one on `readBackup`, which has its own:
+     * this is the path a lifter walks, and every layer between the file and the
+     * database gets a chance to drop the field again.
+     */
+    it('restores the rest alerts a backup was taken with', async () => {
+      const file = await aBackupFile(async (store) => {
+        await seedRepeatable(store);
+        const settings = defaultSettings();
+        await store.writeSettings({
+          ...settings,
+          restTimer: {
+            ...settings.restTimer,
+            alerts: { sound: true, vibrate: false, notify: true },
+          },
+        });
+      });
+      const { store } = await durableStore();
+      const element = await mount(store);
+
+      await chooseFile(element, file);
+      await waitForText(element, RESTORE_NOTES.heading);
+      await press(element, 'restore-confirm');
+
+      await waitForText(element, RESTORE_NOTES.done);
+      expect((await store.readSettings())?.restTimer.alerts).toEqual({
+        sound: true,
+        vibrate: false,
+        notify: true,
+      });
+    });
+
+    /**
+     * The same journey for a file taken before the flags existed.
+     *
+     * Off is the only safe answer -- section 7.11's rule is that an alert nobody
+     * switched on must not start firing -- and it has to be the answer without the
+     * restore refusing the file over three booleans about whether a phone beeps.
+     */
+    it('restores a backup written before the alerts existed with all three off', async () => {
+      const document = await aBackup(seedRepeatable);
+      const settings: Record<string, unknown> = { ...document.data.settings };
+      const restTimer: Record<string, unknown> = { ...document.data.settings.restTimer };
+      delete restTimer['alerts'];
+      settings['restTimer'] = restTimer;
+      const file = fileOf(JSON.stringify({ ...document, data: { ...document.data, settings } }));
+
+      const { store } = await durableStore();
+      const element = await mount(store);
+
+      await chooseFile(element, file);
+      await waitForText(element, RESTORE_NOTES.heading);
+      await press(element, 'restore-confirm');
+
+      await waitForText(element, RESTORE_NOTES.done);
+      expect((await store.readSettings())?.restTimer.alerts).toEqual({
+        sound: false,
+        vibrate: false,
+        notify: false,
+      });
+    });
+
+    /**
+     * The half-landed settings row the ninth step now catches.
+     *
+     * Before #119 the read-back compared two settings fields, `displayUnit` and
+     * `effort`, and both of those survived the restore that was dropping the alerts --
+     * so the step that exists to notice a settings row that did not land agreed with a
+     * file it had half applied. The three flags are in `sameShape` for that reason, and
+     * this is the case that would have failed then and passes now.
+     */
+    it('refuses to call a restore done when the alert flags did not land', async () => {
+      const file = await aBackupFile(async (store) => {
+        await seedRepeatable(store);
+        const settings = defaultSettings();
+        await store.writeSettings({
+          ...settings,
+          restTimer: {
+            ...settings.restTimer,
+            alerts: { sound: true, vibrate: false, notify: false },
+          },
+        });
+      });
+      const { store } = await durableStore();
+      const element = await mount(store);
+      await withRepository(element, (repository) => ({
+        ...repository,
+        replaceFromBackup: (backup) =>
+          repository.replaceFromBackup({
+            ...backup,
+            data: {
+              ...backup.data,
+              settings: {
+                ...backup.data.settings,
+                restTimer: {
+                  ...backup.data.settings.restTimer,
+                  alerts: { sound: false, vibrate: false, notify: false },
+                },
+              },
+            },
+          }),
+      }));
+
+      await chooseFile(element, file);
+      await waitForText(element, RESTORE_NOTES.heading);
+      await press(element, 'restore-confirm');
+
+      await waitForText(element, RESTORE_NOTES.verifyProblem);
+      expect(readAll(element)).not.toContain(RESTORE_NOTES.done);
+    });
+
+    /**
      * A write that reports success and did not happen.
      *
      * The store that throws is handled above. This is the other failure, and the one

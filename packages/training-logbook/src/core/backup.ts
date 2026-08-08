@@ -51,6 +51,7 @@ import {
   LogbookSettingsSchema,
   WorkoutSessionSchema,
 } from './schema.js';
+import { settingsWithAlerts } from './rest.js';
 import type { WorkoutSummary } from './summary.js';
 import { byMostRecent, summarize } from './summary.js';
 
@@ -124,6 +125,54 @@ const BackupSchema: v.GenericSchema<TrainingLogbookBackup> = v.object({
   applicationVersion: v.string(),
   data: SnapshotSchema,
 });
+
+/**
+ * The one field `BackupSchema` throws away, fished back out of the same document.
+ *
+ * `LogbookSettingsSchema` deliberately does not declare `restTimer.alerts`, so that a
+ * stored record holding something odd there reads as all-off rather than locking a
+ * lifter out of an intact database. `v.is` neither strips nor rejects an undeclared
+ * key, which is what the storage layer uses and why that side was always fine. This
+ * side calls `v.safeParse` and reads `.output`, and `v.object` *strips*: a backup file
+ * carrying the three flags restored without them, `normalizeSettings` filled all three
+ * in as off, and the screen said **restored** over it. A lifter who exported, wiped a
+ * phone and restored got their training back and their alerts silently switched off.
+ *
+ * So the flags are carried across explicitly, which is the option that leaves the
+ * schema saying exactly what it said before. Declaring `alerts` with a `v.fallback` on
+ * each flag would also work and would put a coercion at a trust boundary, in the file
+ * where it is least visible; a second, stricter settings schema for this boundary
+ * alone would fork the definition of a settings record. This is neither.
+ *
+ * Parsed rather than walked with casts, and permissively: every level is `v.object`,
+ * which requires only the key named, and the leaf is `v.unknown()` because the whole
+ * point is that nothing has decided yet what a valid `alerts` looks like. A file with
+ * no settings at all fails this parse and yields `undefined`, which `readAlerts` reads
+ * as all-off -- the same answer the pre-alerts backups it exists for deserve.
+ */
+const StoredAlertsSchema = v.object({
+  data: v.object({
+    settings: v.object({
+      restTimer: v.object({ alerts: v.optional(v.unknown()) }),
+    }),
+  }),
+});
+
+function storedAlerts(parsed: unknown): unknown {
+  const found = v.safeParse(StoredAlertsSchema, parsed);
+  return found.success ? found.output.data.settings.restTimer.alerts : undefined;
+}
+
+/** A validated backup with the alert flags of the document it was read from. */
+function withAlerts(backup: TrainingLogbookBackup, parsed: unknown): TrainingLogbookBackup {
+  return {
+    ...backup,
+    data: {
+      ...backup.data,
+      settings: settingsWithAlerts(backup.data.settings, storedAlerts(parsed)),
+    },
+  };
+}
 
 /** What a backup is being written as. */
 export interface BackupOptions {
@@ -246,7 +295,7 @@ export function readBackup(text: string, byteLength: number): RestoreResult {
   if (!result.success) {
     return { ok: false, problems: problemsFrom(result.issues) };
   }
-  const { backup, migrated } = migrate(result.output);
+  const { backup, migrated } = migrate(withAlerts(result.output, parsed));
   return { ok: true, backup, migrated };
 }
 

@@ -29,7 +29,50 @@
  * Nothing here reads a clock. `at` is passed in, like everywhere else in this package.
  */
 
-import type { Instant, RestTimerSettings } from '../types.js';
+import type {
+  Instant,
+  LogbookSettings,
+  RestAlertChannel,
+  RestAlertSettings,
+  RestTimerSettings,
+} from '../types.js';
+
+/**
+ * The three alert flags out of whatever was stored, defaulting each to off.
+ *
+ * Takes `unknown` rather than the field's own type, and the difference is the point:
+ * typed as `RestAlertSettings | undefined` the compiler calls the per-key tests dead,
+ * the next person deletes them as noise, and a record holding `alerts: null` or
+ * `alerts: { sound: 'yes' }` -- which `LogbookSettingsSchema` deliberately does not
+ * look at and so does not refuse -- becomes an alert firing on a truthy string.
+ * `=== true` and not a coercion, so anything that is not the boolean `true` is off.
+ *
+ * In core rather than beside either of its callers because it has two, at two
+ * different trust boundaries -- the stored record and the restore file -- and the
+ * boundary that had to reach across the other for it was the one that quietly did
+ * without.
+ */
+export function readAlerts(value: unknown): RestAlertSettings {
+  const stored: Partial<Record<RestAlertChannel, unknown>> =
+    typeof value === 'object' && value !== null ? { ...value } : {};
+  return {
+    sound: stored.sound === true,
+    vibrate: stored.vibrate === true,
+    notify: stored.notify === true,
+  };
+}
+
+/**
+ * A settings record carrying the alert flags read out of `value`.
+ *
+ * The flags travel separately from the rest of the record on both paths that need
+ * this: out of storage they may predate the field, and out of a backup file they have
+ * been dropped by a schema that does not declare them. Same rule either way, in one
+ * place, so the two boundaries cannot drift into disagreeing about what absent means.
+ */
+export function settingsWithAlerts(settings: LogbookSettings, value: unknown): LogbookSettings {
+  return { ...settings, restTimer: { ...settings.restTimer, alerts: readAlerts(value) } };
+}
 
 /**
  * The shortest rest that can be configured, in seconds.
