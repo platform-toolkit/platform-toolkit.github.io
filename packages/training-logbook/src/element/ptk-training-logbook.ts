@@ -850,13 +850,6 @@ export class PtkTrainingLogbook extends LitElement {
   #writing: Promise<void> = Promise.resolve();
 
   /**
-   * The exercise being read back, or `null` where it could not be read.
-   *
-   * The same three outcomes `opened` has, collapsed the same way and for the same
-   * reason: a press that reached storage and failed must not look like a press that
-   * missed the button.
-   */
-  /**
    * The rest the lifter is taking, or `null` for none. Section 7.11.
    *
    * Here rather than on the logging screen, because looking up what a lift went for
@@ -878,6 +871,13 @@ export class PtkTrainingLogbook extends LitElement {
    */
   @state() private restExercise: { readonly id: string; readonly name: string } | null = null;
 
+  /**
+   * The exercise being read back, or `null` where it could not be read.
+   *
+   * The same three outcomes `opened` has, collapsed the same way and for the same
+   * reason: a press that reached storage and failed must not look like a press that
+   * missed the button.
+   */
   @state() private records: ExerciseHistory | null = null;
 
   /**

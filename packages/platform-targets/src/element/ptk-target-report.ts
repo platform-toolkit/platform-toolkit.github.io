@@ -77,6 +77,14 @@ import type {
   Lift,
   RecordBook,
 } from '@platform-toolkit/data-contracts';
+// Side-effect only, and it has to be written out: this file names `ptk-notice`,
+// `ptk-segmented` and `ptk-disclosure` in templates and imports no value from
+// the package other than types and one event name. An unregistered custom
+// element still renders its children as plain text, so the sentence appears --
+// unstyled, untoned, and with none of the error border §5.8 requires. The page
+// happens to work today because a sibling element imports the package; a story
+// or a test mounting this one alone does not, and that difference is the whole
+// reason this line is explicit.
 import '@platform-toolkit/ui/ptk-button';
 import '@platform-toolkit/ui/ptk-disclosure';
 import '@platform-toolkit/ui/ptk-notice';
@@ -86,14 +94,6 @@ import {
   SEGMENTED_CHANGE_EVENT,
   type SegmentedChangeDetail,
 } from '@platform-toolkit/ui/ptk-segmented';
-// Side-effect only, and it has to be written out: this file names `ptk-notice`,
-// `ptk-segmented` and `ptk-disclosure` in templates and imports no value from
-// the package other than types and one event name. An unregistered custom
-// element still renders its children as plain text, so the sentence appears --
-// unstyled, untoned, and with none of the error border §5.8 requires. The page
-// happens to work today because a sibling element imports the package; a story
-// or a test mounting this one alone does not, and that difference is the whole
-// reason this line is explicit.
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { property, state } from 'lit/decorators.js';
 

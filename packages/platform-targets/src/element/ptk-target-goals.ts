@@ -30,16 +30,16 @@
  * `goals.ts` for what a goal is and why it is stored as identifiers.
  */
 import type { CategoryCatalog, ClassificationBook } from '@platform-toolkit/data-contracts';
+// Side-effect only, for `ptk-select` in the template below. See the note in
+// §5.8: an unregistered custom element still renders its children, so the
+// failure is silent styling loss rather than an error, and the story that mounts
+// this alone is where it would land.
 import '@platform-toolkit/ui/ptk-select';
 import {
   SELECT_CHANGE_EVENT,
   type SelectChangeDetail,
   type SelectOption,
 } from '@platform-toolkit/ui/ptk-select';
-// Side-effect only, for `ptk-select` in the template below. See the note in
-// §5.8: an unregistered custom element still renders its children, so the
-// failure is silent styling loss rather than an error, and the story that mounts
-// this alone is where it would land.
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { property } from 'lit/decorators.js';
 

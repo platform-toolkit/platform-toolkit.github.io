@@ -772,7 +772,8 @@ export const ACTIVE_NOTES = {
   /** A row whose numbers differ from the plan looks like an error unless labelled. */
   edited: 'Different from the plan',
 
-  /**
+  /*
+   * -------------------------------------------------------------------------
    * Section 7.7's three structural changes, and the one that adds a row.
    *
    * All four are verbs about the set and not about the record of it, which is the
@@ -780,7 +781,9 @@ export const ACTIVE_NOTES = {
    * these say what happens to the row. A lifter who has one more in them presses
    * Add; a lifter who is done with a lift presses Skip; a lifter who planned five
    * and wants four presses Remove. Nothing here scores any of it (section 15.3).
+   * -------------------------------------------------------------------------
    */
+
   /**
    * Appended, and planned like the row it lands after -- another back-off after a
    * back-off rather than a top set. There is deliberately no sentence on screen

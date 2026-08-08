@@ -1865,15 +1865,6 @@ describe('the training logbook', () => {
   });
 
   /**
-   * Section 4.3, from the receiving end.
-   *
-   * What is under test here is not the landing -- `core/handoff.test.ts` owns the
-   * ramp and the validation -- but the four decisions the element makes around it:
-   * when to draw the offer, what the offer is allowed to promise, what a press
-   * does to the record, and what a landing is allowed to overwrite. Each of those
-   * is invisible to a core test, and three of the four are only wrong at a rack.
-   */
-  /**
    * The property a host is most likely to forget, and the one nothing refuses.
    *
    * `today` is structurally a string, so an unset host is not a type error, not a
@@ -1900,6 +1891,15 @@ describe('the training logbook', () => {
     });
   });
 
+  /**
+   * Section 4.3, from the receiving end.
+   *
+   * What is under test here is not the landing -- `core/handoff.test.ts` owns the
+   * ramp and the validation -- but the four decisions the element makes around it:
+   * when to draw the offer, what the offer is allowed to promise, what a press
+   * does to the record, and what a landing is allowed to overwrite. Each of those
+   * is invisible to a core test, and three of the four are only wrong at a rack.
+   */
   describe('a session handed over by the warm-up calculator', () => {
     it('offers the session at the top of the home screen, naming what it would log', async () => {
       const { store } = await durableStore();
@@ -4830,15 +4830,6 @@ describe('the training logbook', () => {
     }
 
     /**
-     * The storage line is one node for the life of the tool.
-     *
-     * It has to be. A live region created at the moment its sentence appears is
-     * announced by roughly half the engines and reliably by none -- the paragraph is
-     * allowed to come and go, the region around it is not. That is also why the region
-     * sits in `render()` above the screen rather than inside each of the nine: a node
-     * redrawn by every screen change is a node that was created with its sentence.
-     */
-    /**
      * Task #108's second half, and the rule the first half is no use without.
      *
      * The sentence about an unreadable history arrives from a read that has already
@@ -4876,6 +4867,15 @@ describe('the training logbook', () => {
       );
     });
 
+    /**
+     * The storage line is one node for the life of the tool.
+     *
+     * It has to be. A live region created at the moment its sentence appears is
+     * announced by roughly half the engines and reliably by none -- the paragraph is
+     * allowed to come and go, the region around it is not. That is also why the region
+     * sits in `render()` above the screen rather than inside each of the nine: a node
+     * redrawn by every screen change is a node that was created with its sentence.
+     */
     it('says how storage stands through one region that outlives every screen', async () => {
       const { store } = await durableStore();
       const element = await mount(store);

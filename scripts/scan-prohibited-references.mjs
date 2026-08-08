@@ -6,6 +6,11 @@
  * Keeps strings that must not appear in this repository out of it -- in file
  * contents, in file paths, and in commit metadata.
  *
+ * It also carries a second, unrelated check over the same walk: orphaned
+ * docblocks. See ORPHANED DOCBLOCKS below. The two share a pass over every
+ * tracked file and nothing else; a second walk to look at the same bytes again
+ * is the only reason they are in one script.
+ *
  * WHY THE LIST IS NOT COMMITTED
  *
  * A denylist of forbidden strings, committed here, would be exactly the thing it
@@ -37,6 +42,22 @@
  * The maintainer's own stricter requirement -- one exact address, always signed
  * -- lives in an untracked `.commit-identity.local` file that exists only on
  * that machine. See `--pending`.
+ *
+ * ORPHANED DOCBLOCKS
+ *
+ * A docblock immediately followed by another docblock. Every tool that reads
+ * JSDoc takes the nearest block above a declaration, so the first one is
+ * discarded and its paragraph explains a symbol nobody was asking about. It
+ * happens the same way every time -- something is inserted above a declaration
+ * and lands between it and its comment -- which is why this is a check and not
+ * four edits.
+ *
+ * The signature is exact, and the indentation is most of it: two adjacent
+ * lines, the first closing a block comment and holding nothing else, the second
+ * opening a docblock and holding nothing else, both indented. An unindented
+ * pair is a module header above a first declaration and is correct. A blank
+ * line between the two is the ordinary case, and allowing one turns four
+ * findings into two hundred and four.
  *
  * USAGE
  *
@@ -102,6 +123,7 @@ const readLocalFile = (name) => {
 };
 
 const violations = [];
+const orphanedDocblocks = [];
 
 // ---- token list ------------------------------------------------------------
 
@@ -384,37 +406,63 @@ if (hasCommits && deniedTokens.size > 0) {
   }
 }
 
+// ---- orphaned docblocks ----------------------------------------------------
+
+/**
+ * A line that closes a block comment, indented, with nothing else on it.
+ *
+ * The leading run of whitespace is required rather than optional, because that
+ * is what tells a stranded block from a module header. Both anchors matter too:
+ * a closing marker with code after it is somebody's inline type cast.
+ */
+const CLOSES_A_BLOCK = /^[ \t]+\*\/$/;
+
+/** Its counterpart -- an indented line that opens a docblock and nothing else. */
+const OPENS_A_DOCBLOCK = /^[ \t]+\/\*\*$/;
+
 // ---- tracked file contents -------------------------------------------------
 
 const trackedFiles = git(['ls-files', '-z']).split('\0').filter(Boolean);
 
-if (deniedTokens.size > 0) {
-  for (const relativePath of trackedFiles) {
-    if (BINARY_EXTENSIONS.test(relativePath)) continue;
+// Files actually opened, which is fewer than `trackedFiles.length`: the images,
+// fonts and archives are skipped unread.
+let readFiles = 0;
 
-    const absolutePath = join(repoRoot, relativePath);
-    let stats;
-    try {
-      stats = statSync(absolutePath);
-    } catch {
-      continue; // Staged for deletion.
-    }
-    if (!stats.isFile() || stats.size > MAX_SCANNED_BYTES) {
-      continue;
+for (const relativePath of trackedFiles) {
+  if (BINARY_EXTENSIONS.test(relativePath)) continue;
+
+  const absolutePath = join(repoRoot, relativePath);
+  let stats;
+  try {
+    stats = statSync(absolutePath);
+  } catch {
+    continue; // Staged for deletion.
+  }
+  if (!stats.isFile() || stats.size > MAX_SCANNED_BYTES) {
+    continue;
+  }
+
+  const lines = readFileSync(absolutePath, 'utf8').split('\n');
+  readFiles += 1;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    // `findViolation` answers null with no list configured, so this costs
+    // nothing on a contributor's machine and needs no guard of its own.
+    const matchLength = findViolation(lines[index]);
+    if (matchLength !== null) {
+      violations.push(`${relativePath}:${index + 1}  (prohibited token, ${matchLength} chars)`);
     }
 
-    const lines = readFileSync(absolutePath, 'utf8').split('\n');
-    for (let index = 0; index < lines.length; index += 1) {
-      const matchLength = findViolation(lines[index]);
-      if (matchLength !== null) {
-        violations.push(`${relativePath}:${index + 1}  (prohibited token, ${matchLength} chars)`);
-      }
+    // The line reported is the stranded block's last, because that block is the
+    // one the reader has to find a home for.
+    if (CLOSES_A_BLOCK.test(lines[index]) && OPENS_A_DOCBLOCK.test(lines[index + 1] ?? '')) {
+      orphanedDocblocks.push(`${relativePath}:${index + 1}`);
     }
+  }
 
-    // The path itself must be clean too.
-    if (findViolation(relativePath) !== null) {
-      violations.push(`${relativePath}  (prohibited token in file path)`);
-    }
+  // The path itself must be clean too.
+  if (findViolation(relativePath) !== null) {
+    violations.push(`${relativePath}  (prohibited token in file path)`);
   }
 }
 
@@ -437,6 +485,34 @@ if (violations.length > 0) {
       '',
     ].join('\n'),
   );
+}
+
+if (orphanedDocblocks.length > 0) {
+  console.error('Docblock scan FAILED.\n');
+  for (const orphan of orphanedDocblocks) {
+    console.error(`  ${orphan}`);
+  }
+  console.error(
+    [
+      '',
+      'Each line above ends a docblock that the next line immediately follows with',
+      'another one. Every tool that reads JSDoc takes the nearest block above a',
+      'declaration, so the first is discarded: the paragraph is not shown where it',
+      'was written to be shown, and the reader hovering the declaration under it is',
+      'handed an explanation of a different symbol.',
+      '',
+      'It happens when something is inserted above a declaration and lands between',
+      'it and its comment. Put the stranded block back on the declaration it was',
+      'written for. Where it is a heading over a run of members rather than a',
+      'comment on one, make it a banner -- an ordinary block comment, not a',
+      'docblock, with a blank line under it -- so nothing reads it as',
+      'documentation of the member below.',
+      '',
+    ].join('\n'),
+  );
+}
+
+if (violations.length > 0 || orphanedDocblocks.length > 0) {
   process.exit(1);
 }
 
@@ -446,3 +522,4 @@ const contentScan =
     : `skipped -- no ${LOCAL_TOKEN_FILE} and no $${TOKEN_ENV_VAR} (expected for most contributors)`;
 
 console.log(`Reference scan passed: ${contentScan}`);
+console.log(`Docblock scan passed: ${readFiles} files, none orphaned`);
