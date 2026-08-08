@@ -3263,15 +3263,32 @@ const TAP_TARGET_MIN = 44;
 const MINIMUM_INPUT_FONT_SIZE = 16;
 
 /**
- * How long something fetched over the network has to appear before it counts as
- * absent.
+ * How long something has to appear before `tap` calls it absent.
  *
- * Generous on purpose: this is a loopback server reading a directory, so the
- * real wait is a few frames, and the only thing a short limit buys is a failure
- * report about a slow machine. `settled` below polls to its own budget for the
- * same reason.
+ * Thirty seconds and not the ten it was. Both numbers are absurd for what this
+ * measures -- a loopback server reading a directory, so the real wait is a few
+ * frames -- and that is the argument for the larger one rather than against it.
+ * A control that is genuinely missing is missing at ten seconds and at thirty
+ * alike, so the only thing the shorter cap ever bought was a failure report
+ * about a busy machine, and it bought three of those in one evening: the same
+ * exercise tile at 390px, under a different route label each time, passing on a
+ * re-run with nothing changed. The third took down a fresh-clone check, and
+ * because `run-s` aborts, two later steps never ran at all.
+ *
+ * The cost of the larger number is bounded and lands only on a real failure: a
+ * check that is going to fail takes twenty seconds longer to say so, once, while
+ * the 225 measurements that decide its wall clock are unaffected.
+ *
+ * **Not a retry.** A route that fails on the first attempt and passes on the
+ * second is a route whose result depends on the machine, and re-running it hides
+ * that rather than removing it. Raise the cap so the first attempt is the true
+ * one. `settled` below polls to its own budget, for the same reasons.
  */
-const ARRIVAL_TIMEOUT_MS = 10_000;
+const ARRIVAL_TIMEOUT_MS = 30_000;
+
+/** `settled`'s budget, as a poll interval and a count: 20 s. */
+const SETTLE_POLL_MS = 20;
+const SETTLE_POLLS = 1_000;
 
 /**
  * Measures the page, reaching into shadow roots.
@@ -3921,16 +3938,18 @@ async function reveal(page, route, pass, failures) {
  * which reports success the moment the keystroke lands and before anything has
  * been calculated from it.
  *
- * Eight seconds and not the two it was. The logbook routes reach their screen by
- * writing a workout to IndexedDB and reading it back, and under the load of a full
- * `verify` that round trip does not always finish inside two -- twice now, on the
- * two routes that wait for a history row, on a machine where the same check passes
- * on its own a minute later. A poll costs nothing when it succeeds, so the only
- * thing a longer cap buys a genuine failure is a slower report of it.
+ * Twenty seconds, having been two and then eight. The logbook routes reach their
+ * screen by writing a workout to IndexedDB and reading it back, and under the load
+ * of a full `verify` that round trip does not always finish inside two. Each raise
+ * has been made against the same evidence -- a route that fails once and passes on
+ * a re-run with nothing changed -- and against the same reasoning: a poll costs
+ * nothing when it succeeds, so the only thing a longer cap buys a genuine failure
+ * is a slower report of it. Kept in step with `ARRIVAL_TIMEOUT_MS`, whose docblock
+ * has the rest of the argument.
  */
 async function settled(page, selector) {
   const target = page.locator(selector).first();
-  for (let attempt = 0; attempt < 400; attempt += 1) {
+  for (let attempt = 0; attempt < SETTLE_POLLS; attempt += 1) {
     if ((await target.count()) > 0) {
       // `tagName` rather than `instanceof HTMLInputElement`. This callback is
       // serialised and run inside the page, but it is *written* in a Node module
@@ -3942,7 +3961,7 @@ async function settled(page, selector) {
         return true;
       }
     }
-    await page.waitForTimeout(20);
+    await page.waitForTimeout(SETTLE_POLL_MS);
   }
   return false;
 }

@@ -44,6 +44,20 @@ import { serveDirectory } from './lib/static-server.mjs';
 const OUTPUT_DIRECTORY = fileURLToPath(new URL('../storybook-static', import.meta.url));
 
 /**
+ * How long one story has to reach `networkidle` before it counts as broken.
+ *
+ * Ninety seconds, where Playwright's unstated default is thirty. `networkidle`
+ * is half a second of quiet, so what this really measures is how long a loaded
+ * machine takes to finish a page it would finish in under a second idle -- and
+ * on 2026-08-07 that was more than thirty, at load 135, for a story that renders
+ * perfectly. A story that is genuinely broken is broken at thirty seconds and at
+ * ninety alike, so the shorter cap protects nothing; it only decides how quickly
+ * a busy machine is mistaken for a bad story. The cost is bounded and lands only
+ * on a real failure, because the 543 stories that pass never approach it.
+ */
+const LOAD_TIMEOUT_MS = 90_000;
+
+/**
  * The text a visitor would see, shadow roots included.
  *
  * `innerText` stops at a shadow boundary, so every one of these elements would
@@ -106,7 +120,18 @@ async function main() {
     for (const story of stories) {
       logged = [];
       const url = `${origin}/iframe.html?id=${encodeURIComponent(story.id)}&viewMode=story`;
-      await page.goto(url, { waitUntil: 'networkidle' });
+      try {
+        await page.goto(url, { waitUntil: 'networkidle', timeout: LOAD_TIMEOUT_MS });
+      } catch (error) {
+        // Report it against the story and keep going. Letting it throw ended the
+        // run on a stack trace that named no story and left every later one
+        // unchecked -- a worse answer than the one failure it was reporting, and
+        // not a retry: the check still fails, it just says what and finishes.
+        failures.push(
+          `${story.id}: did not load (${error instanceof Error ? error.name : 'threw'})`,
+        );
+        continue;
+      }
       const text = await page.evaluate(VISIBLE_TEXT);
 
       if (typeof text !== 'string') {
