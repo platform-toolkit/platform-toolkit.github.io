@@ -172,7 +172,9 @@ reason underneath, rather than sitting there looking armed until the moment it w
 this browser has no API for is not offered at all.
 
 Nothing here reaches a server. The tone is generated on the device rather than fetched or bundled,
-and the notification is the page's own — shown by the tab that set the timer, to nobody else.
+and the notification is the page's own — shown by the tab that set the timer, to nobody else. A
+backup taken with those switches on now restores with them on; it used to say **restored** over
+three alerts it had quietly turned off.
 
 **It does not coach.** A missed set is recorded and not scored, an effort rating is stored and not
 interpreted, and nothing derives a programme from a history.
@@ -191,6 +193,14 @@ interpreted, and nothing derives a programme from a history.
   downloading the whole set to draw two buttons: the hub's eager JavaScript is 41 351 B, down from
   147 047 B. The single entry point still exists and still registers everything — the subpaths
   resolve to the same modules, so mixing the two cannot define a tag twice.
+
+  The two largest tools now do the same, which is where the remaining saving was: Qualification
+  Check is 220 335 B of eager JavaScript, down 29 601, and the Training Logbook 316 108, down 5 023.
+  The logbook's figure is small because it renders twelve of the fourteen. More usefully, the pass
+  found a screen in the logbook rendering a component it never imported — it worked only because a
+  screen above it happened to import the whole set, so anyone installing that screen on its own
+  would have got an empty plate diagram under every set.
+
 - **An embedded tool's frame no longer ratchets upward.** The published height was `scrollHeight`,
   which is `max(content, viewport)` — and inside a frame the viewport is the frame, so the
   measurement could never report less than the height the embedder had already set, and a tool that
