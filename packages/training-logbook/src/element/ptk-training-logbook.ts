@@ -36,15 +36,19 @@
  */
 
 import { convertWeight, formatWeight, type WeightUnit } from '@platform-toolkit/domain';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-segmented';
+import '@platform-toolkit/ui/ptk-select';
+import type { Choice } from '@platform-toolkit/ui/ptk-choice-group';
 import {
   SEGMENTED_CHANGE_EVENT,
-  SELECT_CHANGE_EVENT,
-  type Choice,
   type SegmentedChangeDetail,
+} from '@platform-toolkit/ui/ptk-segmented';
+import {
+  SELECT_CHANGE_EVENT,
   type SelectChangeDetail,
   type SelectOption,
-} from '@platform-toolkit/ui';
-import '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-select';
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from 'lit';
 import { property, state } from 'lit/decorators.js';
 

@@ -45,9 +45,16 @@
  * it goes back off. See `rest-alert.ts` for what can be detected and what cannot.
  */
 
-import type { Choice, SelectOption, ToggleGroupChangeDetail } from '@platform-toolkit/ui';
-import { TOGGLE_GROUP_CHANGE_EVENT } from '@platform-toolkit/ui';
-import '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-disclosure';
+import '@platform-toolkit/ui/ptk-select';
+import '@platform-toolkit/ui/ptk-toggle-group';
+import type { Choice } from '@platform-toolkit/ui/ptk-choice-group';
+import type { SelectOption } from '@platform-toolkit/ui/ptk-select';
+import {
+  TOGGLE_GROUP_CHANGE_EVENT,
+  type ToggleGroupChangeDetail,
+} from '@platform-toolkit/ui/ptk-toggle-group';
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from 'lit';
 import { property, state } from 'lit/decorators.js';
 

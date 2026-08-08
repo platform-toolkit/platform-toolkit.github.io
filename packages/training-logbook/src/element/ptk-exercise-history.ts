@@ -33,7 +33,6 @@
  * version of why.
  */
 
-import '@platform-toolkit/ui';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { property } from 'lit/decorators.js';
 

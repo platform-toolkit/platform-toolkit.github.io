@@ -95,16 +95,23 @@ import {
   type Weight,
   type WeightUnit,
 } from '@platform-toolkit/domain';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-choice-group';
+import '@platform-toolkit/ui/ptk-number-field';
+import '@platform-toolkit/ui/ptk-text-area';
 import {
   CHOICE_CHANGE_EVENT,
-  NUMBER_FIELD_CHANGE_EVENT,
-  TEXT_AREA_CHANGE_EVENT,
-  type ChoiceChangeDetail,
   type Choice,
+  type ChoiceChangeDetail,
+} from '@platform-toolkit/ui/ptk-choice-group';
+import {
+  NUMBER_FIELD_CHANGE_EVENT,
   type NumberFieldChangeDetail,
+} from '@platform-toolkit/ui/ptk-number-field';
+import {
+  TEXT_AREA_CHANGE_EVENT,
   type TextAreaChangeDetail,
-} from '@platform-toolkit/ui';
-import '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-text-area';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { property, state } from 'lit/decorators.js';
 

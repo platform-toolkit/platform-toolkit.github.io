@@ -27,12 +27,9 @@
 
 // Without the stylesheet every declaration reading a custom property is dropped, and the
 // accessibility pass measures a screen that never ships.
-import {
-  SELECT_CHANGE_EVENT,
-  TOGGLE_GROUP_CHANGE_EVENT,
-  type SelectChangeDetail,
-} from '@platform-toolkit/ui';
 import '@platform-toolkit/ui/tokens.css';
+import { SELECT_CHANGE_EVENT, type SelectChangeDetail } from '@platform-toolkit/ui/ptk-select';
+import { TOGGLE_GROUP_CHANGE_EVENT } from '@platform-toolkit/ui/ptk-toggle-group';
 import axe from 'axe-core';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 

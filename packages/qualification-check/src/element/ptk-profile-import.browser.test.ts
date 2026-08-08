@@ -34,7 +34,7 @@ import {
   CHOICE_CHANGE_EVENT,
   type ChoiceChangeDetail,
   type PtkChoiceGroup,
-} from '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-choice-group';
 // Without the stylesheet every declaration reading a custom property is dropped, so the
 // tap-target floor and the 320 px column below are measured against a layout that never
 // ships -- and both would pass for the wrong reason.

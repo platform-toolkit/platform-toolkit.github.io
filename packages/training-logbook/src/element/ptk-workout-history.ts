@@ -39,7 +39,7 @@
  * last step. An ISO day is also unambiguous to read, which the alternatives are not.
  */
 
-import '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-button';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { property } from 'lit/decorators.js';
 

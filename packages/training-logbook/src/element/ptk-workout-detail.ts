@@ -35,7 +35,7 @@
  * version of why, and it applies once per screen here rather than once per row.
  */
 
-import '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-button';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { property } from 'lit/decorators.js';
 

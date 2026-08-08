@@ -46,14 +46,19 @@
  * {@link ATHLETE_SEARCH_EVENT}.
  */
 import type { AthleteHistory, AthleteMirrorInfo } from '@platform-toolkit/data-contracts';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-choice-group';
+import '@platform-toolkit/ui/ptk-notice';
+import '@platform-toolkit/ui/ptk-text-field';
 import {
   CHOICE_CHANGE_EVENT,
-  TEXT_FIELD_CHANGE_EVENT,
   type Choice,
   type ChoiceChangeDetail,
+} from '@platform-toolkit/ui/ptk-choice-group';
+import {
+  TEXT_FIELD_CHANGE_EVENT,
   type TextFieldChangeDetail,
-} from '@platform-toolkit/ui';
-import '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-text-field';
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from 'lit';
 import { property, state } from 'lit/decorators.js';
 

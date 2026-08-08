@@ -43,13 +43,17 @@
  */
 
 import { DEFAULT_EQUIPMENT as CATALOGUE_DEFAULT, type Equipment } from '@platform-toolkit/domain';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-equipment-setup';
+import '@platform-toolkit/ui/ptk-text-field';
 import {
   EQUIPMENT_CHANGE_EVENT,
-  TEXT_FIELD_CHANGE_EVENT,
   type EquipmentChangeDetail,
+} from '@platform-toolkit/ui/ptk-equipment-setup';
+import {
+  TEXT_FIELD_CHANGE_EVENT,
   type TextFieldChangeDetail,
-} from '@platform-toolkit/ui';
-import '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-text-field';
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from 'lit';
 import { property, state } from 'lit/decorators.js';
 

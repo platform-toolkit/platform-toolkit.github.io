@@ -30,6 +30,7 @@ import {
   type Loading,
   type WeightUnit,
 } from '@platform-toolkit/domain';
+import '@platform-toolkit/ui/ptk-plate-stack';
 import { html, nothing, type TemplateResult } from 'lit';
 
 import type { SetLoading } from '../core/loading.js';

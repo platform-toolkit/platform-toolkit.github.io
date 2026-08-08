@@ -30,7 +30,8 @@
  * five controls visibly responding and changing nothing.
  */
 import type { WeightClass } from '@platform-toolkit/data-contracts';
-import type { PtkChoiceGroup, PtkSelect } from '@platform-toolkit/ui';
+import type { PtkChoiceGroup } from '@platform-toolkit/ui/ptk-choice-group';
+import type { PtkSelect } from '@platform-toolkit/ui/ptk-select';
 // Without the stylesheet every declaration reading a custom property is dropped, so
 // anything measured here has no padding, no gaps and no tap-target floor -- a layout
 // that never ships, and one that passes and fails for the wrong reasons.

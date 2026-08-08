@@ -38,7 +38,10 @@
 // ships, and one that would pass and fail for the wrong reasons.
 import '@platform-toolkit/ui/tokens.css';
 import { formatWeight, type Weight } from '@platform-toolkit/domain';
-import { SEGMENTED_CHANGE_EVENT, type SegmentedChangeDetail } from '@platform-toolkit/ui';
+import {
+  SEGMENTED_CHANGE_EVENT,
+  type SegmentedChangeDetail,
+} from '@platform-toolkit/ui/ptk-segmented';
 import axe from 'axe-core';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 

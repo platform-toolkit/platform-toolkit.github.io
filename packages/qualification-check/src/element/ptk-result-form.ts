@@ -33,20 +33,34 @@
  * weight class would be guessing on its behalf.
  */
 import type { AthleteEntry } from '@platform-toolkit/data-contracts';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-choice-group';
+import '@platform-toolkit/ui/ptk-date-field';
+import '@platform-toolkit/ui/ptk-notice';
+import '@platform-toolkit/ui/ptk-number-field';
+import '@platform-toolkit/ui/ptk-segmented';
+import '@platform-toolkit/ui/ptk-text-field';
 import {
   CHOICE_CHANGE_EVENT,
-  DATE_FIELD_CHANGE_EVENT,
-  NUMBER_FIELD_CHANGE_EVENT,
-  SEGMENTED_CHANGE_EVENT,
-  TEXT_FIELD_CHANGE_EVENT,
   type Choice,
   type ChoiceChangeDetail,
+} from '@platform-toolkit/ui/ptk-choice-group';
+import {
+  DATE_FIELD_CHANGE_EVENT,
   type DateFieldChangeDetail,
+} from '@platform-toolkit/ui/ptk-date-field';
+import {
+  NUMBER_FIELD_CHANGE_EVENT,
   type NumberFieldChangeDetail,
+} from '@platform-toolkit/ui/ptk-number-field';
+import {
+  SEGMENTED_CHANGE_EVENT,
   type SegmentedChangeDetail,
+} from '@platform-toolkit/ui/ptk-segmented';
+import {
+  TEXT_FIELD_CHANGE_EVENT,
   type TextFieldChangeDetail,
-} from '@platform-toolkit/ui';
-import '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-text-field';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { state } from 'lit/decorators.js';
 

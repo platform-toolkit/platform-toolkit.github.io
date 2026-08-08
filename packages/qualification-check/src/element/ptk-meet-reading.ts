@@ -39,7 +39,7 @@ import type {
   QualifyingRoute,
 } from '@platform-toolkit/data-contracts';
 import { formatWeight } from '@platform-toolkit/domain';
-import '@platform-toolkit/ui';
+import '@platform-toolkit/ui/ptk-notice';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { property } from 'lit/decorators.js';
 

@@ -42,19 +42,29 @@
  */
 
 import type { WarmupFamily, WeightUnit } from '@platform-toolkit/domain';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-segmented';
+import '@platform-toolkit/ui/ptk-select';
+import '@platform-toolkit/ui/ptk-text-field';
+import '@platform-toolkit/ui/ptk-toggle-group';
+import type { Choice } from '@platform-toolkit/ui/ptk-choice-group';
 import {
   SEGMENTED_CHANGE_EVENT,
-  SELECT_CHANGE_EVENT,
-  TEXT_FIELD_CHANGE_EVENT,
-  TOGGLE_GROUP_CHANGE_EVENT,
-  type Choice,
   type SegmentedChangeDetail,
+} from '@platform-toolkit/ui/ptk-segmented';
+import {
+  SELECT_CHANGE_EVENT,
   type SelectChangeDetail,
   type SelectOption,
+} from '@platform-toolkit/ui/ptk-select';
+import {
+  TEXT_FIELD_CHANGE_EVENT,
   type TextFieldChangeDetail,
+} from '@platform-toolkit/ui/ptk-text-field';
+import {
+  TOGGLE_GROUP_CHANGE_EVENT,
   type ToggleGroupChangeDetail,
-} from '@platform-toolkit/ui';
-import '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-toggle-group';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { property, state } from 'lit/decorators.js';
 

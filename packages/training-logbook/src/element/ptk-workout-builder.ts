@@ -35,21 +35,35 @@
  */
 
 import type { WeightUnit } from '@platform-toolkit/domain';
+import '@platform-toolkit/ui/ptk-button';
+import '@platform-toolkit/ui/ptk-date-field';
+import '@platform-toolkit/ui/ptk-disclosure';
+import '@platform-toolkit/ui/ptk-number-field';
+import '@platform-toolkit/ui/ptk-select';
+import '@platform-toolkit/ui/ptk-text-field';
+import '@platform-toolkit/ui/ptk-toggle-group';
+import type { Choice } from '@platform-toolkit/ui/ptk-choice-group';
 import {
   DATE_FIELD_CHANGE_EVENT,
-  NUMBER_FIELD_CHANGE_EVENT,
-  SELECT_CHANGE_EVENT,
-  TEXT_FIELD_CHANGE_EVENT,
-  TOGGLE_GROUP_CHANGE_EVENT,
-  type Choice,
   type DateFieldChangeDetail,
+} from '@platform-toolkit/ui/ptk-date-field';
+import {
+  NUMBER_FIELD_CHANGE_EVENT,
   type NumberFieldChangeDetail,
+} from '@platform-toolkit/ui/ptk-number-field';
+import {
+  SELECT_CHANGE_EVENT,
   type SelectChangeDetail,
   type SelectOption,
+} from '@platform-toolkit/ui/ptk-select';
+import {
+  TEXT_FIELD_CHANGE_EVENT,
   type TextFieldChangeDetail,
+} from '@platform-toolkit/ui/ptk-text-field';
+import {
+  TOGGLE_GROUP_CHANGE_EVENT,
   type ToggleGroupChangeDetail,
-} from '@platform-toolkit/ui';
-import '@platform-toolkit/ui';
+} from '@platform-toolkit/ui/ptk-toggle-group';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { property, state } from 'lit/decorators.js';
 
