@@ -49,12 +49,18 @@
  * nothing. `summarize` sorts the history on `updatedAt`, so without that the
  * dead tap puts the workout back at the top of the list.
  *
- * That is the floor. Three operations go further and refuse a repeat of
- * themselves -- {@link skipSet}, {@link undoSet} and {@link attachWarmup}, each
- * argued where it happens. The ones that do not are deliberate rather than
- * missed: {@link completeSet} and {@link markSetIncomplete} write `completedAt`,
- * so a second tap is a new answer to *when*, and {@link planSet} and
- * {@link recordSet} are handed a freshly built `SetPerformance` that identity
+ * That is the floor. Five operations go further and refuse a repeat of
+ * themselves -- {@link skipSet}, {@link undoSet}, {@link attachWarmup},
+ * {@link completeSet} and {@link markSetIncomplete}, each argued where it
+ * happens. The last two were on the other list until #116: they wrote
+ * `completedAt` from the clock, so a second tap was a new answer to *when* and
+ * there was nothing to guard. Once the stamp became the first tick's and not the
+ * latest, a re-tick had no answer left to give and became a dead tap that moved
+ * the workout up a history sorted on `updatedAt`, so the guard is not an extra --
+ * it is what the other half of that change costs.
+ *
+ * {@link planSet} and {@link recordSet} still do not, and are deliberate rather
+ * than missed: both are handed a freshly built `SetPerformance` that identity
  * cannot compare. The only value comparison in the package, `samePerformance` in
  * `summary.ts`, ignores effort on purpose, so guarding with it would swallow a
  * lifter who changed an RPE and nothing else.
@@ -105,7 +111,14 @@ export interface NewWorkoutOptions {
   readonly source?: WorkoutSource;
 }
 
-/** An empty draft with no exercises in it. */
+/**
+ * An empty draft with no exercises in it.
+ *
+ * The title goes through `normalizeNote` for `retitleWorkout`'s reason, and the
+ * two have to agree or a title survives its own edit: the history sorts on it,
+ * so `Squat day ` and `Squat day` land apart with nothing on screen to say why,
+ * and the one that came in here would move as soon as it was retyped.
+ */
 export function createWorkout(context: SessionContext, options: NewWorkoutOptions): WorkoutSession {
   return {
     id: context.nextId(),
@@ -114,7 +127,7 @@ export function createWorkout(context: SessionContext, options: NewWorkoutOption
     localDate: options.localDate,
     startedAt: null,
     completedAt: null,
-    title: options.title ?? null,
+    title: normalizeNote(options.title ?? null),
     note: null,
     exercises: [],
     createdAt: context.at,
@@ -436,18 +449,28 @@ export function planSet(
  * for why there is no second function for the edited case. Note that this does
  * not overwrite a performance the lifter already typed -- tapping the check
  * after entering 225 x 4 records 225 x 4, not the 225 x 5 that was planned.
+ *
+ * A moment already on the set is kept. `completedAt` is stamped by the first
+ * tick after the set is planned or undone and is not moved by a later one, which
+ * is the rule stated in full on {@link markSetIncomplete}; the two have to hold
+ * it together or reclassifying a set moves the moment in one direction only.
+ * `undoSet` and `skipSet` clear it, so a set genuinely done again gets a fresh
+ * one by the route a lifter actually takes.
+ *
+ * Re-ticking a set already ticked hands it back, now that there is no `when` for
+ * the second tap to answer. Without that this became a dead tap that stamps the
+ * workout and moves it up a history sorted on `updatedAt` -- the header's floor.
  */
 export function completeSet(
   session: WorkoutSession,
   setId: LogbookId,
   context: SessionContext,
 ): WorkoutSession {
-  return mapSet(session, setId, context.at, (set) => ({
-    ...set,
-    performed: set.performed ?? set.planned,
-    status: 'complete',
-    completedAt: context.at,
-  }));
+  return mapSet(session, setId, context.at, (set) => {
+    const performed = set.performed ?? set.planned;
+    if (set.status === 'complete' && set.performed === performed) return set;
+    return { ...set, performed, status: 'complete', completedAt: set.completedAt ?? context.at };
+  });
 }
 
 /**
@@ -478,6 +501,26 @@ export function recordSet(
  * a failure recorded as an absence loses it. Nothing here draws a conclusion from
  * it -- section 15.3 and LOG-026: this tool does not translate a missed set into
  * advice.
+ *
+ * **`completedAt` is stamped by the first tick after a set is planned or undone,
+ * and no later tick moves it.** That is the whole rule and it is shared with
+ * {@link completeSet}; `recordSet` already held half of it, and holding half is
+ * what made reclassifying a set move the moment in one direction only. A set
+ * ticked off at ten past six and called incomplete at seven happened at ten past
+ * six -- the lifter is correcting the record of something they did, not doing it
+ * again. Nothing in the tool reads the field, so the difference leaves by the
+ * export, in front of somebody reading their own backup.
+ *
+ * The field is "when it was ticked off" and not "when it succeeded" (`types.ts`),
+ * so an `incomplete` set carrying one is right rather than a contradiction. A set
+ * genuinely attempted again goes through {@link undoSet} or {@link skipSet},
+ * which clear it, so the fresh stamp is still reachable by the route a lifter
+ * takes.
+ *
+ * Marking a set incomplete twice with nothing new hands it back, for
+ * {@link completeSet}'s reason. A `performed` that was passed in is a freshly
+ * built object identity cannot compare, so that case still writes -- see the
+ * header.
  */
 export function markSetIncomplete(
   session: WorkoutSession,
@@ -485,12 +528,16 @@ export function markSetIncomplete(
   performed: SetPerformance | null,
   context: SessionContext,
 ): WorkoutSession {
-  return mapSet(session, setId, context.at, (set) => ({
-    ...set,
-    performed: performed ?? set.performed,
-    status: 'incomplete',
-    completedAt: context.at,
-  }));
+  return mapSet(session, setId, context.at, (set) => {
+    const next = performed ?? set.performed;
+    if (set.status === 'incomplete' && next === set.performed) return set;
+    return {
+      ...set,
+      performed: next,
+      status: 'incomplete',
+      completedAt: set.completedAt ?? context.at,
+    };
+  });
 }
 
 /**
@@ -751,5 +798,8 @@ export function repeatWorkout(
         note: null,
       })),
   }));
-  return { ...base, exercises, title: options.title ?? session.title };
+  // `base.title` and not `options.title`: the normalisation is `createWorkout`'s
+  // and reading it back off the draft is what stops this line from being a second
+  // copy of the rule that then drifts from it.
+  return { ...base, exercises, title: base.title ?? session.title };
 }

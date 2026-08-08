@@ -669,19 +669,83 @@ describe('an operation repeated on a set that is already in that state', () => {
     );
   });
 
-  it('completing a set that is already complete is a new answer to when', () => {
-    // Deliberately not guarded, unlike the three above. A completion writes the
-    // moment it happened, so a second tap says something the first did not.
-    // `recordSet` is the path that keeps the original moment, because correcting
-    // the record of a lift is not doing it again -- and it still does.
+  it('completing a set that is already complete changes nothing at all', () => {
+    // #116, and this case previously asserted the opposite on the grounds that a
+    // completion writes the moment it happened, so a second tap said something
+    // the first did not. It does not: a set can only be completed once without
+    // being undone first, so the second tap is the lifter pressing a control that
+    // already looks pressed, and it was moving the moment of the lift to now.
+    // The comment ended by noting that `recordSet` keeps the original moment
+    // because correcting the record of a lift is not doing it again. That is the
+    // whole argument, and it applies here.
     const session = twoSetWorkout();
     const id = firstSet(session).id;
     const done = completeSet(session, id, testContext(AT_START));
-    const again = completeSet(done, id, testContext(AT_LATER));
 
-    expect(again).not.toBe(done);
-    expect(setById(again, id).completedAt).toBe(AT_LATER);
-    expect(again.updatedAt).toBe(AT_LATER);
+    expect(completeSet(done, id, testContext(AT_LATER))).toBe(done);
+    expect(setById(done, id).completedAt).toBe(AT_START);
+  });
+
+  it('marking a set incomplete twice with nothing new changes nothing at all', () => {
+    const session = twoSetWorkout();
+    const id = firstSet(session).id;
+    const missed = markSetIncomplete(session, id, performance(kilograms(100), 3), testContext());
+
+    expect(markSetIncomplete(missed, id, null, testContext(AT_LATER))).toBe(missed);
+  });
+});
+
+describe('when a set says it happened', () => {
+  /**
+   * #116. `completedAt` is stamped by the first tick after a set is planned or
+   * undone and no later tick moves it. Nothing in the tool reads the field, so
+   * every one of these is about what the JSON backup says to somebody reading it.
+   */
+  it('reclassifying a completed set as incomplete keeps the moment it was done', () => {
+    const at = contextSeries();
+    const session = twoSetWorkout();
+    const id = firstSet(session).id;
+    const done = completeSet(session, id, at(AT_START));
+    const missed = markSetIncomplete(done, id, performance(kilograms(100), 3), at(AT_LATER));
+
+    expect(setById(missed, id).completedAt).toBe(AT_START);
+    // The correction itself is still a write, and the history is sorted on it.
+    expect(missed.updatedAt).toBe(AT_LATER);
+  });
+
+  it('reclassifying an incomplete set as complete keeps the moment it was attempted', () => {
+    const at = contextSeries();
+    const session = twoSetWorkout();
+    const id = firstSet(session).id;
+    const missed = markSetIncomplete(session, id, performance(kilograms(100), 3), at(AT_START));
+
+    expect(setById(completeSet(missed, id, at(AT_LATER)), id).completedAt).toBe(AT_START);
+  });
+
+  it('a set marked incomplete straight from planned is stamped with now', () => {
+    const session = twoSetWorkout();
+    const id = firstSet(session).id;
+    const missed = markSetIncomplete(
+      session,
+      id,
+      performance(kilograms(100), 3),
+      testContext(AT_LATER),
+    );
+
+    expect(setById(missed, id).completedAt).toBe(AT_LATER);
+  });
+
+  it('a set genuinely done again is stamped again, by way of the undo a lifter presses', () => {
+    // The route that clears the moment is the one that exists on screen, which is
+    // what keeps the rule above from freezing a set's first tick for ever.
+    const at = contextSeries();
+    const session = twoSetWorkout();
+    const id = firstSet(session).id;
+    const done = completeSet(session, id, at(AT_START));
+    const undone = undoSet(done, id, at(AT_START));
+
+    expect(setById(undone, id).completedAt).toBeNull();
+    expect(setById(completeSet(undone, id, at(AT_LATER)), id).completedAt).toBe(AT_LATER);
   });
 });
 
@@ -904,6 +968,34 @@ describe('notes', () => {
 
     expect(setWorkoutTitle(session, null, testContext(AT_LATER))).toBe(session);
     expect(setWorkoutTitle(session, '  ', testContext(AT_LATER))).toBe(session);
+  });
+
+  it('a title given at creation gets the same treatment as one typed later', () => {
+    // #115. Both write sites went straight through, so `Squat day ` was stored as
+    // typed and `setWorkoutTitle` would then have taken it to `Squat day` -- one
+    // title, two values, and the history sorts on it, so the same session named
+    // the same way twice lands in two places with nothing on screen to say why.
+    const created = createWorkout(testContext(), { localDate: ON_DAY, title: '  Squat day  ' });
+
+    expect(created.title).toBe('Squat day');
+    expect(setWorkoutTitle(created, 'Squat day', testContext(AT_LATER))).toBe(created);
+    expect(createWorkout(testContext(), { localDate: ON_DAY, title: '   ' }).title).toBeNull();
+  });
+
+  it('a repeat trims the title it is given and inherits the old one where it is given none', () => {
+    const at = contextSeries();
+    const original = setWorkoutTitle(twoSetWorkout(), 'Squat day', at(AT_START));
+
+    expect(repeatWorkout(original, at(AT_LATER), { localDate: ON_DAY }).title).toBe('Squat day');
+    expect(
+      repeatWorkout(original, at(AT_LATER), { localDate: ON_DAY, title: '  Heavy squat  ' }).title,
+    ).toBe('Heavy squat');
+    // An emptied box inherits rather than blanking, because `createWorkout` has
+    // already read it as "no title given" and that is the same answer as omitting
+    // it. The alternative is a repeat that silently loses the name it copied.
+    expect(repeatWorkout(original, at(AT_LATER), { localDate: ON_DAY, title: '  ' }).title).toBe(
+      'Squat day',
+    );
   });
 });
 
