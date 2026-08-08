@@ -95,6 +95,7 @@ function route(overrides: Record<string, unknown> = {}): Record<string, unknown>
       kind: 'classification',
       standardId: 'invented-class',
       orAbove: true,
+      lift: 'total',
       divisionBasis: 'lifters-age-division',
     },
     performance: {
@@ -589,6 +590,7 @@ function badStandard(): Record<string, unknown> {
     kind: 'classification',
     standardId: 'invented-elit',
     orAbove: true,
+    lift: 'total',
     divisionBasis: 'open',
   };
 }

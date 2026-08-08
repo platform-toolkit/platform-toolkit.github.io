@@ -152,6 +152,21 @@ describe('the committed qualification criteria', () => {
     }
   });
 
+  it('says which lift every transcribed standard is read on', () => {
+    // The contract allows `null` -- criteria really do name a standard and not a
+    // lift -- but a transcription that leaves it out where the announcement said is
+    // indistinguishable from criteria that never said, and the screen answers "ask
+    // the meet" for a question the page on file already answers. Both rows in the
+    // corpus said, so the floor is that none of them silently stops saying.
+    for (const meet of book.meets) {
+      if (meet.entry.kind !== 'standard') continue;
+      for (const route of meet.entry.routes) {
+        if (route.standard.kind !== 'classification') continue;
+        expect(route.standard.lift, `${meet.id}/${route.id}`).not.toBeNull();
+      }
+    }
+  });
+
   it('reads every meet against a federation the book carries the rules for', () => {
     // Publication refuses this, so it is a floor rather than a discovery. Held
     // anyway because the failure it guards is silent: a meet whose federation is

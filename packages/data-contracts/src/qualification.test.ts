@@ -32,6 +32,7 @@ const ROUTE = {
     kind: 'classification',
     standardId: 'invented-class',
     orAbove: true,
+    lift: 'total',
     divisionBasis: 'lifters-age-division',
   },
   performance: {

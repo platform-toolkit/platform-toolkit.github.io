@@ -4,9 +4,11 @@
 import type {
   AgeDivision,
   AthleteEntry,
+  ClassificationRequirement,
   ClassificationStandard,
   ClassificationTable,
   EquipmentCategory,
+  Lift,
   PointsRequirement,
   QualifyingCondition,
   QualifyingFederationRules,
@@ -447,8 +449,10 @@ export type RouteOutcome =
       readonly opensTested: boolean;
     }
   | {
-      /** No three-lift total inside this route's own window survived its filters. */
+      /** No figure of the lift this route reads on survived its window and filters. */
       readonly kind: 'no-result-in-window';
+      /** Which lift was looked for, so the screen names it rather than the total. */
+      readonly lift: Lift;
     }
   | {
       /**
@@ -462,13 +466,34 @@ export type RouteOutcome =
        */
       readonly kind: 'points-not-computed';
       readonly requirement: PointsRequirement;
+    }
+  | {
+      /**
+       * The criteria name a standard and never say which lift it is read on.
+       *
+       * A third answer rather than a route left off the list, and the same shape as
+       * the one above: what the criteria *did* say is carried, so the screen can
+       * print the standard beside the one thing missing from it. Reading it on the
+       * total instead would be generous every time -- a three-lift total clears a
+       * single-lift standard by construction -- and the lift is not recoverable from
+       * the meet's disciplines, because an announcement's word for an event is not
+       * this project's `Lift`.
+       */
+      readonly kind: 'lift-not-stated';
+      readonly requirement: ClassificationRequirement;
     };
 
 /** One published way into a meet, read against one lifter's registration. */
 export interface RouteReading {
   readonly route: QualifyingRoute;
 
-  /** The best three-lift total the route could be read on, or `null`. */
+  /**
+   * The best figure the route's standard is read on, or `null`.
+   *
+   * `null` where the window holds none, and also where the criteria never said which
+   * lift: there is then no figure this route is about, and printing the lifter's
+   * total beside it would put back the assumption the contract exists to remove.
+   */
   readonly best: BestPerformance | null;
 
   /** Results the route's own window and filters excluded, each with its reason. */

@@ -34,6 +34,7 @@
  * with a web page.
  */
 import type {
+  ClassificationRequirement,
   PointsRequirement,
   QualifyingCondition,
   QualifyingRoute,
@@ -43,7 +44,7 @@ import '@platform-toolkit/ui/ptk-notice';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { property } from 'lit/decorators.js';
 
-import { routeAvailability } from '../core/criteria.js';
+import { routeAvailability, standardLift } from '../core/criteria.js';
 import type {
   CalendarDay,
   CatalogVocabulary,
@@ -59,8 +60,10 @@ import type {
 import {
   CONDITION_SOURCE,
   DISREGARD_REASONS,
+  LIFT_LABELS,
   MEET_NOTES,
   MEET_TIMING,
+  noResultInWindow,
   READING_BASIS,
   ROUTE_AVAILABILITY,
   REPORT_NOTES,
@@ -415,16 +418,20 @@ export class PtkMeetReading extends LitElement {
 
   #renderRoute(reading: RouteReading): TemplateResult {
     const { route } = reading;
+    // Named rather than left bare. A figure under a route used to be a total and
+    // could only be a total; now it is whichever lift the criteria named, and an
+    // unlabelled number would be read as a total by everybody who saw one before.
+    const lift = standardLift(route.standard);
     return html`
       <h4>${route.label}</h4>
       ${this.#renderRouteTerms(route)}
       ${
-        reading.best === null
+        reading.best === null || lift === null
           ? nothing
           : html`<div>
               <span class="figure">${kilograms(reading.best.kilograms)}</span>
               <span class="small">
-                ${reading.best.source.meetName},
+                ${LIFT_LABELS[lift]} at ${reading.best.source.meetName},
                 <time datetime=${reading.best.source.on}>${reading.best.source.on}</time>
               </span>
             </div>`
@@ -536,10 +543,34 @@ export class PtkMeetReading extends LitElement {
           ${outcome.opensTested ? MEET_NOTES.routeOpensTested : MEET_NOTES.routeOpensUntested}
         </p>`;
       case 'no-result-in-window':
-        return html`<p class="verdict">${MEET_NOTES.noResultInWindow}</p>`;
+        return html`<p class="verdict">${noResultInWindow(outcome.lift)}</p>`;
       case 'points-not-computed':
         return this.#renderPoints(outcome.requirement);
+      case 'lift-not-stated':
+        return this.#renderLiftNotStated(outcome.requirement);
     }
+  }
+
+  /**
+   * A named standard with no lift named beside it, printed rather than read.
+   *
+   * The same treatment `#renderPoints` gives a coefficient, and for the same reason:
+   * what the criteria say is put on screen and the missing half is named, so that
+   * the gap belongs to the document a lifter can ring up about. Choosing the total
+   * here would answer the question generously in every case, because a three-lift
+   * total clears a single-lift standard by construction.
+   */
+  #renderLiftNotStated(requirement: ClassificationRequirement): TemplateResult {
+    return html`
+      <p class="verdict">
+        ${
+          requirement.orAbove
+            ? `Asks for the ${requirement.standardId} standard or above.`
+            : `Asks for the ${requirement.standardId} standard exactly.`
+        }
+      </p>
+      <p class="small">${MEET_NOTES.liftNotStated}</p>
+    `;
   }
 
   /**

@@ -493,10 +493,6 @@ export const MEET_NOTES = {
   /** A result excluded silently is a result a lifter cannot argue about. */
   disregardedHeading: 'Not read on this route:',
 
-  /** A route with no figure looks like a fault rather than an empty window. */
-  noResultInWindow:
-    "No three-lift total inside this route's own dates survived what it asks of a qualifying meet.",
-
   /** Where the words came from, so a lifter can take it up with the document. */
   quotationHeading: 'The announcement says:',
 
@@ -506,6 +502,16 @@ export const MEET_NOTES = {
   /** A threshold with no arithmetic beside it reads as a broken calculation. */
   pointsNotComputed:
     'This route asks for a coefficient score, which is a claim about the scoring system as much as about the lifter. The threshold and your figures are printed so you can do the arithmetic the meet will do.',
+
+  /**
+   * The same treatment for the same kind of gap, one document further back.
+   *
+   * A standard read out of no named table would be read out of the total's, which
+   * flatters every lifter it is shown to. So what the criteria did say is printed
+   * and the missing half is named, rather than a route disappearing from the list.
+   */
+  liftNotStated:
+    'These criteria name a standard and do not say which lift it is read on, and a federation publishes a different table for each. What they do say is printed so you can ask the meet which one it means.',
 
   /** A bracket admitting one standard and not the ones above it is genuinely odd. */
   aboveTheBracket:
@@ -544,6 +550,31 @@ export const MEET_NOTES = {
    */
   routeContingencyHeading: 'And a condition nothing here can check:',
 } as const;
+
+/**
+ * The subject of {@link noResultInWindow}, one per lift.
+ *
+ * Not {@link LIFT_LABELS}, which are headings: "No Bench press inside this route's
+ * own dates" is not a sentence. The total's wording is the one that has to say
+ * three-lift, because a push/pull total is in the archive, is the heavier number,
+ * and is deliberately not read against a three-lift standard.
+ */
+const NO_RESULT_SUBJECTS: Readonly<Record<Lift, string>> = {
+  squat: 'squat',
+  bench: 'bench press',
+  deadlift: 'deadlift',
+  total: 'three-lift total',
+};
+
+/**
+ * A route with no figure looks like a fault rather than an empty window.
+ *
+ * Per lift, because "no three-lift total" printed under a criterion that asks for a
+ * bench sends a lifter looking for the fault in their own history.
+ */
+export function noResultInWindow(lift: Lift): string {
+  return `No ${NO_RESULT_SUBJECTS[lift]} inside this route's own dates survived what it asks of a qualifying meet.`;
+}
 
 /**
  * Whether a staged route has opened yet, for the two states that print.

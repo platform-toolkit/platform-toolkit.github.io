@@ -5,10 +5,12 @@ import type {
   AthleteEntry,
   ClassificationRequirement,
   ClassificationTable,
+  Lift,
   QualifyingFederationRules,
   QualifyingMeet,
   QualifyingMeetBook,
   QualifyingRoute,
+  QualifyingStandard,
   QualifyingWindow,
 } from '@platform-toolkit/data-contracts';
 import { findQualifyingFederationRules } from '@platform-toolkit/data-contracts';
@@ -62,28 +64,41 @@ import { windowContains } from './window.js';
  * real meet's criteria without saying so, so `points-not-computed` is an outcome
  * with the threshold attached rather than a route quietly missing from the list.
  *
- * ## The one thing this file assumes, said out loud
+ * ## Which lift a standard is read on
  *
- * `ClassificationRequirement` names a standard and does not say which **lift** it
- * is read on. Every criterion transcribed so far is a total -- "Class 2 total or
- * above" -- and the total is what this reads. That is an assumption, and it is
- * wrong for a bench-only meet whose criteria name a bench standard. It is not
- * guessed around: the meet's own `offerings` are on {@link MeetReading.meet} so the
- * screen can print the disciplines beside the reading, and the gap in the contract
- * is backlog #89 rather than a translation invented here. Deriving the lift from a
- * discipline label would mean asserting that the announcement's word for an event
- * is this project's `Lift`, which is the assertion `category-match.ts` exists to
- * refuse.
+ * `ClassificationRequirement.lift` says, and it is nullable. A criterion naming an
+ * Elite total is read on the total; one naming an Elite bench is read against the
+ * bench table and the best bench in the route's own window. Nothing here assumes
+ * the total, and the nullable third state is the point of the field rather than a
+ * concession to transcription: `null` means the published criteria named a standard
+ * and never said which lift, and it resolves to `lift-not-stated` -- an outcome
+ * carrying the standard that *was* named, beside `points-not-computed` and for the
+ * same reason. It is not a shortfall, not an empty window, and not a route quietly
+ * missing from the list.
+ *
+ * **The lift is never derived from a discipline label or from a meet's offerings.**
+ * That is the live constraint and not a note about how this used to work. The meet's
+ * `offerings` are on {@link MeetReading.meet} so a screen can print the disciplines
+ * beside the reading and let a person see a mismatch; reading them here would assert
+ * that an announcement's word for an event is this project's `Lift`, which is the
+ * assertion `category-match.ts` exists to refuse. It would also be wrong in the
+ * generous direction, which is the one that costs somebody an entry fee: a
+ * three-lift total clears a single-lift standard every time.
  */
 
 /**
- * The lift every transcribed criterion is read on. See the note above.
+ * The lift a route's figure is read on, or `null` where the criteria never said.
  *
- * A constant rather than an inline `'total'` so that the assumption has one name,
- * one place, and one comment -- and so that the day the contract carries a lift,
- * the compiler lists every site that has to change.
+ * Exported because the screen labels the figure it prints, and a second answer to
+ * "which lift is this route about" is how a label and a reading come to disagree.
+ *
+ * A points threshold answers `total`, and that is not a reading against a ladder: a
+ * coefficient score is computed from a three-lift total and a bodyweight, so the
+ * total is the figure a lifter checks the printed threshold against.
  */
-const CRITERION_LIFT = 'total' as const;
+export function standardLift(standard: QualifyingStandard): Lift | null {
+  return standard.kind === 'points' ? 'total' : standard.lift;
+}
 
 /**
  * Reads one meet's published criteria against one settled registration.
@@ -231,7 +246,11 @@ export function readRoute(
   context: CriteriaContext,
 ): RouteReading {
   const { kept, disregarded } = sift(route, standing.entries);
-  const best = bestTotalOf(kept, route.window);
+  const lift = standardLift(route.standard);
+  // No lift means no figure this route is about, so none is taken. Falling back to
+  // the total here would put the assumption back one layer down, where the screen
+  // prints it as the number the criteria asked about.
+  const best = lift === null ? null : bestOfLift(kept, route.window, lift);
 
   return { route, best, disregarded, outcome: outcomeOf(route, best, registration, context) };
 }
@@ -248,22 +267,33 @@ function outcomeOf(
     return { kind: 'not-open-to-this-entry', opensTested: route.appliesToTested };
   }
 
-  if (route.standard.kind === 'points') {
+  const { standard } = route;
+
+  if (standard.kind === 'points') {
     // Before the result check rather than after it, so a lifter with no total in the
     // window still sees that this route was never one arithmetic could settle. The
     // other order would blame the window for a limit that is this tool's.
-    return { kind: 'points-not-computed', requirement: route.standard };
+    return { kind: 'points-not-computed', requirement: standard };
+  }
+
+  if (standard.lift === null) {
+    // Beside the check above, and before the result check for the same reason plus
+    // one of its own: a criterion that never said which lift has no figure that
+    // could be missing, so "no result in this window" would report a gap in the
+    // lifter's history for a gap in the published criteria.
+    return { kind: 'lift-not-stated', requirement: standard };
   }
 
   if (best === null) {
-    return { kind: 'no-result-in-window' };
+    return { kind: 'no-result-in-window', lift: standard.lift };
   }
 
-  return readClassificationRequirement(route.standard, best, registration, context);
+  return readClassificationRequirement(standard, standard.lift, best, registration, context);
 }
 
 function readClassificationRequirement(
   requirement: ClassificationRequirement,
+  lift: Lift,
   best: BestPerformance,
   registration: ResolvedRegistration,
   context: CriteriaContext,
@@ -272,14 +302,15 @@ function readClassificationRequirement(
     return {
       kind: 'read',
       basis: requirement.divisionBasis,
-      reading: readOn(requirement.divisionBasis, requirement, best, registration, context),
+      reading: readOn(requirement.divisionBasis, requirement, lift, best, registration, context),
     };
   }
 
-  const open = readOn('open', requirement, best, registration, context);
+  const open = readOn('open', requirement, lift, best, registration, context);
   const liftersAgeDivision = readOn(
     'lifters-age-division',
     requirement,
+    lift,
     best,
     registration,
     context,
@@ -304,9 +335,18 @@ function readClassificationRequirement(
   return { kind: 'read', basis: 'either-table', reading: lessFlattering(open, liftersAgeDivision) };
 }
 
+/**
+ * One reading of a stated standard, on the lift the criteria named.
+ *
+ * `lift` is a parameter rather than read off `requirement`, because the contract's
+ * copy of it is nullable and everything below is only reachable once that null has
+ * been ruled out. Narrowing it here again would need a second answer to what a null
+ * means, and the two would eventually differ.
+ */
 function readOn(
   basis: 'open' | 'lifters-age-division',
   requirement: ClassificationRequirement,
+  lift: Lift,
   best: BestPerformance,
   registration: ResolvedRegistration,
   context: CriteriaContext,
@@ -319,7 +359,7 @@ function readOn(
   const selection = selectClassificationTable(
     {
       sex: registration.sex,
-      lift: CRITERION_LIFT,
+      lift,
       equipmentId: registration.equipmentId,
       weightClassId: registration.weightClassId,
       divisionId,
@@ -466,7 +506,7 @@ function fold(value: string): string {
 }
 
 /**
- * The best three-lift total in a route's window, or `null`.
+ * The best figure of one lift in a route's window, or `null`.
  *
  * Delegated to `collectStandings` rather than computed here, and that is the whole
  * reason this function exists. The rule that a total must come from an entry
@@ -475,9 +515,10 @@ function fold(value: string): string {
  * somebody edited one copy -- and it errs upwards, which is the direction nobody
  * double-checks.
  */
-function bestTotalOf(
+function bestOfLift(
   entries: readonly AthleteEntry[],
   window: QualifyingWindow,
+  lift: Lift,
 ): BestPerformance | null {
   const [standing, ...rest] = collectStandings(entries, window);
   if (standing === undefined || rest.length > 0) {
@@ -486,5 +527,5 @@ function bestTotalOf(
     // question about a registration nobody asked about.
     return null;
   }
-  return standing.total;
+  return standing[lift];
 }

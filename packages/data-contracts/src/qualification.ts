@@ -3,7 +3,7 @@
 
 import * as v from 'valibot';
 
-import { SexCategorySchema } from './categories.js';
+import { LiftSchema, SexCategorySchema } from './categories.js';
 
 /**
  * What a meet publishes about who may enter it.
@@ -147,6 +147,24 @@ export const ClassificationRequirementSchema = v.object({
    * away for being over its bracket.
    */
   orAbove: v.boolean(),
+
+  /**
+   * Which lift the standard is read on, or `null` where the criteria do not say.
+   *
+   * `null` is not `total`. A criterion naming a bench standard, read against the
+   * three-lift total, is a comparison that can only flatter -- the total is the
+   * larger figure every time -- so the tool would report a lifter as having made a
+   * number the meet's own paperwork says they have not. That is the one direction
+   * section 29's refusal to rule cannot make safe, because a wrong reading is still
+   * wrong when it is offered as a reading.
+   *
+   * It is not filled in from the meet's `offerings` either. An announcement's word
+   * for an event is the announcement's, and treating it as this project's `Lift` is
+   * the crossing `qualification-check`'s `category-match.ts` exists to refuse. So a
+   * criterion that names a standard and not a lift stays unstated all the way to the
+   * screen, which says so and asks the meet.
+   */
+  lift: v.nullable(LiftSchema),
 
   /** Which table it is read out of, or `null` where the criteria do not say. */
   divisionBasis: v.nullable(StandardDivisionBasisSchema),

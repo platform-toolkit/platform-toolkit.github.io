@@ -13,6 +13,7 @@ import {
   readMeetCriteria,
   readRoute,
   routeAvailability,
+  standardLift,
   type CriteriaContext,
 } from './criteria.js';
 import { collectStandings } from './history.js';
@@ -105,7 +106,13 @@ describe('a standard a criterion names without saying which table', () => {
     // one; shown the 56, a lifter who is not close plans a training block around a
     // figure that came out of a table their criteria never named.
     const elite = classificationRoute({
-      standard: { kind: 'classification', standardId: 'elite', orAbove: true, divisionBasis: null },
+      standard: {
+        kind: 'classification',
+        standardId: 'elite',
+        orAbove: true,
+        lift: 'total',
+        divisionBasis: null,
+      },
     });
     expect(
       reading(elite, MASTER, { squatKg: 170, benchKg: 130, deadliftKg: 200, totalKg: 500 }).outcome,
@@ -128,6 +135,7 @@ describe('a standard a criterion names without saying which table', () => {
             kind: 'classification',
             standardId: 'elite',
             orAbove: true,
+            lift: 'total',
             divisionBasis: null,
           },
         }),
@@ -147,6 +155,7 @@ describe('a standard a criterion names without saying which table', () => {
             kind: 'classification',
             standardId: 'elite',
             orAbove: true,
+            lift: 'total',
             divisionBasis: 'lifters-age-division',
           },
         }),
@@ -203,6 +212,7 @@ describe('a standard a criterion names without saying which table', () => {
             kind: 'classification',
             standardId: 'international-elite',
             orAbove: true,
+            lift: 'total',
             divisionBasis: null,
           },
         }),
@@ -240,7 +250,13 @@ describe('a standard a criterion names without saying which table', () => {
 
 describe('a standard admitted exactly and not above', () => {
   const bracket = classificationRoute({
-    standard: { kind: 'classification', standardId: 'first', orAbove: false, divisionBasis: null },
+    standard: {
+      kind: 'classification',
+      standardId: 'first',
+      orAbove: false,
+      lift: 'total',
+      divisionBasis: null,
+    },
   });
 
   it('separates a lifter who is over it from one who is on it', () => {
@@ -265,7 +281,7 @@ describe("a route read in its own window rather than the screen's", () => {
   const spring = classificationRoute({ window: { from: '2026-05-01', to: '2026-12-31' } });
 
   it('leaves out a result set before the window opened', () => {
-    expect(reading(spring).outcome).toEqual({ kind: 'no-result-in-window' });
+    expect(reading(spring).outcome).toEqual({ kind: 'no-result-in-window', lift: 'total' });
   });
 
   it('says which result it left out, and why', () => {
@@ -323,7 +339,7 @@ describe('which past meets a route counts', () => {
     const abbreviated = classificationRoute({
       performance: { ...PERFORMANCE, federationNames: ['Invented'] },
     });
-    expect(reading(abbreviated).outcome).toEqual({ kind: 'no-result-in-window' });
+    expect(reading(abbreviated).outcome).toEqual({ kind: 'no-result-in-window', lift: 'total' });
     expect(reading(abbreviated).disregarded[0]?.reason).toBe('federation-not-named');
   });
 
@@ -353,7 +369,7 @@ describe('a route that requires a tested qualifying meet', () => {
 
   it('sets aside a meet the archive records as untested', () => {
     const untested = reading(classificationRoute(), MASTER, { tested: false });
-    expect(untested.outcome).toEqual({ kind: 'no-result-in-window' });
+    expect(untested.outcome).toEqual({ kind: 'no-result-in-window', lift: 'total' });
     expect(untested.disregarded[0]?.reason).toBe('meet-not-drug-tested');
   });
 
@@ -416,6 +432,90 @@ describe('a route that asks for a coefficient score', () => {
   });
 });
 
+describe('which lift a standard is read on', () => {
+  it('reads a bench standard against the bench table and the best bench', () => {
+    // The whole of #89 in one assertion. Every figure here is invented, and they are
+    // chosen so the two answers cannot be confused: the lifter's bench is 140 kg and
+    // their total is 595, and 595 clears every rung of every table in the fixture. A
+    // tool still reading the total would report this route as made, with a margin, on
+    // a bench standard the lifter is 17 kg short of.
+    const bench = classificationRoute({
+      standard: {
+        kind: 'classification',
+        standardId: 'first',
+        orAbove: true,
+        lift: 'bench',
+        divisionBasis: null,
+      },
+    });
+    const read = reading(bench);
+    expect(read.best?.kilograms).toBe(140);
+    expect(read.outcome).toMatchObject({
+      kind: 'read',
+      basis: 'either-table',
+      reading: {
+        kind: 'short',
+        table: { id: 'bench-all' },
+        distance: { kilogramsShort: 17 },
+      },
+    });
+  });
+
+  it('names the lift it found no figure of', () => {
+    // "No three-lift total in this window" printed under a criterion that asked for a
+    // bench sends a lifter looking for the fault in their own history. The window is
+    // moved off every result so the outcome is reached at all.
+    const bench = classificationRoute({
+      standard: {
+        kind: 'classification',
+        standardId: 'first',
+        orAbove: true,
+        lift: 'bench',
+        divisionBasis: null,
+      },
+      window: { from: '2020-01-01', to: '2020-12-31' },
+    });
+    expect(reading(bench).outcome).toEqual({ kind: 'no-result-in-window', lift: 'bench' });
+  });
+
+  it('carries the standard rather than reading it on the total where the criteria never said', () => {
+    // The direction that costs somebody an entry fee. A three-lift total clears a
+    // single-lift standard by construction, so a criterion whose lift is unstated,
+    // read on the total, is made every time it is shown -- and the lifter finds out at
+    // the weigh-in desk. No figure is taken either: printing this lifter's 595 kg
+    // beside the standard is the same assumption one layer further down.
+    //
+    // Which is also why the outcome is checked ahead of the empty-window one, the way
+    // `points-not-computed` is. There is never a figure here, so the later branch would
+    // catch every one of these and report a gap in the lifter's history for a gap in
+    // the published criteria.
+    const unstated = classificationRoute({
+      standard: {
+        kind: 'classification',
+        standardId: 'first',
+        orAbove: true,
+        lift: null,
+        divisionBasis: null,
+      },
+    });
+    const read = reading(unstated);
+    expect(read.best).toBeNull();
+    expect(read.outcome).toEqual({
+      kind: 'lift-not-stated',
+      requirement: unstated.standard,
+    });
+  });
+
+  it('answers the total for a points threshold, which is not a table reading', () => {
+    // `standardLift` is what the screen labels its figure from, so it has to answer
+    // for both arms of the union. A coefficient is computed from a three-lift total,
+    // so the total is the figure a lifter checks the printed threshold against -- but
+    // no ladder is read, which is why the outcome is still `points-not-computed`.
+    expect(standardLift(pointsRoute().standard)).toBe('total');
+    expect(standardLift(classificationRoute().standard)).toBe('total');
+  });
+});
+
 describe('a standard the published ladder does not carry', () => {
   it('is its own reason, not a total nobody reached', () => {
     // A withheld rung is one no lifter can ever be shown as having met, so a route
@@ -429,6 +529,7 @@ describe('a standard the published ladder does not carry', () => {
             kind: 'classification',
             standardId: 'international-elite',
             orAbove: true,
+            lift: 'total',
             divisionBasis: 'lifters-age-division',
           },
         }),
@@ -471,7 +572,7 @@ describe('a total made from fewer than three lifts', () => {
       deadliftKg: 260,
       totalKg: 410,
     });
-    expect(pushPull.outcome).toEqual({ kind: 'no-result-in-window' });
+    expect(pushPull.outcome).toEqual({ kind: 'no-result-in-window', lift: 'total' });
     expect(pushPull.best).toBeNull();
   });
 });

@@ -303,6 +303,7 @@ export function classificationRoute(patch: Partial<QualifyingRoute> = {}): Quali
       kind: 'classification',
       standardId: 'first',
       orAbove: true,
+      lift: 'total',
       divisionBasis: null,
     },
     performance: {

@@ -738,6 +738,7 @@ const QUALIFYING_MEET_BOOK = {
               kind: 'classification',
               standardId: 'example-class',
               orAbove: true,
+              lift: 'total',
               divisionBasis: 'lifters-age-division',
             },
             performance: {

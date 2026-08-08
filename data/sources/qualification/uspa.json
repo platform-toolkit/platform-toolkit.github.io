@@ -180,6 +180,7 @@
               "kind": "classification",
               "standardId": "elite",
               "orAbove": true,
+              "lift": "total",
               "divisionBasis": "lifters-age-division"
             },
             "performance": {
@@ -201,6 +202,7 @@
               "kind": "classification",
               "standardId": "international-elite",
               "orAbove": true,
+              "lift": "total",
               "divisionBasis": "lifters-age-division"
             },
             "performance": {
