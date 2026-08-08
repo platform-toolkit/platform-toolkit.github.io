@@ -205,15 +205,20 @@ describe('ptk-one-rep-max-calculator', () => {
     expect(deepText(element)).toContain('166 kg');
   });
 
-  it('stands up with no storage at all', async () => {
-    // The configuration this collection actually ships into: a third-party
-    // iframe whose embedder blocked storage, where `localStorage` throws on
-    // property access before a method is ever called. Both stores default to a
-    // store with no backing, so there is no branch here to get wrong.
+  it('stands up with no store at all', async () => {
+    // Plain HTML, and the configuration this collection actually ships into: a
+    // third-party iframe whose embedder blocked storage, where `localStorage`
+    // throws on property access before a method is ever called. Both properties
+    // default to the absence of a store rather than to one built here, so the
+    // whole screen has to work through nothing.
     const element = await mount();
+    await describeASet(element);
     const rendered = deepText(element);
 
-    expect(rendered).toContain('Enter a weight and a repetition count.');
+    expect(element.settings).toBeNull();
+    expect(element.session).toBeNull();
+    expect(rendered).toContain('166 kg');
+
     for (const tag of [
       'ptk-set-refinements',
       'ptk-estimate-result',
@@ -222,6 +227,25 @@ describe('ptk-one-rep-max-calculator', () => {
     ]) {
       expect(element.shadowRoot?.querySelector(tag)).not.toBe(null);
     }
+  });
+
+  it('writes the set nowhere when only the settings store is wired', async () => {
+    // The half a consumer forgets. Wiring `settings` and leaving `session` on
+    // the default has to mean the set is kept nowhere -- not kept in the
+    // long-lived store instead, which is the one placement this package must
+    // never choose on somebody's behalf, and which no screen would show.
+    const settings = remembering();
+    const element = await mount({ settings: createPreferenceStore(settings) });
+
+    await describeASet(element);
+    await unfold(element);
+    await choose(element, 'sex', 'woman');
+
+    expect(element.session).toBeNull();
+    expect(entryOf(element).sex).toBe('woman');
+    expect(settings.keys()).toContain(UNIT_KEY);
+    expect(settings.keys()).not.toContain(WEIGHT_KEY);
+    expect(settings.keys()).not.toContain(SEX_KEY);
   });
 
   it('estimates from a weight and a repetition count and nothing else', async () => {

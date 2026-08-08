@@ -134,14 +134,17 @@ including tap targets below the 44 px floor.
 | ------------- | ------------------------- | ----------------------------------------------------- |
 | `chart`       | `ConversionChart \| null` | The federation's published chart, or `null` for none. |
 | `chartStatus` | `ChartStatus`             | `loading`, `ready`, `unavailable` or `failed`.        |
-| `settings`    | `PreferenceStore`         | Where the direction and controls are remembered.      |
+| `settings`    | `PreferenceStore \| null` | Where the direction and controls are remembered.      |
 
 `chartStatus` is four states and not two on purpose. `unavailable` is not an error and does not get
 the error tone: the read succeeded and the federation publishes no chart, so a reload changes
 nothing. Collapsing it into `failed` is how somebody reloads a page that will never load.
 
-`settings` defaults to a store with no backing, so the element works standing on its own and an
-embed whose host blocked storage needs no branch anywhere. Hand it a real one to remember anything:
+`settings` defaults to `null`, which means remember nothing: the element reads every default and
+writes nowhere, so it works standing on its own in plain HTML and an embed whose host blocked
+storage needs no branch anywhere. The default is the absence of a store rather than an inert one on
+purpose -- where a visitor's choices are kept is yours to decide, and a store the element built
+would be a decision it made for you. Hand it a real one to remember anything:
 
 ```js
 import { browserPreferenceStorage, createPreferenceStore } from '@platform-toolkit/preferences';

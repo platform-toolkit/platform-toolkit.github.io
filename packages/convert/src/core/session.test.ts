@@ -165,6 +165,17 @@ describe('remembered settings', () => {
     expect(settings.entry).toStrictEqual(EMPTY_ENTRY);
   });
 
+  it('answers with defaults, and writes nowhere, when handed no store', () => {
+    // Not the same case as the one above, and the difference is who decided.
+    // `null` is a consumer who named nowhere to keep anything -- the element's
+    // own default -- so there is nothing here to write through.
+    expect(() => {
+      saveEntry(null, typeInto(EMPTY_ENTRY, '315'));
+    }).not.toThrow();
+    expect(loadSettings(null).entry).toStrictEqual(EMPTY_ENTRY);
+    expect(loadSettings(null).precision).toBe(2);
+  });
+
   it('brings back the value in the unit it was typed in', () => {
     const remembering = store();
     saveEntry(remembering, typeInto(EMPTY_ENTRY, '315'));

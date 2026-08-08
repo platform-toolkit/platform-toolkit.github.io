@@ -51,6 +51,7 @@ import {
 import {
   PreferenceValue,
   definePreference,
+  type PreferenceDefinition,
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
 
@@ -252,12 +253,28 @@ export const CONVERTER_PREFERENCES = {
   }),
 };
 
-export function loadSettings(store: PreferenceStore): ConverterSettings {
-  const direction = store.read(CONVERTER_PREFERENCES.direction);
-  const stored = store.read(CONVERTER_PREFERENCES.value);
-  const precision = store.read(CONVERTER_PREFERENCES.precision);
-  const step = store.read(CONVERTER_PREFERENCES.step);
-  const order = store.read(CONVERTER_PREFERENCES.order);
+/**
+ * One remembered value, or the definition's own fallback when there is no store.
+ *
+ * `null` here is the absence of a store and not a store that forgets, so the
+ * answer has to come from the definition. Building an inert one to read through
+ * would put the consumer's decision back inside the package, which is the thing
+ * the absence exists to state.
+ */
+function remembered<Stored>(
+  store: PreferenceStore | null,
+  definition: PreferenceDefinition<Stored>,
+): Stored {
+  return store === null ? definition.fallback : store.read(definition);
+}
+
+/** Everything the tool opens with. A `null` store opens on the fallbacks. */
+export function loadSettings(store: PreferenceStore | null): ConverterSettings {
+  const direction = remembered(store, CONVERTER_PREFERENCES.direction);
+  const stored = remembered(store, CONVERTER_PREFERENCES.value);
+  const precision = remembered(store, CONVERTER_PREFERENCES.precision);
+  const step = remembered(store, CONVERTER_PREFERENCES.step);
+  const order = remembered(store, CONVERTER_PREFERENCES.order);
 
   return {
     entry: restoreEntry(direction, stored),
@@ -296,9 +313,13 @@ function restoreEntry(direction: ConversionDirection, stored: StoredValue): Conv
  * right for a caller bug and wrong here: this runs on every keystroke, so half
  * the values are mid-edit. An unparseable field stores "nothing entered" rather
  * than clamping to a number nobody typed.
+ *
+ * A `null` store means the consumer named nowhere to put this, so it goes
+ * nowhere. Not to a fallback store built here, which would be this package
+ * choosing the placement on their behalf.
  */
-export function saveEntry(store: PreferenceStore, entry: ConverterEntry): void {
-  store.write(CONVERTER_PREFERENCES.direction, entry.direction);
+export function saveEntry(store: PreferenceStore | null, entry: ConverterEntry): void {
+  store?.write(CONVERTER_PREFERENCES.direction, entry.direction);
   const shownIn = directionInputUnit(entry.direction);
   const held = entry.entry;
   // Range-checked rather than trusted, even though the parser applies the same
@@ -307,7 +328,7 @@ export function saveEntry(store: PreferenceStore, entry: ConverterEntry): void {
   // down over a number nobody will miss.
   const storable =
     held !== null && held.origin.amount >= 0 && held.origin.amount <= MAX_WEIGHT_INPUT;
-  store.write(
+  store?.write(
     CONVERTER_PREFERENCES.value,
     storable
       ? { amount: held.origin.amount, unit: held.origin.unit, shownIn: held.shownIn, present: true }

@@ -62,6 +62,7 @@ import {
 import {
   PreferenceValue,
   definePreference,
+  type PreferenceDefinition,
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
 
@@ -604,23 +605,46 @@ export const SET_PREFERENCES = {
 };
 
 /**
- * Rebuilds the whole entry from the two stores.
+ * One remembered value, or the definition's own fallback when there is no store.
+ *
+ * `null` here is the absence of a store and not a store that forgets, so the
+ * answer has to come from the definition. Building an inert one to read through
+ * would put the consumer's decision back inside the package, which is the thing
+ * the absence exists to state.
+ */
+function remembered<Stored>(
+  store: PreferenceStore | null,
+  definition: PreferenceDefinition<Stored>,
+): Stored {
+  return store === null ? definition.fallback : store.read(definition);
+}
+
+/**
+ * Rebuilds the whole entry from the two stores, either of which may be absent.
  *
  * Every value is re-checked against the list that offers it rather than
  * trusted. Storage is a trust boundary like any other: a rounding step that is
  * not one of this unit's steps would leave a control with nothing selected, and
  * a technique identifier belonging to another lift would silently claim a
  * standard the lifter never chose.
+ *
+ * The two are independently `null`. A consumer who wires the settings and not
+ * the set gets their remembered unit and an empty set, which is the whole
+ * argument for the split -- reading the set out of the long-lived store instead
+ * would be this package deciding where a sex marker lives.
  */
-export function loadEntry(display: PreferenceStore, set: PreferenceStore): EstimateEntry {
-  const unit = display.read(DISPLAY_PREFERENCES.unit);
-  const lift = display.read(DISPLAY_PREFERENCES.lift);
-  const storedStep = display.read(DISPLAY_PREFERENCES.roundTo);
-  const stored = set.read(SET_PREFERENCES.weight);
-  const reps = set.read(SET_PREFERENCES.reps);
-  const technique = set.read(SET_PREFERENCES.technique);
-  const sex = set.read(SET_PREFERENCES.sex);
-  const experience = set.read(SET_PREFERENCES.experience);
+export function loadEntry(
+  display: PreferenceStore | null,
+  set: PreferenceStore | null,
+): EstimateEntry {
+  const unit = remembered(display, DISPLAY_PREFERENCES.unit);
+  const lift = remembered(display, DISPLAY_PREFERENCES.lift);
+  const storedStep = remembered(display, DISPLAY_PREFERENCES.roundTo);
+  const stored = remembered(set, SET_PREFERENCES.weight);
+  const reps = remembered(set, SET_PREFERENCES.reps);
+  const technique = remembered(set, SET_PREFERENCES.technique);
+  const sex = remembered(set, SET_PREFERENCES.sex);
+  const experience = remembered(set, SET_PREFERENCES.experience);
 
   const weight = stored.present
     ? showEntryIn(enterWeight(stored.amount, stored.unit), stored.shownIn)
@@ -635,18 +659,18 @@ export function loadEntry(display: PreferenceStore, set: PreferenceStore): Estim
     weight,
     unit: shownIn,
     repsText: reps === 0 ? '' : String(reps),
-    reserve: set.read(SET_PREFERENCES.reserve),
+    reserve: remembered(set, SET_PREFERENCES.reserve),
     lift,
     techniqueId: findTechnique(lift, technique) === null ? openingTechniqueFor(lift) : technique,
     sex: sex === DECLINED ? null : sex,
     experience: experience === DECLINED ? null : experience,
-    freshness: set.read(SET_PREFERENCES.freshness),
-    formQuality: set.read(SET_PREFERENCES.formQuality),
-    assisted: set.read(SET_PREFERENCES.assisted),
+    freshness: remembered(set, SET_PREFERENCES.freshness),
+    formQuality: remembered(set, SET_PREFERENCES.formQuality),
+    assisted: remembered(set, SET_PREFERENCES.assisted),
     roundTo: ROUNDING_INCREMENTS[shownIn].includes(storedStep)
       ? storedStep
       : defaultRoundingIncrement(shownIn),
-    percentageStep: display.read(DISPLAY_PREFERENCES.percentageStep),
+    percentageStep: remembered(display, DISPLAY_PREFERENCES.percentageStep),
   };
 }
 
@@ -661,26 +685,32 @@ export function loadEntry(display: PreferenceStore, set: PreferenceStore): Estim
  * right for a caller bug and wrong on a keystroke path: half the values passing
  * through here are mid-edit. Anything unstorable is written as "nothing
  * entered" rather than clamped to a number nobody typed.
+ *
+ * A `null` store means the consumer named nowhere to put that half, so it goes
+ * nowhere -- and for `set` that is the point rather than a convenience. The set
+ * carries a weight, a repetition count and a reported sex; the one thing this
+ * package must not do with them is pick a fallback home, because a home nobody
+ * chose is exactly how they outlive the tab.
  */
 export function saveEntry(
-  display: PreferenceStore,
-  set: PreferenceStore,
+  display: PreferenceStore | null,
+  set: PreferenceStore | null,
   entry: EstimateEntry,
 ): void {
-  display.write(DISPLAY_PREFERENCES.unit, entry.unit);
-  display.write(DISPLAY_PREFERENCES.lift, entry.lift);
-  display.write(
+  display?.write(DISPLAY_PREFERENCES.unit, entry.unit);
+  display?.write(DISPLAY_PREFERENCES.lift, entry.lift);
+  display?.write(
     DISPLAY_PREFERENCES.roundTo,
     ROUNDING_INCREMENTS[entry.unit].includes(entry.roundTo)
       ? entry.roundTo
       : defaultRoundingIncrement(entry.unit),
   );
-  display.write(DISPLAY_PREFERENCES.percentageStep, entry.percentageStep);
+  display?.write(DISPLAY_PREFERENCES.percentageStep, entry.percentageStep);
 
   const held = entry.weight;
   const storable =
     held !== null && held.origin.amount >= 0 && held.origin.amount <= MAX_WEIGHT_INPUT;
-  set.write(
+  set?.write(
     SET_PREFERENCES.weight,
     storable
       ? {
@@ -693,14 +723,14 @@ export function saveEntry(
   );
 
   const reps = readReps(entry);
-  set.write(SET_PREFERENCES.reps, reps !== null && reps <= 999 ? reps : 0);
-  set.write(SET_PREFERENCES.reserve, entry.reserve);
-  set.write(SET_PREFERENCES.technique, storableTechniqueId(entry.techniqueId));
-  set.write(SET_PREFERENCES.sex, entry.sex ?? DECLINED);
-  set.write(SET_PREFERENCES.experience, entry.experience ?? DECLINED);
-  set.write(SET_PREFERENCES.freshness, entry.freshness);
-  set.write(SET_PREFERENCES.formQuality, entry.formQuality);
-  set.write(SET_PREFERENCES.assisted, entry.assisted);
+  set?.write(SET_PREFERENCES.reps, reps !== null && reps <= 999 ? reps : 0);
+  set?.write(SET_PREFERENCES.reserve, entry.reserve);
+  set?.write(SET_PREFERENCES.technique, storableTechniqueId(entry.techniqueId));
+  set?.write(SET_PREFERENCES.sex, entry.sex ?? DECLINED);
+  set?.write(SET_PREFERENCES.experience, entry.experience ?? DECLINED);
+  set?.write(SET_PREFERENCES.freshness, entry.freshness);
+  set?.write(SET_PREFERENCES.formQuality, entry.formQuality);
+  set?.write(SET_PREFERENCES.assisted, entry.assisted);
 }
 
 /** Every lift, for the picker. Re-exported so a component needs one import. */

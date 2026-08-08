@@ -36,7 +36,7 @@ import {
   type OneRepMaxProblem,
   type Weight,
 } from '@platform-toolkit/domain';
-import { createPreferenceStore, type PreferenceStore } from '@platform-toolkit/preferences';
+import type { PreferenceStore } from '@platform-toolkit/preferences';
 import '@platform-toolkit/ui/ptk-button';
 import '@platform-toolkit/ui/ptk-choice-group';
 import '@platform-toolkit/ui/ptk-number-field';
@@ -148,17 +148,29 @@ export class PtkOneRepMaxCalculator extends LitElement {
   `;
 
   /**
-   * Where the unit, lift and rounding choices live.
+   * Where the unit, lift and rounding choices live, or `null` to remember
+   * nothing.
    *
-   * Defaulted to a store with no backing so the element stands up in a story or
-   * a test with no branch anywhere -- and so the configuration these tools
-   * actually ship into, an iframe whose embedder blocked storage, is the
-   * supported path rather than the exceptional one (§5.12).
+   * `null` rather than a store with no backing built here. Both read fallbacks
+   * and write nowhere, but only one of them is honest about who decided: a store
+   * the package constructs is a placement the host never chose, and it is in
+   * place for the whole window between `connectedCallback` and the host's
+   * assignment. The element stands up either way, which is what plain HTML and a
+   * story with no wiring need (§5.12).
    */
-  @property({ attribute: false }) settings: PreferenceStore = createPreferenceStore(null);
+  @property({ attribute: false }) settings: PreferenceStore | null = null;
 
-  /** Where the described set lives, for this visit only. */
-  @property({ attribute: false }) session: PreferenceStore = createPreferenceStore(null);
+  /**
+   * Where the described set lives for this visit only, or `null` to keep it
+   * nowhere.
+   *
+   * The property that has to default to nothing. It holds the weight, the
+   * repetition count and the reported sex, and it is the one a consumer is
+   * likeliest to leave alone after wiring `settings` -- so a default of any
+   * store at all is this package choosing where a sex marker is written on
+   * somebody else's page. Absent, none of it is written anywhere.
+   */
+  @property({ attribute: false }) session: PreferenceStore | null = null;
 
   @state() private entry: EstimateEntry = EMPTY_ENTRY;
 

@@ -290,6 +290,34 @@ describe('what survives, and where', () => {
     expect(loadEntry(nowhere, nowhere)).toEqual(EMPTY_ENTRY);
   });
 
+  it('reads defaults, and writes nowhere, when handed no store at all', () => {
+    // Not the same case as the one above, and the difference is who decided.
+    // `null` is a consumer who named nowhere to keep either half -- the
+    // element's own default -- so there is nothing to write through.
+    expect(() => {
+      saveEntry(null, null, described());
+    }).not.toThrow();
+    expect(loadEntry(null, null)).toEqual(EMPTY_ENTRY);
+  });
+
+  /*
+   * The half a consumer forgets. Wiring the settings and leaving the set on the
+   * default has to keep the set nowhere -- folding it into the long-lived store
+   * would put a weight, a repetition count and a sex marker on a device for
+   * good, in the one case where nobody chose that.
+   */
+  it('keeps the set nowhere when only the settings store is handed in', () => {
+    const storage = memoryPreferenceStorage();
+    const display = createPreferenceStore(storage);
+    saveEntry(display, null, described({ sex: 'woman', experience: 'new' }));
+
+    const keyOf = (preference: { readonly name: string }): string =>
+      `${PREFERENCE_KEY_PREFIX}${preference.name}`;
+    expect(storage.keys()).toEqual(Object.values(DISPLAY_PREFERENCES).map(keyOf));
+    expect(loadEntry(display, null).sex).toBeNull();
+    expect(loadEntry(display, null).weightText).toBe('');
+  });
+
   /*
    * Half the values passing through `saveEntry` are mid-edit, and a write that
    * violates its own definition throws by design (§5.12). A count of 4,000 is

@@ -128,13 +128,17 @@ including tap targets below the 44 px floor.
 <ptk-one-rep-max-calculator></ptk-one-rep-max-calculator>
 ```
 
-| Property   | Type              | What it is                                                     |
-| ---------- | ----------------- | -------------------------------------------------------------- |
-| `settings` | `PreferenceStore` | Where the unit, lift and step sizes are remembered.            |
-| `session`  | `PreferenceStore` | Where the set being described is remembered. Not the same one. |
+| Property   | Type                      | What it is                                                     |
+| ---------- | ------------------------- | -------------------------------------------------------------- |
+| `settings` | `PreferenceStore \| null` | Where the unit, lift and step sizes are remembered.            |
+| `session`  | `PreferenceStore \| null` | Where the set being described is remembered. Not the same one. |
 
-Both default to a store with no backing, so the element works standing on its own and an embed whose
-host blocked storage needs no branch anywhere. Hand it real ones to remember anything:
+Both default to `null`, which means remember nothing: the element reads every default and writes
+nowhere, so it works standing on its own in plain HTML and an embed whose host blocked storage needs
+no branch anywhere. The two are independent -- wire `settings` and leave `session` alone and you get
+a remembered unit with nothing kept about the set. That is the default on purpose, because `session`
+is where the reported sex would go and no package should pick that spot for you. Hand it real ones
+to remember anything:
 
 ```js
 import {

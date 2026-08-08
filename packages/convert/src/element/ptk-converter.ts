@@ -30,7 +30,7 @@ import {
   type ConversionChart,
   type ConversionDirection,
 } from '@platform-toolkit/domain';
-import { createPreferenceStore, type PreferenceStore } from '@platform-toolkit/preferences';
+import type { PreferenceStore } from '@platform-toolkit/preferences';
 import '@platform-toolkit/ui/ptk-button';
 import '@platform-toolkit/ui/ptk-choice-group';
 import '@platform-toolkit/ui/ptk-disclosure';
@@ -120,13 +120,17 @@ export class PtkConverter extends LitElement {
   `;
 
   /**
-   * Where the direction, the last value and the chart controls are kept.
+   * Where the direction, the last value and the chart controls are kept, or
+   * `null` to remember nothing.
    *
-   * Defaulted to a store with no backing so the element works standing on its own
-   * in a story or a test, and so the one configuration these tools actually ship
-   * into -- an iframe whose embedder blocked storage -- needs no branch anywhere.
+   * `null` rather than a store with no backing built here. Both read fallbacks
+   * and write nowhere, but only one of them is honest about who decided: a store
+   * the package constructs is a placement the host never chose, and it is in
+   * place for the whole window between `connectedCallback` and the host's
+   * assignment. The element works standing alone either way, which is what plain
+   * HTML and a story with no wiring need.
    */
-  @property({ attribute: false }) settings: PreferenceStore = createPreferenceStore(null);
+  @property({ attribute: false }) settings: PreferenceStore | null = null;
 
   /** The federation's published chart, or `null` when there is none in hand. */
   @property({ attribute: false }) chart: ConversionChart | null = null;
@@ -351,20 +355,20 @@ export class PtkConverter extends LitElement {
         const places = Number(value);
         if (!RESULT_PRECISIONS.includes(places)) return;
         this.precision = places;
-        this.settings.write(CONVERTER_PREFERENCES.precision, places);
+        this.settings?.write(CONVERTER_PREFERENCES.precision, places);
         return;
       }
       case STEP_FIELD: {
         const step = Number(value);
         if (!CHART_STEPS.includes(step)) return;
         this.step = step;
-        this.settings.write(CONVERTER_PREFERENCES.step, step);
+        this.settings?.write(CONVERTER_PREFERENCES.step, step);
         return;
       }
       case ORDER_FIELD: {
         if (value !== 'kilograms-first' && value !== 'pounds-first') return;
         this.order = value;
-        this.settings.write(CONVERTER_PREFERENCES.order, value);
+        this.settings?.write(CONVERTER_PREFERENCES.order, value);
         return;
       }
       default:

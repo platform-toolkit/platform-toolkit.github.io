@@ -308,15 +308,29 @@ describe('ptk-converter', () => {
     expect(fieldValue(second)).toBe('315');
   });
 
-  it('works with no storage at all, which is the configuration it ships into', async () => {
-    // An embedder that blocked storage is the common case for these tools, and
-    // `localStorage` throws on *property access* there. The default store has no
-    // backing for exactly that reason, so this is the no-argument path.
+  it('works with no store at all, which is the configuration it ships into', async () => {
+    // Plain HTML, and an embedder that blocked storage. The default is the
+    // absence of a store rather than an inert one the element built: the whole
+    // screen has to work through it, including a keystroke, which is the path
+    // that writes.
     const element = await mount();
     await type(element, '315');
 
+    expect(element.settings).toBeNull();
     expect(fieldValue(element)).toBe('315');
     expect(deepText(result(element))).toContain('falls between two');
+  });
+
+  it('builds no store of its own before the host assigns one', async () => {
+    // The reason `null` beats a null-backed store built here: between
+    // `connectedCallback` and `view.ts`'s assignment the element would be
+    // holding a store its host never chose, and nothing on screen would say so.
+    // A control answered in that window is the case that makes it visible.
+    const element = await mount();
+    await press(element, actionNamed(element, 'Reverse'));
+
+    expect(element.settings).toBeNull();
+    expect(deepText(weightField(element))).toContain('Weight in kilograms');
   });
 
   it('has no accessibility violations with an answer on screen', async () => {
