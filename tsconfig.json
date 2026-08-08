@@ -11,6 +11,7 @@
     { "path": "./packages/qualification-check" },
     { "path": "./packages/convert" },
     { "path": "./packages/one-rep-max" },
+    { "path": "./packages/platform-targets" },
     { "path": "./packages/ui" },
     { "path": "./packages/training-logbook" },
     { "path": "./apps/web" }

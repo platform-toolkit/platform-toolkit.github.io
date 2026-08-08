@@ -40,6 +40,9 @@
       "@platform-toolkit/domain": ["./packages/domain/src/index.ts"],
       "@platform-toolkit/ingestion": ["./packages/ingestion/src/index.ts"],
       "@platform-toolkit/one-rep-max/element": ["./packages/one-rep-max/src/element/index.ts"],
+      "@platform-toolkit/platform-targets/element": [
+        "./packages/platform-targets/src/element/index.ts"
+      ],
       "@platform-toolkit/preferences": ["./packages/preferences/src/index.ts"],
       "@platform-toolkit/qualification-check": ["./packages/qualification-check/src/index.ts"],
       "@platform-toolkit/qualification-check/element": [

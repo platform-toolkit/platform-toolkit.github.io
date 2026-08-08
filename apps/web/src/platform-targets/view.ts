@@ -7,6 +7,15 @@ import {
   type RecordSetQuery,
 } from '@platform-toolkit/data-access';
 import type { RecordBook, SexCategory } from '@platform-toolkit/data-contracts';
+import { REFRESH_REQUEST_EVENT, partitionKey } from '@platform-toolkit/platform-targets/core';
+import {
+  PLATFORM_TARGETS_TAG,
+  SELECTION_APPLIED_EVENT,
+  definePlatformTargets,
+  type PartitionRead,
+  type PtkPlatformTargets,
+} from '@platform-toolkit/platform-targets/element';
+import type { CategorySelection, RecordPartition } from '@platform-toolkit/platform-targets/types';
 import {
   browserPreferenceStorage,
   createPreferenceStore,
@@ -14,12 +23,6 @@ import {
 } from '@platform-toolkit/preferences';
 
 import { dataSource } from '../data-source.js';
-import { REFRESH_REQUEST_EVENT } from './freshness.js';
-import './ptk-platform-targets.js';
-import type { PtkPlatformTargets } from './ptk-platform-targets.js';
-import { SELECTION_APPLIED_EVENT } from './ptk-target-categories.js';
-import type { PartitionRead } from './ptk-target-report.js';
-import { partitionKey, type CategorySelection, type RecordPartition } from './selection.js';
 
 /** Identifier for this tool, and what it calls itself in a height message. */
 export const TOOL_ID = 'platform-targets';
@@ -68,7 +71,8 @@ export interface PlatformTargetsViewOptions {
  * stored is sent to the parent; the only message that leaves is a height.
  */
 export function createPlatformTargetsView(options: PlatformTargetsViewOptions): PtkPlatformTargets {
-  const element = document.createElement('ptk-platform-targets');
+  definePlatformTargets();
+  const element = document.createElement(PLATFORM_TARGETS_TAG);
   const source = options.source ?? dataSource;
   element.settings = options.settings ?? createPreferenceStore(browserPreferenceStorage());
 

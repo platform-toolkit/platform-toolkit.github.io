@@ -23,10 +23,22 @@ import type { PtkSelect } from '@platform-toolkit/ui/ptk-select';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { deepText } from '@platform-toolkit/ui/deep-text';
-import type { Connection } from './freshness.js';
-import type { PtkPlatformTargets } from './ptk-platform-targets.js';
-import { BOOK, CATALOG, CLASSIFICATIONS, DATA_META, STATE_BOOK } from './records-fixture.js';
-import type { SelectionField } from './selection.js';
+import type { Connection } from '@platform-toolkit/platform-targets/core';
+import type { PtkPlatformTargets } from '@platform-toolkit/platform-targets/element';
+// Not one of the package's four export subpaths, and deliberately: a fixture in
+// `dist` is a fixture that ships. It is mapped to source in `tsconfig.tests.json`
+// and `vitest.config.ts` and nowhere else, so an import of it from anything that
+// builds fails to resolve rather than quietly packing invented records into a
+// release.
+import {
+  BOOK,
+  CATALOG,
+  CLASSIFICATIONS,
+  DATA_META,
+  STATE_BOOK,
+} from '@platform-toolkit/platform-targets/records.fixture';
+import type { SelectionField } from '@platform-toolkit/platform-targets/types';
+
 import { createPlatformTargetsView } from './view.js';
 
 /**

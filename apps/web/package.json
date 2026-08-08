@@ -17,6 +17,7 @@
     "@platform-toolkit/data-contracts": "workspace:*",
     "@platform-toolkit/domain": "workspace:*",
     "@platform-toolkit/one-rep-max": "workspace:*",
+    "@platform-toolkit/platform-targets": "workspace:*",
     "@platform-toolkit/preferences": "workspace:*",
     "@platform-toolkit/qualification-check": "workspace:*",
     "@platform-toolkit/training-logbook": "workspace:*",

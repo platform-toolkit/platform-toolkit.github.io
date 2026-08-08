@@ -35,6 +35,7 @@ const workspaceSource = [
   'domain',
   'ingestion',
   'one-rep-max',
+  'platform-targets',
   'preferences',
   'qualification-check',
   'training-logbook',
@@ -93,6 +94,31 @@ workspaceSource.push(
     find: /^@platform-toolkit\/training-logbook\/handoff$/,
     replacement: fileURLToPath(
       new URL('./packages/training-logbook/src/handoff.ts', import.meta.url),
+    ),
+  },
+  // Tool 1's three subpaths, for the same reason. The shell's browser test drives
+  // `view.ts`, which reaches the package through all three, so left to the
+  // `exports` map the whole suite would be testing whatever was last built.
+  ...['core', 'element'].map((name) => ({
+    find: new RegExp(`^@platform-toolkit/platform-targets/${name}$`),
+    replacement: fileURLToPath(
+      new URL(`./packages/platform-targets/src/${name}/index.ts`, import.meta.url),
+    ),
+  })),
+  {
+    find: /^@platform-toolkit\/platform-targets\/types$/,
+    replacement: fileURLToPath(
+      new URL('./packages/platform-targets/src/types.ts', import.meta.url),
+    ),
+  },
+  // Not a subpath the package exports. A fixture in `dist` is a fixture that
+  // ships, so it is excluded from the build and reachable only from here and from
+  // `tsconfig.tests.json` -- which means an import of it from anything that builds
+  // fails to resolve instead of quietly packing invented records into a release.
+  {
+    find: /^@platform-toolkit\/platform-targets\/records\.fixture$/,
+    replacement: fileURLToPath(
+      new URL('./packages/platform-targets/src/core/records.fixture.ts', import.meta.url),
     ),
   },
 );
@@ -244,6 +270,47 @@ const projects: TestProjectInlineConfiguration[] = [
     test: {
       name: 'convert-browser',
       root: './packages/convert',
+      include: ['src/**/*.browser.test.ts'],
+      testTimeout: BROWSER_TEST_TIMEOUT_MS,
+      browser: {
+        enabled: true,
+        provider: playwright(),
+        instances: [{ browser: 'chromium' }],
+        headless: true,
+        screenshotFailures: false,
+      },
+    },
+  },
+  {
+    test: {
+      // Node, for the same section 15 reason as `convert` above. The seven core
+      // modules here are the largest of any tool -- what a catalogue offers, what
+      // a lifter has answered, and the kilograms between them and each published
+      // target -- and every one of them is a function of its arguments. Nothing
+      // in the set fetches, reads a clock or touches storage, so a bare Node run
+      // is both the cheapest way to cover it and the thing that proves it.
+      name: 'platform-targets',
+      root: './packages/platform-targets',
+      environment: 'node',
+      include: ['src/**/*.test.ts'],
+      // The browser suite below matches the same glob, so it has to be excluded
+      // by name. Vitest replaces the default exclude list rather than adding to
+      // it, so the standard entries are repeated here.
+      exclude: ['**/node_modules/**', '**/dist/**', 'src/**/*.browser.test.ts'],
+    },
+  },
+  {
+    // The seven elements, in a real browser, for the same reason `convert` is. Six
+    // of them sit inside the seventh's shadow root and report through composed
+    // events that have to cross it -- an applied context is what tells the host
+    // which artifacts to fetch, and an emulated DOM that got `composed` wrong
+    // would leave a green suite and a tool that never loads a record. The report
+    // is the other half: its figures are read back through two shadow boundaries
+    // at once, so a host-only read comes back empty and an assertion that a
+    // number is absent passes by measuring nothing.
+    test: {
+      name: 'platform-targets-browser',
+      root: './packages/platform-targets',
       include: ['src/**/*.browser.test.ts'],
       testTimeout: BROWSER_TEST_TIMEOUT_MS,
       browser: {

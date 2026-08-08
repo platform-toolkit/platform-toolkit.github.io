@@ -1,0 +1,47 @@
+{
+  "name": "@platform-toolkit/platform-targets",
+  "version": "0.0.0",
+  "private": true,
+  "description": "What a lifter has to lift to reach the next classification, the next record, or a goal they set, from a federation's own published data.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "default": "./dist/core/index.js"
+    },
+    "./element": {
+      "types": "./dist/element/index.d.ts",
+      "default": "./dist/element/index.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "default": "./dist/types.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "prepack": "pnpm run build"
+  },
+  "dependencies": {
+    "@platform-toolkit/data-contracts": "workspace:*",
+    "@platform-toolkit/domain": "workspace:*",
+    "@platform-toolkit/preferences": "workspace:*",
+    "@platform-toolkit/ui": "workspace:*"
+  },
+  "peerDependencies": {
+    "lit": "^3.3.3"
+  },
+  "devDependencies": {
+    "lit": "3.3.3"
+  }
+}

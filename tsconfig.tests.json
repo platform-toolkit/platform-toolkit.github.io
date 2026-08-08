@@ -38,6 +38,20 @@
       "@platform-toolkit/one-rep-max/core": ["./packages/one-rep-max/src/core/index.ts"],
       "@platform-toolkit/one-rep-max/element": ["./packages/one-rep-max/src/element/index.ts"],
       "@platform-toolkit/one-rep-max/types": ["./packages/one-rep-max/src/types.ts"],
+      "@platform-toolkit/platform-targets": ["./packages/platform-targets/src/index.ts"],
+      "@platform-toolkit/platform-targets/core": ["./packages/platform-targets/src/core/index.ts"],
+      "@platform-toolkit/platform-targets/element": [
+        "./packages/platform-targets/src/element/index.ts"
+      ],
+      // Test-only, and not one of the package's export subpaths: a fixture in
+      // `dist` is a fixture that ships. The shell's browser test drives a stubbed
+      // source with the same invented federation the package's own tests use, and
+      // this is the only mapping that resolves it -- so an import from anything
+      // that builds fails here rather than packing the fixture into a release.
+      "@platform-toolkit/platform-targets/records.fixture": [
+        "./packages/platform-targets/src/core/records.fixture.ts"
+      ],
+      "@platform-toolkit/platform-targets/types": ["./packages/platform-targets/src/types.ts"],
       "@platform-toolkit/preferences": ["./packages/preferences/src/index.ts"],
       "@platform-toolkit/qualification-check": ["./packages/qualification-check/src/index.ts"],
       "@platform-toolkit/qualification-check/core": [

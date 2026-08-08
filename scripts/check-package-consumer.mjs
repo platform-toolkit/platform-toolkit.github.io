@@ -208,6 +208,93 @@ if (entry.direction !== typed.direction) throw new Error('fifty reversals moved 
 `,
   },
   {
+    name: '@platform-toolkit/platform-targets',
+    slug: 'platform-targets',
+    consumer: `import {
+  PLATFORM_TARGETS_TAG,
+  SELECTION_APPLIED_EVENT,
+  TARGET_REPORT_TAG,
+  definePlatformTargets,
+  type PartitionRead,
+} from '@platform-toolkit/platform-targets/element';
+import {
+  NO_ENTRIES,
+  NO_SELECTION,
+  REQUIRED_FIELDS,
+  partitionKey,
+  readLiftEntries,
+  typeLift,
+} from '@platform-toolkit/platform-targets/core';
+import { LIFTS } from '@platform-toolkit/platform-targets';
+import type {
+  CategorySelection,
+  RecordPartition,
+  TargetType,
+} from '@platform-toolkit/platform-targets/types';
+
+export function consumePlatformTargets(): string {
+  // Annotated on purpose: an inferred type would still compile if the shipped
+  // \`./types\` entry point resolved to nothing, and these three are what a host
+  // seeding a category, naming a records artifact and restoring a view has to say.
+  const selection: CategorySelection = { ...NO_SELECTION, sex: 'female' };
+  const partition: RecordPartition = { levelId: 'national', regionId: null, label: 'National' };
+  const view: TargetType = 'records';
+  // The other direction, annotated for the same reason. Fetching is deliberately
+  // outside this package, so \`PartitionRead\` is the shape a host fills in and hands
+  // back -- and a build that shipped the element without its declarations would
+  // leave that host casting the one property the whole report is drawn from.
+  const read: PartitionRead = { partition, status: 'loading', book: null };
+  const entries = typeLift(NO_ENTRIES, 'squat', '140');
+  const define: () => unknown = definePlatformTargets;
+  return [
+    PLATFORM_TARGETS_TAG,
+    TARGET_REPORT_TAG,
+    SELECTION_APPLIED_EVENT,
+    String(selection.sex),
+    String(partitionKey(read.partition).length),
+    view,
+    String(REQUIRED_FIELDS.length),
+    String(LIFTS.length),
+    readLiftEntries(entries).squat.kind,
+    typeof define,
+  ].join(' ');
+}
+`,
+    // Core only, and it asserts rather than prints. Two rules are worth making the
+    // assertion about in Node: the separator that keeps two partitions apart, and
+    // the total nobody typed. Both are things a rewrite can break while every
+    // screen still looks right -- a colliding key renders one artifact's records
+    // under the other's heading, and a total that stops deriving just looks like a
+    // lifter who has not filled the field in.
+    smoke: `import {
+  NO_ENTRIES,
+  NO_SELECTION,
+  partitionKey,
+  readLiftEntries,
+  typeLift,
+} from '@platform-toolkit/platform-targets/core';
+
+const left = partitionKey({ levelId: 'level-a', regionId: 'b', label: 'Left' });
+const right = partitionKey({ levelId: 'level', regionId: 'a-b', label: 'Right' });
+if (left === right) throw new Error('two partitions share a key');
+
+let entries = NO_ENTRIES;
+for (const [lift, text] of [
+  ['squat', '140'],
+  ['bench', '90'],
+  ['deadlift', '180'],
+]) {
+  entries = typeLift(entries, lift, text);
+}
+const total = readLiftEntries(entries).total;
+if (total.kind !== 'weight') throw new Error('three lifts did not add up to a total');
+if (!total.derived) throw new Error('a total nobody typed was reported as typed');
+if (total.kilograms !== 410) throw new Error('the total is not the sum of the three lifts');
+
+if (NO_SELECTION.sex !== null) throw new Error('an unanswered category is not empty');
+`,
+  },
+  {
     name: '@platform-toolkit/one-rep-max',
     slug: 'one-rep-max',
     consumer: `import {
