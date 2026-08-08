@@ -138,6 +138,13 @@ A route that does not open until a published day now reads as not yet open until
 condition attached to it is quoted rather than judged. Whether a place frees up is a fact about a
 roster, and there is no roster here.
 
+**A standard is now read on the lift its criteria name**, rather than on the three-lift total in
+every case. Every criterion transcribed so far does ask for a total, so nothing on screen changes
+today — but a bench-only meet asking for a bench standard would have been answered with a total,
+which clears a single-lift standard every time. That is the direction that costs somebody an entry
+fee. Where the published criteria name a standard and never say which lift, the reading says exactly
+that and prints what they did say; the lift is never guessed from the name of an event.
+
 **It does not tell anybody whether they may enter a meet.** Where the answer is not knowable from
 published figures, the reading says so. Two people under one name is ordinary, so the tool always
 asks which and never picks — not even when the archive returns exactly one lifter. A pasted profile
@@ -199,6 +206,17 @@ interpreted, and nothing derives a programme from a history.
   The move found one thing a passing test suite could not: a rule module in Platform Targets was
   importing a type declared inside one of its own on-screen components — backwards, and invisible
   for exactly as long as the two files sat in the same folder.
+
+- **No tool decides where your settings are kept any more.** Each one used to build its own
+  browser-backed store the moment it was mounted, so anybody embedding a tool got `localStorage`
+  whether they had asked for it or not. A tool is now handed somewhere to remember things, or handed
+  nothing and remembers nothing. Nothing changes on this site, which hands each tool the same store
+  it built for itself before.
+
+  Being handed nothing is deliberately a different thing from being handed a store that has nowhere
+  to put anything — the second is still a choice the page made, and it is what a browser-backed
+  store becomes on a device that refuses storage. Keeping the two apart is why a tool can say
+  whether the browser is really keeping something.
 
 - **Every package installs outside this workspace.** Lit was an exact dependency in three of them,
   so a consumer with their own copy would have got two Lit versions and two custom-element
