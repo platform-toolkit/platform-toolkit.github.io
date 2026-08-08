@@ -152,6 +152,14 @@ Warm-Up Calculator carries straight across. The record reads back — a past ses
 correction, the logging screen shows what the same lift did last time, every lift has a history with
 its heaviest days marked, and any past session can be repeated as today's plan.
 
+Change your mind about a lift mid-session and the warm-up under it says so. Drop the top set, or
+resume the session on a rack with different plates on it, and the lift offers to work its ramp out
+again — naming how many rungs that replaces and how many you have already done that it will leave
+alone. It is an offer and never a rewrite: the ladder on screen is a true record of the weight it
+was worked out for, so nothing changes without a press. Take the working sets away entirely and the
+offer becomes the only honest one left, to take the warm-up off; the rungs already lifted stay
+either way.
+
 Nothing leaves the device: no account, no server, no sync, no telemetry. Training leaves as a JSON
 file the lifter downloads. **Every screen says whether the browser is really keeping it**, because a
 browser can refuse storage to a page, and that is better read before anything is typed than

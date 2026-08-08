@@ -91,10 +91,14 @@ import {
   type RestTimer,
 } from '../core/rest.js';
 import {
+  applyWarmup,
+  clearWarmup,
   rampExercise,
   rampLastExercise,
+  warmupStanding,
   workingPrescription,
   type RampOutcome,
+  type WarmupStanding,
 } from '../core/warmup.js';
 // Type-only, so nothing of the storage side reaches this module. The port and the
 // key belong to the shell, which is the only thing that knows the browser has
@@ -327,6 +331,9 @@ const RESTORE_PREVIEW_ROWS = 5;
  * re-render, which writes another one. That is not a slow render, it is a loop.
  */
 const NO_PREVIOUS: ReadonlyMap<string, PreviousPerformance> = new Map();
+
+/** The same, for a screen with no session on it to work a warm-up standing out for. */
+const NO_WARMUPS: ReadonlyMap<LogbookId, WarmupStanding> = new Map();
 
 const UNIT_CHOICES: readonly Choice[] = [
   { value: 'lb', label: UNIT_LABELS.lb },
@@ -1028,6 +1035,14 @@ export class PtkTrainingLogbook extends LitElement {
    * session overwritten by an answer read before they started it.
    */
   #generation = 0;
+
+  /** The last answer {@link #warmupsFor} gave, and the three things it was about. */
+  #warmups: {
+    session: WorkoutSession;
+    equipment: EquipmentSnapshot;
+    exercises: readonly ExerciseOption[];
+    answers: ReadonlyMap<LogbookId, WarmupStanding>;
+  } | null = null;
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -1835,6 +1850,7 @@ export class PtkTrainingLogbook extends LitElement {
         .effort=${this.settings.effort}
         .equipment=${this.settings.equipment}
         .previous=${this.previous}
+        .warmups=${this.#warmupsFor(this.active)}
         .now=${this.now}
       ></ptk-active-workout>
     `;
@@ -2140,6 +2156,50 @@ export class PtkTrainingLogbook extends LitElement {
 
   #context(): SessionContext {
     return { nextId: () => this.nextId(), at: this.now() };
+  }
+
+  /**
+   * Where every written warm-up in the live session stands, computed at most once per
+   * session.
+   *
+   * A cache for the reason `ptk-active-workout`'s plate cache is one: working a
+   * standing out regenerates a ramp for each lift whose inputs have moved, and that
+   * screen re-renders on every keystroke in its weight box. All three keys are compared
+   * by identity, which is sound because a session is replaced whole on every edit and
+   * the other two are settings this element assigns.
+   *
+   * A lift the catalogue does not have an option for is left out rather than reported
+   * as unbuildable, and that is not a detail: the exercise library is read from storage
+   * after the first paint, so a mounted screen holding a session has a moment where it
+   * knows no movements at all. Reporting them would flash "this warm-up cannot be
+   * worked out again" under every lift of a session that is perfectly fine.
+   *
+   * No rack, no standings. There is nothing to compare a snapshot's equipment against
+   * and nothing to build a new ramp on.
+   */
+  #warmupsFor(session: WorkoutSession | null): ReadonlyMap<LogbookId, WarmupStanding> {
+    const equipment = this.settings.equipment;
+    if (session === null || equipment === null) return NO_WARMUPS;
+    const exercises = this.exercises;
+    const cached = this.#warmups;
+    if (
+      cached !== null &&
+      cached.session === session &&
+      cached.equipment === equipment &&
+      cached.exercises === exercises
+    ) {
+      return cached.answers;
+    }
+
+    const context = this.#context();
+    const answers = new Map<LogbookId, WarmupStanding>();
+    for (const exercise of session.exercises) {
+      const option = exercises.find((candidate) => candidate.id === exercise.exerciseId);
+      if (option === undefined) continue;
+      answers.set(exercise.id, warmupStanding(session, exercise.id, option, equipment, context));
+    }
+    this.#warmups = { session, equipment, exercises, answers };
+    return answers;
   }
 
   readonly #onPlanned = (event: CustomEvent<WorkoutPlannedDetail>): void => {
@@ -2473,6 +2533,23 @@ export class PtkTrainingLogbook extends LitElement {
   #applyPlan(session: WorkoutSession, change: SetPlanChange): WorkoutSession {
     const context = this.#context();
     switch (change.kind) {
+      // Section 8.5's two, worked out again here rather than read off the map the
+      // screen was drawn from. Two things come of that: the snapshot this writes is
+      // stamped with the instant it was written, and a press against an offer the
+      // session has already moved past applies nothing -- the same answer the three
+      // below give a row that has gone.
+      case 'rebuild-warmup':
+      case 'clear-warmup': {
+        const standing = this.#standingFor(session, change.exerciseId, context);
+        if (change.kind === 'rebuild-warmup') {
+          return standing?.kind === 'stale'
+            ? applyWarmup(session, change.exerciseId, standing.change, context)
+            : session;
+        }
+        return standing?.kind === 'unbuildable'
+          ? clearWarmup(session, change.exerciseId, context)
+          : session;
+      }
       case 'add': {
         const planned = this.#planForAdd(session, change.exerciseId);
         return planned === null ? session : addSet(session, change.exerciseId, planned, context);
@@ -2488,6 +2565,20 @@ export class PtkTrainingLogbook extends LitElement {
       case 'remove':
         return removeSet(session, change.setId, context);
     }
+  }
+
+  /** One lift's standing, on the session being written to rather than the one drawn. */
+  #standingFor(
+    session: WorkoutSession,
+    exerciseId: LogbookId,
+    context: SessionContext,
+  ): WarmupStanding | null {
+    const equipment = this.settings.equipment;
+    const exercise = findWorkoutExercise(session, exerciseId);
+    if (equipment === null || exercise === null) return null;
+    const option = this.exercises.find((candidate) => candidate.id === exercise.exerciseId);
+    if (option === undefined) return null;
+    return warmupStanding(session, exerciseId, option, equipment, context);
   }
 
   /**

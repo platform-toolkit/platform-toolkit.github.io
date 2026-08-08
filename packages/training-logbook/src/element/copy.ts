@@ -743,6 +743,14 @@ export const HANDOFF_NOTES = {
 } as const;
 
 /**
+ * The noun the warm-up offer counts in, so its two sentences agree on it.
+ *
+ * A count of rows and never of anything a lifter did, which is why it is here rather
+ * than in `format.ts` beside the weights: this is a sentence about the tool.
+ */
+const warmupSetWord = (count: number): string => (count === 1 ? 'warm-up set' : 'warm-up sets');
+
+/**
  * The sentences the logging screen says.
  *
  * This is the screen somebody reads between sets with a belt on, and the copy is
@@ -805,6 +813,55 @@ export const ACTIVE_NOTES = {
    * rather than apologising for where it was.
    */
   editStructure: 'What happens to this row:',
+
+  /**
+   * Section 8.5's mid-session recalculation, as an offer rather than a rewrite.
+   *
+   * The lead says which input moved, because the two are answered differently: a
+   * lifter who dropped their top set already knows why, and a lifter whose rack
+   * changed under a session they resumed at another gym does not. Neither says the
+   * warm-up on screen is wrong. It is a true record of the weight it was worked out
+   * for, which is why nothing here happens without a press.
+   */
+  warmupStaleWeight: 'This warm-up was worked out for a different weight.',
+  warmupStaleRack: 'This warm-up was worked out for a different rack.',
+  warmupStaleBoth: 'This warm-up was worked out for a different weight, on a different rack.',
+
+  /**
+   * What the press costs, in rows, before it is pressed.
+   *
+   * Section 8.5 asks for the warning to name what is about to be thrown away, and a
+   * count is the only honest form of that on a screen this small. The rows a lifter
+   * has already ticked are counted separately and in the other direction -- they are
+   * what the press does *not* touch, and it is the thing somebody mid-ramp wants to
+   * know first.
+   *
+   * Neither sentence is drawn when the new ladder is the one already on the card. See
+   * `warmupStanding` in `../core/warmup.ts`: an offer that replaced three sets with
+   * the same three would teach lifters to dismiss the offer that matters.
+   */
+  warmupAdds: (generated: number): string =>
+    `Working it out again adds ${String(generated)} ${warmupSetWord(generated)}.`,
+  warmupReplaces: (replaced: number, generated: number): string =>
+    `Working it out again replaces ${String(replaced)} ${warmupSetWord(replaced)} with ${String(generated)}.`,
+  warmupKeeps: (kept: number): string =>
+    kept === 1
+      ? 'The one you have already done stays.'
+      : `The ${String(kept)} you have already done stay.`,
+
+  warmupRebuild: 'Work it out again',
+
+  /**
+   * The other face of the same control: a ramp that cannot be produced again.
+   *
+   * Reachable by removing the working sets it was worked up to, and by an exercise
+   * the catalogue no longer has a family for. There is nothing to offer but taking it
+   * off, and the sentence says what taking it off leaves behind -- the record of what
+   * was lifted, which is not the tool's to withdraw.
+   */
+  warmupGone: 'This warm-up cannot be worked out again from the sets that are here now.',
+  warmupClear: 'Take the warm-up off',
+  warmupClearNote: 'The warm-up sets you have not done are removed. What you have done stays.',
 
   /**
    * Section 7.9's control, on a lift and on the session.

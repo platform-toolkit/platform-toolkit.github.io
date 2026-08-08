@@ -2183,6 +2183,62 @@ const LOGBOOK_BUSY_HANDOFF_SETTLE = [
 ];
 
 /**
+ * The ramped session, on the device, which is what the reload has to carry.
+ *
+ * A rung and the storage line, for `LOGBOOK_BUSY_HANDOFF_HOLDING`'s reason: the row
+ * says the ramp is on screen and only the save line says it is anywhere a reload can
+ * find it. `data-kind` rather than any set row, because a session that started without
+ * a ramp comes back through the reload looking exactly like one that started with a
+ * ramp and lost it, and the offer this route measures would then never be drawn.
+ */
+const LOGBOOK_RECALCULATE_HOLDING = [
+  'ptk-active-workout li[data-set][data-kind="warmup"]',
+  ...LOGBOOK_SAVED,
+];
+
+/**
+ * Change the rack under the running session, then go back to it.
+ *
+ * The reload is not decoration here, it is the only road. A ramp goes stale when one
+ * of its inputs moves, and the working weight cannot move from the logging screen --
+ * §7.7's four changes rewrite the shape of a lift and none of them re-plans a set --
+ * so the rack is the input a lifter can actually change mid-session. The equipment
+ * section is on the home screen, the one exit from a live session ends it, and Resume
+ * only goes the other way: booting with the session on the device is how somebody who
+ * walked into another room reaches this, and it is how anyone does.
+ *
+ * The two unticks are `LOGBOOK_COARSE_CLICK`'s and they are chosen rather than
+ * convenient. Putting plates *back* changes the rack without changing the ramp -- with
+ * unlimited pairs a 45 unlocks no total the 25s could not already build -- so the
+ * offer would correctly stay silent and this route would settle on nothing. Taking the
+ * halves and the micros away moves two of the four rungs, which is the second gate:
+ * inputs that moved and a ladder that did not is not an offer.
+ */
+const LOGBOOK_RECALCULATE_THEN = [
+  ...LOGBOOK_RACK_CLICK,
+  'ptk-equipment-setup input[data-field="micro-all"]',
+  'ptk-equipment-setup ptk-toggle-group[data-field="plates"] [data-value="2.5"] input',
+  'ptk-training-logbook ptk-button[data-action="resume-workout"] button',
+];
+
+/**
+ * Section 8.5's offer, and the button inside it.
+ *
+ * `.warmup-offer p.note` rather than the region: the region is drawn empty under every
+ * lift from the first paint, so it is on the screen this route reloads away from and
+ * would report a pass against a rack change that never landed. The paragraph is only
+ * there once the root has worked a standing out.
+ *
+ * The button is the half at risk. It is a secondary control under two sentences inside
+ * a card, which is the one place in this tool where a button follows wrapped prose, and
+ * it carries the longer of the two labels the offer can draw.
+ */
+const LOGBOOK_RECALCULATE_SETTLE = [
+  'ptk-active-workout .warmup-offer p.note',
+  'ptk-active-workout ptk-button[data-action="rebuild-warmup"] button',
+];
+
+/**
  * A whole session, done and put away, which is what section 7.8's line needs.
  *
  * The line is drawn from a *completed* session holding the lift, so the walk has
@@ -3075,6 +3131,22 @@ const ROUTES = [
     clickAfter: LOGBOOK_WARMUP_CLICK,
     clickLast: [],
     settle: LOGBOOK_WARMUP_SETTLE,
+  },
+  {
+    // Section 8.5's offer to work a warm-up out again, which nothing else here can
+    // reach: every other route either has no ramp on it or never disturbs the one it
+    // has. It is also the tallest thing the logging screen adds to a card -- two
+    // wrapping sentences and a button, above rows that already have plate diagrams
+    // under them -- and it appears between the lift's heading and its first set, which
+    // is the one place a card can grow downwards after a lifter has started reading it.
+    path: '/logbook/',
+    label: '/logbook/ (recalculating a warm-up)',
+    click: LOGBOOK_LOADING_CLICK,
+    reveal: [],
+    fill: LOGBOOK_PLAN_FILL,
+    clickAfter: LOGBOOK_WARMUP_CLICK,
+    revisit: { holding: LOGBOOK_RECALCULATE_HOLDING, then: LOGBOOK_RECALCULATE_THEN },
+    settle: LOGBOOK_RECALCULATE_SETTLE,
   },
   {
     path: '/logbook/',

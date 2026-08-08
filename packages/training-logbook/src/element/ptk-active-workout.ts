@@ -132,6 +132,7 @@ import {
   type FinishDisposition,
 } from '../core/session.js';
 import { setWasEdited, workoutProgress } from '../core/summary.js';
+import type { WarmupStanding } from '../core/warmup.js';
 import type {
   Effort,
   EffortSetting,
@@ -194,18 +195,26 @@ export interface WorkoutFinishedDetail {
 }
 
 /**
- * One of section 7.7's changes to the shape of a lift, named rather than applied.
+ * A change to the shape of a lift, named rather than applied.
  *
  * A verb and the thing it acts on. `add` names the exercise because there is no row
- * yet to name; the other three name the row. Nothing here says what the new set will
- * hold -- that is read off the session by whoever applies this, which is the only
+ * yet to name; the three after it name the row. Nothing here says what the new set
+ * will hold -- that is read off the session by whoever applies this, which is the only
  * side that has the session it will be applied to.
+ *
+ * Section 7.7's four, and then section 8.5's two. The warm-up pair travels the same
+ * way for the same reason and not by analogy: rebuilding a ramp writes rows through
+ * `insertSets`, which mints identifiers, and this element has no identifier source.
+ * They name the lift rather than a row because a ramp is not one row -- and because
+ * neither of them is a row the lifter pressed.
  */
 export type SetPlanChange =
   | { readonly kind: 'add'; readonly exerciseId: LogbookId }
   | { readonly kind: 'duplicate'; readonly setId: LogbookId }
   | { readonly kind: 'skip'; readonly setId: LogbookId }
-  | { readonly kind: 'remove'; readonly setId: LogbookId };
+  | { readonly kind: 'remove'; readonly setId: LogbookId }
+  | { readonly kind: 'rebuild-warmup'; readonly exerciseId: LogbookId }
+  | { readonly kind: 'clear-warmup'; readonly exerciseId: LogbookId };
 
 /** What the root is being asked to do. */
 export interface SetPlanChangedDetail {
@@ -236,6 +245,8 @@ const ADD_SET_ACTION = 'add-set';
 const DUPLICATE_SET_ACTION = 'duplicate-set';
 const SKIP_SET_ACTION = 'skip-set';
 const REMOVE_SET_ACTION = 'remove-set';
+const REBUILD_WARMUP_ACTION = 'rebuild-warmup';
+const CLEAR_WARMUP_ACTION = 'clear-warmup';
 const HISTORY_ACTION = 'open-exercise-history';
 
 /**
@@ -456,6 +467,20 @@ export class PtkActiveWorkout extends LitElement {
       font-size: var(--ptk-font-size-sm);
     }
 
+    /*
+     * No box of its own and no colour. It is a sentence and a quiet button about a
+     * ramp that is not wrong, and a panel around it would read as a warning -- which
+     * is the register section 15.3 keeps this tool out of. The region carries no
+     * spacing so that the empty one every other lift draws takes up no room.
+     */
+    .warmup-offer .note {
+      margin: var(--ptk-space-sm) 0 0;
+    }
+
+    .warmup-actions {
+      margin-top: var(--ptk-space-xs);
+    }
+
     .add-set {
       margin-top: var(--ptk-space-sm);
     }
@@ -531,6 +556,21 @@ export class PtkActiveWorkout extends LitElement {
    * 7.8 again, which asks for nothing rather than an empty panel.
    */
   @property({ attribute: false }) previous: ReadonlyMap<string, PreviousPerformance> = new Map();
+
+  /**
+   * Where each lift's written warm-up stands against the lift it is on, by row.
+   *
+   * Handed down for the same reason {@link previous} is: working one out regenerates
+   * a ramp, and this element re-renders on every keystroke in the weight box. Keyed by
+   * the row's own identifier rather than by the catalogue's, because two lifts of the
+   * same movement in one session are two ramps.
+   *
+   * A lift missing from the map draws nothing, which is also what the whole map being
+   * empty means -- and that is what a past session gets. The edit screen shows a
+   * workout from March against today's rack, so every offer on it would be an offer to
+   * rewrite a record to a gym the lifter was not in.
+   */
+  @property({ attribute: false }) warmups: ReadonlyMap<LogbookId, WarmupStanding> = new Map();
 
   /**
    * Whether this session is already in the history. Section 5.4's edit.
@@ -778,6 +818,7 @@ export class PtkActiveWorkout extends LitElement {
         ${this.#noteButton(note, this.#exerciseName(ACTIVE_NOTES.note, exercise))}
       </div>
       ${this.#previousLine(exercise)} ${this.#noteSurface(session, note)}
+      ${this.#warmupOffer(exercise)}
       <ul>
         ${exercise.sets.map((set) => this.#set(session, exercise, set, loadings))}
       </ul>
@@ -791,6 +832,90 @@ export class PtkActiveWorkout extends LitElement {
         >
       </div>
     </section>`;
+  }
+
+  /**
+   * Section 8.5's offer to work a warm-up out again, above the rows it would replace.
+   *
+   * The region is drawn on every lift whether or not there is anything in it, which is
+   * the same rule the root's `.outcome` regions follow: an offer that appears because
+   * a lifter removed their top set has to appear *into* a live region that was already
+   * in the document, or nothing announces it. It carries no spacing of its own so the
+   * empty one costs no room.
+   *
+   * The controls are inside the region rather than beside it. What appeared is an offer
+   * and not a warning -- a reader told "this warm-up was worked out for a different
+   * weight" and not told there is a button has been given the half of it they can do
+   * nothing about.
+   *
+   * Nothing here decides anything. The standing is worked out by the root and the press
+   * leaves as a change for the root to apply, so this element neither regenerates a ramp
+   * nor writes one.
+   */
+  #warmupOffer(exercise: WorkoutExercise): TemplateResult {
+    const standing = this.warmups.get(exercise.id) ?? { kind: 'none' as const };
+    return html`<div class="warmup-offer" role="status">
+      ${this.#warmupNotice(exercise, standing)}
+    </div>`;
+  }
+
+  #warmupNotice(
+    exercise: WorkoutExercise,
+    standing: WarmupStanding,
+  ): TemplateResult | typeof nothing {
+    switch (standing.kind) {
+      case 'none':
+      case 'current':
+        return nothing;
+      case 'stale': {
+        const { reasons, change } = standing;
+        return html`
+          <p class="note">
+            ${
+              reasons.workingWeight && reasons.equipment
+                ? ACTIVE_NOTES.warmupStaleBoth
+                : reasons.equipment
+                  ? ACTIVE_NOTES.warmupStaleRack
+                  : ACTIVE_NOTES.warmupStaleWeight
+            }
+          </p>
+          <p class="note">
+            ${
+              change.replaced.length === 0
+                ? ACTIVE_NOTES.warmupAdds(change.sets.length)
+                : ACTIVE_NOTES.warmupReplaces(change.replaced.length, change.sets.length)
+            }
+            ${
+              // Only where there is something to keep. "The 0 you have already done
+              // stay" is the sentence a count with no guard writes.
+              change.preserved.length === 0
+                ? nothing
+                : ACTIVE_NOTES.warmupKeeps(change.preserved.length)
+            }
+          </p>
+          ${this.#warmupControl(exercise, REBUILD_WARMUP_ACTION, ACTIVE_NOTES.warmupRebuild)}
+        `;
+      }
+      case 'unbuildable':
+        return html`
+          <p class="note">${ACTIVE_NOTES.warmupGone}</p>
+          <p class="note">${ACTIVE_NOTES.warmupClearNote}</p>
+          ${this.#warmupControl(exercise, CLEAR_WARMUP_ACTION, ACTIVE_NOTES.warmupClear)}
+        `;
+    }
+  }
+
+  /** The one button the offer ever draws, whichever of the two it is. */
+  #warmupControl(exercise: WorkoutExercise, action: string, label: string): TemplateResult {
+    return html`<div class="warmup-actions">
+      <ptk-button
+        variant="secondary"
+        data-action=${action}
+        data-exercise=${exercise.id}
+        accessible-name=${this.#exerciseName(label, exercise)}
+        >${label}</ptk-button
+      >
+    </div>`;
   }
 
   /**
@@ -1253,6 +1378,12 @@ export class PtkActiveWorkout extends LitElement {
       case REMOVE_SET_ACTION:
         this.#changeSet(event, 'remove');
         return;
+      case REBUILD_WARMUP_ACTION:
+        this.#changeWarmup(event, 'rebuild-warmup');
+        return;
+      case CLEAR_WARMUP_ACTION:
+        this.#changeWarmup(event, 'clear-warmup');
+        return;
       case HISTORY_ACTION:
         this.#openHistory(event);
         return;
@@ -1275,6 +1406,22 @@ export class PtkActiveWorkout extends LitElement {
     const exerciseId = exerciseOf(event);
     if (exerciseId === null) return;
     this.#planChange({ kind: 'add', exerciseId });
+  }
+
+  /**
+   * Either half of section 8.5's offer, which differ only in the verb they send.
+   *
+   * Both presses take their own button away: the standing the notice is drawn from is
+   * the thing the change alters, so the region is empty by the next render. Focus goes
+   * to the lift's history control, which is the nearest thing still standing and is
+   * directly above where the notice was -- the rows underneath have all moved, and one
+   * of them is the last place to drop a thumb that has just rebuilt a ramp.
+   */
+  #changeWarmup(event: Event, kind: 'rebuild-warmup' | 'clear-warmup'): void {
+    const exerciseId = exerciseOf(event);
+    if (exerciseId === null) return;
+    this.#refocus = `[data-action="${HISTORY_ACTION}"][data-exercise="${exerciseId}"]`;
+    this.#planChange({ kind, exerciseId });
   }
 
   /**

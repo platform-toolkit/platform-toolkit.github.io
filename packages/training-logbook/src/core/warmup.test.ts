@@ -18,6 +18,7 @@
 import {
   WARMUP_ENGINE_VERSION,
   WARMUP_RULESET_VERSION,
+  convertWeight,
   type WeightUnit,
 } from '@platform-toolkit/domain';
 import { describe, expect, it } from 'vitest';
@@ -36,11 +37,13 @@ import { AT_LATER, AT_START, ON_DAY, testContext } from './context.fixture.js';
 import { DEFAULT_EQUIPMENT } from './equipment.js';
 import {
   addExercise,
+  addSet,
   completeSet,
   createWorkout,
   performance,
   planSet,
   recordSet,
+  removeSet,
   skipSet,
   type NewExerciseOptions,
   type PlannedSet,
@@ -55,9 +58,11 @@ import {
   warmupIsCurrent,
   warmupMatchesEquipment,
   warmupSets,
+  warmupStanding,
   workingPrescription,
   type WarmupChange,
   type WarmupInput,
+  type WarmupStanding,
 } from './warmup.js';
 
 /**
@@ -881,6 +886,286 @@ describe('warmupIsCurrent', () => {
     const context = testContext();
     const snapshot = changeFor(aSquatWorkout(context), context).snapshot;
     expect(warmupIsCurrent({ ...snapshot, engineVersion: 'warmup-engine-2019.1' })).toBe(false);
+  });
+});
+
+/**
+ * A squat with a ramp under it, built the way the screen builds one.
+ *
+ * The input comes back off the exercise's own working sets rather than being written
+ * out here, which is what makes the cases below mean what they say: a fixture whose
+ * snapshot and whose sets disagreed on the day it was made would answer `stale` before
+ * any case had changed anything.
+ */
+function aRampedSquat(
+  context: SessionContext,
+  equipment: EquipmentSnapshot = DEFAULT_EQUIPMENT,
+): WorkoutSession {
+  const session = aSquatWorkout(context);
+  const exercise = onlyExercise(session);
+  const prescription = workingPrescription(exercise);
+  if (prescription === null) throw new Error('the fixture lost its working sets');
+  const outcome = rampExercise(
+    session,
+    exercise.id,
+    SQUAT,
+    {
+      equipment,
+      workingWeight: convertWeight(prescription.weight, equipment.plateUnit).amount,
+      workingSets: prescription.sets,
+      workingReps: prescription.reps,
+    },
+    context,
+  );
+  if (!outcome.ok) throw new Error(`no ramp: ${outcome.reason}`);
+  return outcome.session;
+}
+
+function standingOf(
+  session: WorkoutSession,
+  context: SessionContext,
+  equipment: EquipmentSnapshot = DEFAULT_EQUIPMENT,
+): WarmupStanding {
+  return warmupStanding(session, onlyExercise(session).id, SQUAT, equipment, context);
+}
+
+/** The rows of one kind, on the only exercise there is. */
+function setsOfKind(session: WorkoutSession, kind: 'warmup' | 'working'): readonly WorkoutSet[] {
+  return onlyExercise(session).sets.filter((set) => set.kind === kind);
+}
+
+/** The first row of a kind, for the cases that edit one. */
+function firstOfKind(session: WorkoutSession, kind: 'warmup' | 'working'): WorkoutSet {
+  const set = setsOfKind(session, kind)[0];
+  if (set === undefined) throw new Error(`the fixture lost its ${kind} sets`);
+  return set;
+}
+
+/** Every working set planned at a new weight, which is what moving the top set means. */
+function reWorkedAt(
+  session: WorkoutSession,
+  amount: number,
+  context: SessionContext,
+): WorkoutSession {
+  return setsOfKind(session, 'working').reduce((current, set) => {
+    const planned = set.planned;
+    if (planned === null) throw new Error('the fixture lost its plan');
+    return planSet(
+      current,
+      set.id,
+      { ...planned, load: { kind: 'implement', weight: { amount, unit: 'lb' } } },
+      context,
+    );
+  }, session);
+}
+
+/**
+ * The default rack, counted rather than unlimited.
+ *
+ * A different rack by `sameEquipment` and the same rack by every weight it can build,
+ * because twenty pairs of everything is more than a 225 lb ramp reaches for. It is how
+ * a case gets an input that has genuinely moved and a ladder that has not.
+ */
+function aCountedRack(): EquipmentSnapshot {
+  return {
+    ...DEFAULT_EQUIPMENT,
+    plates: DEFAULT_EQUIPMENT.plates.map((plate) => ({ ...plate, pairs: 20 })),
+  };
+}
+
+describe('warmupStanding', () => {
+  it('has nothing to say about a lift with no ramp under it', () => {
+    const context = testContext();
+    expect(standingOf(aSquatWorkout(context), context)).toEqual({ kind: 'none' });
+  });
+
+  it('has nothing to say about an exercise that is no longer there', () => {
+    // A screen holding an identifier a background reload removed, which is the same
+    // answer every other lookup in this file gives it.
+    const context = testContext();
+    const session = aRampedSquat(context);
+    expect(warmupStanding(session, 'id-gone', SQUAT, DEFAULT_EQUIPMENT, context)).toEqual({
+      kind: 'none',
+    });
+  });
+
+  it('leaves a ramp that still matches its lift alone', () => {
+    const context = testContext();
+    expect(standingOf(aRampedSquat(context), context)).toEqual({ kind: 'current' });
+  });
+
+  it('leaves a ramp alone when its weight had to be converted to build it', () => {
+    // Section 11.4's lifter again, in the case the two gates are least obviously safe
+    // in. The working sets are 225 lb and the rack is metric, so the weight the ladder
+    // was built to is 102.05828325 kg and the comparison is a float equality on
+    // it. It holds because both sides run the same `convertWeight` over the same stored
+    // weight -- the set keeps the pounds it was typed in -- and not because the number
+    // is round. A rung is ticked off here because that is what makes the mistake
+    // permanent rather than momentary: a preserved set is excluded from `replaced`, so
+    // a converted ramp that compared unequal by an ulp would raise an offer on every
+    // render, with nothing in the sentence beside it that had changed.
+    const context = testContext();
+    const session = aRampedSquat(context, aGym());
+    const done = completeSet(session, firstOfKind(session, 'warmup').id, testContext(AT_LATER));
+    expect(standingOf(done, context, aGym())).toEqual({ kind: 'current' });
+  });
+
+  it('notices the weight the working sets are planned at moving', () => {
+    const context = testContext();
+    const dropped = reWorkedAt(aRampedSquat(context), 185, testContext(AT_LATER));
+    const standing = standingOf(dropped, context);
+    expect(standing.kind).toBe('stale');
+    expect(standing.kind === 'stale' && standing.reasons).toEqual({
+      workingWeight: true,
+      equipment: false,
+    });
+  });
+
+  it('notices the rack changing under a session', () => {
+    // Section 11.4's lifter, in the case that produced this: the weight is still the
+    // 225 lb they typed, and none of the plates in front of them are pounds.
+    const context = testContext();
+    const standing = standingOf(aRampedSquat(context), context, aGym());
+    expect(standing.kind).toBe('stale');
+    expect(standing.kind === 'stale' && standing.reasons).toEqual({
+      workingWeight: false,
+      equipment: true,
+    });
+  });
+
+  it('names both when both have moved', () => {
+    const context = testContext();
+    const dropped = reWorkedAt(aRampedSquat(context), 185, testContext(AT_LATER));
+    const standing = standingOf(dropped, context, aGym());
+    expect(standing.kind === 'stale' && standing.reasons).toEqual({
+      workingWeight: true,
+      equipment: true,
+    });
+  });
+
+  it('says nothing when the inputs moved and the rungs did not', () => {
+    // The second gate. A rack this ramp never reaches the end of is a different rack
+    // and the same ladder, and an offer to replace six sets with the same six is how
+    // a lifter learns to dismiss the offer that matters.
+    const context = testContext();
+    expect(standingOf(aRampedSquat(context), context, aCountedRack())).toEqual({
+      kind: 'current',
+    });
+  });
+
+  it('does not offer to undo a lifter’s own adjustment to a rung', () => {
+    // The trap this function exists to avoid. A session handed over from the
+    // calculator arrives with the lifter's overrides already folded into the frozen
+    // plan, so its rows differ from a fresh generation with nothing having changed.
+    // Triggering on the rows would offer to undo their own weights, every time the
+    // lift was drawn, forever.
+    const context = testContext();
+    const session = aSquatWorkout(context);
+    const exercise = onlyExercise(session);
+    const change = changeFor(
+      session,
+      context,
+      squatInput({ adjustments: [{ index: 2, total: 95 }] }),
+    );
+    const adjusted = applyWarmup(session, exercise.id, change, context);
+    expect(totals(warmupsOf(adjusted, exercise.id))).not.toEqual(RAMP);
+    expect(standingOf(adjusted, context)).toEqual({ kind: 'current' });
+  });
+
+  it('does not offer because a working set was added', () => {
+    // Neither the working set count nor the reps reaches the ladder, so an offer here
+    // would have nothing to name and nothing to change.
+    const context = testContext();
+    const session = aRampedSquat(context);
+    const added = addSet(session, onlyExercise(session).id, workingAt(225, 'lb', 5), context);
+    expect(standingOf(added, context)).toEqual({ kind: 'current' });
+  });
+
+  it('does not offer because a working set was added after a rung was ticked off', () => {
+    // The same case with the ramp half done, which is the one that made the set count
+    // a deliberate non-trigger: with a rung preserved, any regeneration at all changes
+    // the rows, so this is the reachable press -- warm up, do a set, add another --
+    // that would otherwise raise a notice with an empty sentence on it.
+    const context = testContext();
+    const session = aRampedSquat(context);
+    const done = completeSet(session, firstOfKind(session, 'warmup').id, testContext(AT_LATER));
+    const added = addSet(done, onlyExercise(done).id, workingAt(225, 'lb', 5), context);
+    expect(standingOf(added, context)).toEqual({ kind: 'current' });
+  });
+
+  it('counts what a rebuild would replace and what it would keep', () => {
+    // What the sentence beside the offer is built from. Section 8.5 asks for the
+    // warning to name what is about to go, and the rows already ticked are the half
+    // of that a lifter mid-ramp wants first.
+    const context = testContext();
+    const session = aRampedSquat(context);
+    const done = completeSet(session, firstOfKind(session, 'warmup').id, testContext(AT_LATER));
+    const dropped = reWorkedAt(done, 185, testContext(AT_LATER));
+    const standing = standingOf(dropped, context);
+    if (standing.kind !== 'stale') throw new Error(`expected an offer, got ${standing.kind}`);
+    expect(standing.change.preserved).toHaveLength(1);
+    expect(standing.change.replaced).toHaveLength(RAMP.length - 1);
+    expect(standing.change.sets.length).toBeGreaterThan(0);
+  });
+
+  it('keeps the rungs already done when its offer is applied', () => {
+    // Section 8.5's promise, through the whole path a press takes: the ticked rung is
+    // still there, still performed, and the rest of the ladder is the new one.
+    const context = testContext();
+    const session = aRampedSquat(context);
+    const ticked = firstOfKind(session, 'warmup');
+    const done = completeSet(session, ticked.id, testContext(AT_LATER));
+    const dropped = reWorkedAt(done, 185, testContext(AT_LATER));
+    const standing = standingOf(dropped, context);
+    if (standing.kind !== 'stale') throw new Error(`expected an offer, got ${standing.kind}`);
+    const rebuilt = applyWarmup(dropped, onlyExercise(dropped).id, standing.change, context);
+
+    const warmups = warmupsOf(rebuilt, onlyExercise(rebuilt).id);
+    const kept = warmups.find((set) => set.id === ticked.id);
+    expect(kept?.status).toBe('complete');
+    expect(totals(warmups.slice(1))).toEqual(
+      standing.change.sets.map((set) => weightOf(set.performance)),
+    );
+    expect(warmups.every((set) => set.id === ticked.id || set.status === 'planned')).toBe(true);
+  });
+
+  it('offers to take a ramp off when there is nothing left to work up to', () => {
+    const context = testContext();
+    const session = aRampedSquat(context);
+    const stripped = setsOfKind(session, 'working').reduce(
+      (current, set) => removeSet(current, set.id, context),
+      session,
+    );
+    expect(standingOf(stripped, context)).toEqual({ kind: 'unbuildable' });
+  });
+
+  it('offers to take a ramp off when the engine refuses the weight', () => {
+    // A working set planned at nothing is a weight the engine turns down, and the
+    // ramp above it is still on the card. There is nothing to rebuild it to.
+    const context = testContext();
+    const zeroed = reWorkedAt(aRampedSquat(context), 0, testContext(AT_LATER));
+    expect(standingOf(zeroed, context)).toEqual({ kind: 'unbuildable' });
+  });
+
+  it('offers to take a ramp off a movement the catalogue no longer ramps', () => {
+    // Reachable across a build: the record names a movement by identifier, and a
+    // catalogue entry that lost its family leaves a ramp nothing can regenerate.
+    const context = testContext();
+    const session = aRampedSquat(context);
+    expect(
+      warmupStanding(session, onlyExercise(session).id, CHIN_UP, DEFAULT_EQUIPMENT, context),
+    ).toEqual({ kind: 'unbuildable' });
+  });
+
+  it('writes nothing', () => {
+    // A screen works this out on every render. Section 8.5's split is the whole point:
+    // the answer is a value, and applying it is somebody else's press.
+    const context = testContext();
+    const session = aRampedSquat(context);
+    const dropped = reWorkedAt(session, 185, testContext(AT_LATER));
+    const before = JSON.stringify(dropped);
+    standingOf(dropped, context);
+    expect(JSON.stringify(dropped)).toBe(before);
   });
 });
 

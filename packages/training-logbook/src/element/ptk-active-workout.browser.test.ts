@@ -71,6 +71,7 @@
 // diagram renders with no plate colours and the accessibility pass measures a screen
 // that never ships.
 import '@platform-toolkit/ui/tokens.css';
+import { convertWeight } from '@platform-toolkit/domain';
 import axe from 'axe-core';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -84,6 +85,7 @@ import {
   startWorkout,
   type SessionContext,
 } from '../core/session.js';
+import { rampExercise, workingPrescription } from '../core/warmup.js';
 import { memoryLogbookStore } from '../storage/memory.js';
 import type { LogbookStore } from '../storage/port.js';
 import { createRepository, defaultSettings } from '../storage/repository.js';
@@ -2398,4 +2400,174 @@ async function settle(element: PtkTrainingLogbook): Promise<void> {
     const line = (shadow(element).querySelector('.save')?.textContent ?? '').trim();
     expect(line).not.toBe(SAVE_STATES.unsaved);
   });
+}
+
+/**
+ * SECTION 8.5'S OFFER IS THE SIXTH
+ *
+ * Driven through the whole tool for section 7.7's reason twice over: the root works out
+ * where a written ramp stands and the root applies the press, so the screen in between
+ * neither regenerates a ramp nor writes one. A case against the element alone could
+ * only show that a `stale` standing it was handed draws a button, which stays green
+ * while the tool never works one out.
+ *
+ * Both journeys reach their state through the controls on the card. The heaviest
+ * working row is what the ramp was built to, so taking it out moves the weight; taking
+ * out the last of them leaves nothing to work up to at all. Neither needs a change a
+ * lifter could not make between sets.
+ */
+describe('working a warm-up out again mid-session', () => {
+  it('says nothing about a ramp that is still the one this lift would generate', async () => {
+    const { element } = await aRampedTool(aPoundGym());
+
+    expect(warmupRows(element).length).toBeGreaterThan(0);
+    // Empty and present, not absent: the region has to be in the document before the
+    // sentence is, or the offer the cases below produce announces to nobody.
+    expect(offers(element)).toEqual(['']);
+  });
+
+  it('offers to work the ramp out again once the top set has gone, and names the cost', async () => {
+    const { element, store } = await aRampedTool(aPoundGym());
+    await pressIn(element, setRow(element, 0), controlFor('complete'));
+    const before = warmupRows(element).length;
+
+    await removePlanned(element, TOP_PLAN);
+
+    const sentence = offers(element)[0] ?? '';
+    expect(sentence).toContain(ACTIVE_NOTES.warmupStaleWeight);
+    expect(sentence).not.toContain(ACTIVE_NOTES.warmupStaleRack);
+
+    await pressIn(element, exerciseCard(element, 0), controlFor('rebuild-warmup'));
+
+    // The sentence is checked against what the press turned out to do rather than
+    // against numbers written here, which is the whole of what it promises: a rung
+    // already ticked stays and the rest are replaced. Counted after the fact, so a
+    // copy that reported the ladder it was replacing rather than the one it was
+    // writing fails here instead of reading plausibly.
+    const after = warmupRows(element).length;
+    expect(sentence).toContain(ACTIVE_NOTES.warmupReplaces(before - 1, after - 1));
+    expect(sentence).toContain(ACTIVE_NOTES.warmupKeeps(1));
+    expect(doneRows(element)[0]).toBe(true);
+
+    // And the frozen record is about the weight that is actually there now. Asserted
+    // against the database because the rows on screen would look the same whether the
+    // snapshot moved with them or was left behind saying 225.
+    const kept = await written(store);
+    expect(exerciseAt(kept, 0).warmup?.plan.working.total).toBe(185);
+    expect(offers(element)).toEqual(['']);
+  });
+
+  it('offers to take the warm-up off once there is nothing left to work up to', async () => {
+    const { element, store } = await aRampedTool(aPoundGym());
+    await pressIn(element, setRow(element, 0), controlFor('complete'));
+
+    await removePlanned(element, TOP_PLAN);
+    await removePlanned(element, BACKOFF_PLAN);
+
+    expect(offers(element)[0] ?? '').toContain(ACTIVE_NOTES.warmupGone);
+    await pressIn(element, exerciseCard(element, 0), controlFor('clear-warmup'));
+
+    // The rung that was done stays and the snapshot goes, which is the pair section
+    // 8.5 splits: the claim "this ladder was generated from this rack" is retracted,
+    // the record of what somebody lifted under it is not.
+    const kept = await written(store);
+    expect(exerciseAt(kept, 0).warmup).toBeNull();
+    expect(doneRows(element)).toEqual([true]);
+    expect(offers(element)).toEqual(['']);
+  });
+
+  it('offers nothing where the lifter has never chosen a rack', async () => {
+    // The same journey with `equipment` left at its default, and both halves are
+    // needed for the rack binding's reason: without this one, a root that worked the
+    // standings out against a rack it invented for itself would pass every case above.
+    const { element } = await aRampedTool(null);
+
+    await removePlanned(element, TOP_PLAN);
+
+    expect(offers(element)).toEqual(['']);
+  });
+
+  it('has no accessibility violations with the offer on screen', async () => {
+    const { element } = await aRampedTool(aPoundGym());
+    await removePlanned(element, TOP_PLAN);
+
+    // Contrast off for this file's usual reason. The offer is a live region with a
+    // button inside it, and the button names its lift -- two of them on one screen
+    // would otherwise both read "Work it out again".
+    const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
+    expect(results.violations).toEqual([]);
+  });
+});
+
+/**
+ * {@link aBackoffSession} with the ramp the builder would have written into it.
+ *
+ * Ramped through `rampExercise` off the session's own prescription, exactly as both
+ * screens that compose a session do. A snapshot typed out here by hand would be free
+ * to hold a plan the engine never produces, and a staleness answer against one of
+ * those is an answer about nothing. Its own identifier prefix again, for
+ * {@link aBackoffSession}'s reason.
+ */
+function aRampedSession(equipment: EquipmentSnapshot): WorkoutSession {
+  const session = aBackoffSession();
+  const exercise = exerciseAt(session, 0);
+  const prescription = workingPrescription(exercise);
+  if (prescription === null) throw new Error('This session works up to nothing.');
+  let next = 0;
+  const context: SessionContext = {
+    at: AT_START,
+    nextId: (): LogbookId => {
+      next += 1;
+      return `ramp-${String(next)}`;
+    },
+  };
+  const outcome = rampExercise(
+    session,
+    exercise.id,
+    SQUAT,
+    {
+      equipment,
+      workingWeight: convertWeight(prescription.weight, equipment.plateUnit).amount,
+      workingSets: prescription.sets,
+      workingReps: prescription.reps,
+    },
+    context,
+  );
+  if (!outcome.ok) throw new Error(`This session would not ramp: ${outcome.reason}`);
+  return outcome.session;
+}
+
+/** The tool over a database holding that session, resumed onto the logging screen. */
+async function aRampedTool(
+  equipment: EquipmentSnapshot | null,
+): Promise<{ readonly element: PtkTrainingLogbook; readonly store: LogbookStore }> {
+  const store = await aStore({ equipment });
+  // Always ramped against the pound rack, including for the case that mounts with no
+  // rack at all: what that case is about is the root having none to compare against,
+  // not the session having been built without one.
+  await store.writeWorkout(aRampedSession(aPoundGym()), { kind: 'set' });
+  const element = await mountToolOver(store);
+  await press(element, 'resume-workout');
+  return { element, store };
+}
+
+/** The rungs on screen, by the attribute rather than by the word beside them. */
+function warmupRows(element: Element): HTMLElement[] {
+  return deepAll(shadow(element), 'li[data-set][data-kind="warmup"]');
+}
+
+/**
+ * What each lift's offer region says, one entry a lift and an empty string where the
+ * region is drawn and holds nothing.
+ */
+function offers(element: Element): string[] {
+  return deepAll(shadow(element), '.warmup-offer').map((region) => oneLine(region));
+}
+
+/** Takes out the row reading a given plan, wherever the ramp above it has put it. */
+async function removePlanned(element: PtkTrainingLogbook, plan: string): Promise<void> {
+  const index = rowPlans(element).indexOf(plan);
+  if (index === -1) throw new Error(`No row on this screen is planned as ${plan}.`);
+  await openEditorOn(element, index);
+  await pressIn(element, setRow(element, index), controlFor('remove-set'));
 }

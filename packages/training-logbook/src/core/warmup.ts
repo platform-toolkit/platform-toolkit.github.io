@@ -443,6 +443,119 @@ export function warmupIsCurrent(snapshot: WarmupSnapshot): boolean {
   );
 }
 
+/**
+ * Which of a ramp's inputs moved out from under it.
+ *
+ * A record rather than a list, because the two are independent and the sentence
+ * beside the offer names them separately: somebody who changed gyms and somebody
+ * who dropped their top set are being told different things about the same button.
+ */
+export interface WarmupStaleReasons {
+  /** The working sets are planned at a weight this ramp was not built to. */
+  readonly workingWeight: boolean;
+  /** The rack is not the one it was generated against. */
+  readonly equipment: boolean;
+}
+
+/**
+ * Where a written ramp stands against the lift it is attached to.
+ *
+ * `unbuildable` is a ramp that exists and could not be produced again -- the working
+ * sets it was built from are gone, or the engine now refuses them. There is nothing
+ * to offer but taking it off, which is why {@link clearWarmup} and the rebuild hang
+ * off one answer rather than off two separate questions.
+ */
+export type WarmupStanding =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'current' }
+  | { readonly kind: 'stale'; readonly reasons: WarmupStaleReasons; readonly change: WarmupChange }
+  | { readonly kind: 'unbuildable' };
+
+/**
+ * Whether a written ramp is still the ramp this lift would generate, and what it
+ * would cost to say yes.
+ *
+ * Section 8.5's mid-session recalculation, as a value -- the same split as
+ * {@link warmupChange}, one level up. Nothing here writes and nothing here decides
+ * to write: a `stale` answer is an offer for a screen to put in front of somebody,
+ * and applying it is a separate press through {@link applyWarmup}.
+ *
+ * TWO GATES, AND WHY IT IS NOT "DO THE ROWS DIFFER"
+ *
+ * The first gate is the ramp's *inputs*: the weight the working sets are planned at,
+ * and the rack. The obvious alternative -- regenerate and compare against what is
+ * written -- is wrong here, and permanently so. A session handed over from the
+ * calculator arrives with the lifter's own rung adjustments already folded into the
+ * frozen plan, and the snapshot does not keep them separately (see
+ * {@link WarmupInput.adjustments}). Its written rows therefore differ from a fresh
+ * generation with nothing having changed, so a screen that triggered on the rows
+ * would offer, every time the lift was drawn, to undo the lifter's overrides.
+ *
+ * The second gate is {@link WarmupChange.changesPlan}: inputs that moved but produce
+ * the ladder already on the card are worth nothing to say. A rack gains a pair of
+ * 25s, a working weight moves half a kilo -- both are real changes to the inputs and
+ * neither reaches a rung.
+ *
+ * Working *sets* and *reps* are deliberately not a trigger. Neither reaches the
+ * ladder, so the answer would be `current` every time, and the cost of asking is not
+ * zero: an exercise with a rung already ticked off has a `changesPlan` of `true` for
+ * any regeneration at all, so adding a back-off set after warming up would raise an
+ * offer whose sentence has nothing to name.
+ *
+ * Applying a `stale` answer drops any rung adjustment along with the rest of the old
+ * ladder. That is the calculator's rule -- a recalculated ramp is the engine's again
+ * -- and it is the reason the offer is an offer.
+ */
+export function warmupStanding(
+  session: WorkoutSession,
+  exerciseId: LogbookId,
+  option: ExerciseOption,
+  equipment: EquipmentSnapshot,
+  context: SessionContext,
+): WarmupStanding {
+  const exercise = findWorkoutExercise(session, exerciseId);
+  if (exercise === null) return { kind: 'none' };
+  const snapshot = exercise.warmup;
+  if (snapshot === null) return { kind: 'none' };
+
+  const family = warmupFamilyFor(option);
+  const prescription = workingPrescription(exercise);
+  if (family === null || prescription === null) return { kind: 'unbuildable' };
+
+  // Compared in the unit the snapshot was generated in, which makes this the exact
+  // arithmetic the create path ran on the exact same stored weight: a lift nobody has
+  // touched compares equal rather than nearly equal. Converting the other way would
+  // put a rounding error between a ramp and itself every time a lifter read in pounds
+  // off a kilo rack.
+  const working = snapshot.plan.working;
+  const reasons: WarmupStaleReasons = {
+    workingWeight:
+      convertWeight(prescription.weight, snapshot.equipment.plateUnit).amount !== working.total,
+    equipment: !warmupMatchesEquipment(snapshot, equipment),
+  };
+  if (!reasons.workingWeight && !reasons.equipment) return { kind: 'current' };
+
+  const { amount } = convertWeight(prescription.weight, equipment.plateUnit);
+  const result = warmupChange(
+    session,
+    exerciseId,
+    {
+      family,
+      equipment,
+      workingWeight: amount,
+      workingSets: prescription.sets,
+      workingReps: prescription.reps,
+    },
+    context,
+  );
+  // `null` is unreachable -- the exercise was found above -- and is grouped with the
+  // engine's refusal rather than asserted away, because both mean the same thing to
+  // the one screen that asks: there is a ramp here and no new one to put in its place.
+  if (result?.ok !== true) return { kind: 'unbuildable' };
+  if (!result.change.changesPlan) return { kind: 'current' };
+  return { kind: 'stale', reasons, change: result.change };
+}
+
 /** A set nobody has touched yet, and so a set that may be rewritten. */
 function isSettled(set: WorkoutSet): boolean {
   return set.status !== 'planned';
