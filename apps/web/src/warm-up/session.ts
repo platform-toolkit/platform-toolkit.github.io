@@ -62,6 +62,7 @@ import {
 import {
   PreferenceValue,
   definePreference,
+  readPreference,
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
 // These were declared here until `ptk-equipment-setup` moved into `packages/ui`
@@ -698,9 +699,9 @@ export const SESSION_PREFERENCES = {
  * as 225 kg -- a plausible figure, a hundred kilograms out, with nothing on
  * screen to indicate it.
  */
-export function loadEntries(store: PreferenceStore, unit: WeightUnit): readonly LiftEntry[] {
+export function loadEntries(store: PreferenceStore | null, unit: WeightUnit): readonly LiftEntry[] {
   const adjustments = new Map<string, WarmupAdjustment[]>();
-  for (const stored of store.read(SESSION_PREFERENCES.adjustments)) {
+  for (const stored of readPreference(store, SESSION_PREFERENCES.adjustments)) {
     const total = convertWeight({ amount: stored.total, unit: stored.unit }, unit).amount;
     const forLift = adjustments.get(stored.lift) ?? [];
     forLift.push({ index: stored.row, total });
@@ -708,7 +709,7 @@ export function loadEntries(store: PreferenceStore, unit: WeightUnit): readonly 
   }
 
   const rows: LiftEntry[] = [];
-  for (const stored of store.read(SESSION_PREFERENCES.entries)) {
+  for (const stored of readPreference(store, SESSION_PREFERENCES.entries)) {
     const lift = findLift(stored.lift);
     // A lift this build no longer has. The row is dropped rather than kept under
     // its bare identifier, which would render as a nameless card.
@@ -742,9 +743,11 @@ export function loadEntries(store: PreferenceStore, unit: WeightUnit): readonly 
  * come from fields a lifter is mid-way through typing, so half of them are
  * invalid half the time. Clamping to a storable stand-in loses at most a partly
  * typed number; letting the throw out loses the screen.
+ *
+ * A `null` store means the host named nowhere to put this, so it goes nowhere.
  */
 export function saveEntries(
-  store: PreferenceStore,
+  store: PreferenceStore | null,
   entries: readonly LiftEntry[],
   unit: WeightUnit,
 ): void {
@@ -785,8 +788,8 @@ export function saveEntries(
       unit,
     });
   }
-  store.write(SESSION_PREFERENCES.entries, stored);
-  store.write(SESSION_PREFERENCES.adjustments, adjustments);
+  store?.write(SESSION_PREFERENCES.entries, stored);
+  store?.write(SESSION_PREFERENCES.adjustments, adjustments);
 }
 
 /** Which rows of which lifts have been ticked, keyed for lookup. */
@@ -803,7 +806,7 @@ export function toggleMark(completion: Completion, key: string): Completion {
 }
 
 export function loadCompletion(
-  store: PreferenceStore,
+  store: PreferenceStore | null,
   entries: readonly LiftEntry[],
   equipment: Equipment,
 ): Completion {
@@ -814,7 +817,7 @@ export function loadCompletion(
   }
 
   const marks = new Set<string>();
-  for (const mark of store.read(SESSION_PREFERENCES.marks)) {
+  for (const mark of readPreference(store, SESSION_PREFERENCES.marks)) {
     const total = totals.get(mark.lift);
     if (total === undefined || !sameTotal(total, mark.total)) continue;
     marks.add(markKey(mark.lift, mark.row));
@@ -823,7 +826,7 @@ export function loadCompletion(
 }
 
 export function saveCompletion(
-  store: PreferenceStore,
+  store: PreferenceStore | null,
   completion: Completion,
   entries: readonly LiftEntry[],
   equipment: Equipment,
@@ -839,5 +842,5 @@ export function saveCompletion(
       stored.push({ lift: entry.liftId, row: Number(index), total: reading.value });
     }
   }
-  store.write(SESSION_PREFERENCES.marks, stored);
+  store?.write(SESSION_PREFERENCES.marks, stored);
 }

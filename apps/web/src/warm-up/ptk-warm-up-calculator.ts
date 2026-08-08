@@ -21,7 +21,7 @@
  * the stores and this element uses whatever it is given, including nothing.
  */
 import { convertWeight, formatWeight, type WeightUnit } from '@platform-toolkit/domain';
-import { createPreferenceStore, type PreferenceStore } from '@platform-toolkit/preferences';
+import type { PreferenceStore } from '@platform-toolkit/preferences';
 import '@platform-toolkit/ui/ptk-choice-group';
 import '@platform-toolkit/ui/ptk-equipment-setup';
 import {
@@ -167,11 +167,13 @@ export class PtkWarmUpCalculator extends LitElement {
   /**
    * Where the rack and today's weights are kept between visits.
    *
-   * Defaulted to a store with no backing rather than left undefined, so the
-   * element works standing on its own in a story or a test and the tool is the
-   * only thing that has to know a browser exists.
+   * `null` means remember nothing, and it is the default because a host that has
+   * not said where to put anything has not chosen an inert store either -- that
+   * is a placement, and picking one here would be this element deciding a seam
+   * on the host's behalf. Not required, because `<ptk-warm-up-calculator>` in
+   * plain HTML is what the README documents.
    */
-  @property({ attribute: false }) settings: PreferenceStore = createPreferenceStore(null);
+  @property({ attribute: false }) settings: PreferenceStore | null = null;
 
   /**
    * Where the ticks are kept: per tab, and gone next week.
@@ -179,9 +181,11 @@ export class PtkWarmUpCalculator extends LitElement {
    * A separate store and not a flag on the first one, because "what I squat" and
    * "which sets I have done today" have different lifetimes and the difference
    * has to be structural. One store with two lifetimes is one line away from
-   * remembering last Tuesday's ticks against this Tuesday's ramp.
+   * remembering last Tuesday's ticks against this Tuesday's ramp. `null` for the
+   * same reason `settings` is, and separately: two seams, two decisions, neither
+   * of them this element's.
    */
-  @property({ attribute: false }) marks: PreferenceStore = createPreferenceStore(null);
+  @property({ attribute: false }) marks: PreferenceStore | null = null;
 
   /**
    * Somewhere to hand today's session, or `null` for a page that offers none.
@@ -260,7 +264,7 @@ export class PtkWarmUpCalculator extends LitElement {
       <section>
         <ptk-equipment-setup
           .equipment=${this.equipment}
-          ?remembers=${this.settings.remembers}
+          ?remembers=${this.settings?.remembers ?? false}
         ></ptk-equipment-setup>
       </section>
 

@@ -42,6 +42,7 @@ import {
 import {
   PreferenceValue,
   definePreference,
+  readPreference,
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
 
@@ -201,13 +202,13 @@ function decodePlates(
 }
 
 /** The remembered equipment, or the defaults -- never a failure and never a wait. */
-export function loadEquipment(store: PreferenceStore): Equipment {
+export function loadEquipment(store: PreferenceStore | null): Equipment {
   const stored = {
-    plateUnit: store.read(EQUIPMENT_PREFERENCES.plateUnit),
-    barId: store.read(EQUIPMENT_PREFERENCES.bar),
-    customBar: store.read(EQUIPMENT_PREFERENCES.customBar),
-    collarId: store.read(EQUIPMENT_PREFERENCES.collars),
-    customCollars: store.read(EQUIPMENT_PREFERENCES.customCollars),
+    plateUnit: readPreference(store, EQUIPMENT_PREFERENCES.plateUnit),
+    barId: readPreference(store, EQUIPMENT_PREFERENCES.bar),
+    customBar: readPreference(store, EQUIPMENT_PREFERENCES.customBar),
+    collarId: readPreference(store, EQUIPMENT_PREFERENCES.collars),
+    customCollars: readPreference(store, EQUIPMENT_PREFERENCES.customCollars),
   };
   return {
     plateUnit: stored.plateUnit,
@@ -216,8 +217,8 @@ export function loadEquipment(store: PreferenceStore): Equipment {
     collarId: stored.collarId,
     customCollars: { ...stored.customCollars },
     inventory: {
-      kg: decodePlates('kg', store.read(EQUIPMENT_PREFERENCES.platesKg)),
-      lb: decodePlates('lb', store.read(EQUIPMENT_PREFERENCES.platesLb)),
+      kg: decodePlates('kg', readPreference(store, EQUIPMENT_PREFERENCES.platesKg)),
+      lb: decodePlates('lb', readPreference(store, EQUIPMENT_PREFERENCES.platesLb)),
     },
   };
 }
@@ -229,13 +230,17 @@ export function loadEquipment(store: PreferenceStore): Equipment {
  * a caller could do with it -- stop promising to remember -- and `remembers`
  * already answers that before anything is written, without waiting for a lifter
  * to change a setting to find out.
+ *
+ * A `null` store means the host named nowhere to put this, so it goes nowhere.
+ * Not to a store built here, which would be this module choosing the placement
+ * on their behalf.
  */
-export function saveEquipment(store: PreferenceStore, equipment: Equipment): void {
-  store.write(EQUIPMENT_PREFERENCES.plateUnit, equipment.plateUnit);
-  store.write(EQUIPMENT_PREFERENCES.bar, equipment.barId);
-  store.write(EQUIPMENT_PREFERENCES.customBar, { ...equipment.customBar });
-  store.write(EQUIPMENT_PREFERENCES.collars, equipment.collarId);
-  store.write(EQUIPMENT_PREFERENCES.customCollars, { ...equipment.customCollars });
-  store.write(EQUIPMENT_PREFERENCES.platesKg, encodePlates(equipment.inventory.kg));
-  store.write(EQUIPMENT_PREFERENCES.platesLb, encodePlates(equipment.inventory.lb));
+export function saveEquipment(store: PreferenceStore | null, equipment: Equipment): void {
+  store?.write(EQUIPMENT_PREFERENCES.plateUnit, equipment.plateUnit);
+  store?.write(EQUIPMENT_PREFERENCES.bar, equipment.barId);
+  store?.write(EQUIPMENT_PREFERENCES.customBar, { ...equipment.customBar });
+  store?.write(EQUIPMENT_PREFERENCES.collars, equipment.collarId);
+  store?.write(EQUIPMENT_PREFERENCES.customCollars, { ...equipment.customCollars });
+  store?.write(EQUIPMENT_PREFERENCES.platesKg, encodePlates(equipment.inventory.kg));
+  store?.write(EQUIPMENT_PREFERENCES.platesLb, encodePlates(equipment.inventory.lb));
 }

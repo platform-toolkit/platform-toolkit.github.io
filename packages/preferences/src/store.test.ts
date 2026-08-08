@@ -8,6 +8,7 @@ import {
   PREFERENCE_KEY_PREFIX,
   createPreferenceStore,
   definePreference,
+  readPreference,
   type PreferenceStore,
 } from './store.js';
 import { PreferenceValue } from './value.js';
@@ -205,6 +206,39 @@ describe('when there is no storage', () => {
     // The caller bug is a caller bug whether or not there is a disk. Skipping
     // the check here would make it reproduce only on devices with storage.
     expect(() => store.write(BAR_WEIGHT, 400)).toThrow(RangeError);
+  });
+});
+
+describe('when the host wired no store at all', () => {
+  it('answers the definition itself', () => {
+    expect(readPreference(null, UNIT)).toBe('kg');
+    expect(readPreference(null, BAR_WEIGHT)).toBe(20);
+    expect(readPreference(null, INVENTORY)).toEqual([]);
+  });
+
+  it('reads through the store when there is one', () => {
+    const { store } = withStorage();
+    store.write(UNIT, 'lb');
+    expect(readPreference(store, UNIT)).toBe('lb');
+  });
+
+  it('asks a store nothing when there is none', () => {
+    // The absent case is indistinguishable from an inert store by its answers
+    // alone, so the assertion has to be that no store is consulted -- which is
+    // the whole difference between the host naming nowhere and the host naming
+    // a placement that happens to have nowhere to put anything.
+    let reads = 0;
+    const counted: PreferenceStore = {
+      ...createPreferenceStore(null),
+      read: (definition) => {
+        reads += 1;
+        return definition.fallback;
+      },
+    };
+    expect(readPreference(counted, UNIT)).toBe('kg');
+    expect(reads).toBe(1);
+    expect(readPreference(null, UNIT)).toBe('kg');
+    expect(reads).toBe(1);
   });
 });
 

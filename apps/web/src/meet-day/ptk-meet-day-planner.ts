@@ -102,7 +102,7 @@ import {
   undo,
   undoableAction,
 } from '@platform-toolkit/domain';
-import { createPreferenceStore, type PreferenceStore } from '@platform-toolkit/preferences';
+import type { PreferenceStore } from '@platform-toolkit/preferences';
 import '@platform-toolkit/ui/ptk-button';
 import '@platform-toolkit/ui/ptk-choice-group';
 import '@platform-toolkit/ui/ptk-disclosure';
@@ -764,25 +764,29 @@ export class PtkMeetDayPlanner extends LitElement {
   /**
    * Where the remembered answers live.
    *
-   * Defaulted to a store with no backing so the element stands up in a story or
-   * a test with no branch anywhere -- and so the configuration these tools
-   * actually ship into, an iframe whose embedder blocked storage, is the
-   * supported path rather than the exceptional one (§5.12).
+   * `null` means remember nothing, and it is the default because a host that has
+   * not said where to put anything has not chosen an inert store either -- that
+   * is a placement, and picking one here would be this element deciding a seam
+   * on the host's behalf. The configuration these tools actually ship into, an
+   * iframe whose embedder blocked storage, is still the supported path (§5.12):
+   * that is a store the host wired which happens to keep nothing, and it comes in
+   * through this property like any other.
    */
-  @property({ attribute: false }) settings: PreferenceStore = createPreferenceStore(null);
+  @property({ attribute: false }) settings: PreferenceStore | null = null;
 
   /**
    * Where §24's saved meets live, defaulted to a store that keeps nothing.
    *
-   * The same reasoning as `settings` above, and then the opposite conclusion,
-   * which is the part worth reading. `settings` defaults to a working store over
-   * no backing, because a preference that fails to stick costs a lifter one
-   * re-tap. A saved meet is a document about a person, so this one defaults to
-   * `noMeetStore` -- `persistence: 'none'` -- and §24 is then withdrawn from the
-   * screen entirely rather than offered and refused. A story or a test that hands
-   * in nothing therefore gets **no shelf**, not a shelf under a warning; pass
-   * `sessionMeets()` for that screen. The fail-open version would keep a
-   * bodyweight, an age and three maximums under an origin nobody chose.
+   * Not `null`, which is what `settings` above means by "nowhere", and the
+   * difference is the part worth reading. A preference that fails to stick costs
+   * a lifter one re-tap, so an absent settings store is simply quiet. A saved
+   * meet is a document about a person, so this one defaults to `noMeetStore` --
+   * `persistence: 'none'` -- which is a store that *says* it keeps nothing, and
+   * §24 is then withdrawn from the screen entirely rather than offered and
+   * refused. A story or a test that hands in nothing therefore gets **no shelf**,
+   * not a shelf under a warning; pass `sessionMeets()` for that screen. The
+   * fail-open version would keep a bodyweight, an age and three maximums under
+   * an origin nobody chose.
    */
   @property({ attribute: false }) store: MeetStore = noMeetStore();
 

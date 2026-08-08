@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { DataMeta } from '@platform-toolkit/data-contracts';
-import { createPreferenceStore, memoryPreferenceStorage } from '@platform-toolkit/preferences';
+import {
+  createPreferenceStore,
+  memoryPreferenceStorage,
+  PREFERENCE_KEY_PREFIX,
+} from '@platform-toolkit/preferences';
 import { PtkChoiceGroup } from '@platform-toolkit/ui/ptk-choice-group';
 import { PtkSelect } from '@platform-toolkit/ui/ptk-select';
 // The tap-target and 320 px measurements at the bottom read spacing tokens, and
@@ -72,6 +76,19 @@ function emptyStore(): PtkPlatformTargets['settings'] {
   // that outlived one of them would make a later "first visit" a returning one
   // -- passing or failing on test order.
   return createPreferenceStore(memoryPreferenceStorage());
+}
+
+/**
+ * Every preference key the browser is holding, across both real storages.
+ *
+ * Compared as a difference rather than against empty: these suites share a page,
+ * and the assertion is about what this element added rather than about what the
+ * origin happens to hold.
+ */
+function preferenceKeys(): readonly string[] {
+  return [window.localStorage, window.sessionStorage].flatMap((storage) =>
+    Object.keys(storage).filter((key) => key.startsWith(PREFERENCE_KEY_PREFIX)),
+  );
 }
 
 async function mount(options: MountOptions = {}): Promise<PtkPlatformTargets> {
@@ -460,6 +477,26 @@ describe('ptk-platform-targets', () => {
 
     expect(showing(element)).toEqual({ questions: false, context: true, report: true });
     expect(report(element).selection.weightClass).toBe('f-56');
+  });
+
+  /**
+   * Plain HTML, and an embedder that blocked storage.
+   *
+   * `settings` is left unassigned rather than assigned `null`, because the class
+   * field default is the thing under test -- an assignment would pass equally
+   * against an element that built a store of its own. The apply press is the
+   * write path, so the whole screen runs through the absence.
+   */
+  it('draws the report with no store wired at all', async () => {
+    const before = preferenceKeys();
+    const element = await mount();
+    await answerEverythingRequired(element);
+    await press(element, 'apply');
+
+    expect(element.settings).toBeNull();
+    expect(showing(element)).toEqual({ questions: false, context: true, report: true });
+    expect(report(element).selection.weightClass).toBe('f-56');
+    expect(preferenceKeys()).toEqual(before);
   });
 
   /**

@@ -33,6 +33,7 @@ import type { MeetAction } from '@platform-toolkit/domain';
 import {
   createPreferenceStore,
   memoryPreferenceStorage,
+  PREFERENCE_KEY_PREFIX,
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
 import {
@@ -147,7 +148,8 @@ afterEach(() => {
 });
 
 interface Options {
-  readonly settings?: PreferenceStore;
+  /** `null` asks for the property's own default -- the host having wired nothing. */
+  readonly settings?: PreferenceStore | null;
   readonly profiles?: readonly MeetRuleProfile[];
   readonly status?: ProfilesStatus;
   readonly within?: HTMLElement;
@@ -170,9 +172,26 @@ function device(): PreferenceStore {
   return createPreferenceStore(memoryPreferenceStorage());
 }
 
+/**
+ * Every preference key the browser is holding, across both real storages.
+ *
+ * Compared as a difference rather than against empty, because these suites share
+ * a page origin with the shells' own tests and those wire real browser-backed
+ * stores. "Nothing was added" is a fact about this element; "the storages are
+ * empty" would pass or fail on file ordering.
+ */
+function preferenceKeys(): readonly string[] {
+  return [window.localStorage, window.sessionStorage].flatMap((storage) =>
+    Object.keys(storage).filter((key) => key.startsWith(PREFERENCE_KEY_PREFIX)),
+  );
+}
+
 async function mount(options: Options = {}): Promise<PtkMeetDayPlanner> {
   const element = document.createElement('ptk-meet-day-planner');
-  element.settings = options.settings ?? device();
+  // `null` leaves the property *unassigned* rather than assigning null, because
+  // the thing under test is the class-field default. Assigning it would pass
+  // just as well against an element that defaults to a store of its own.
+  if (options.settings !== null) element.settings = options.settings ?? device();
   element.profiles = options.profiles ?? PROFILE_FIXTURES;
   element.status = options.status ?? 'ready';
   element.clock = options.clock ?? manualClock(FIXED_INSTANT);
@@ -931,6 +950,23 @@ describe('ptk-meet-day-planner', () => {
     // the wrong increment.
     expect(settings.read(MEET_DAY_PREFERENCES.unit)).toBe('lb');
     expect(loadSession(settings).setup.federationId).toBe('');
+  });
+
+  it('plans a meet with no settings store wired at all', async () => {
+    // Plain HTML, and an embedder that blocked storage. The property defaults to
+    // the absence of a store rather than to an inert one built here, so the
+    // screen has to answer a question and write the answer nowhere. `store` is
+    // the deliberate contrast and keeps its own default: a saved meet is a
+    // document about a person, so `noMeetStore` says out loud that it keeps
+    // nothing, where a settings store that was never wired is simply quiet.
+    const before = preferenceKeys();
+    const element = await mountChosen({ settings: null });
+
+    await choose(element, UNIT_FIELD, 'lb');
+
+    expect(element.settings).toBeNull();
+    expect(deepText(element)).toContain('Bars load to');
+    expect(preferenceKeys()).toEqual(before);
   });
 
   it('restores a remembered device when the store is handed in', async () => {

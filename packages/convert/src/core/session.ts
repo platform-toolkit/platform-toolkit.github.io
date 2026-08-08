@@ -51,7 +51,7 @@ import {
 import {
   PreferenceValue,
   definePreference,
-  type PreferenceDefinition,
+  readPreference,
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
 
@@ -253,28 +253,13 @@ export const CONVERTER_PREFERENCES = {
   }),
 };
 
-/**
- * One remembered value, or the definition's own fallback when there is no store.
- *
- * `null` here is the absence of a store and not a store that forgets, so the
- * answer has to come from the definition. Building an inert one to read through
- * would put the consumer's decision back inside the package, which is the thing
- * the absence exists to state.
- */
-function remembered<Stored>(
-  store: PreferenceStore | null,
-  definition: PreferenceDefinition<Stored>,
-): Stored {
-  return store === null ? definition.fallback : store.read(definition);
-}
-
 /** Everything the tool opens with. A `null` store opens on the fallbacks. */
 export function loadSettings(store: PreferenceStore | null): ConverterSettings {
-  const direction = remembered(store, CONVERTER_PREFERENCES.direction);
-  const stored = remembered(store, CONVERTER_PREFERENCES.value);
-  const precision = remembered(store, CONVERTER_PREFERENCES.precision);
-  const step = remembered(store, CONVERTER_PREFERENCES.step);
-  const order = remembered(store, CONVERTER_PREFERENCES.order);
+  const direction = readPreference(store, CONVERTER_PREFERENCES.direction);
+  const stored = readPreference(store, CONVERTER_PREFERENCES.value);
+  const precision = readPreference(store, CONVERTER_PREFERENCES.precision);
+  const step = readPreference(store, CONVERTER_PREFERENCES.step);
+  const order = readPreference(store, CONVERTER_PREFERENCES.order);
 
   return {
     entry: restoreEntry(direction, stored),

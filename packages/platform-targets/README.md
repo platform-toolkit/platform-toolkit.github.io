@@ -146,15 +146,17 @@ including tap targets below the 44 px floor.
 | `dataMeta`        | `DataMeta \| null`                   | The published index, which says how old the figures are.   |
 | `dataMetaStatus`  | `DataMetaStatus`                     | `loading`, `ready` or `failed`.                            |
 | `connection`      | `Connection`                         | `online` or `offline`.                                     |
-| `settings`        | `PreferenceStore`                    | Where the answered category and the current view are kept. |
+| `settings`        | `PreferenceStore \| null`            | Where the answered category and the current view are kept. |
 
 Every status is a separate property from the thing it describes, and that is the point: "still
 fetching", "this federation publishes none for this category" and "the read failed" are three
 different sentences, and a bare `Book | null` can only say one of them.
 
-`settings` defaults to a store with no backing, so the element works standing on its own and an
-embed whose host blocked storage needs no branch anywhere. Hand it a real one to have the category
-survive a visit:
+`settings` defaults to `null`, which means remember nothing: the element reads every default and
+writes nowhere, so it works standing on its own in plain HTML and an embed whose host blocked
+storage needs no branch anywhere. The default is the absence of a store rather than an inert one on
+purpose -- where a visitor's choices are kept is yours to decide, and a store the element built
+would be a decision it made for you. Hand it a real one to have the category survive a visit:
 
 ```js
 import { browserPreferenceStorage, createPreferenceStore } from '@platform-toolkit/preferences';

@@ -47,7 +47,7 @@ import type {
   DataMeta,
   Lift,
 } from '@platform-toolkit/data-contracts';
-import { createPreferenceStore, type PreferenceStore } from '@platform-toolkit/preferences';
+import type { PreferenceStore } from '@platform-toolkit/preferences';
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from 'lit';
 import { property, state } from 'lit/decorators.js';
 
@@ -228,11 +228,16 @@ export class PtkPlatformTargets extends LitElement {
    * A property rather than a module-level store, because a store reaching for
    * `localStorage` at import time is a tool that dies at import time in the one
    * configuration these are designed for -- a third-party iframe with storage
-   * denied (§5.12). Defaulted to a store with no backing so every test and
-   * story mounts without arranging one, and so the element has no branch for
-   * "not remembering": that is what `createPreferenceStore(null)` *is*.
+   * denied (§5.12).
+   *
+   * `null` means remember nothing, and it is the default because a host that has
+   * not said where to put anything has not chosen an inert store either -- that
+   * is a placement, and picking one here would be this element deciding a seam
+   * on the host's behalf and holding the result for the whole window before they
+   * assign. Not required, because `<ptk-platform-targets>` in plain HTML is what
+   * the README documents.
    */
-  @property({ attribute: false }) settings: PreferenceStore = createPreferenceStore(null);
+  @property({ attribute: false }) settings: PreferenceStore | null = null;
 
   /**
    * The answered category, as the questions last *applied* it.

@@ -62,7 +62,7 @@ import {
 import {
   PreferenceValue,
   definePreference,
-  type PreferenceDefinition,
+  readPreference,
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
 
@@ -605,21 +605,6 @@ export const SET_PREFERENCES = {
 };
 
 /**
- * One remembered value, or the definition's own fallback when there is no store.
- *
- * `null` here is the absence of a store and not a store that forgets, so the
- * answer has to come from the definition. Building an inert one to read through
- * would put the consumer's decision back inside the package, which is the thing
- * the absence exists to state.
- */
-function remembered<Stored>(
-  store: PreferenceStore | null,
-  definition: PreferenceDefinition<Stored>,
-): Stored {
-  return store === null ? definition.fallback : store.read(definition);
-}
-
-/**
  * Rebuilds the whole entry from the two stores, either of which may be absent.
  *
  * Every value is re-checked against the list that offers it rather than
@@ -637,14 +622,14 @@ export function loadEntry(
   display: PreferenceStore | null,
   set: PreferenceStore | null,
 ): EstimateEntry {
-  const unit = remembered(display, DISPLAY_PREFERENCES.unit);
-  const lift = remembered(display, DISPLAY_PREFERENCES.lift);
-  const storedStep = remembered(display, DISPLAY_PREFERENCES.roundTo);
-  const stored = remembered(set, SET_PREFERENCES.weight);
-  const reps = remembered(set, SET_PREFERENCES.reps);
-  const technique = remembered(set, SET_PREFERENCES.technique);
-  const sex = remembered(set, SET_PREFERENCES.sex);
-  const experience = remembered(set, SET_PREFERENCES.experience);
+  const unit = readPreference(display, DISPLAY_PREFERENCES.unit);
+  const lift = readPreference(display, DISPLAY_PREFERENCES.lift);
+  const storedStep = readPreference(display, DISPLAY_PREFERENCES.roundTo);
+  const stored = readPreference(set, SET_PREFERENCES.weight);
+  const reps = readPreference(set, SET_PREFERENCES.reps);
+  const technique = readPreference(set, SET_PREFERENCES.technique);
+  const sex = readPreference(set, SET_PREFERENCES.sex);
+  const experience = readPreference(set, SET_PREFERENCES.experience);
 
   const weight = stored.present
     ? showEntryIn(enterWeight(stored.amount, stored.unit), stored.shownIn)
@@ -659,18 +644,18 @@ export function loadEntry(
     weight,
     unit: shownIn,
     repsText: reps === 0 ? '' : String(reps),
-    reserve: remembered(set, SET_PREFERENCES.reserve),
+    reserve: readPreference(set, SET_PREFERENCES.reserve),
     lift,
     techniqueId: findTechnique(lift, technique) === null ? openingTechniqueFor(lift) : technique,
     sex: sex === DECLINED ? null : sex,
     experience: experience === DECLINED ? null : experience,
-    freshness: remembered(set, SET_PREFERENCES.freshness),
-    formQuality: remembered(set, SET_PREFERENCES.formQuality),
-    assisted: remembered(set, SET_PREFERENCES.assisted),
+    freshness: readPreference(set, SET_PREFERENCES.freshness),
+    formQuality: readPreference(set, SET_PREFERENCES.formQuality),
+    assisted: readPreference(set, SET_PREFERENCES.assisted),
     roundTo: ROUNDING_INCREMENTS[shownIn].includes(storedStep)
       ? storedStep
       : defaultRoundingIncrement(shownIn),
-    percentageStep: remembered(display, DISPLAY_PREFERENCES.percentageStep),
+    percentageStep: readPreference(display, DISPLAY_PREFERENCES.percentageStep),
   };
 }
 

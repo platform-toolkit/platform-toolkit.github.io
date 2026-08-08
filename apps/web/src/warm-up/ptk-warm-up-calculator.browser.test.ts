@@ -239,6 +239,20 @@ async function nameOwnLift(element: PtkWarmUpCalculator, name: string): Promise<
   await element.updateComplete;
 }
 
+/**
+ * Every preference key the browser is holding, across both real storages.
+ *
+ * Read as a difference rather than as an absolute, because these suites share a
+ * page origin with the shells' own tests and those wire real browser-backed
+ * stores. An assertion that the storages are empty would pass or fail on file
+ * ordering; an assertion that nothing was *added* is about this element.
+ */
+function preferenceKeys(): readonly string[] {
+  return [window.localStorage, window.sessionStorage].flatMap((storage) =>
+    Object.keys(storage).filter((key) => key.startsWith(PREFERENCE_KEY_PREFIX)),
+  );
+}
+
 function storeWith(entries: readonly LiftEntry[]): PreferenceStore {
   const settings = createPreferenceStore(memoryPreferenceStorage());
   saveEntries(settings, entries, DEFAULT_EQUIPMENT.plateUnit);
@@ -246,14 +260,32 @@ function storeWith(entries: readonly LiftEntry[]): PreferenceStore {
 }
 
 describe('ptk-warm-up-calculator', () => {
-  it('renders with no storage at all', async () => {
-    // The configuration this collection actually ships into: a third-party
-    // iframe whose embedder blocked storage, where `localStorage` throws on
-    // property access before a method is ever called. The element mounts with a
-    // store that has no backing, so there is no branch to get wrong.
+  it('runs the whole tool with neither store wired', async () => {
+    // Plain HTML, and the configuration this collection actually ships into: a
+    // third-party iframe whose embedder blocked storage. Both properties default
+    // to the *absence* of a store rather than to an inert one built here, so
+    // every path has to work through nothing -- including the ones that write.
+    // Adding a lift saves the entries, typing a weight saves them again and
+    // re-prunes the ticks, and ticking a set saves the marks.
+    const before = preferenceKeys();
     const element = await mount();
-    expect(element.shadowRoot?.querySelector('ptk-equipment-setup')).not.toBe(null);
-    expect(element.shadowRoot?.textContent).toContain('Pick a lift above');
+    expect(element.settings).toBeNull();
+    expect(element.marks).toBeNull();
+
+    await press(element, 'Add Squat');
+    await typeWeight(element, '100');
+
+    const card = cards(element)[0];
+    const box = card?.shadowRoot?.querySelector('li label.row input');
+    if (!(box instanceof HTMLInputElement)) throw new Error('No checklist row to tick.');
+    box.click();
+    await element.updateComplete;
+
+    expect(element.settings).toBeNull();
+    expect(element.marks).toBeNull();
+    expect(cards(element)).toHaveLength(1);
+    expect(box.checked).toBe(true);
+    expect(preferenceKeys()).toEqual(before);
   });
 
   it('reads both stores when one is handed in after the first render', async () => {

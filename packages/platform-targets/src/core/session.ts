@@ -43,6 +43,7 @@
 import {
   PreferenceValue,
   definePreference,
+  readPreference,
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
 
@@ -147,9 +148,10 @@ export interface TargetsSettings {
   readonly targetType: TargetType;
 }
 
-export function loadSettings(store: PreferenceStore): TargetsSettings {
-  const context = store.read(TARGETS_PREFERENCES.context);
-  const view = store.read(TARGETS_PREFERENCES.view);
+/** A `null` store is a host that named nowhere to remember, so nothing is restored. */
+export function loadSettings(store: PreferenceStore | null): TargetsSettings {
+  const context = readPreference(store, TARGETS_PREFERENCES.context);
+  const view = readPreference(store, TARGETS_PREFERENCES.view);
   return {
     context: toSelection(context),
     lift: view.lift,
@@ -164,19 +166,23 @@ export function loadSettings(store: PreferenceStore): TargetsSettings {
  * way through changing their weight class would otherwise have a half-edited
  * category stored on every tap, and closing the sheet without applying would
  * leave it there for the next visit to restore.
+ *
+ * A `null` store means the host named nowhere to put this, so it goes nowhere.
+ * Not to a store built here, which would be this package choosing the placement
+ * on their behalf.
  */
-export function saveContext(store: PreferenceStore, selection: CategorySelection): void {
-  store.write(TARGETS_PREFERENCES.context, toStored(selection));
+export function saveContext(store: PreferenceStore | null, selection: CategorySelection): void {
+  store?.write(TARGETS_PREFERENCES.context, toStored(selection));
 }
 
-export function saveView(store: PreferenceStore, lift: Lift, targetType: TargetType): void {
-  store.write(TARGETS_PREFERENCES.view, { lift, targetType });
+export function saveView(store: PreferenceStore | null, lift: Lift, targetType: TargetType): void {
+  store?.write(TARGETS_PREFERENCES.view, { lift, targetType });
 }
 
 /** Forgets the remembered context, which is what "start over" means here. */
-export function forgetContext(store: PreferenceStore): void {
-  store.forget(TARGETS_PREFERENCES.context);
-  store.forget(TARGETS_PREFERENCES.view);
+export function forgetContext(store: PreferenceStore | null): void {
+  store?.forget(TARGETS_PREFERENCES.context);
+  store?.forget(TARGETS_PREFERENCES.view);
 }
 
 /**

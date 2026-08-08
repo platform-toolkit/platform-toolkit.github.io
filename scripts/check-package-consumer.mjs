@@ -132,6 +132,14 @@ const BUILTINS = new Set(builtinModules);
  * list as it lands -- the dependency closure is worked out from the manifests, so a
  * tool that pulls in a new workspace package needs no edit here.
  *
+ * `@platform-toolkit/preferences` is the one entry that is not a tool, and it earned
+ * its place by #127 rather than by being shared. Every tool element used to default
+ * its store property to one it built itself, so a consumer could mount the tool and
+ * never name this package; the properties now default to the *absence* of a store,
+ * which makes choosing where a visitor's settings go the host's job and this package
+ * something a stranger writes against directly. Nothing else here would notice it
+ * shipping unusably.
+ *
  * The two sources belong to the entry rather than to the file, because a shared one
  * could only import what every package happens to have in common, and what they have
  * in common is nothing: the entry points differ per tool, and the entry points are
@@ -554,6 +562,95 @@ const waiting = createHandoffSource(carrier, {
   now: () => Date.parse('2026-01-01T09:05:00.000Z'),
 }).peek();
 if (waiting === null) throw new Error('the handoff could not read back its own record');
+`,
+  },
+  {
+    name: '@platform-toolkit/preferences',
+    slug: 'preferences',
+    consumer: `import {
+  PreferenceValue,
+  browserPreferenceStorage,
+  createPreferenceStore,
+  definePreference,
+  memoryPreferenceStorage,
+  readPreference,
+  type PreferenceStorage,
+  type PreferenceStore,
+  type PreferenceWriteResult,
+} from '@platform-toolkit/preferences';
+
+export function consumePreferences(): string {
+  const unit = definePreference({
+    name: 'invented.unit',
+    value: PreferenceValue.choice(['kg', 'lb']),
+    fallback: 'kg',
+  });
+  // Annotated on purpose: an inferred type would still compile if the shipped
+  // declarations resolved to nothing, and these two are the whole seam a host
+  // implements. \`PreferenceStorage\` is the port for a host that keeps settings
+  // somewhere this package has never heard of; \`PreferenceStore\` is what every
+  // tool element takes.
+  const storage: PreferenceStorage = memoryPreferenceStorage();
+  const store: PreferenceStore = createPreferenceStore(storage);
+  // Annotated for the same reason, and this one is the whole no-throw contract: a
+  // refusal is a value a host reads, not an exception it has to catch.
+  const written: PreferenceWriteResult = store.write(unit, 'lb');
+  // The absent port, which is what every tool element now defaults to. A host
+  // that wants no remembering hands the element nothing at all and reads through
+  // this -- so a build that shipped without it would leave that host with no
+  // spelling for the case the defaults were changed to name.
+  const wired: PreferenceStore | null = store.remembers ? store : null;
+  const device: () => PreferenceStorage | null = browserPreferenceStorage;
+  return [
+    readPreference(store, unit),
+    readPreference(null, unit),
+    readPreference(wired, unit),
+    written,
+    String(store.remembers),
+    typeof device,
+  ].join(' ');
+}
+`,
+    // No DOM anywhere in it, which is most of what this smoke asserts: the browser
+    // adapters are in the same tarball, so a refactor that moved a \`localStorage\`
+    // read to module scope would take the package down in Node -- and in the
+    // third-party iframe whose embedder blocked storage, which is the same failure
+    // arriving where nobody is watching. The rest is the absent port, whose whole
+    // claim is that it consults no store: an inert store answers the fallback too,
+    // so the assertion has to be that nothing was asked.
+    smoke: `import {
+  PreferenceValue,
+  createPreferenceStore,
+  definePreference,
+  memoryPreferenceStorage,
+  readPreference,
+} from '@platform-toolkit/preferences';
+
+const unit = definePreference({
+  name: 'invented.unit',
+  value: PreferenceValue.choice(['kg', 'lb']),
+  fallback: 'kg',
+});
+
+const store = createPreferenceStore(memoryPreferenceStorage());
+if (!store.remembers) throw new Error('a memory-backed store says it remembers nothing');
+store.write(unit, 'lb');
+if (readPreference(store, unit) !== 'lb') throw new Error('the store lost what it was written');
+
+if (readPreference(null, unit) !== 'kg') throw new Error('an absent store did not answer the fallback');
+
+let reads = 0;
+const counted = {
+  ...createPreferenceStore(null),
+  read: (definition) => {
+    reads += 1;
+    return definition.fallback;
+  },
+};
+if (readPreference(counted, unit) !== 'kg') throw new Error('an inert store did not answer the fallback');
+if (reads !== 1) throw new Error('a store the host chose was not consulted');
+readPreference(null, unit);
+if (reads !== 1) throw new Error('an absent store was consulted anyway');
 `,
   },
 ];

@@ -477,10 +477,9 @@ describe('createPlatformTargetsView', () => {
    * come from *here*.
    *
    * Every other test of the restore injects a store, so all of them held while
-   * the composition root passed none and the element kept its
-   * `createPreferenceStore(null)` default -- the supported no-storage mode, which
-   * reads fallbacks and reports `unavailable` on every write. The tool was
-   * correct, the storage was correct, and the deployed site forgot everything.
+   * the composition root passed none and the element fell back to its own
+   * default -- which remembers nothing, by design, whatever it is spelled as.
+   * The tool was correct, the storage was correct, and the site forgot everything.
    * This is the one assertion in the tool that a wire is connected rather than
    * that either end works, so it deliberately mounts with no store and looks at
    * the device.

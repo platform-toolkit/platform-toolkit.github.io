@@ -53,6 +53,7 @@
 import {
   PreferenceValue,
   definePreference,
+  readPreference,
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
 
@@ -279,12 +280,12 @@ function storable(target: GoalTarget): boolean {
 const PUBLISHED_ID = PreferenceValue.publishedId();
 const GOAL_KILOGRAMS = PreferenceValue.quantity(GOAL_KILOGRAM_BOUNDS);
 
-export function loadGoals(store: PreferenceStore): readonly Goal[] {
-  return store.read(GOALS_PREFERENCE);
+export function loadGoals(store: PreferenceStore | null): readonly Goal[] {
+  return readPreference(store, GOALS_PREFERENCE);
 }
 
-export function saveGoals(store: PreferenceStore, goals: readonly Goal[]): void {
-  store.write(GOALS_PREFERENCE, goals);
+export function saveGoals(store: PreferenceStore | null, goals: readonly Goal[]): void {
+  store?.write(GOALS_PREFERENCE, goals);
 }
 
 /**

@@ -12,6 +12,7 @@ export {
   PREFERENCE_KEY_PREFIX,
   createPreferenceStore,
   definePreference,
+  readPreference,
   type PreferenceDefinition,
   type PreferenceStore,
   type PreferenceWriteResult,

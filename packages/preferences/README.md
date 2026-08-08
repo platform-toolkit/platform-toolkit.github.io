@@ -40,7 +40,11 @@ Lifetime is chosen by which backing you pass in, and a tool may want two stores.
 `browserPreferenceStorage()` outlives the tab; `browserSessionStorage()` does not. Settings belong
 in the first, scratch state that should survive a reload but not a week belongs in the second.
 
-## The four things to get right
+A tool that takes a store as a port takes `PreferenceStore | null`, and reads through
+`readPreference(store, definition)` so that a host who wired nothing still gets the definition's own
+fallback. Every element in this collection defaults its store property to `null` for that reason.
+
+## The five things to get right
 
 **A value is a closed set, and that is the point.** A preference can only be declared against a
 `PreferenceValue`, and a `PreferenceValue` can only come from one of the static builders: `choice`,
@@ -70,6 +74,23 @@ federation renaming something you hold as a `publishedId` — ask
 **`createPreferenceStore(null)` is supported.** It is the honest store for a context with no
 storage: reads answer the fallback, writes answer `'unavailable'`. `remembers` is false, so a tool
 can decline to offer a "remember this" control instead of offering one that silently does nothing.
+
+**`null` in place of a store is a different fact, and `readPreference` is how it is read.** A store
+built over nothing is a placement you chose — it is what
+`createPreferenceStore(browserPreferenceStorage())` becomes on a device that refused storage, and it
+still answers `remembers`, still reports `'unavailable'`, still belongs to you. `null` says you
+named no placement at all, so nothing downstream may invent one:
+
+```js
+import { readPreference } from '@platform-toolkit/preferences';
+
+readPreference(store, unit); // 'lb'
+readPreference(null, unit); // 'kg', and no store was consulted
+```
+
+Reads need this and writes do not. `store?.write(…)` already means "write nowhere" and drops a
+result nobody was reading, whereas `store?.read(…)` would widen every answer to `Stored | undefined`
+and hand every caller back the missing case `read` exists to abolish.
 
 Probing is a real write and delete, not a feature check. A browser can expose `localStorage` and
 throw on touching it, and it can throw on the property access itself, so both are inside the guard.

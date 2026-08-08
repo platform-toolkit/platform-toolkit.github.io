@@ -203,6 +203,30 @@ export function createPreferenceStore(storage: PreferenceStorage | null): Prefer
 }
 
 /**
+ * Reads a preference through a port the host may not have wired at all.
+ *
+ * `null` here is the *absence* of a store, which is a different fact from a
+ * store that has nowhere to put anything. The inert store above is a placement
+ * the host chose -- it is what `createPreferenceStore(browserPreferenceStorage())`
+ * becomes on a device that refused storage, and it still answers `remembers`,
+ * still reports `unavailable`, still belongs to the host. `null` says the host
+ * named no placement, so nothing downstream may invent one: building an inert
+ * store to read through would put that decision back inside the package, which
+ * is the thing the absence exists to state.
+ *
+ * Reads need this and writes do not. `store?.write(...)` already means "write
+ * nowhere" and drops a result nobody was reading; `store?.read(...)` would widen
+ * every answer to `Stored | undefined` and hand every caller back the missing
+ * case that `read` exists to abolish.
+ */
+export function readPreference<Stored>(
+  store: PreferenceStore | null,
+  definition: PreferenceDefinition<Stored>,
+): Stored {
+  return store === null ? definition.fallback : store.read(definition);
+}
+
+/**
  * Parses one stored string, or `null` for anything unusable.
  *
  * Wrapped in an object so that a legitimately stored `null`-ish value could

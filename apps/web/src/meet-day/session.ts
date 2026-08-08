@@ -65,6 +65,7 @@ import type { MeetFormat, PlatformLift } from '@platform-toolkit/data-contracts'
 import {
   PreferenceValue,
   definePreference,
+  readPreference,
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
 
@@ -974,30 +975,30 @@ export const MEET_DAY_PREFERENCES = {
  * lifter finds their goal, unit, format, equipment category and comparison group
  * where they left them, and an empty set of fields.
  */
-export function loadSession(store: PreferenceStore): PlannerSession {
+export function loadSession(store: PreferenceStore | null): PlannerSession {
   return {
     ...EMPTY_SESSION,
     setup: {
       ...EMPTY_SESSION.setup,
-      format: store.read(MEET_DAY_PREFERENCES.format),
-      unit: store.read(MEET_DAY_PREFERENCES.unit),
-      goal: store.read(MEET_DAY_PREFERENCES.goal),
-      goalChosen: store.read(MEET_DAY_PREFERENCES.goalChosen),
+      format: readPreference(store, MEET_DAY_PREFERENCES.format),
+      unit: readPreference(store, MEET_DAY_PREFERENCES.unit),
+      goal: readPreference(store, MEET_DAY_PREFERENCES.goal),
+      goalChosen: readPreference(store, MEET_DAY_PREFERENCES.goalChosen),
     },
     extras: {
       ...EMPTY_EXTRAS,
-      comparison: store.read(MEET_DAY_PREFERENCES.comparison),
-      equipment: store.read(MEET_DAY_PREFERENCES.equipment),
+      comparison: readPreference(store, MEET_DAY_PREFERENCES.comparison),
+      equipment: readPreference(store, MEET_DAY_PREFERENCES.equipment),
     },
   };
 }
 
 /** Writes back the answers that are settings rather than facts about a person. */
-export function saveSession(store: PreferenceStore, session: PlannerSession): void {
-  store.write(MEET_DAY_PREFERENCES.format, session.setup.format);
-  store.write(MEET_DAY_PREFERENCES.unit, session.setup.unit);
-  store.write(MEET_DAY_PREFERENCES.goal, session.setup.goal);
-  store.write(MEET_DAY_PREFERENCES.goalChosen, session.setup.goalChosen);
-  store.write(MEET_DAY_PREFERENCES.comparison, session.extras.comparison);
-  store.write(MEET_DAY_PREFERENCES.equipment, session.extras.equipment);
+export function saveSession(store: PreferenceStore | null, session: PlannerSession): void {
+  store?.write(MEET_DAY_PREFERENCES.format, session.setup.format);
+  store?.write(MEET_DAY_PREFERENCES.unit, session.setup.unit);
+  store?.write(MEET_DAY_PREFERENCES.goal, session.setup.goal);
+  store?.write(MEET_DAY_PREFERENCES.goalChosen, session.setup.goalChosen);
+  store?.write(MEET_DAY_PREFERENCES.comparison, session.extras.comparison);
+  store?.write(MEET_DAY_PREFERENCES.equipment, session.extras.equipment);
 }
