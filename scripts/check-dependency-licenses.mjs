@@ -208,6 +208,103 @@ function findViolations(all, shipped) {
 }
 
 /**
+ * Splits a report into the prose above the package table and the table's rows.
+ *
+ * @param {string} markdown
+ * @returns {{ prose: string, rows: Map<string, { versions: string, license: string, reach: string }> } | null}
+ *   `null` when the document is not shaped like a generated report, which is a
+ *   difference to report rather than one to reason about.
+ */
+function parseReport(markdown) {
+  const tableHead = '| --- | --- | --- | --- |\n';
+  const start = markdown.indexOf(tableHead);
+  if (start === -1) return null;
+
+  const rows = new Map();
+  for (const line of markdown.slice(start + tableHead.length).split('\n')) {
+    if (line === '') continue;
+    // A rendered row is `| a | b | c | d |`, so the split leaves an empty cell
+    // at each end. Anything else is not a row this comparison can read.
+    const cells = line.split('|').map((cell) => cell.trim());
+    if (cells.length !== 6) return null;
+    const [, name, versions, license, reach] = cells;
+    if (rows.has(name)) return null;
+    rows.set(name, { versions, license, reach });
+  }
+  return { prose: markdown.slice(0, start + tableHead.length), rows };
+}
+
+/**
+ * Compares the committed report against a fresh render, tolerating a version
+ * string that moved and nothing else.
+ *
+ * Every version in the table changes when a lockfile does, so an exact
+ * comparison fails every dependency bump for a reason that has nothing to do
+ * with licensing -- and a red that always means "a version moved" is a red
+ * nobody reads. What the report is a *claim* about is still compared exactly:
+ * which packages are installed, the licence each one declares, and whether it
+ * reaches a consumer. So a new dependency fails even under a licence already in
+ * the table, a licence that changed between versions fails, and a package
+ * crossing between the shipped and build columns fails.
+ *
+ * A removed package fails too, which is the one call that could go either way.
+ * It cannot introduce a licence nobody reviewed, but tolerating it lets the
+ * committed report keep naming packages the project no longer installs, and
+ * that drift only accumulates -- there is no later event that corrects it. A
+ * version string, by contrast, is corrected by the next regeneration for any
+ * other reason.
+ *
+ * @param {string} committed
+ * @param {string} rendered
+ * @returns {{ tolerated: true, versionsMoved: number, entries: number }
+ *   | { tolerated: false, reason: string }}
+ */
+function compareReports(committed, rendered) {
+  const before = parseReport(committed);
+  const after = parseReport(rendered);
+  if (before === null || after === null) {
+    return { tolerated: false, reason: 'it is not shaped like a generated report' };
+  }
+
+  // The prose carries the counts-by-licence summary, which the rows already
+  // determine, and the explanation around it, which they do not.
+  if (before.prose !== after.prose) {
+    return { tolerated: false, reason: 'the text above the table differs' };
+  }
+
+  /** @param {string[]} names */
+  const list = (names) =>
+    names.length > 5
+      ? `${names.slice(0, 5).join(', ')} and ${String(names.length - 5)} more`
+      : names.join(', ');
+
+  const added = [...after.rows.keys()].filter((name) => !before.rows.has(name));
+  const removed = [...before.rows.keys()].filter((name) => !after.rows.has(name));
+  const changes = [];
+  if (added.length > 0) changes.push(`installed but not listed: ${list(added)}`);
+  if (removed.length > 0) changes.push(`listed but not installed: ${list(removed)}`);
+
+  let versionsMoved = 0;
+  for (const [name, entry] of after.rows) {
+    const was = before.rows.get(name);
+    if (was === undefined) continue;
+    if (was.license !== entry.license) {
+      changes.push(`${name} is listed ${was.license} and installed ${entry.license}`);
+    }
+    if (was.reach !== entry.reach) {
+      changes.push(`${name} is listed ${was.reach} and installed ${entry.reach}`);
+    }
+    if (was.versions !== entry.versions) versionsMoved += 1;
+  }
+
+  // Naming the cause is what keeps the tolerance honest: once a version-only
+  // difference passes, "out of date" on its own reads as one of those, and the
+  // one time it is not is the time it matters.
+  if (changes.length > 0) return { tolerated: false, reason: changes.join('; ') };
+  return { tolerated: true, versionsMoved, entries: after.rows.size };
+}
+
+/**
  * @param {Map<string, { license: string, versions: string[], homepage: string, hostSpecific: boolean }>} all
  * @param {Set<string>} shipped
  * @returns {string}
@@ -248,6 +345,11 @@ The distinction is enforced, not documentary —
 \`scripts/check-dependency-licenses.mjs\` runs as part of \`pnpm run verify\` and
 fails the build when a licence is unaccepted, unrecognised or missing, and when a
 build-tooling-only licence turns up in the shipped column.
+
+The version column is the one part not held exact. A lockfile change that adds
+no package, drops none and changes no licence may leave a version here stale
+until the next regeneration, so an ordinary dependency bump does not fail on a
+number that says nothing about licensing. The check reports it when it happens.
 
 Attribution for the shipped packages is reproduced in
 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
@@ -297,10 +399,11 @@ async function main() {
     return;
   }
 
-  // The committed report has to match the installed tree, or it is a document
-  // that describes whatever was installed the last time somebody remembered to
-  // regenerate it. Because the renderer is deterministic, staleness is exactly a
-  // string comparison -- there is no reason to accept a report that drifted.
+  // The committed report has to describe the installed tree, or it is a
+  // document about whatever was installed the last time somebody remembered to
+  // regenerate it. The renderer is deterministic, so an identical string is the
+  // common case; where it differs, `compareReports` decides whether the
+  // difference is one this gate is about.
   /** @type {string | null} */
   let committed;
   try {
@@ -311,16 +414,36 @@ async function main() {
     // same as for a stale one.
     committed = null;
   }
-  if (committed !== report) {
+  if (committed === null) {
     console.error(
-      `Dependency licence check failed: ${committed === null ? 'docs/dependency-licenses.md is missing' : 'docs/dependency-licenses.md is out of date'}. Run \`pnpm run licenses:report\` and commit the result.`,
+      'Dependency licence check failed: docs/dependency-licenses.md is missing. Run `pnpm run licenses:report` and commit the result.',
     );
     process.exitCode = 1;
     return;
   }
 
+  const difference =
+    committed === report
+      ? { tolerated: true, versionsMoved: 0, entries: 0 }
+      : compareReports(committed, report);
+  if (!difference.tolerated) {
+    console.error(
+      `Dependency licence check failed: docs/dependency-licenses.md is out of date -- ${difference.reason}. Run \`pnpm run licenses:report\` and commit the result.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  // Said out loud, with a count, because a tolerance nobody can see in the log
+  // is one that quietly grows into tolerating more than it was meant to.
+  if (difference.versionsMoved > 0) {
+    console.log(
+      `Dependency licence report differs in version strings only: ${String(difference.versionsMoved)} of ${String(difference.entries)} entries moved version, same packages, same licences, same reach. Run \`pnpm run licenses:report\` to refresh it.`,
+    );
+  }
+
   console.log(
-    `Dependency licence check passed: ${String(all.size)} packages, ${String(shipped.size)} of them shipped, report current.`,
+    `Dependency licence check passed: ${String(all.size)} packages, ${String(shipped.size)} of them shipped, report ${difference.versionsMoved > 0 ? 'current on every licence' : 'current'}.`,
   );
 }
 

@@ -15,6 +15,11 @@ The distinction is enforced, not documentary —
 fails the build when a licence is unaccepted, unrecognised or missing, and when a
 build-tooling-only licence turns up in the shipped column.
 
+The version column is the one part not held exact. A lockfile change that adds
+no package, drops none and changes no licence may leave a version here stale
+until the next regeneration, so an ordinary dependency bump does not fail on a
+number that says nothing about licensing. The check reports it when it happens.
+
 Attribution for the shipped packages is reproduced in
 [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
 
