@@ -27,16 +27,24 @@
 // Without the stylesheet every declaration reading a custom property is dropped, and the
 // accessibility pass measures a screen that never ships.
 import '@platform-toolkit/ui/tokens.css';
+import {
+  WARMUP_ENGINE_VERSION,
+  WARMUP_RULESET_VERSION,
+  planWarmup,
+} from '@platform-toolkit/domain';
 import axe from 'axe-core';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
+import { toBarbellSetup } from '../core/equipment.js';
 import type {
   CalendarDay,
+  EquipmentSnapshot,
   Instant,
   LogbookId,
   SetKind,
   SetPerformance,
   SetStatus,
+  WarmupSnapshot,
   WorkoutExercise,
   WorkoutSession,
   WorkoutSet,
@@ -111,16 +119,94 @@ function aLift(
   displayName: string,
   sets: readonly WorkoutSet[],
   note: string | null = null,
+  warmup: WarmupSnapshot | null = null,
 ): WorkoutExercise {
   return {
     id,
     exerciseId: `catalogue-${id}`,
     displayName,
     loading: 'barbell-total-weight',
-    warmup: null,
+    warmup,
     note,
     sets,
   };
+}
+
+/** An invented rack, in the metric plates the fixtures above are written in. */
+function aRack(): EquipmentSnapshot {
+  return {
+    barWeight: { amount: 20, unit: 'kg' },
+    collarWeight: { amount: 0, unit: 'kg' },
+    plateUnit: 'kg',
+    plates: [
+      { weight: 25, pairs: null, fullDiameter: true },
+      { weight: 10, pairs: null, fullDiameter: false },
+      { weight: 5, pairs: null, fullDiameter: false },
+      { weight: 2.5, pairs: null, fullDiameter: false },
+    ],
+  };
+}
+
+type SnapshotVersions = Partial<Pick<WarmupSnapshot, 'engineVersion' | 'rulesetVersion'>>;
+
+/**
+ * A stored ramp, generated for real and then stamped with whatever versions a case
+ * is about.
+ *
+ * Through `planWarmup` rather than written out, because a hand-built `WarmupPlan`
+ * is a shape the engine need never produce again -- and the versions are the only
+ * part of it this screen reads, so the rest may as well be true.
+ */
+function aWarmup(versions: SnapshotVersions = {}): WarmupSnapshot {
+  const equipment = aRack();
+  const result = planWarmup({
+    setup: toBarbellSetup(equipment),
+    family: 'squat-press',
+    workingWeight: 100,
+    workingSets: 3,
+    workingReps: 5,
+  });
+  if (!result.ok) throw new Error('The rack in this fixture was supposed to produce a ramp.');
+  return {
+    plan: result.plan,
+    equipment,
+    engineVersion: versions.engineVersion ?? WARMUP_ENGINE_VERSION,
+    rulesetVersion: versions.rulesetVersion ?? WARMUP_RULESET_VERSION,
+    generatedAt: BEGAN,
+  };
+}
+
+/** Invented version strings, and neither of them one this build could ever ship. */
+const AN_OLDER_ENGINE = 'warmup-engine-invented-older';
+const AN_OLDER_RULESET = 'warmup-rules-invented-older';
+
+/** A session with one ramped squat on it, the ramp stamped as the case wants it. */
+function aRampedSession(warmup: WarmupSnapshot): WorkoutSession {
+  return aSession({
+    exercises: [
+      aLift(
+        'lift-a',
+        'Squat',
+        [
+          aSet('set-warmup', {
+            kind: 'warmup',
+            planned: { load: at(60), repetitions: 8, effort: null },
+            performed: { load: at(60), repetitions: 8, effort: null },
+          }),
+          aSet('set-work'),
+        ],
+        null,
+        warmup,
+      ),
+    ],
+  });
+}
+
+/** The version line, wherever this screen has drawn one. */
+function originLines(element: PtkWorkoutDetail): HTMLElement[] {
+  return [...shadow(element).querySelectorAll('p.warmup-origin')].filter(
+    (node): node is HTMLElement => node instanceof HTMLElement,
+  );
 }
 
 interface SessionOptions {
@@ -346,6 +432,89 @@ describe('a set on the screen', () => {
 
     expect(setRow(element, 'set-edited').textContent).toContain('RPE 9');
     expect(setRow(element, 'set-bench').textContent).not.toContain('RPE');
+  });
+});
+
+/**
+ * Section 8.4's frozen versions, read back on the one screen that says anything about
+ * them.
+ *
+ * Both directions, because a line that never appears passes the same case as one that
+ * always does -- and the third direction is the one the sentence has to stay out of: a
+ * ramp generated for another rack by this build is not old, and saying so on a
+ * historical screen would be true of most of a travelling lifter's history.
+ */
+describe('where a warm-up came from', () => {
+  it('says a ramp came out of an earlier engine, beside the rows it produced', async () => {
+    const element = await mount(aRampedSession(aWarmup({ engineVersion: AN_OLDER_ENGINE })));
+
+    const lines = originLines(element);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.textContent.trim()).toBe(DETAIL_NOTES.warmupOlderBuild);
+    // Above the warm-up row rather than somewhere on the screen. The sentence is about
+    // those rows, and a reader meeting it after them has already read the ladder as
+    // this morning's.
+    const lift = liftRow(element, 'lift-a');
+    expect(lift.querySelector('p.warmup-origin')).not.toBeNull();
+    expect(
+      lift.querySelector('p.warmup-origin')?.compareDocumentPosition(setRow(element, 'set-warmup')),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('says it for a ruleset that moved, and not only for an engine that did', async () => {
+    // Two versions and two questions: the engine moving means the shape of the output
+    // could change, the ruleset moving means the recommendation itself was revised.
+    // `warmupIsCurrent` wants both, and a screen reading one would go quiet on the half
+    // that actually changes the numbers.
+    const element = await mount(aRampedSession(aWarmup({ rulesetVersion: AN_OLDER_RULESET })));
+
+    expect(originLines(element)).toHaveLength(1);
+  });
+
+  it('says nothing about a ramp this build produced', async () => {
+    const element = await mount(aRampedSession(aWarmup()));
+
+    expect(originLines(element)).toHaveLength(0);
+    expect(readAll(element)).not.toContain(DETAIL_NOTES.warmupOlderBuild);
+  });
+
+  it('says nothing about a rack, on a ramp this build produced somewhere else', async () => {
+    // The noise case. `warmupMatchesEquipment` is a different question with a different
+    // answer, and it is already false of every session logged away from home -- so a
+    // screen that folded the two together would print a line under most of a history
+    // and tell a lifter only that they had trained somewhere else.
+    const elsewhere = aWarmup();
+    const element = await mount(
+      aRampedSession({
+        ...elsewhere,
+        equipment: { ...elsewhere.equipment, barWeight: { amount: 15, unit: 'kg' } },
+      }),
+    );
+
+    expect(originLines(element)).toHaveLength(0);
+  });
+
+  it('says nothing under a lift that was never ramped', async () => {
+    const element = await mount(aFullSession());
+
+    expect(originLines(element)).toHaveLength(0);
+  });
+
+  it('offers nothing to press about it', async () => {
+    // Section 8.4 froze the versions so a finished workout's ladder is never rewritten
+    // to today's rules, which makes a control here the one thing this line must not
+    // grow. The screen's only controls stay the one History button per lift.
+    const element = await mount(aRampedSession(aWarmup({ engineVersion: AN_OLDER_ENGINE })));
+
+    const controls = [...shadow(element).querySelectorAll('button, ptk-button, a')];
+    expect(controls.map((control) => control.textContent.trim())).toEqual([RECORDS_NOTES.open]);
+  });
+
+  it('has no violations with the line on screen', async () => {
+    const element = await mount(aRampedSession(aWarmup({ engineVersion: AN_OLDER_ENGINE })));
+
+    const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
+    expect(results.violations).toEqual([]);
   });
 });
 

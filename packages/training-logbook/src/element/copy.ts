@@ -1000,6 +1000,25 @@ export const DETAIL_NOTES = {
    */
   plannedLabel: 'Planned',
 
+  /**
+   * Section 8.4's frozen versions, said once beside the rows they produced.
+   *
+   * A stored ramp carries the engine and the ruleset that made it, and a session
+   * from March can carry a pair this build no longer ships. The sentence is the
+   * whole of what a lifter is offered about that, on purpose: the ladder is a true
+   * record of what the tool worked out at the time, and rewriting it to today's
+   * rules is exactly what freezing the versions prevents. So no control follows it,
+   * here or anywhere.
+   *
+   * It says nothing about the rack. That is `warmupMatchesEquipment`, a different
+   * question with a different answer, and it is already false of every session a
+   * lifter logged in another gym -- a line about it on a historical screen would be
+   * printed over most of a travelling lifter's history and would tell them only
+   * that they had travelled.
+   */
+  warmupOlderBuild:
+    'This warm-up was worked out by an earlier version of this tool, and is kept as it was.',
+
   back: 'Back to the logbook',
 
   /**

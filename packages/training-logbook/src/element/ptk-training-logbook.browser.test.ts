@@ -844,6 +844,37 @@ async function seedRepeatable(store: LogbookStore): Promise<WorkoutSession> {
 }
 
 /**
+ * An invented engine version, and one this build could not have shipped.
+ *
+ * A string rather than a real earlier release: section 5.1's habit applied to a
+ * version number, and a case pinned to a version that once existed would start
+ * passing for the wrong reason the day the constant caught up with it.
+ */
+const AN_OLDER_ENGINE = 'warmup-engine-invented-older';
+
+/**
+ * The same seeded session, with its ramp stamped by an engine this build does not ship.
+ *
+ * Stamped after the fact rather than generated, because the two versions are constants
+ * of the domain package and nothing here can produce a session older than the build it
+ * is running under. Rewriting the record is also the honest shape of the case: a logbook
+ * restored from a backup taken last spring holds exactly this.
+ */
+async function seedOlderRamp(store: LogbookStore): Promise<WorkoutSession> {
+  const source = await seedRepeatable(store);
+  const aged: WorkoutSession = {
+    ...source,
+    exercises: source.exercises.map((exercise) =>
+      exercise.warmup === null
+        ? exercise
+        : { ...exercise, warmup: { ...exercise.warmup, engineVersion: AN_OLDER_ENGINE } },
+    ),
+  };
+  await store.writeWorkout(aged, { kind: 'unchanged' });
+  return aged;
+}
+
+/**
  * The home screen's row for one workout, once the read behind it has landed.
  *
  * By identifier and not by position. A session in progress is listed alongside the
@@ -2711,6 +2742,38 @@ describe('the training logbook', () => {
       expect(readAll(screen)).not.toContain(DETAIL_NOTES.empty);
     });
 
+    it('says a ramp that came out of an older build is the one worked out then', async () => {
+      // Section 8.4 froze the engine and ruleset into the snapshot so a finished
+      // workout's ladder is never rewritten to today's rules, and this is the whole of
+      // what the tool does with a pair that no longer matches: one sentence, on the
+      // screen that only reads.
+      const { store } = await durableStore();
+      const source = await seedOlderRamp(store);
+      const element = await mount(store);
+
+      const screen = await open(element, await historyRow(element, source.id));
+
+      expect(readAll(screen)).toContain(DETAIL_NOTES.warmupOlderBuild);
+    });
+
+    it('says nothing about a ramp this build made, on a rack the lifter has left', async () => {
+      // The noise case, and the reason the line is about versions alone. The seeded
+      // session was ramped in kilograms and the rack in settings is the pound one, so
+      // `warmupMatchesEquipment` is false here -- which is true of every session anyone
+      // logged away from home, and is not news on a screen about last March.
+      const { store } = await durableStore();
+      const source = await seedRepeatable(store);
+      await useRack(store, aPoundRack());
+      const element = await mount(store);
+
+      const screen = await open(element, await historyRow(element, source.id));
+
+      // The ramp is on the screen, so the silence is about the ramp rather than about
+      // a workout that never loaded.
+      expect(deepAll(shadow(screen), 'li[data-kind="warmup"]').length).toBeGreaterThan(0);
+      expect(readAll(screen)).not.toContain(DETAIL_NOTES.warmupOlderBuild);
+    });
+
     it('opens a past workout while a session is in progress', async () => {
       const { store, databaseName } = await durableStore();
       const source = await seedRepeatable(store);
@@ -2970,6 +3033,30 @@ describe('the training logbook', () => {
           `${String(REPEATED_SETS * 2 - 1)} ${HISTORY_NOTES.setsLabel}`,
         );
       });
+    });
+
+    it('leaves the older-build line off the screen the correction is made on', async () => {
+      // One session, two screens, opposite answers -- which is the whole of the case.
+      // Section 5.4's edit is `ptk-active-workout` with `past` set, and a sentence
+      // sitting above rows a lifter is retyping reads as an offer to work the ladder
+      // out again. Section 8.4 froze the versions precisely so that never happens.
+      const { store } = await durableStore();
+      const source = await seedOlderRamp(store);
+      const element = await mount(store);
+      const screen = await open(element, await historyRow(element, source.id));
+      expect(readAll(screen)).toContain(DETAIL_NOTES.warmupOlderBuild);
+
+      await press(element, 'edit-workout');
+      await vi.waitFor(async () => {
+        await element.updateComplete;
+        expect(deepAll(shadow(element), 'ptk-active-workout')).toHaveLength(1);
+      });
+      await settle(element);
+
+      expect(readAll(element)).toContain(EDIT_NOTES.note);
+      // The same rows, on the same ramp, with nothing said about where it came from.
+      expect(deepAll(shadow(element), 'li[data-kind="warmup"]').length).toBeGreaterThan(0);
+      expect(readAll(element)).not.toContain(DETAIL_NOTES.warmupOlderBuild);
     });
 
     it('does not announce a corrected set as a set just done', async () => {

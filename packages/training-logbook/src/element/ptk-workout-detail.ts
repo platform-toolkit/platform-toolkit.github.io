@@ -41,6 +41,7 @@ import { property } from 'lit/decorators.js';
 
 import { findWorkoutExercise } from '../core/session.js';
 import { setWasEdited, summarize } from '../core/summary.js';
+import { warmupIsCurrent } from '../core/warmup.js';
 import type { WorkoutExercise, WorkoutSession, WorkoutSet } from '../types.js';
 
 import {
@@ -230,11 +231,43 @@ export class PtkWorkoutDetail extends LitElement {
           >${RECORDS_NOTES.open}</ptk-button
         >
       </div>
-      ${this.#written(exercise.note)}
+      ${this.#written(exercise.note)}${this.#warmupOrigin(exercise)}
       <ul class="sets">
         ${exercise.sets.map((set) => this.#set(set))}
       </ul>
     </li>`;
+  }
+
+  /**
+   * Where the ramp under this lift came from, when it did not come from this build.
+   *
+   * Section 8.4 freezes the engine and ruleset versions into the snapshot so that a
+   * finished workout's ladder is never rewritten to today's rules. That makes a stale
+   * pair worth one sentence and nothing else: the rows below are what the tool worked
+   * out at the time, they are correct as a record, and there is nothing here for a
+   * lifter to do about them. Hence no control, and hence this screen rather than the
+   * correction screen -- a line above rows somebody is editing reads as an offer.
+   *
+   * Only the versions. `warmupMatchesEquipment` asks whether the rack has changed,
+   * which is true of every session logged away from home and is not news on a
+   * historical screen.
+   *
+   * NOT A LIVE REGION, AND THAT IS THE DECISION RATHER THAN AN OMISSION
+   *
+   * This package's rule is that a region announcing a result is in the document from
+   * first paint, because one built around its own text is announced by about half the
+   * engines. The rule is about *results*: something a press produced, arriving on a
+   * screen the reader is already standing on. This is not one. It is a static fact
+   * about a record that was finished before the screen opened, nothing reachable from
+   * here can change it, and it is read in its place in the order -- above the warm-up
+   * rows it is about. Wrapping it in a `role="status"` would announce it a second time
+   * on arrival, out of that order, after the heading and detached from the rows that
+   * give it its meaning.
+   */
+  #warmupOrigin(exercise: WorkoutExercise): TemplateResult | typeof nothing {
+    const snapshot = exercise.warmup;
+    if (snapshot === null || warmupIsCurrent(snapshot)) return nothing;
+    return html`<p class="note warmup-origin">${DETAIL_NOTES.warmupOlderBuild}</p>`;
   }
 
   /**
