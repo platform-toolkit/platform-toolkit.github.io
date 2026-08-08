@@ -160,6 +160,20 @@ discovered when a block of training is gone.
 The history list is what has already been done. The session in progress is no longer in it — the
 home screen already offers to resume that one — and neither is a session that was thrown away.
 
+A session titled with a stray trailing space is the same session as one without, rather than a
+second entry sitting somewhere else in a sorted list. And a set records when it was ticked off, not
+when the record of it was last corrected: changing a set from done to missed, or back, no longer
+moves the time it happened.
+
+The rest timer can now say the rest is up out loud: a sound, a buzz, or a notification. All three
+are off until switched on and each is switched on separately. Switching one on plays it once, there
+and then — and if the device will not do it, the switch goes back off in front of you with the
+reason underneath, rather than sitting there looking armed until the moment it was needed. A channel
+this browser has no API for is not offered at all.
+
+Nothing here reaches a server. The tone is generated on the device rather than fetched or bundled,
+and the notification is the page's own — shown by the tab that set the timer, to nobody else.
+
 **It does not coach.** A missed set is recorded and not scored, an effort rating is stored and not
 interpreted, and nothing derives a programme from a history.
 
@@ -171,6 +185,12 @@ interpreted, and nothing derives a programme from a history.
   now. Three packages would have published their sources, build info and tests; each declares
   `files` and is checked by packing it. Each carries its own licence, because a tarball is extracted
   without the repository around it.
+- **The component package can be imported one element at a time.** `@platform-toolkit/ui` has a
+  subpath per element, so a page pays for what it renders instead of for all fourteen. Registering a
+  custom element is a side effect and cannot be tree-shaken, so the single entry point was
+  downloading the whole set to draw two buttons: the hub's eager JavaScript is 41 351 B, down from
+  147 047 B. The single entry point still exists and still registers everything — the subpaths
+  resolve to the same modules, so mixing the two cannot define a tag twice.
 - **An embedded tool's frame no longer ratchets upward.** The published height was `scrollHeight`,
   which is `max(content, viewport)` — and inside a frame the viewport is the frame, so the
   measurement could never report less than the height the embedder had already set, and a tool that
