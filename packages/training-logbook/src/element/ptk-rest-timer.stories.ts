@@ -17,12 +17,21 @@
  *
  * Every duration here is invented (section 5.1).
  */
-import { startRest, type Instant, type RestTimer } from '@platform-toolkit/training-logbook';
+import {
+  startRest,
+  type Instant,
+  type RestAlertSettings,
+  type RestTimer,
+} from '@platform-toolkit/training-logbook';
 import { defineTrainingLogbook } from '@platform-toolkit/training-logbook/element';
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 
 import type { PtkRestTimer, RestLift } from './ptk-rest-timer.js';
+// Value imports, unlike the line above, and safe where the tag imports are not: nothing
+// in this module registers an element or holds anything a second copy could disagree
+// about.
+import { createRestAlerter, defaultRestAlerter } from './rest-alert.js';
 
 // Through the package entry and behind an explicit call, for the reason spelled out in
 // `ptk-workout-history.stories.ts`: a relative import would define every tag twice.
@@ -64,16 +73,29 @@ function aLift(seconds = REST_SECONDS): RestLift {
   };
 }
 
+/** What a lifter who has chosen nothing has. All three are an opt-in (section 7.11). */
+const NOTHING_ON: RestAlertSettings = { sound: false, vibrate: false, notify: false };
+
 const meta: Meta<PtkRestTimer> = {
   title: 'Training logbook/Rest timer',
   component: 'ptk-rest-timer',
   tags: ['autodocs'],
-  args: { timer: running(60), now: () => AT_START, lift: null },
+  // The real device, so a reviewer opening Alerts and pressing Sound hears what ships
+  // -- and is asked for notification permission by the browser exactly as a lifter is.
+  args: {
+    timer: running(60),
+    now: () => AT_START,
+    lift: null,
+    alerts: NOTHING_ON,
+    alerter: defaultRestAlerter(),
+  },
   render: (args) =>
     html`<ptk-rest-timer
       .timer=${args.timer}
       .now=${args.now}
       .lift=${args.lift}
+      .alerts=${args.alerts}
+      .alerter=${args.alerter}
     ></ptk-rest-timer>`,
 };
 
@@ -136,7 +158,13 @@ export const Narrow: Story = {
   args: { lift: aLift() },
   render: (args) => html`
     <div style="width: 320px; outline: 1px dashed currentColor;">
-      <ptk-rest-timer .timer=${args.timer} .now=${args.now} .lift=${args.lift}></ptk-rest-timer>
+      <ptk-rest-timer
+        .timer=${args.timer}
+        .now=${args.now}
+        .lift=${args.lift}
+        .alerts=${args.alerts}
+        .alerter=${args.alerter}
+      ></ptk-rest-timer>
     </div>
   `,
 };
@@ -164,4 +192,46 @@ export const ChoosingThisLiftsRest: Story = {
  */
 export const ALiftWithItsOwnRest: Story = {
   args: { timer: running(15, 300), lift: aLift(300) },
+};
+
+/**
+ * The alerts, with two of the three already on. Section 7.11.
+ *
+ * Folded away by default, because they are set once and the band they sit on is on
+ * screen after every set. Worth reviewing: that the disclosure does not read as a sixth
+ * control, and that each option's second line is legible -- every one of them is an
+ * admission about what its channel cannot promise, and a description nobody reads is a
+ * lifter who thinks a phone on silent will still beep.
+ *
+ * Open it and press one. The switch fires the channel from the press that turned it on,
+ * which is deliberate: it is the only moment a browser will honour a permission request,
+ * and the only way to find out in the car park rather than at the rack.
+ */
+export const Alerts: Story = {
+  args: { alerts: { sound: true, vibrate: true, notify: false } },
+};
+
+/**
+ * A device that says no to all three.
+ *
+ * The state this feature is mostly about. Press any switch and it flicks back off with a
+ * sentence under the band saying what happened and, where there is one, what to do about
+ * it -- a switch that turns on and then does nothing is worse than no switch.
+ *
+ * Worth reviewing at 320px: two of these sentences at once must not push the controls
+ * off the screen, and the text is full strength rather than the muted grey of the notes,
+ * because it is the one thing on the band that is a fault.
+ */
+export const AnAlertThisDeviceRefuses: Story = {
+  args: {
+    alerter: createRestAlerter({
+      tone: () => Promise.resolve(false),
+      vibrate: () => false,
+      notifications: {
+        permission: () => 'denied',
+        request: () => Promise.resolve('denied'),
+        post: () => undefined,
+      },
+    }),
+  },
 };

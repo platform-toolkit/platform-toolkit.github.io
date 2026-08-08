@@ -27,24 +27,41 @@
  *
  * WHAT IS ANNOUNCED AND WHAT IS NOT
  *
- * One live region, holding one sentence: the rest is up. The digits are not in it. A
- * countdown in a live region announces itself once a second, over the top of everything
- * else the device is saying, for three minutes -- which is not an accessible timer, it
- * is a reason to turn the tool off. The spoken form of the digits is rendered beside
- * them and hidden from sight, so a reader that navigates here is told "forty-five
- * seconds left" instead of "zero colon forty five", and is told it only when it asks.
+ * The digits are not in a live region. A countdown in one announces itself once a
+ * second, over the top of everything else the device is saying, for three minutes --
+ * which is not an accessible timer, it is a reason to turn the tool off. The spoken
+ * form of the digits is rendered beside them and hidden from sight, so a reader that
+ * navigates here is told "forty-five seconds left" instead of "zero colon forty five",
+ * and is told it only when it asks.
+ *
+ * Two regions do speak, and they are two rather than one because they say unrelated
+ * things at the same moment: the rest is up, and an alert the lifter switched on did
+ * not happen. Sharing a region would mean the second sentence replacing the first --
+ * the one thing worth interrupting for -- with an apology about a tone.
+ *
+ * WHAT HAPPENS WHEN AN ALERT CANNOT
+ *
+ * Every failure this element can detect is said on screen, and the switch that caused
+ * it goes back off. See `rest-alert.ts` for what can be detected and what cannot.
  */
 
-import type { SelectOption } from '@platform-toolkit/ui';
+import type { Choice, SelectOption, ToggleGroupChangeDetail } from '@platform-toolkit/ui';
+import { TOGGLE_GROUP_CHANGE_EVENT } from '@platform-toolkit/ui';
 import '@platform-toolkit/ui';
 import { LitElement, css, html, nothing, type PropertyValues, type TemplateResult } from 'lit';
 import { property, state } from 'lit/decorators.js';
 
 import { REST_STEP_SECONDS, restRemainingMillis, type RestTimer } from '../core/rest.js';
-import type { Instant } from '../types.js';
+import type { Instant, RestAlertChannel, RestAlertSettings } from '../types.js';
 
 import { REST_NOTES, formatRest, formatRestSpoken } from './copy.js';
 import { REST_LIFT_DURATION_FIELD, actionOf } from './dataset.js';
+import {
+  defaultRestAlerter,
+  withChannel,
+  type RestAlerter,
+  type RestAlertTrouble,
+} from './rest-alert.js';
 
 /** The tag `defineTrainingLogbook()` registers this under. */
 export const REST_TIMER_TAG = 'ptk-rest-timer';
@@ -64,6 +81,23 @@ export type RestAction = 'pause' | 'resume' | 'extend' | 'shorten' | 'reset' | '
 
 export interface RestActionDetail {
   readonly action: RestAction;
+}
+
+/**
+ * The alert channels the lifter turned on or off, as the whole set.
+ *
+ * A second event rather than a seventh action, because this one carries a value and
+ * the six do not -- the same division `#duration` explains below. The whole set travels
+ * so the root writes what it was handed instead of applying a delta to a copy of the
+ * settings it may have already replaced.
+ *
+ * Dispatched only after the channel has been proved to work. A refusal changes nothing
+ * and is reported on the band; see {@link PtkRestTimer.alerts}.
+ */
+export const REST_ALERTS_EVENT = 'ptk-rest-alerts';
+
+export interface RestAlertsDetail {
+  readonly alerts: RestAlertSettings;
 }
 
 /**
@@ -117,6 +151,12 @@ const ACTIONS: readonly RestAction[] = [
 
 function isRestAction(value: string): value is RestAction {
   return (ACTIONS as readonly string[]).includes(value);
+}
+
+const ALERT_CHANNELS: readonly RestAlertChannel[] = ['sound', 'vibrate', 'notify'];
+
+function isRestAlertChannel(value: string): value is RestAlertChannel {
+  return (ALERT_CHANNELS as readonly string[]).includes(value);
 }
 
 export class PtkRestTimer extends LitElement {
@@ -197,6 +237,32 @@ export class PtkRestTimer extends LitElement {
     }
 
     /*
+     * No border of its own, unlike the duration picker: two rules across a band this
+     * short reads as three stacked cards. The disclosure draws its own edge.
+     */
+    .alerts {
+      padding-top: var(--ptk-space-xs);
+    }
+
+    /*
+     * Empty for nearly all of its life and it must cost nothing when it is, which rules
+     * out both obvious ways of hiding it: display:none would take the sentence out of
+     * the accessibility tree along with the pixels, and :empty does not match a
+     * paragraph holding the whitespace a formatted template leaves behind. A grid with
+     * no rows is already zero high, so neither is needed.
+     *
+     * Full-strength text and not the muted grey the other notes use. This is the one
+     * thing on the band that is a fault, and it is read at arm's length.
+     */
+    .trouble {
+      display: grid;
+      gap: var(--ptk-space-xs);
+      margin: 0;
+      font-size: var(--ptk-font-size-sm);
+      color: var(--ptk-color-text);
+    }
+
+    /*
      * The usual clip rectangle rather than display:none, which would take the text out
      * of the accessibility tree along with the pixels -- and the text is the entire
      * reason it exists.
@@ -226,6 +292,29 @@ export class PtkRestTimer extends LitElement {
   @property({ attribute: false }) lift: RestLift | null = null;
 
   /**
+   * Which alerts are on, or `null` to offer none. Section 7.11.
+   *
+   * `null` for the same reason {@link lift} is: a consumer mounting this alone has
+   * nowhere to store an answer, and switches whose answer is thrown away are worse than
+   * no switches. The root hands down what came out of storage, normalised, so the three
+   * are booleans here and never `undefined`.
+   *
+   * Held by the root and never written here. What this element does own is the *proof*:
+   * a channel is dispatched only once it has demonstrably worked, so the settings record
+   * cannot come to hold an alert that this device refuses to give.
+   */
+  @property({ attribute: false }) alerts: RestAlertSettings | null = null;
+
+  /**
+   * How this device makes a noise, buzzes, and notifies.
+   *
+   * Supplied like {@link now}, and defaulted for the same reason -- except that the
+   * default is shared across every instance rather than made per element, because the
+   * audio context behind it is a resource a page has few of. See `rest-alert.ts`.
+   */
+  @property({ attribute: false }) alerter: RestAlerter = defaultRestAlerter();
+
+  /**
    * What time it is.
    *
    * Supplied by the root, like everywhere else in this package. The default is here so
@@ -240,6 +329,14 @@ export class PtkRestTimer extends LitElement {
    * three samples a second that land on the same number.
    */
   @state() private secondsLeft = 0;
+
+  /**
+   * The channels that did not do what they offered to do, and why. Empty is the norm.
+   *
+   * Replaced wholesale when the rest is up and per channel at a press, so a fault that
+   * has stopped being true stops being on screen.
+   */
+  @state() private trouble: readonly RestAlertTrouble[] = [];
 
   #interval: ReturnType<typeof setInterval> | null = null;
 
@@ -258,13 +355,35 @@ export class PtkRestTimer extends LitElement {
   override connectedCallback(): void {
     super.connectedCallback();
     document.addEventListener('visibilitychange', this.#onVisibility);
+    this.addEventListener(TOGGLE_GROUP_CHANGE_EVENT, this.#onAlert);
     this.#repaint();
   }
 
   override disconnectedCallback(): void {
     super.disconnectedCallback();
     document.removeEventListener('visibilitychange', this.#onVisibility);
+    this.removeEventListener(TOGGLE_GROUP_CHANGE_EVENT, this.#onAlert);
     this.#stop();
+  }
+
+  /**
+   * Waits for the children, so a caller awaiting this one is not reading last render.
+   *
+   * The rule this package keeps tripping over: a child's `updateComplete` is not the
+   * host's. **Provably inert today** -- emptying the list below leaves all 34 cases in
+   * `ptk-rest-timer.browser.test.ts` green, because the switches settle within the
+   * microtasks an `await` on this promise drains anyway. It stays because that is
+   * timing rather than a guarantee, and the day it shifts the symptom is an assertion
+   * against the previous render in a case that has passed for months. Do not delete it
+   * on the strength of a green run.
+   */
+  protected override async getUpdateComplete(): Promise<boolean> {
+    const done = await super.getUpdateComplete();
+    const children = this.renderRoot.querySelectorAll('*');
+    await Promise.all(
+      [...children].filter((node) => node instanceof LitElement).map((node) => node.updateComplete),
+    );
+    return done;
   }
 
   /**
@@ -319,8 +438,69 @@ export class PtkRestTimer extends LitElement {
           ${this.#control(SHORTEN_ACTION)} ${this.#control(EXTEND_ACTION)}
           ${this.#control(RESET_ACTION)} ${this.#control(DISMISS_ACTION)}
         </div>
+        ${this.#alertSwitches()}
+        <!--
+          Outside the disclosure above and unconditional, which are the same requirement
+          twice. A sentence saying an alert did not happen is no use folded away, and a
+          region that appears along with its first sentence is announced by roughly half
+          the engines -- so this paragraph exists, empty, from the band's first paint,
+          whether or not there is an alert control above it.
+        -->
+        <p class="trouble" aria-live="polite">
+          ${this.trouble.map(
+            (trouble) =>
+              html`<span>${REST_NOTES.alertTrouble[trouble.channel][trouble.failure]}</span>`,
+          )}
+        </p>
         ${this.#duration()}
       </section>
+    `;
+  }
+
+  /**
+   * The three ways of being told, where there is somewhere to store the answer.
+   *
+   * On the band rather than in the settings, and for {@link RestLift}'s reason rather
+   * than for want of a screen: a lifter finds out the timer is not loud enough while
+   * standing at a rack with the timer in front of them, and a preference two screens
+   * away is one they set after the session they needed it in.
+   *
+   * Only the channels this device has. See `rest-alert.ts` on why an unsupported one is
+   * absent rather than disabled.
+   */
+  #alertSwitches(): TemplateResult | typeof nothing {
+    const alerts = this.alerts;
+    const channels = this.alerter.channels;
+    if (alerts === null || channels.length === 0) return nothing;
+
+    const choices: readonly Choice[] = channels.map((channel) => ({
+      value: channel,
+      ...REST_NOTES.alertOption[channel],
+    }));
+
+    /*
+     * Derived here rather than held as state, and that is what unticks a refused switch.
+     * `ptk-toggle-group` ticks its own box before this element hears about it, so the
+     * band has to be able to overrule it -- and it does, because lit re-commits an
+     * object-valued binding on every render whatever it last committed. Every path
+     * through `#onAlert` reassigns `trouble`, so a refusal always redraws, and the
+     * redraw puts the box back where the settings say. A mirrored `@state` was tried
+     * and is exactly equivalent: it was one more thing to keep in step with `alerts`,
+     * for a mechanism that was never the one doing the work.
+     */
+    const ticked = channels.filter((channel) => alerts[channel]);
+
+    return html`
+      <div class="alerts">
+        <ptk-disclosure label=${REST_NOTES.alertsLabel}>
+          <ptk-toggle-group
+            layout="list"
+            label=${REST_NOTES.alertsLegend}
+            .choices=${choices}
+            .values=${ticked}
+          ></ptk-toggle-group>
+        </ptk-disclosure>
+      </div>
     `;
   }
 
@@ -400,6 +580,94 @@ export class PtkRestTimer extends LitElement {
     );
   };
 
+  /**
+   * A box ticked or unticked, which is a request and not yet a decision.
+   *
+   * Stopped here rather than left to bubble. It is `composed`, so it would otherwise
+   * reach the root, where two other screens listen for the same event -- and the detail
+   * carries a bare string that means a plate denomination on one of them.
+   */
+  readonly #onAlert = (event: CustomEvent<ToggleGroupChangeDetail>): void => {
+    event.stopPropagation();
+    const alerts = this.alerts;
+    const channel = event.detail.value;
+    if (alerts === null || !isRestAlertChannel(channel)) return;
+
+    if (!event.detail.selected) {
+      // Off needs no proof and no permission. It is applied as it is pressed, and it
+      // clears whatever this channel was complaining about -- a sentence about an alert
+      // that is no longer switched on is a fault report with no fault behind it.
+      this.#forget(channel);
+      this.#save(withChannel(alerts, channel, false));
+      return;
+    }
+    void this.#turnOn(alerts, channel);
+  };
+
+  /**
+   * On, if the device will actually do it, and said out loud if it will not.
+   *
+   * The demonstration is the whole of this method's value. `arm` asks for whatever
+   * permission the channel needs -- from this press, which is the only moment a browser
+   * will honour the ask -- and then fires the channel, so a lifter learns here rather
+   * than at the rack in three minutes. Nothing is dispatched unless it worked, so the
+   * stored settings and what the device can do cannot drift apart.
+   */
+  async #turnOn(alerts: RestAlertSettings, channel: RestAlertChannel): Promise<void> {
+    const outcome = await this.alerter.arm(channel, REST_NOTES.alertTestTitle);
+    if (outcome === 'delivered') {
+      this.#forget(channel);
+      this.#save(withChannel(alerts, channel, true));
+      return;
+    }
+    // Back off, in front of the lifter, with the reason underneath. Assigning `trouble`
+    // is also what unticks the box the group ticked itself; see `#alertSwitches`.
+    this.trouble = [
+      ...this.trouble.filter((held) => held.channel !== channel),
+      {
+        channel,
+        failure: outcome,
+      },
+    ];
+  }
+
+  #save(alerts: RestAlertSettings): void {
+    this.dispatchEvent(
+      new CustomEvent<RestAlertsDetail>(REST_ALERTS_EVENT, {
+        detail: { alerts },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  /** Drops anything held against one channel. */
+  #forget(channel: RestAlertChannel): void {
+    this.trouble = this.trouble.filter((held) => held.channel !== channel);
+  }
+
+  /**
+   * Say it, on whichever channels are on.
+   *
+   * Called from the one transition to zero and never from a paint, so a lifter who
+   * leaves the band on screen is told once. Asks for no permission -- there is no press
+   * behind a countdown ending -- and reports whatever did not happen.
+   *
+   * Nothing switched on is not a special case, deliberately: `fire` skips a channel that
+   * is off, so a rest ending in silence still replaces what is on screen with nothing. A
+   * guard here would be a second copy of that rule, and it would leave a sentence about a
+   * tone standing after the settings that asked for the tone had gone.
+   */
+  #announce(): void {
+    const alerts = this.alerts;
+    if (alerts === null) return;
+    void this.#deliver(alerts);
+  }
+
+  async #deliver(alerts: RestAlertSettings): Promise<void> {
+    this.trouble = await this.alerter.fire(alerts, REST_NOTES.up);
+  }
+
   /** Ticking exactly when there is something left to tick towards. */
   #sync(): void {
     const timer = this.timer;
@@ -416,8 +684,16 @@ export class PtkRestTimer extends LitElement {
 
   #repaint(): void {
     const timer = this.timer;
-    this.secondsLeft =
-      timer === null ? 0 : Math.ceil(restRemainingMillis(timer, this.now()) / 1000);
+    const before = this.secondsLeft;
+    const left = timer === null ? 0 : Math.ceil(restRemainingMillis(timer, this.now()) / 1000);
+    this.secondsLeft = left;
+
+    // The crossing, and not the state. This runs four times a second and is the only
+    // place that knows the rest has just ended, so the test is on the step from some
+    // seconds to none: `left === 0` on its own would fire again on every paint, every
+    // tab switch, and once more each time the lifter came back to a band they had left
+    // sitting at zero. A rest that arrives already finished never crossed anything.
+    if (timer !== null && left === 0 && before > 0) this.#announce();
   }
 
   #stop(): void {
@@ -434,5 +710,6 @@ declare global {
 
   interface HTMLElementEventMap {
     [REST_ACTION_EVENT]: CustomEvent<RestActionDetail>;
+    [REST_ALERTS_EVENT]: CustomEvent<RestAlertsDetail>;
   }
 }

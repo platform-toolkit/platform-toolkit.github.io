@@ -321,12 +321,46 @@ export interface CustomExercise {
 }
 
 /** The rest timer's settings. Section 7.11: simple, and deliberately not an interval engine. */
+/**
+ * Which of the three ways of saying "the rest is up" the lifter turned on.
+ *
+ * Three flags and not one, because the three fail independently and a lifter who
+ * asked for a buzz and was refused a notification has not asked for anything twice.
+ * Sound needs no permission and can still be silent -- the phone's switch is not
+ * readable from here; vibration is granted or absent with nothing in between;
+ * notifications are the only one behind a prompt. Collapsing them would mean one
+ * refusal turning off two things that were working.
+ *
+ * All three default off. Section 7.11 has these as an affirmative opt-in, and a tool
+ * that makes a noise in a gym nobody asked it to make is uninstalled that day.
+ */
+export interface RestAlertSettings {
+  /** A short tone, generated on the device. Nothing is fetched and nothing is stored. */
+  readonly sound: boolean;
+  readonly vibrate: boolean;
+  /** A notification this page posts itself. No service worker, no server, no push. */
+  readonly notify: boolean;
+}
+
+/** One of the three. Used wherever a channel is named rather than described. */
+export type RestAlertChannel = keyof RestAlertSettings;
+
 export interface RestTimerSettings {
   readonly enabled: boolean;
   /** Whole seconds. */
   readonly defaultSeconds: number;
   /** Per exercise, in whole seconds. Absent means the default. */
   readonly perExerciseSeconds: Readonly<Record<string, number>>;
+  /**
+   * Optional, and optional on purpose rather than pending.
+   *
+   * A required field here would make every settings record written before it existed
+   * fail validation on read -- which is not a lifter losing an alert preference, it
+   * is a lifter locked out of a logbook that is on the disk and intact. Absent is
+   * normalised to all-off as it comes out of storage; see `defaultSettings` and
+   * `normalizeSettings` in `storage/repository.ts`.
+   */
+  readonly alerts?: RestAlertSettings;
 }
 
 /** How effort is entered, if at all. Section 7.10: `none` is the first-use default. */

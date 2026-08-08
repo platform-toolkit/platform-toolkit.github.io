@@ -125,6 +125,7 @@ import type {
   Instant,
   LogbookId,
   LogbookSettings,
+  RestAlertSettings,
   WarmupHandoff,
   WorkoutExercise,
   WorkoutSession,
@@ -196,7 +197,13 @@ import {
   type RackChangedDetail,
 } from './ptk-equipment-library.js';
 import { EXERCISE_HISTORY_EVENT, type ExerciseHistoryOpenDetail } from './ptk-exercise-history.js';
-import { REST_ACTION_EVENT, type RestActionDetail, type RestLift } from './ptk-rest-timer.js';
+import {
+  REST_ACTION_EVENT,
+  REST_ALERTS_EVENT,
+  type RestActionDetail,
+  type RestAlertsDetail,
+  type RestLift,
+} from './ptk-rest-timer.js';
 import {
   EXERCISE_REMOVED_EVENT,
   EXERCISE_SAVED_EVENT,
@@ -466,6 +473,27 @@ function nothingLeft(written: LogbookSnapshot): boolean {
     written.exerciseDefinitions.length === 0 &&
     written.equipmentProfiles.length === 0 &&
     written.activeWorkout === null
+  );
+}
+
+/**
+ * Whether these are the three alert flags the settings already hold.
+ *
+ * A function rather than the conjunction written inline, because inline it cannot be
+ * spelled in a way both lint rules accept: `current !== undefined && current.sound
+ * === …` is rewritten by `prefer-optional-chain`, and the `current?.sound` form it
+ * asks for then trips `no-unnecessary-condition` on the second and third reads, the
+ * first `?.` having already narrowed. Neither rule is wrong; they simply disagree.
+ *
+ * Absent counts as all-off, which is `readAlerts`' decision in `repository.ts` rather
+ * than a second one made here -- so an all-off answer against a record with no key
+ * correctly writes nothing.
+ */
+function sameAlerts(current: RestAlertSettings | undefined, next: RestAlertSettings): boolean {
+  return (
+    (current?.sound ?? false) === next.sound &&
+    (current?.vibrate ?? false) === next.vibrate &&
+    (current?.notify ?? false) === next.notify
   );
 }
 
@@ -1000,6 +1028,7 @@ export class PtkTrainingLogbook extends LitElement {
     this.addEventListener(SEGMENTED_CHANGE_EVENT, this.#onSetting);
     this.addEventListener(SELECT_CHANGE_EVENT, this.#onSelectSetting);
     this.addEventListener(REST_ACTION_EVENT, this.#onRestAction);
+    this.addEventListener(REST_ALERTS_EVENT, this.#onRestAlerts);
     this.addEventListener(RACK_CHANGED_EVENT, this.#onRack);
     this.addEventListener(PROFILE_SAVED_EVENT, this.#onProfileSaved);
     this.addEventListener(PROFILE_APPLIED_EVENT, this.#onProfileApplied);
@@ -1020,6 +1049,7 @@ export class PtkTrainingLogbook extends LitElement {
     this.removeEventListener(SEGMENTED_CHANGE_EVENT, this.#onSetting);
     this.removeEventListener(SELECT_CHANGE_EVENT, this.#onSelectSetting);
     this.removeEventListener(REST_ACTION_EVENT, this.#onRestAction);
+    this.removeEventListener(REST_ALERTS_EVENT, this.#onRestAlerts);
     this.removeEventListener(RACK_CHANGED_EVENT, this.#onRack);
     this.removeEventListener(PROFILE_SAVED_EVENT, this.#onProfileSaved);
     this.removeEventListener(PROFILE_APPLIED_EVENT, this.#onProfileApplied);
@@ -1145,6 +1175,7 @@ export class PtkTrainingLogbook extends LitElement {
         .timer=${this.rest}
         .now=${this.now}
         .lift=${this.#restLift()}
+        .alerts=${this.settings.restTimer.alerts ?? null}
       ></ptk-rest-timer>
       ${this.#saveLine()}
       <section class="screen" tabindex="-1" aria-label=${SCREEN_NAMES[this.screen]}>
@@ -2666,6 +2697,28 @@ export class PtkTrainingLogbook extends LitElement {
         this.rest = null;
         return;
     }
+  };
+
+  /**
+   * A rest alert that has been switched on or off. Section 7.11.
+   *
+   * Stored rather than acted on: the band that dispatched this has already made the
+   * device do the thing, and only dispatches once it worked. So what arrives here is
+   * a demonstration, not a request, and the settings record cannot come to hold an
+   * alert this device refuses to give. See `rest-alert.ts`.
+   *
+   * The unchanged guard is not decoration. This lands on every flick, `#saveSettings`
+   * bumps `#generation`, and a settings write that changed nothing would discard a
+   * history read already in flight -- #95's window, reached from a switch.
+   */
+  readonly #onRestAlerts = (event: CustomEvent<RestAlertsDetail>): void => {
+    stopHere(event);
+    const { alerts } = event.detail;
+    if (sameAlerts(this.settings.restTimer.alerts, alerts)) return;
+    void this.#saveSettings({
+      ...this.settings,
+      restTimer: { ...this.settings.restTimer, alerts },
+    });
   };
 
   /**

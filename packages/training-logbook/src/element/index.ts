@@ -74,10 +74,20 @@ export {
 export { EXERCISE_HISTORY_EVENT, type ExerciseHistoryOpenDetail } from './ptk-exercise-history.js';
 export {
   REST_ACTION_EVENT,
+  REST_ALERTS_EVENT,
   type RestAction,
   type RestActionDetail,
+  type RestAlertsDetail,
   type RestLift,
 } from './ptk-rest-timer.js';
+export {
+  createRestAlerter,
+  defaultRestAlerter,
+  type RestAlertDevice,
+  type RestAlertOutcome,
+  type RestAlerter,
+  type RestAlertTrouble,
+} from './rest-alert.js';
 export {
   EXERCISE_REMOVED_EVENT,
   EXERCISE_SAVED_EVENT,

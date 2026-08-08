@@ -34,6 +34,7 @@ import type {
   CustomExercise,
   EquipmentProfile,
   Instant,
+  LogbookSettings,
   SetLoad,
   WorkoutSession,
 } from '../types.js';
@@ -102,7 +103,29 @@ describe('defaultSettings', () => {
   it('leaves effort off, because RPE is opt-in', () => {
     expect(defaultSettings().effort).toBe('none');
   });
+
+  it('leaves every rest alert off, because a gym is full of other people', () => {
+    expect(defaultSettings().restTimer.alerts).toEqual({
+      sound: false,
+      vibrate: false,
+      notify: false,
+    });
+  });
 });
+
+/**
+ * A settings record whose alert flags are whatever was in the database.
+ *
+ * The cast is what is being tested rather than a way around the compiler. `alerts` is
+ * deliberately absent from `core/schema.ts`, so `indexed-db.ts` neither strips nor
+ * refuses whatever a record holds there -- a record written by a build that predates
+ * the field, or by a hand-edited restore file. Typing the argument would prove the
+ * type and not the read.
+ */
+function storedAlerts(alerts: unknown): LogbookSettings {
+  const base = defaultSettings();
+  return { ...base, restTimer: { ...base.restTimer, alerts } } as LogbookSettings;
+}
 
 describe('settings', () => {
   it('answers the defaults before anything has been chosen', async () => {
@@ -117,6 +140,84 @@ describe('settings', () => {
     await logbook.saveSettings(chosen);
 
     expect(await logbook.loadSettings()).toEqual(chosen);
+  });
+
+  it('reads a record written before the alerts existed as all three off', async () => {
+    // Every lifter who has ever used the tool has one of these. `undefined` reaching a
+    // switch reads as off in a template and as on in a comparison written the obvious
+    // way round, and this is the read that makes sure only one of those is possible.
+    const store = memoryLogbookStore();
+    await store.writeSettings(storedAlerts(undefined));
+
+    expect((await repository(store).loadSettings()).restTimer.alerts).toEqual({
+      sound: false,
+      vibrate: false,
+      notify: false,
+    });
+  });
+
+  it('keeps the alerts a lifter actually switched on', async () => {
+    const store = memoryLogbookStore();
+    await store.writeSettings(storedAlerts({ sound: true, vibrate: false, notify: true }));
+
+    expect((await repository(store).loadSettings()).restTimer.alerts).toEqual({
+      sound: true,
+      vibrate: false,
+      notify: true,
+    });
+  });
+
+  it('treats anything that is not the boolean true as off', async () => {
+    // Nothing validates this field, so what arrives is whatever some version of this
+    // tool wrote. A truthy string is the shape of an alert nobody asked for.
+    const store = memoryLogbookStore();
+    await store.writeSettings(storedAlerts({ sound: 'yes', vibrate: 1, notify: {} }));
+
+    expect((await repository(store).loadSettings()).restTimer.alerts).toEqual({
+      sound: false,
+      vibrate: false,
+      notify: false,
+    });
+  });
+
+  it('survives a record whose alerts are not an object at all', async () => {
+    const store = memoryLogbookStore();
+    await store.writeSettings(storedAlerts(null));
+
+    expect((await repository(store).loadSettings()).restTimer.alerts).toEqual({
+      sound: false,
+      vibrate: false,
+      notify: false,
+    });
+  });
+
+  it('leaves the rest of the rest-timer settings alone while filling them in', async () => {
+    const store = memoryLogbookStore();
+    const base = defaultSettings();
+    await store.writeSettings({
+      ...base,
+      restTimer: { enabled: true, defaultSeconds: 240, perExerciseSeconds: { squat: 300 } },
+    });
+
+    expect((await repository(store).loadSettings()).restTimer).toEqual({
+      enabled: true,
+      defaultSeconds: 240,
+      perExerciseSeconds: { squat: 300 },
+      alerts: { sound: false, vibrate: false, notify: false },
+    });
+  });
+
+  it('fills them in for the backup too, so a restore cannot reintroduce the gap', async () => {
+    const store = memoryLogbookStore();
+    await store.writeSettings(storedAlerts(undefined));
+
+    const backup = await repository(store).exportSnapshot();
+
+    expect(backup.data.settings.restTimer.alerts).toEqual({
+      sound: false,
+      vibrate: false,
+      notify: false,
+    });
   });
 });
 

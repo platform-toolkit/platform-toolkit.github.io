@@ -27,24 +27,35 @@
 
 // Without the stylesheet every declaration reading a custom property is dropped, and the
 // accessibility pass measures a screen that never ships.
-import { SELECT_CHANGE_EVENT, type SelectChangeDetail } from '@platform-toolkit/ui';
+import {
+  SELECT_CHANGE_EVENT,
+  TOGGLE_GROUP_CHANGE_EVENT,
+  type SelectChangeDetail,
+} from '@platform-toolkit/ui';
 import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { REST_STEP_SECONDS, startRest, type RestTimer } from '../core/rest.js';
-import type { Instant } from '../types.js';
+import type { Instant, RestAlertChannel, RestAlertSettings } from '../types.js';
 
 import { REST_NOTES } from './copy.js';
 import { REST_LIFT_DURATION_FIELD } from './dataset.js';
 import { defineTrainingLogbook } from './index.js';
 import {
   REST_ACTION_EVENT,
+  REST_ALERTS_EVENT,
   type PtkRestTimer,
   type RestAction,
   type RestActionDetail,
+  type RestAlertsDetail,
   type RestLift,
 } from './ptk-rest-timer.js';
+import {
+  createRestAlerter,
+  type RestAlertDevice,
+  type RestNotifyPermission,
+} from './rest-alert.js';
 
 /** An invented instant, and an invented rest that a step either way lands clear of. */
 const AT_START: Instant = '2026-03-10T17:00:00.000Z';
@@ -76,10 +87,25 @@ function clockAt(start: Instant): Clock {
   };
 }
 
-async function mount(timer: RestTimer | null, clock: Clock): Promise<PtkRestTimer> {
+/** What the root would have handed down, where a case is about the alerts. */
+interface Band {
+  readonly alerts?: RestAlertSettings;
+  readonly device?: RestAlertDevice;
+}
+
+async function mount(
+  timer: RestTimer | null,
+  clock: Clock,
+  band: Band = {},
+): Promise<PtkRestTimer> {
   const element = document.createElement('ptk-rest-timer');
   element.timer = timer;
   element.now = clock.now;
+  // Set before the element is in the document, so the first paint is the one under
+  // test. A live region that arrived with its own first sentence is announced by no
+  // engine reliably, and adding the alerts a frame late would hide exactly that.
+  if (band.alerts !== undefined) element.alerts = band.alerts;
+  if (band.device !== undefined) element.alerter = createRestAlerter(band.device);
   document.body.append(element);
   teardown.push(() => {
     element.remove();
@@ -352,15 +378,399 @@ describe('the length this lift rests for', () => {
   });
 });
 
+describe('being told the rest is up', () => {
+  /** Every channel off, which is what a lifter who has chosen nothing has. */
+  const NOTHING_ON: RestAlertSettings = { sound: false, vibrate: false, notify: false };
+
+  /** A device that does everything, and a record of what it was asked to do. */
+  function willing(permission: RestNotifyPermission = 'granted'): {
+    readonly device: RestAlertDevice;
+    readonly done: string[];
+  } {
+    const done: string[] = [];
+    return {
+      done,
+      device: {
+        tone: () => {
+          done.push('tone');
+          return Promise.resolve(true);
+        },
+        vibrate: () => {
+          done.push('buzz');
+          return true;
+        },
+        notifications: {
+          permission: () => permission,
+          request: () => Promise.resolve(permission),
+          post: (title) => done.push(`notify:${title}`),
+        },
+      },
+    };
+  }
+
+  /** A device that answers no to everything it is asked. */
+  const REFUSING: RestAlertDevice = {
+    tone: () => Promise.resolve(false),
+    vibrate: () => false,
+    notifications: {
+      permission: () => 'denied',
+      request: () => Promise.resolve('denied'),
+      post: () => undefined,
+    },
+  };
+
+  function group(element: PtkRestTimer): Element | null {
+    return shadow(element).querySelector('ptk-toggle-group');
+  }
+
+  /** Which channels the band is offering, in the order they are drawn. */
+  function offered(element: PtkRestTimer): string[] {
+    const control = group(element);
+    if (control === null) return [];
+    return [...shadow(control).querySelectorAll('label[data-value]')].map(
+      (option) => (option instanceof HTMLElement ? option.dataset['value'] : undefined) ?? '',
+    );
+  }
+
+  function box(element: PtkRestTimer, channel: RestAlertChannel): HTMLInputElement {
+    const control = group(element);
+    if (control === null) throw new Error('the band is offering no alerts.');
+    const input = shadow(control).querySelector(`label[data-value="${channel}"] input`);
+    if (!(input instanceof HTMLInputElement)) throw new Error(`no ${channel} switch on screen.`);
+    return input;
+  }
+
+  /** What the band is saying went wrong, as sentences. */
+  function trouble(element: PtkRestTimer): string[] {
+    return [...shadow(element).querySelectorAll('.trouble span')].map((line) =>
+      line.textContent.trim(),
+    );
+  }
+
+  /** Opens the disclosure the switches live behind, the way a lifter would. */
+  async function openAlerts(element: PtkRestTimer): Promise<void> {
+    const disclosure = shadow(element).querySelector('ptk-disclosure');
+    if (disclosure === null) throw new Error('the band is offering no alerts.');
+    const summary = shadow(disclosure).querySelector('summary');
+    if (summary === null) throw new Error('the disclosure has not rendered.');
+    summary.click();
+    await element.updateComplete;
+  }
+
+  async function tick(element: PtkRestTimer, channel: RestAlertChannel): Promise<void> {
+    const input = box(element, channel);
+    input.checked = !input.checked;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    await element.updateComplete;
+  }
+
+  it('offers nothing where the root handed down no alerts', async () => {
+    // A consumer mounting the band alone has nowhere to store an answer, so the
+    // switches would be three presses that come back on nothing. Section 0.4 again.
+    const clock = clockAt(AT_START);
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock);
+    expect(group(element)).toBeNull();
+  });
+
+  it('offers nothing on a device that can do none of the three', async () => {
+    const clock = clockAt(AT_START);
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock, {
+      alerts: NOTHING_ON,
+      device: {},
+    });
+    expect(group(element)).toBeNull();
+  });
+
+  it('offers only the channels this device has, and never a dead one', async () => {
+    const clock = clockAt(AT_START);
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock, {
+      alerts: NOTHING_ON,
+      device: { vibrate: () => true },
+    });
+    expect(offered(element)).toStrictEqual(['vibrate']);
+  });
+
+  it('proves a channel works before it says it is on', async () => {
+    const clock = clockAt(AT_START);
+    const asked = willing();
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock, {
+      alerts: NOTHING_ON,
+      device: asked.device,
+    });
+    await openAlerts(element);
+
+    let reported: RestAlertSettings | null = null;
+    element.addEventListener(REST_ALERTS_EVENT, (event: CustomEvent<RestAlertsDetail>) => {
+      reported = event.detail.alerts;
+    });
+    await tick(element, 'sound');
+
+    // The demonstration, at the press that asked for it: a lifter finds out in the
+    // gym car park rather than at the rack in three minutes.
+    await vi.waitFor(() => {
+      expect(asked.done).toStrictEqual(['tone']);
+      expect(reported).toStrictEqual({ ...NOTHING_ON, sound: true });
+    });
+    expect(trouble(element)).toStrictEqual([]);
+  });
+
+  it('turns the switch back off and says why, when the device refuses', async () => {
+    const clock = clockAt(AT_START);
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock, {
+      alerts: NOTHING_ON,
+      device: REFUSING,
+    });
+    await openAlerts(element);
+
+    let saved = 0;
+    element.addEventListener(REST_ALERTS_EVENT, () => {
+      saved += 1;
+    });
+    await tick(element, 'notify');
+
+    // Nothing stored, nothing left ticked, and a sentence naming what to do about it.
+    // A switch that turns on and then does nothing is worse than no switch.
+    await vi.waitFor(() => {
+      expect(trouble(element)).toStrictEqual([REST_NOTES.alertTrouble.notify.refused]);
+    });
+    expect(saved).toBe(0);
+    expect(box(element, 'notify').checked).toBe(false);
+  });
+
+  it('tells a dismissed prompt apart from a refusal', async () => {
+    // `persistAsked` draws the same line for storage. A prompt swiped away is not a no,
+    // and the sentence a lifter is given has to be about the thing that happened.
+    const clock = clockAt(AT_START);
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock, {
+      alerts: NOTHING_ON,
+      device: willing('default').device,
+    });
+    await openAlerts(element);
+    await tick(element, 'notify');
+
+    await vi.waitFor(() => {
+      expect(trouble(element)).toStrictEqual([REST_NOTES.alertTrouble.notify.unknown]);
+    });
+  });
+
+  it('needs no permission and no proof to switch one off again', async () => {
+    const clock = clockAt(AT_START);
+    const asked = willing();
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock, {
+      alerts: { ...NOTHING_ON, vibrate: true },
+      device: asked.device,
+    });
+    await openAlerts(element);
+    expect(box(element, 'vibrate').checked).toBe(true);
+
+    let reported: RestAlertSettings | null = null;
+    element.addEventListener(REST_ALERTS_EVENT, (event: CustomEvent<RestAlertsDetail>) => {
+      reported = event.detail.alerts;
+    });
+    await tick(element, 'vibrate');
+
+    expect(reported).toStrictEqual(NOTHING_ON);
+    expect(asked.done).toStrictEqual([]);
+  });
+
+  it('says it on every channel that is on, once, as the rest runs out', async () => {
+    const clock = clockAt(AT_START);
+    const asked = willing();
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock, {
+      alerts: { sound: true, vibrate: true, notify: true },
+      device: asked.device,
+    });
+    expect(asked.done).toStrictEqual([]);
+
+    clock.advance(REST_SECONDS);
+    await repaint(element);
+    await vi.waitFor(() => {
+      expect(asked.done).toStrictEqual(['buzz', 'tone', `notify:${REST_NOTES.up}`]);
+    });
+
+    // Every repaint after the crossing is a paint of a rest that is already up. A test
+    // on `secondsLeft === 0` rather than on the step to it would buzz once a tick, and
+    // again every time the lifter came back to the tab.
+    clock.advance(60);
+    await repaint(element);
+    await repaint(element);
+    expect(asked.done).toStrictEqual(['buzz', 'tone', `notify:${REST_NOTES.up}`]);
+    expect(trouble(element)).toStrictEqual([]);
+  });
+
+  it('stays quiet for a rest that was already over when it arrived', async () => {
+    // A lifter reopening the tool on a rest that expired while the phone was off. The
+    // band draws 0:00, which is the truth; a tone three hours late is not.
+    const clock = clockAt(AT_START);
+    const asked = willing();
+    const element = await mount(null, clock, {
+      alerts: { ...NOTHING_ON, sound: true },
+      device: asked.device,
+    });
+
+    const started = startRest(REST_SECONDS, clock.now());
+    clock.advance(REST_SECONDS + 60);
+    element.timer = started;
+    await element.updateComplete;
+
+    expect(digits(element)).toBe('0:00');
+    expect(asked.done).toStrictEqual([]);
+  });
+
+  it('stays quiet when the lifter has asked for nothing', async () => {
+    const clock = clockAt(AT_START);
+    const asked = willing();
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock, {
+      alerts: NOTHING_ON,
+      device: asked.device,
+    });
+
+    clock.advance(REST_SECONDS);
+    await repaint(element);
+    expect(asked.done).toStrictEqual([]);
+  });
+
+  it('says on screen when an alert it promised did not happen', async () => {
+    // The failure this whole path exists for: a permission taken back from the address
+    // bar between the press and the set. Nothing here can make the notification appear,
+    // so the least it can do is not pretend it did.
+    const clock = clockAt(AT_START);
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock, {
+      alerts: { sound: true, vibrate: false, notify: true },
+      device: REFUSING,
+    });
+
+    clock.advance(REST_SECONDS);
+    await repaint(element);
+
+    await vi.waitFor(() => {
+      expect(trouble(element)).toStrictEqual([
+        REST_NOTES.alertTrouble.sound.refused,
+        REST_NOTES.alertTrouble.notify.refused,
+      ]);
+    });
+  });
+
+  it('withdraws a complaint once the lifter makes the channel work', async () => {
+    // The press after the fix: the ringer comes off silent, or the site is unblocked,
+    // and the switch is tried again. A sentence about a fault that has been dealt with
+    // is the same defect as no sentence at all, one screen further on.
+    const clock = clockAt(AT_START);
+    let audible = false;
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock, {
+      alerts: NOTHING_ON,
+      device: { tone: () => Promise.resolve(audible) },
+    });
+    await openAlerts(element);
+    await tick(element, 'sound');
+    await vi.waitFor(() => {
+      expect(trouble(element)).toStrictEqual([REST_NOTES.alertTrouble.sound.refused]);
+    });
+
+    audible = true;
+    await tick(element, 'sound');
+    await vi.waitFor(() => {
+      expect(trouble(element)).toStrictEqual([]);
+    });
+  });
+
+  it('withdraws a complaint when the lifter switches that channel off', async () => {
+    const clock = clockAt(AT_START);
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock, {
+      alerts: { ...NOTHING_ON, notify: true },
+      device: REFUSING,
+    });
+
+    clock.advance(REST_SECONDS);
+    await repaint(element);
+    await vi.waitFor(() => {
+      expect(trouble(element)).toStrictEqual([REST_NOTES.alertTrouble.notify.refused]);
+    });
+
+    await openAlerts(element);
+    expect(box(element, 'notify').checked).toBe(true);
+    await tick(element, 'notify');
+
+    // Off needs no proof, and it takes the fault report with it: nothing is being
+    // promised any more, so there is nothing left to have failed.
+    expect(trouble(element)).toStrictEqual([]);
+  });
+
+  it('keeps the tick inside the band, where two other screens listen for the same event', async () => {
+    // It is `composed`, and the detail is a bare string that means a plate denomination
+    // on one of the screens above this one.
+    const clock = clockAt(AT_START);
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock, {
+      alerts: NOTHING_ON,
+      device: willing().device,
+    });
+    await openAlerts(element);
+
+    let escaped = 0;
+    const count = (): void => {
+      escaped += 1;
+    };
+    document.body.addEventListener(TOGGLE_GROUP_CHANGE_EVENT, count);
+    teardown.push(() => {
+      document.body.removeEventListener(TOGGLE_GROUP_CHANGE_EVENT, count);
+    });
+    await tick(element, 'sound');
+
+    expect(escaped).toBe(0);
+  });
+
+  it('withdraws a complaint about a channel that has since been switched off', async () => {
+    // The settings can change from under the band -- another tab, or a root that stores
+    // them somewhere this element cannot see -- and a sentence saying the tone failed
+    // outlives the tone being asked for. A rest ending with nothing switched on is
+    // therefore still a firing: it delivers nothing and clears what is on screen.
+    const clock = clockAt(AT_START);
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock, {
+      alerts: { ...NOTHING_ON, sound: true },
+      device: REFUSING,
+    });
+
+    clock.advance(REST_SECONDS);
+    await repaint(element);
+    await vi.waitFor(() => {
+      expect(trouble(element)).toStrictEqual([REST_NOTES.alertTrouble.sound.refused]);
+    });
+
+    element.alerts = NOTHING_ON;
+    element.timer = startRest(REST_SECONDS, clock.now());
+    await element.updateComplete;
+    clock.advance(REST_SECONDS);
+    await repaint(element);
+
+    await vi.waitFor(() => {
+      expect(trouble(element)).toStrictEqual([]);
+    });
+  });
+
+  it('has no accessibility violations with the switches open', async () => {
+    const clock = clockAt(AT_START);
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock, {
+      alerts: NOTHING_ON,
+      device: willing().device,
+    });
+    await openAlerts(element);
+    const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
+    expect(results.violations).toStrictEqual([]);
+  });
+});
+
 describe('what is announced', () => {
-  it('keeps the digits out of the live region and the sentence in it', async () => {
+  it('keeps the digits out of the live regions and the sentences in them', async () => {
     // A countdown in a live region announces itself once a second over the top of
     // everything else the device is saying, for three minutes. The one thing worth
     // interrupting for is that the rest is over.
     const clock = clockAt(AT_START);
     const element = await mount(startRest(REST_SECONDS, clock.now()), clock);
     const live = shadow(element).querySelectorAll('[aria-live]');
-    expect(live).toHaveLength(1);
+    // Two: the state of the rest, and anything that went wrong saying it is up. One
+    // region holding both would mean an apology about a tone replacing the sentence
+    // that matters.
+    expect(live).toHaveLength(2);
 
     const region = live[0];
     if (region === undefined) throw new Error('the live region has gone.');
@@ -372,6 +782,18 @@ describe('what is announced', () => {
     clock.advance(REST_SECONDS);
     await repaint(element);
     expect(region.textContent.trim()).toBe(REST_NOTES.up);
+  });
+
+  it('has the region a failure would be reported in, before there is one to report', async () => {
+    // Unconditional, and on a band that is offering no alerts at all. A region created
+    // at the moment its first sentence appears is announced by roughly half the engines
+    // and by none of them reliably -- so an empty paragraph is the feature.
+    const clock = clockAt(AT_START);
+    const element = await mount(startRest(REST_SECONDS, clock.now()), clock);
+    const region = shadow(element).querySelector('.trouble');
+    if (region === null) throw new Error('the trouble region is not on screen.');
+    expect(region.getAttribute('aria-live')).toBe('polite');
+    expect(region.textContent.trim()).toBe('');
   });
 
   it('has no accessibility violations', async () => {

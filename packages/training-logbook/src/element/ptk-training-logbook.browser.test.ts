@@ -137,7 +137,7 @@ import { defineTrainingLogbook } from './index.js';
 import { STORAGE_WAIT } from './storage.fixture.js';
 import { planProblem } from './plan.js';
 import { WORKOUT_CHANGED_EVENT } from './ptk-active-workout.js';
-import type { PtkRestTimer } from './ptk-rest-timer.js';
+import { REST_ALERTS_EVENT, type PtkRestTimer, type RestAlertsDetail } from './ptk-rest-timer.js';
 import type { PtkTrainingLogbook } from './ptk-training-logbook.js';
 import { FORBIDDEN, withoutExerciseNames } from './vocabulary.fixture.js';
 
@@ -3428,8 +3428,10 @@ describe('the training logbook', () => {
       // and a picker that changes nothing is the same thing with a better excuse.
       expect(chosenSetting(element, REST_SETTING_FIELD)).toBe('off');
       expect(restDurationPickers(element)).toHaveLength(0);
-      // And the section says what the timer does not do. A lifter who expects a buzz
-      // in their pocket finds out at the rack.
+      // And the section says where the buzz is switched on, which is not here: #105 put
+      // the three channels on the band, so this note stopped admitting a gap and started
+      // pointing at a control. It is still worth asserting -- a lifter who expects a buzz
+      // in their pocket should not have to find out at the rack.
       expect(readAll(element)).toContain(REST_NOTES.settingNote);
 
       await useRestTimer(element, store);
@@ -3482,6 +3484,82 @@ describe('the training logbook', () => {
       await press(second, 'complete', setRow(second, 0));
 
       expect(await restDigits(second)).toBe('1:30');
+    });
+
+    /**
+     * #105's other half. The band owns whether an alert can be given on this device
+     * and proves it before it says so; the root owns whether the answer survives the
+     * tab closing, and neither element's own suite can see the join.
+     *
+     * Dispatched rather than pressed, deliberately. Flicking the switch would ask the
+     * browser to start an audio context or accept a vibration, and a channel this
+     * machine happens to refuse would fail a case about persistence for a reason that
+     * has nothing to do with it. `ptk-rest-timer`'s suite is where the press is proven.
+     */
+    it('remembers an alert the band says the device gave, and hands it back next visit', async () => {
+      const { store, databaseName } = await durableStore();
+      const first = await mount(store);
+
+      // All three off before anything is asked for, and off because storage says so
+      // rather than because the property was never set -- an absent binding leaves
+      // `null` here, which is the band's "offer nothing".
+      expect(restTimer(first).alerts).toStrictEqual({
+        sound: false,
+        vibrate: false,
+        notify: false,
+      });
+
+      restTimer(first).dispatchEvent(
+        new CustomEvent<RestAlertsDetail>(REST_ALERTS_EVENT, {
+          bubbles: true,
+          composed: true,
+          detail: { alerts: { sound: true, vibrate: false, notify: false } },
+        }),
+      );
+      await vi.waitFor(async () => {
+        expect((await store.readSettings())?.restTimer.alerts?.sound).toBe(true);
+      });
+
+      // The refresh, for the reason the duration case above does it: an answer that
+      // only moved a property satisfies every assertion made against the screen it is
+      // on and is gone by the next session, which for a preference is the first read.
+      first.remove();
+      store.close();
+      const second = await mount(await reopen(databaseName));
+      expect(restTimer(second).alerts).toStrictEqual({
+        sound: true,
+        vibrate: false,
+        notify: false,
+      });
+    });
+
+    it('does not spend a write on an alert that is already where it is being put', async () => {
+      const { store } = await durableStore();
+      const { store: counted, calls } = countingSettings(store);
+      const element = await mount(counted);
+      const alerts = { sound: true, vibrate: false, notify: false };
+      const say = (): void => {
+        restTimer(element).dispatchEvent(
+          new CustomEvent<RestAlertsDetail>(REST_ALERTS_EVENT, {
+            bubbles: true,
+            composed: true,
+            detail: { alerts },
+          }),
+        );
+      };
+
+      say();
+      await vi.waitFor(() => {
+        expect(calls.writes).toBe(1);
+      });
+
+      // Not thrift. A settings write bumps the generation counter, so a second one
+      // saying nothing new would discard a history read already in flight -- #95's
+      // window, reached from a switch a lifter flicked twice.
+      say();
+      say();
+      await settle(element);
+      expect(calls.writes).toBe(1);
     });
 
     it('says the rest is up rather than counting past it', async () => {

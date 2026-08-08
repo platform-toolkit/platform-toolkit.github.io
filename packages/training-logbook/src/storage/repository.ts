@@ -24,6 +24,11 @@
  * file it has passed whichever of those applies, and a third check here would only
  * ever fire on a bug in the two below -- turning a defect into a lifter locked out
  * of their own history.
+ *
+ * {@link normalizeSettings} is not an exception to that. It rejects nothing and can
+ * fail nothing: it fills in a field the schema below deliberately does not require,
+ * so that a record written before the field existed reads as all-off instead of as
+ * `undefined`. Validation decides whether to refuse; this decides what absent means.
  */
 
 import { createBackup, type LogbookSnapshot, type TrainingLogbookBackup } from '../core/backup.js';
@@ -42,6 +47,8 @@ import type {
   Instant,
   LogbookId,
   LogbookSettings,
+  RestAlertChannel,
+  RestAlertSettings,
   WorkoutSession,
   WorkoutStatus,
 } from '../types.js';
@@ -59,16 +66,64 @@ import type { LogbookStore } from './port.js';
  *
  * Effort is off. Section 7.10: RPE and RIR are an opt-in, and a logging screen that
  * demands a number a lifter does not use is three taps of friction per set.
+ *
+ * So are all three rest alerts, for the stronger version of the same reason: two of
+ * them are things the phone does out loud, in a room full of other people.
  */
 export function defaultSettings(): LogbookSettings {
   return {
     schemaVersion: SCHEMA_VERSION,
     displayUnit: 'lb',
     effort: 'none',
-    restTimer: { enabled: false, defaultSeconds: 180, perExerciseSeconds: {} },
+    restTimer: {
+      enabled: false,
+      defaultSeconds: 180,
+      perExerciseSeconds: {},
+      alerts: { sound: false, vibrate: false, notify: false },
+    },
     equipment: null,
     acceptedTerms: {},
     lastBackupAt: null,
+  };
+}
+
+/**
+ * Every stored settings record, given the alert flags it may not have been written with.
+ *
+ * `RestTimerSettings.alerts` is optional in the type and absent from the schema, both
+ * on purpose -- see the field's own note. That leaves this the only place the absent
+ * case is decided, and the decision is off: an alert nobody has turned on must not
+ * start firing because a build shipped.
+ *
+ * Applied to what comes out of storage and not to what goes in. A record keeps whatever
+ * shape it was saved with until the next save rewrites it, so the read is the only point
+ * every path passes through -- and the flags every caller above this line sees are three
+ * booleans rather than three optionals.
+ */
+export function normalizeSettings(settings: LogbookSettings): LogbookSettings {
+  return {
+    ...settings,
+    restTimer: { ...settings.restTimer, alerts: readAlerts(settings.restTimer.alerts) },
+  };
+}
+
+/**
+ * The three flags out of whatever was stored, defaulting each to off.
+ *
+ * Takes `unknown` rather than the field's own type, and the difference is the point:
+ * typed as `RestAlertSettings | undefined` the compiler calls the per-key tests dead,
+ * the next person deletes them as noise, and a record holding `alerts: null` or
+ * `alerts: { sound: 'yes' }` -- which the schema does not look at and so does not
+ * refuse -- becomes an alert firing on a truthy string. `=== true` and not a coercion,
+ * so anything that is not the boolean `true` is off.
+ */
+function readAlerts(value: unknown): RestAlertSettings {
+  const stored: Partial<Record<RestAlertChannel, unknown>> =
+    typeof value === 'object' && value !== null ? { ...value } : {};
+  return {
+    sound: stored.sound === true,
+    vibrate: stored.vibrate === true,
+    notify: stored.notify === true,
   };
 }
 
@@ -232,7 +287,7 @@ export function createRepository(
       ]);
 
     return {
-      settings: settings ?? defaultSettings(),
+      settings: settings === null ? defaultSettings() : normalizeSettings(settings),
       equipmentProfiles,
       exerciseDefinitions,
       // Filtered out of `workouts` rather than stored twice. A backup that carried
@@ -247,7 +302,8 @@ export function createRepository(
     durable: store.durable,
 
     async loadSettings() {
-      return (await store.readSettings()) ?? defaultSettings();
+      const settings = await store.readSettings();
+      return settings === null ? defaultSettings() : normalizeSettings(settings);
     },
 
     async saveSettings(settings) {

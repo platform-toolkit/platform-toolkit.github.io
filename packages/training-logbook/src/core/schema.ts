@@ -285,6 +285,19 @@ export const EquipmentProfileSchema: v.GenericSchema<EquipmentProfile> = v.objec
   updatedAt: InstantSchema,
 });
 
+/**
+ * `alerts` is deliberately absent, and adding it is a mistake that reads as tidying.
+ *
+ * Section 7.11's three flags are the one part of a settings record this schema does
+ * not describe. Declared here, a record holding `alerts: null` or `sound: 'yes'` --
+ * neither of which the tool writes, both of which a future bug could -- stops being a
+ * flag read as off and becomes a `corrupt-record` on the whole settings row. That is
+ * not a lifter losing an alert preference; it is a lifter locked out of a logbook that
+ * is intact on the disk, over a field that decides whether a phone beeps.
+ *
+ * `readAlerts` in `storage/repository.ts` is what stands in its place, and it takes
+ * `unknown` for exactly this reason. Absent normalises to all-off on the way out.
+ */
 const RestTimerSettingsSchema: v.GenericSchema<RestTimerSettings> = v.object({
   enabled: v.boolean(),
   defaultSeconds: CountSchema,

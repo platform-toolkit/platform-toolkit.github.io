@@ -1314,14 +1314,81 @@ export const REST_NOTES = {
   settingOff: 'Off',
 
   /**
-   * Why the timer is a clock and not an alarm, said where it is switched on.
+   * What the switch does, and where the rest of it is.
    *
-   * Section 7.11 leaves a sound or a buzz optional and there is none yet, so a lifter
-   * who switches this on and puts the phone away would otherwise wait for a noise that
-   * is never coming.
+   * The alerts are on the band rather than here, for the reason the duration picker is:
+   * they are decided by a lifter who has just found out the timer is not loud enough,
+   * standing at a rack. This sentence exists so that the one place the timer is turned
+   * on does not read as the only place it can be configured.
    */
   settingNote:
-    'Starts counting after each set you tick off. It does not make a sound or buzz -- you have to look.',
+    'Starts counting after each set you tick off. Sound, buzz and notifications are switched on from the timer itself.',
+
+  /**
+   * The alerts, folded away.
+   *
+   * Behind a disclosure because they are set once and then never again, while the band
+   * they sit on is on screen for three minutes after every set. Three checkboxes in the
+   * open would be three controls a lifter reads past forty times a session.
+   */
+  alertsLabel: 'Alerts',
+  alertsLegend: 'When the rest is up',
+
+  /**
+   * One line each, and each line admits what its channel cannot promise.
+   *
+   * None of the three is reliable in the way a lifter would assume. A phone on silent
+   * makes no sound and the page cannot read the switch; vibration needs the screen on
+   * and a motor to do it with; a notification needs a permission that can be taken back
+   * later from the address bar. Saying so here costs three lines and saves a lifter
+   * trusting the tool to interrupt them.
+   */
+  alertOption: {
+    vibrate: {
+      label: 'Buzz',
+      description: 'Only while this screen is showing, and only if the phone can.',
+    },
+    sound: {
+      label: 'Sound',
+      description: 'Two short tones. A phone on silent stays silent.',
+    },
+    notify: {
+      label: 'Notification',
+      description: 'From this page, on this device. Asks permission the first time.',
+    },
+  },
+
+  /** What the demonstration says. Shown once, from the press that switched it on. */
+  alertTestTitle: 'Rest alerts are on',
+
+  /**
+   * What a channel that did not work says, per channel and per kind of failure.
+   *
+   * Every one of them names something the lifter can do, or says plainly that there is
+   * nothing. A refusal reported without a remedy is a switch that flicks back off for
+   * no stated reason, which reads as the tool being broken -- and half the time it is
+   * a setting two taps away.
+   *
+   * `refused` is the device saying no and `unknown` is the device not saying; the pair
+   * is kept distinct here for the same reason it is kept distinct in `rest-alert.ts`.
+   */
+  alertTrouble: {
+    vibrate: {
+      refused: 'This device would not buzz. Check whether vibration is switched off.',
+      unknown: 'This device has no buzz to give.',
+    },
+    sound: {
+      refused:
+        'The browser is holding sound until the page is tapped. Tap anywhere, then try again.',
+      unknown: 'This device would not play the tone.',
+    },
+    notify: {
+      refused:
+        'Notifications are blocked for this site. Allow them in the browser settings, then switch this on again.',
+      unknown:
+        'No answer to the permission prompt, so notifications stay off. Some browsers only show them for an installed app.',
+    },
+  },
 
   durationLabel: 'Rest for',
 
