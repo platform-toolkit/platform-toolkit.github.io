@@ -94,6 +94,27 @@ workspaceSource.push(
 );
 
 /**
+ * How long one browser-mode test has before it counts as wedged.
+ *
+ * Vitest's browser default is fifteen seconds, which is generous against an idle
+ * machine and not against this one: `reads a restore that landed politely and one
+ * that did not assertively` builds a backup file, opens two real databases and
+ * restores into both, and on 2026-08-07 that took longer than fifteen at load 140
+ * -- in a fresh-clone gate, so the whole verify went red over a test that does what
+ * it says.
+ *
+ * Sixty is not a claim that a test may reasonably take a minute. It is the point at
+ * which "busy" stops being a plausible explanation and "wedged" starts, which is the
+ * only thing a test timeout is any good at telling apart. A passing test never
+ * approaches it and pays nothing; a hung one is still caught, just later.
+ *
+ * Browser projects only. The Node projects are pure functions over in-memory data and
+ * have never wanted more than the default, so leaving them at it keeps a real hang
+ * there loud.
+ */
+const BROWSER_TEST_TIMEOUT_MS = 60_000;
+
+/**
  * One project per workspace package.
  *
  * Vitest 4 replaced `workspace` with `test.projects`. Splitting by package is
@@ -180,6 +201,7 @@ const projects: TestProjectInlineConfiguration[] = [
       name: 'qualification-check-browser',
       root: './packages/qualification-check',
       include: ['src/**/*.browser.test.ts'],
+      testTimeout: BROWSER_TEST_TIMEOUT_MS,
       browser: {
         enabled: true,
         provider: playwright(),
@@ -216,6 +238,7 @@ const projects: TestProjectInlineConfiguration[] = [
       name: 'training-logbook-browser',
       root: './packages/training-logbook',
       include: ['src/**/*.browser.test.ts'],
+      testTimeout: BROWSER_TEST_TIMEOUT_MS,
       browser: {
         enabled: true,
         provider: playwright(),
@@ -269,6 +292,7 @@ const projects: TestProjectInlineConfiguration[] = [
       name: 'web-browser',
       root: './apps/web',
       include: ['src/**/*.browser.test.ts'],
+      testTimeout: BROWSER_TEST_TIMEOUT_MS,
       browser: {
         enabled: true,
         provider: playwright(),
@@ -283,6 +307,7 @@ const projects: TestProjectInlineConfiguration[] = [
       name: 'ui',
       root: './packages/ui',
       include: ['src/**/*.test.ts'],
+      testTimeout: BROWSER_TEST_TIMEOUT_MS,
       browser: {
         enabled: true,
         provider: playwright(),
