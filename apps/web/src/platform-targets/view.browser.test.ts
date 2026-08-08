@@ -22,7 +22,7 @@ import type { PtkSegmented } from '@platform-toolkit/ui/ptk-segmented';
 import type { PtkSelect } from '@platform-toolkit/ui/ptk-select';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { deepText } from '../testing/deep-text.js';
+import { deepText } from '@platform-toolkit/ui/deep-text';
 import type { Connection } from './freshness.js';
 import type { PtkPlatformTargets } from './ptk-platform-targets.js';
 import { BOOK, CATALOG, CLASSIFICATIONS, DATA_META, STATE_BOOK } from './records-fixture.js';

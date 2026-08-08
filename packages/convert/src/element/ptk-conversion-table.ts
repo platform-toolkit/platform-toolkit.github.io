@@ -40,21 +40,17 @@ import '@platform-toolkit/ui/ptk-disclosure';
 import '@platform-toolkit/ui/ptk-notice';
 import '@platform-toolkit/ui/ptk-number-field';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
-import { customElement, property, state } from 'lit/decorators.js';
+import { property, state } from 'lit/decorators.js';
 
-import {
-  CHART_STEPS,
-  chartStepLabel,
-  leadingUnit,
-  weightProblem,
-  type ChartStatus,
-  type ColumnOrder,
-} from './session.js';
+import { CHART_STEPS, chartStepLabel, leadingUnit, weightProblem } from '../core/session.js';
+import type { ChartStatus, ColumnOrder } from '../types.js';
 
 /** How close a figure has to be to a published one to be called found rather than nearest. */
 const FOUND_TOLERANCE = 1e-9;
 
-@customElement('ptk-conversion-table')
+/** The tag this element registers under. Written to the registry only by `element/index.ts`. */
+export const CONVERSION_TABLE_TAG = 'ptk-conversion-table';
+
 export class PtkConversionTable extends LitElement {
   static override styles = css`
     :host {

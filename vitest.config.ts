@@ -29,6 +29,7 @@ import { defineConfig, type TestProjectInlineConfiguration } from 'vitest/config
  */
 const workspaceSource = [
   'configuration',
+  'convert',
   'data-access',
   'data-contracts',
   'domain',
@@ -48,10 +49,12 @@ const workspaceSource = [
  *
  * One per element, because `customElements.define` is not tree-shakeable: a page
  * that names the barrel downloads all fourteen whether or not it renders one, and
- * the hub rendered none of them. `field-reading` and `theme` are not elements and
- * are here so that a consumer of either does not pull the registry in sideways.
+ * the hub rendered none of them. `deep-text`, `field-reading` and `theme` are not
+ * elements and are here so that a consumer of any of them does not pull the
+ * registry in sideways.
  */
 const uiSubpaths = [
+  'deep-text',
   'embed-height',
   'field-reading',
   'ptk-button',
@@ -200,6 +203,46 @@ const projects: TestProjectInlineConfiguration[] = [
     test: {
       name: 'qualification-check-browser',
       root: './packages/qualification-check',
+      include: ['src/**/*.browser.test.ts'],
+      testTimeout: BROWSER_TEST_TIMEOUT_MS,
+      browser: {
+        enabled: true,
+        provider: playwright(),
+        instances: [{ browser: 'chromium' }],
+        headless: true,
+        screenshotFailures: false,
+      },
+    },
+  },
+  {
+    test: {
+      // Node, for the same section 15 reason as `qualification-check` above. This
+      // tool's core is the sharpest case for it: `session.ts` defines what may be
+      // remembered and reads it through a `PreferenceStore` the caller supplies, so
+      // a suite that passes in bare Node is the proof that it never reached for
+      // `localStorage` itself.
+      name: 'convert',
+      root: './packages/convert',
+      environment: 'node',
+      include: ['src/**/*.test.ts'],
+      // The browser suite below matches the same glob, so it has to be excluded
+      // by name. Vitest replaces the default exclude list rather than adding to
+      // it, so the standard entries are repeated here.
+      exclude: ['**/node_modules/**', '**/dist/**', 'src/**/*.browser.test.ts'],
+    },
+  },
+  {
+    // The four elements, in a real browser, for the same reason `ui` is. Two things
+    // here are platform behaviours rather than library ones and a DOM emulation
+    // would answer both with its own rules: a `ptk-select-weight` event travels up
+    // out of a copy button's shadow root and has to reach the root's handler, and
+    // the assertions that matter read text through several shadow boundaries at
+    // once -- the full chart's summary is rendered inside `ptk-disclosure`'s root,
+    // so a host-only read comes back empty and a `not.toContain` passes by
+    // measuring nothing.
+    test: {
+      name: 'convert-browser',
+      root: './packages/convert',
       include: ['src/**/*.browser.test.ts'],
       testTimeout: BROWSER_TEST_TIMEOUT_MS,
       browser: {

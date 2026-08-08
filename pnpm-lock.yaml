@@ -83,6 +83,9 @@ importers:
       '@platform-toolkit/configuration':
         specifier: workspace:*
         version: link:../../packages/configuration
+      '@platform-toolkit/convert':
+        specifier: workspace:*
+        version: link:../../packages/convert
       '@platform-toolkit/data-access':
         specifier: workspace:*
         version: link:../../packages/data-access
@@ -123,6 +126,25 @@ importers:
       valibot:
         specifier: 1.4.2
         version: 1.4.2(typescript@6.0.3)
+
+  packages/convert:
+    dependencies:
+      '@platform-toolkit/data-contracts':
+        specifier: workspace:*
+        version: link:../data-contracts
+      '@platform-toolkit/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@platform-toolkit/preferences':
+        specifier: workspace:*
+        version: link:../preferences
+      '@platform-toolkit/ui':
+        specifier: workspace:*
+        version: link:../ui
+    devDependencies:
+      lit:
+        specifier: 3.3.3
+        version: 3.3.3
 
   packages/data-access:
     dependencies:

@@ -1,13 +1,20 @@
 // Copyright 2026 Jason Smathers
 // SPDX-License-Identifier: Apache-2.0
 
+import { defineConvert } from '@platform-toolkit/convert/element';
 import { createPreferenceStore, memoryPreferenceStorage } from '@platform-toolkit/preferences';
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 
-import { inventedChart } from './chart-fixture.js';
+import { inventedChart } from '../core/chart.fixture.js';
 import type { PtkConverter } from './ptk-converter.js';
-import './ptk-converter.js';
+
+// Through the package entry and behind an explicit call, not a side-effecting relative
+// import. A relative import here would load the source copy of every element and define
+// four tags a second time: the registry throws on the second write, the story still looks
+// right because the first definition already won, and the only symptom is a console
+// error -- which `smoke-stories.mjs` fails on, for exactly this reason.
+defineConvert();
 
 /**
  * The whole tool: one field, and everything the federation has published about the

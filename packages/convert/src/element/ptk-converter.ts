@@ -44,12 +44,8 @@ import {
   type NumberFieldChangeDetail,
 } from '@platform-toolkit/ui/ptk-number-field';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
-import { customElement, property, state } from 'lit/decorators.js';
+import { property, state } from 'lit/decorators.js';
 
-import { SELECT_WEIGHT_EVENT, type SelectWeightDetail } from './ptk-conversion-result.js';
-import './ptk-conversion-result.js';
-import './ptk-conversion-table.js';
-import './ptk-milestone-chart.js';
 import {
   CHART_STEPS,
   CONVERTER_PREFERENCES,
@@ -64,10 +60,9 @@ import {
   selectValue,
   setDirection,
   typeInto,
-  type ChartStatus,
-  type ColumnOrder,
-  type ConverterEntry,
-} from './session.js';
+} from '../core/session.js';
+import type { ChartStatus, ColumnOrder, ConverterEntry } from '../types.js';
+import { SELECT_WEIGHT_EVENT, type SelectWeightDetail } from './ptk-conversion-result.js';
 
 /**
  * The names the delegated handlers match on.
@@ -82,7 +77,15 @@ const PRECISION_FIELD = 'precision';
 const STEP_FIELD = 'chart-step';
 const ORDER_FIELD = 'column-order';
 
-@customElement('ptk-converter')
+/**
+ * The tag this element registers under.
+ *
+ * A constant rather than a literal because `element/index.ts` is the only module
+ * that may write the registry, and a consumer creating one by hand should not have
+ * to retype a string the package already knows.
+ */
+export const CONVERTER_TAG = 'ptk-converter';
+
 export class PtkConverter extends LitElement {
   static override styles = css`
     :host {

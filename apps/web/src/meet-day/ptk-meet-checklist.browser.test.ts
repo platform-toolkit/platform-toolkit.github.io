@@ -43,7 +43,7 @@ import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { deepText } from '../testing/deep-text.js';
+import { deepText } from '@platform-toolkit/ui/deep-text';
 import { CHECKLIST_HEADING, PREP_SCOPE_NOTE, checklistGroupHeading } from './copy.js';
 import { CUSTOM_ITEM_FIELD, PREP_NOTES_FIELD, REMOVE_CUSTOM_ITEM_FIELD } from './fields.js';
 import {

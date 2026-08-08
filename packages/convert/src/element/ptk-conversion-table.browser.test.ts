@@ -22,14 +22,18 @@ import { DISCLOSURE_TOGGLE_EVENT } from '@platform-toolkit/ui/ptk-disclosure';
 import { type PtkNumberField } from '@platform-toolkit/ui/ptk-number-field';
 // Sizes are measured below, and every rule that sets one reads a custom property.
 import '@platform-toolkit/ui/tokens.css';
+import { deepText } from '@platform-toolkit/ui/deep-text';
 import axe from 'axe-core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-import { deepText } from '../testing/deep-text.js';
-import { INVENTED_CHART_DATA, inventedChart } from './chart-fixture.js';
-import type { ChartStatus, ColumnOrder } from './session.js';
+import { INVENTED_CHART_DATA, inventedChart } from '../core/chart.fixture.js';
+import type { ChartStatus, ColumnOrder } from '../types.js';
+import { defineConvert } from './index.js';
 import type { PtkConversionTable } from './ptk-conversion-table.js';
-import './ptk-conversion-table.js';
+
+beforeAll(() => {
+  defineConvert();
+});
 
 const teardown: (() => void)[] = [];
 

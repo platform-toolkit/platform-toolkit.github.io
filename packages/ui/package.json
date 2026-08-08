@@ -15,6 +15,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./deep-text": {
+      "types": "./dist/deep-text.d.ts",
+      "default": "./dist/deep-text.js"
+    },
     "./embed-height": {
       "types": "./dist/embed-height.d.ts",
       "default": "./dist/embed-height.js"

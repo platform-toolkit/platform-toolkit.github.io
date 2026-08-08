@@ -48,11 +48,13 @@ import {
 import '@platform-toolkit/ui/ptk-notice';
 import '@platform-toolkit/ui/ptk-plate-stack';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
-import { customElement, property } from 'lit/decorators.js';
+import { property } from 'lit/decorators.js';
 
-import type { ChartStatus } from './session.js';
+import type { ChartStatus } from '../types.js';
 
-@customElement('ptk-milestone-chart')
+/** The tag this element registers under. Written to the registry only by `element/index.ts`. */
+export const MILESTONE_CHART_TAG = 'ptk-milestone-chart';
+
 export class PtkMilestoneChart extends LitElement {
   static override styles = css`
     :host {

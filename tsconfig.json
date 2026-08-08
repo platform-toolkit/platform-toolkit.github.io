@@ -9,6 +9,7 @@
     { "path": "./packages/ingestion" },
     { "path": "./packages/preferences" },
     { "path": "./packages/qualification-check" },
+    { "path": "./packages/convert" },
     { "path": "./packages/ui" },
     { "path": "./packages/training-logbook" },
     { "path": "./apps/web" }

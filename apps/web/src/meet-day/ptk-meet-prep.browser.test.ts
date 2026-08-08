@@ -44,7 +44,7 @@ import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { deepText } from '../testing/deep-text.js';
+import { deepText } from '@platform-toolkit/ui/deep-text';
 import { SETUP_LABELS, SETUP_SECTION_HEADINGS } from './copy.js';
 import { SETUP_FIELDS } from './fields.js';
 import { EMPTY_PREP, type LifterSetup, type MeetPrep } from './prep.js';

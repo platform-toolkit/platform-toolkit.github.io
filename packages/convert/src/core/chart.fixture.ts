@@ -4,9 +4,13 @@
 /**
  * An invented conversion chart, for tests and stories only.
  *
- * **Nothing that ships may import this file.** It is here rather than copied into
- * eight test and story files because a conversion chart is twenty-one rows and a
- * provenance block, and eight copies of it is eight places for a row to drift --
+ * **Nothing that ships may import this file.** The `.fixture.ts` suffix is what
+ * keeps that honest rather than a promise: `tsconfig.json` excludes it from the
+ * package project, so it is never compiled into `dist` and never packed.
+ *
+ * It is here rather than copied into eight test and story files because a
+ * conversion chart is twenty-one rows and a provenance block, and eight copies of
+ * it is eight places for a row to drift --
  * at which point two suites disagree about what "between two rows" means and each
  * one is internally consistent.
  *

@@ -34,6 +34,8 @@
     "paths": {
       "@platform-toolkit/configuration": ["./packages/configuration/src/index.ts"],
       "@platform-toolkit/data-access": ["./packages/data-access/src/index.ts"],
+      "@platform-toolkit/convert": ["./packages/convert/src/index.ts"],
+      "@platform-toolkit/convert/element": ["./packages/convert/src/element/index.ts"],
       "@platform-toolkit/data-contracts": ["./packages/data-contracts/src/index.ts"],
       "@platform-toolkit/domain": ["./packages/domain/src/index.ts"],
       "@platform-toolkit/ingestion": ["./packages/ingestion/src/index.ts"],
@@ -48,6 +50,7 @@
       ],
       "@platform-toolkit/training-logbook/handoff": ["./packages/training-logbook/src/handoff.ts"],
       "@platform-toolkit/ui": ["./packages/ui/src/index.ts"],
+      "@platform-toolkit/ui/deep-text": ["./packages/ui/src/deep-text.ts"],
       "@platform-toolkit/ui/embed-height": ["./packages/ui/src/embed-height.ts"],
       "@platform-toolkit/ui/field-reading": ["./packages/ui/src/field-reading.ts"],
       "@platform-toolkit/ui/ptk-button": ["./packages/ui/src/ptk-button.ts"],

@@ -4,8 +4,10 @@
 /**
  * Everything a visitor can read on screen, including text inside shadow roots.
  *
- * Imported by browser tests only; nothing that ships imports it, so it is never
- * bundled into a page.
+ * Imported by browser tests only; nothing that ships imports it, so it costs no
+ * page a byte. It lives here rather than beside them because the boundaries it
+ * knows how to cross are this package's -- a tool package cannot import the
+ * application, and a copy per tool is the one thing this file exists to prevent.
  *
  * `textContent` stops at a shadow boundary, and the sentences worth asserting on
  * in this collection are almost all on the far side of one -- a `summary` handed

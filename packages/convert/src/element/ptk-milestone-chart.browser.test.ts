@@ -21,12 +21,16 @@ import { KILOGRAM_MILESTONES, POUND_MILESTONES } from '@platform-toolkit/domain'
 // measurement is of a layout that never ships.
 import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-import { inventedChart } from './chart-fixture.js';
-import type { ChartStatus } from './session.js';
+import { inventedChart } from '../core/chart.fixture.js';
+import type { ChartStatus } from '../types.js';
+import { defineConvert } from './index.js';
 import type { PtkMilestoneChart } from './ptk-milestone-chart.js';
-import './ptk-milestone-chart.js';
+
+beforeAll(() => {
+  defineConvert();
+});
 
 const teardown: (() => void)[] = [];
 

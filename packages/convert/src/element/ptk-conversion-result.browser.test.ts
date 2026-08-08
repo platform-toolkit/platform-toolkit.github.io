@@ -28,15 +28,19 @@ import type { PtkButton } from '@platform-toolkit/ui/ptk-button';
 // minimum -- a layout that never ships, passing and failing for the wrong reasons.
 import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-import { inventedChart } from './chart-fixture.js';
+import { inventedChart } from '../core/chart.fixture.js';
+import { defineConvert } from './index.js';
 import {
   SELECT_WEIGHT_EVENT,
   type PtkConversionResult,
   type SelectWeightDetail,
 } from './ptk-conversion-result.js';
-import './ptk-conversion-result.js';
+
+beforeAll(() => {
+  defineConvert();
+});
 
 const teardown: (() => void)[] = [];
 

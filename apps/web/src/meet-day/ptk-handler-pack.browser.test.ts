@@ -36,7 +36,7 @@ import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { deepText } from '../testing/deep-text.js';
+import { deepText } from '@platform-toolkit/ui/deep-text';
 import { printRule } from '../testing/print-rules.js';
 import { BOARD_LIFTERS } from './board-fixture.js';
 import type { WarmupLead } from './board.js';

@@ -46,9 +46,9 @@ import '@platform-toolkit/ui/ptk-button';
 import '@platform-toolkit/ui/ptk-copy-button';
 import '@platform-toolkit/ui/ptk-notice';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
-import { customElement, property } from 'lit/decorators.js';
+import { property } from 'lit/decorators.js';
 
-import type { ChartStatus } from './session.js';
+import type { ChartStatus } from '../types.js';
 
 /** Asks the tool to put a published figure in the field. */
 export interface SelectWeightDetail {
@@ -66,7 +66,9 @@ interface Option {
   readonly closest: boolean;
 }
 
-@customElement('ptk-conversion-result')
+/** The tag this element registers under. Written to the registry only by `element/index.ts`. */
+export const CONVERSION_RESULT_TAG = 'ptk-conversion-result';
+
 export class PtkConversionResult extends LitElement {
   static override styles = css`
     :host {

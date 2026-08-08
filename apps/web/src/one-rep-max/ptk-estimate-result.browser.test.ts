@@ -23,7 +23,7 @@ import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { deepText } from '../testing/deep-text.js';
+import { deepText } from '@platform-toolkit/ui/deep-text';
 import { estimateFor, problemsFor, weighing } from './estimate-fixture.js';
 import type { EstimateEntry } from './session.js';
 import type { PtkEstimateResult } from './ptk-estimate-result.js';

@@ -20,6 +20,7 @@
  * to reload would be a lie. The reason goes to the console for whoever maintains
  * the feed, which is who can act on it.
  */
+import { CONVERTER_TAG, defineConvert, type PtkConverter } from '@platform-toolkit/convert/element';
 import { DataSourceError, type DataSource } from '@platform-toolkit/data-access';
 import { ConversionChart } from '@platform-toolkit/domain';
 import {
@@ -29,8 +30,6 @@ import {
 } from '@platform-toolkit/preferences';
 
 import { dataSource } from '../data-source.js';
-import './ptk-converter.js';
-import type { PtkConverter } from './ptk-converter.js';
 
 /** Identifier for this tool, and what it calls itself in a height message. */
 export const TOOL_ID = 'convert';
@@ -61,7 +60,8 @@ export interface ConverterViewOptions {
  * starts the size of a sentence.
  */
 export function createConverterView(options: ConverterViewOptions): PtkConverter {
-  const element = document.createElement('ptk-converter');
+  defineConvert();
+  const element = document.createElement(CONVERTER_TAG);
   element.settings = options.settings ?? createPreferenceStore(browserPreferenceStorage());
 
   void loadChart(element, options.source ?? dataSource, options.federationId);

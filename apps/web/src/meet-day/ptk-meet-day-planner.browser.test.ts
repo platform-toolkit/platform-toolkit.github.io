@@ -60,7 +60,7 @@ import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { manualClock, type ManualClock } from '../clock.js';
-import { deepText } from '../testing/deep-text.js';
+import { deepText } from '@platform-toolkit/ui/deep-text';
 import { printRule } from '../testing/print-rules.js';
 import {
   CHECKLIST_HEADING,

@@ -22,15 +22,18 @@ import { PtkButton } from '@platform-toolkit/ui/ptk-button';
 import { PtkNumberField } from '@platform-toolkit/ui/ptk-number-field';
 // Sizes are measured below and every rule that sets one reads a custom property.
 import '@platform-toolkit/ui/tokens.css';
+import { deepText } from '@platform-toolkit/ui/deep-text';
 import axe from 'axe-core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-import { deepText } from '../testing/deep-text.js';
-import { INVENTED_CHART_DATA, inventedChart } from './chart-fixture.js';
-import type { ChartStatus } from './session.js';
-import { PtkConversionResult } from './ptk-conversion-result.js';
+import { INVENTED_CHART_DATA, inventedChart } from '../core/chart.fixture.js';
+import type { ChartStatus } from '../types.js';
+import { PtkConversionResult, defineConvert } from './index.js';
 import type { PtkConverter } from './ptk-converter.js';
-import './ptk-converter.js';
+
+beforeAll(() => {
+  defineConvert();
+});
 
 const teardown: (() => void)[] = [];
 

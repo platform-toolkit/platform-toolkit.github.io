@@ -1,12 +1,15 @@
 // Copyright 2026 Jason Smathers
 // SPDX-License-Identifier: Apache-2.0
 
+import { defineConvert } from '@platform-toolkit/convert/element';
 import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 
-import { inventedChart } from './chart-fixture.js';
+import { inventedChart } from '../core/chart.fixture.js';
 import type { PtkMilestoneChart } from './ptk-milestone-chart.js';
-import './ptk-milestone-chart.js';
+
+// The registry is written once, explicitly. See the note in the composite root's stories.
+defineConvert();
 
 /**
  * The barbell landmarks, and what each is on the platform.

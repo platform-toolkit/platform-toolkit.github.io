@@ -1,7 +1,7 @@
 // Copyright 2026 Jason Smathers
 // SPDX-License-Identifier: Apache-2.0
 
-import type { Meta, StoryObj } from '@storybook/web-components-vite';
+import { defineConvert } from '@platform-toolkit/convert/element';
 import {
   convertAgainstChart,
   enterWeight,
@@ -9,11 +9,14 @@ import {
   type ConversionAnswer,
   type WeightUnit,
 } from '@platform-toolkit/domain';
+import type { Meta, StoryObj } from '@storybook/web-components-vite';
 import { html } from 'lit';
 
-import { inventedChart } from './chart-fixture.js';
+import { inventedChart } from '../core/chart.fixture.js';
 import type { PtkConversionResult } from './ptk-conversion-result.js';
-import './ptk-conversion-result.js';
+
+// The registry is written once, explicitly. See the note in the composite root's stories.
+defineConvert();
 
 /**
  * The answer, and the rule the whole tool exists to keep.

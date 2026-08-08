@@ -37,7 +37,7 @@ import axe from 'axe-core';
 import type { LiveChoices, LiveTarget } from '@platform-toolkit/domain';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { deepText } from '../testing/deep-text.js';
+import { deepText } from '@platform-toolkit/ui/deep-text';
 import {
   EXTRA_ATTEMPTS_HEADING,
   HIGHLIGHT_BADGE,

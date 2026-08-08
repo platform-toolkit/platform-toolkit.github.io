@@ -146,6 +146,68 @@ const BUILTINS = new Set(builtinModules);
  */
 const CONSUMABLE = [
   {
+    name: '@platform-toolkit/convert',
+    slug: 'convert',
+    consumer: `import {
+  CONVERSION_RESULT_TAG,
+  CONVERTER_TAG,
+  SELECT_WEIGHT_EVENT,
+  defineConvert,
+  type SelectWeightDetail,
+} from '@platform-toolkit/convert/element';
+import {
+  CHART_STEPS,
+  EMPTY_ENTRY,
+  reverse,
+  typeInto,
+  weightProblem,
+} from '@platform-toolkit/convert/core';
+import { DEFAULT_PRECISION } from '@platform-toolkit/convert';
+import type { ChartStatus, ConverterEntry } from '@platform-toolkit/convert/types';
+
+export function consumeConvert(): string {
+  // Annotated on purpose: an inferred type would still compile if the shipped
+  // \`./types\` entry point resolved to nothing, and \`ConverterEntry\` is what a
+  // consumer driving the field itself has to name.
+  const typed: ConverterEntry = typeInto(EMPTY_ENTRY, '315');
+  const flipped = reverse(typed);
+  // The one property a host must set that no interaction produces. A build that
+  // shipped the element without its declarations would leave that host casting a
+  // string literal at the tool's most load-bearing four-way.
+  const status: ChartStatus = 'unavailable';
+  const detail: SelectWeightDetail = { amount: 100 };
+  const define: () => unknown = defineConvert;
+  return [
+    CONVERTER_TAG,
+    CONVERSION_RESULT_TAG,
+    SELECT_WEIGHT_EVENT,
+    typed.text,
+    flipped.direction,
+    String(DEFAULT_PRECISION),
+    String(CHART_STEPS.length),
+    String(weightProblem('-1') !== null),
+    status,
+    String(detail.amount),
+    typeof define,
+  ].join(' ');
+}
+`,
+    // Core only, and it asserts rather than prints. The reversal is the assertion
+    // worth making in Node: it is the one rule of this tool that a rewrite can break
+    // while every screen still looks right, because the drift only shows up after
+    // several flicks.
+    smoke: `import { EMPTY_ENTRY, reverse, typeInto } from '@platform-toolkit/convert/core';
+
+const typed = typeInto(EMPTY_ENTRY, '315');
+if (typed.entry === null) throw new Error('a plain figure did not parse');
+
+let entry = typed;
+for (let flick = 0; flick < 50; flick += 1) entry = reverse(entry);
+if (entry.text !== typed.text) throw new Error('fifty reversals moved the number');
+if (entry.direction !== typed.direction) throw new Error('fifty reversals moved the direction');
+`,
+  },
+  {
     name: '@platform-toolkit/qualification-check',
     slug: 'qualification-check',
     consumer: `import {

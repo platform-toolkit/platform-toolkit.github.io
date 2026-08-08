@@ -112,7 +112,7 @@ export const TARGETS_PREFERENCES = {
   view: definePreference<StoredView>({
     name: 'platform-targets.view',
     value: PreferenceValue.shape({
-      // Spelled inline for the reason `convert/session.ts` records: `choice`
+      // Spelled inline for the reason convert's `core/session.ts` records: `choice`
       // infers its union from a `const` type parameter, and a named constant
       // annotated `readonly Lift[]` widens it straight back to `string`.
       lift: PreferenceValue.choice(['squat', 'bench', 'deadlift', 'total']),

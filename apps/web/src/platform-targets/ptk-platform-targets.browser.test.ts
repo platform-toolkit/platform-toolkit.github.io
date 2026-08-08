@@ -11,7 +11,7 @@ import { PtkSelect } from '@platform-toolkit/ui/ptk-select';
 import '@platform-toolkit/ui/tokens.css';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { deepText } from '../testing/deep-text.js';
+import { deepText } from '@platform-toolkit/ui/deep-text';
 import type { Connection, DataMetaStatus } from './freshness.js';
 import type { PtkPlatformTargets } from './ptk-platform-targets.js';
 import './ptk-platform-targets.js';

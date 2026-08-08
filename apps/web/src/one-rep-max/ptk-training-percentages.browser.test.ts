@@ -28,7 +28,7 @@ import '@platform-toolkit/ui/tokens.css';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { deepText } from '../testing/deep-text.js';
+import { deepText } from '@platform-toolkit/ui/deep-text';
 import { toolkitFigureFor, weighing } from './estimate-fixture.js';
 import { PERCENTAGE_STEP_FIELD } from './fields.js';
 import type { PtkTrainingPercentages } from './ptk-training-percentages.js';

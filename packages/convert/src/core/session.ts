@@ -46,7 +46,6 @@ import {
   reverseDirection,
   showEntryIn,
   type ConversionDirection,
-  type EnteredWeight,
   type WeightUnit,
 } from '@platform-toolkit/domain';
 import {
@@ -55,18 +54,7 @@ import {
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
 
-/** How the read of the published chart is going. Rendered as three sentences, not one. */
-export type ChartStatus = 'loading' | 'ready' | 'unavailable' | 'failed';
-
-/**
- * Which column the full chart leads with.
- *
- * The requirements ask for "pounds-first or kilograms-first order", and on this
- * data that is a question about column order rather than sort order: both columns
- * ascend together, so sorting by one sorts by the other. Modelling it as a sort
- * direction would offer a control that visibly does nothing.
- */
-export type ColumnOrder = 'kilograms-first' | 'pounds-first';
+import type { ColumnOrder, ConverterEntry, ConverterSettings, StoredValue } from '../types.js';
 
 /** The unit the leading column is in. */
 export function leadingUnit(order: ColumnOrder): WeightUnit {
@@ -102,22 +90,6 @@ export const DEFAULT_PRECISION = 2;
  * The field, and what reversing does to it.
  * ---------------------------------------------------------------------------
  */
-
-/** The converter's whole editable state. */
-export interface ConverterEntry {
-  /** Which way round the conversion is running. */
-  readonly direction: ConversionDirection;
-  /** Exactly what is in the field. A string until something parses it. */
-  readonly text: string;
-  /**
-   * The drift-free origin behind the field, or `null` when nothing parses.
-   *
-   * Separate from `text` rather than derived from it, because the two answer
-   * different questions: `text` is what the visitor can see and edit, and this is
-   * what a reversal converts. A half-typed `12.` has a text and no origin.
-   */
-  readonly entry: EnteredWeight | null;
-}
 
 export const EMPTY_ENTRY: ConverterEntry = {
   direction: 'lb-to-kg',
@@ -237,31 +209,6 @@ export function weightProblem(text: string): string | null {
  * ---------------------------------------------------------------------------
  */
 
-/**
- * The remembered value, and whether there was one.
- *
- * Three fields where two look sufficient, and the third is the one that matters.
- * `unit` is the unit the number was *typed* in and `shownIn` is the unit it is
- * currently being read in, and after a reversal those differ -- the origin is
- * never rewritten, which is the whole basis of the drift-free field. Storing
- * only the origin brings back 315 lb with the direction reset; storing only the
- * displayed figure brings back a rounded 142.88 kg and starts the drift the type
- * exists to prevent. Both, and a reload is exactly where the visitor left off.
- *
- * The `present` flag is not redundant with a zero amount either: zero is a
- * legitimate thing to convert -- the requirements say so explicitly -- so
- * encoding "empty" as zero, the way tool 2's weights do, would turn a typed `0`
- * into an empty field on the next visit.
- */
-interface StoredValue {
-  readonly amount: number;
-  /** The unit it was typed in. Never rewritten. */
-  readonly unit: WeightUnit;
-  /** The unit it is currently displayed in. Differs after a reversal. */
-  readonly shownIn: WeightUnit;
-  readonly present: boolean;
-}
-
 export const CONVERTER_PREFERENCES = {
   direction: definePreference<ConversionDirection>({
     name: 'convert.direction',
@@ -304,14 +251,6 @@ export const CONVERTER_PREFERENCES = {
     fallback: 'kilograms-first',
   }),
 };
-
-/** Everything the converter reads back on start-up. */
-export interface ConverterSettings {
-  readonly entry: ConverterEntry;
-  readonly precision: number;
-  readonly step: number;
-  readonly order: ColumnOrder;
-}
 
 export function loadSettings(store: PreferenceStore): ConverterSettings {
   const direction = store.read(CONVERTER_PREFERENCES.direction);
