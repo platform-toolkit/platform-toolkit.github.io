@@ -2126,6 +2126,151 @@ const LOGBOOK_HANDOFF_SEED = `
 const LOGBOOK_HANDOFF_SETTLE = ['ptk-training-logbook .offer li', 'ptk-training-logbook p.save'];
 
 /**
+ * The storage line saying the write is *finished*, which is the only such signal.
+ *
+ * The two `revisit` routes below both reload a page whose last press started an
+ * IndexedDB write, and a reload lands wherever the device got to -- so without
+ * this the workout being carried across might be a transaction the navigation
+ * cancelled. That failure is intermittent by construction: it depends on how
+ * quickly a machine under a full `verify` finishes a round trip.
+ *
+ * The text rather than the class, which reads like the weaker contract and here
+ * is the only one available: all four states render `p.save` and two of them
+ * render it without `.warn`, so the class distinguishes "trouble" from "not
+ * trouble" and never "saving" from "saved". `:text-is` and not `:has-text`,
+ * because Playwright's substring engine is case-insensitive and "Not saved on
+ * this device" -- the state where the browser gave the page no storage at all --
+ * contains this string. `SAVE_STATE_NOTES` has no entry for `saved`, so the
+ * paragraph holds exactly these four words and nothing is interpolated into it.
+ */
+const LOGBOOK_SAVED = ['ptk-training-logbook p.save:text-is("Saved on this device")'];
+
+/**
+ * A live session under the offer, which is the state the reload has to carry.
+ *
+ * A set row proves the session is on screen and the storage line proves it is on
+ * the device, and only the second of those survives a navigation. Neither alone
+ * is the condition: a session rendered but not yet written comes back from the
+ * reload as no session at all, and the route would then measure the ordinary
+ * offer card while reporting the busy one.
+ */
+const LOGBOOK_BUSY_HANDOFF_HOLDING = ['ptk-active-workout li[data-set]', ...LOGBOOK_SAVED];
+
+/**
+ * The two things the busy branch draws that the ordinary offer card does not.
+ *
+ * The line itself is named by the sibling that always precedes it. Both
+ * paragraphs in the card are `p.note` and they differ only in position -- the
+ * intro is above the list of lifts and this one is below it -- so `ul ~ p.note`
+ * is the only way to say "the conditional one" without quoting a hundred
+ * characters of copy. Moving it above the list breaks this loudly, which is the
+ * right answer: the sentence explains the list it sits under.
+ *
+ * Resume is the second and comes from the other half of the state. The busy note
+ * is drawn from `active !== null` read on the offer card, and Resume from the
+ * same field read a section lower, so a screen with both on it is one where the
+ * session came back out of storage rather than one where a template happened to
+ * render. It is also the control at risk: it replaces the Start button with a
+ * longer label under a sentence that is not there when the logbook is idle.
+ *
+ * Neither of these exists on the screen this route reloads away from, which is
+ * what makes the reload falsifiable -- see {@link revisit}.
+ */
+const LOGBOOK_BUSY_HANDOFF_SETTLE = [
+  'ptk-training-logbook .offer ul ~ p.note',
+  'ptk-training-logbook ptk-button[data-action="resume-workout"] button',
+  ...LOGBOOK_SAVED,
+];
+
+/**
+ * A whole session, done and put away, which is what section 7.8's line needs.
+ *
+ * The line is drawn from a *completed* session holding the lift, so the walk has
+ * to include the one press that records a set: a session finished with nothing
+ * ticked off leaves a workout in the history that `previousPerformanceIn`
+ * correctly reports as never having been trained, and the logging screen at the
+ * end of this route would draw no line while every selector on the way still
+ * matched. `LOGBOOK_RECORDS_CLICK` walks the same ground for the same reason.
+ *
+ * It ends at the finish rather than pressing Home, because Home is what the
+ * reload replaces. Reading the history back through a fresh boot is the stronger
+ * claim of the two: Home re-reads a database this tab has had open all along,
+ * and the reload asks whether the session is on the *device*.
+ */
+const LOGBOOK_LAST_TIME_CLICK_AFTER = [
+  ...LOGBOOK_START,
+  'ptk-active-workout ptk-button[data-action="complete"] button',
+  ...LOGBOOK_FINISH_CLICK,
+  'ptk-active-workout .finish ptk-button[data-action="finish-confirm"] button',
+];
+
+/**
+ * The finished screen, and the write under it.
+ *
+ * `#onFinished` sets the screen and starts the write in the same statement
+ * without awaiting it, so the heading is on the page some milliseconds before the
+ * session is on the device. The storage line is the half that matters here and
+ * the region is named as well, because it is the one selector that says which of
+ * the nine screens is up -- `p.save` alone would be satisfied by the logging
+ * screen this route is supposed to have left.
+ */
+const LOGBOOK_LAST_TIME_HOLDING = [
+  'ptk-training-logbook section.screen[aria-label="Workout finished"]',
+  ...LOGBOOK_SAVED,
+];
+
+/**
+ * Plan the same lift again on the far side of the reload.
+ *
+ * The squat and not both lifts: two would measure two copies of one line, and
+ * what the second row would add is the gap between an exercise with history and
+ * one without -- which is a real arrangement and is the plan route's, one section
+ * apart from this one. One lift keeps the walk short enough to pay for five
+ * times.
+ *
+ * These are presses and not more `clickAfter`, because `clickAfter` ran before
+ * the navigation. The slot exists so that a route can drive the rebooted app to
+ * the screen it names instead of stopping at whatever the boot lands on.
+ */
+const LOGBOOK_LAST_TIME_THEN = [
+  'ptk-training-logbook ptk-button[data-action="start-workout"] button',
+  'ptk-workout-builder ptk-button[data-exercise="squat"] button',
+];
+
+/**
+ * A working weight on the new plan, deliberately unlike the one in the history.
+ *
+ * Invented (section 5.1), and heavier than the 142.5 the finished session was
+ * logged at so that the two numbers on screen cannot be confused for each other:
+ * the previous-performance line and the row under it are a weight above a weight,
+ * and identical figures would make a line drawn from the wrong session look
+ * right.
+ */
+const LOGBOOK_LAST_TIME_FILL_AFTER = [
+  { selector: 'ptk-workout-builder li[data-row="0"] [data-field="weight"] input', value: '147.5' },
+];
+
+/**
+ * Section 7.8's line, and the row it is context for.
+ *
+ * `p.previous` and not `p.note`: the class exists to separate the lifter's own
+ * record read back from the tool talking about itself, and `#previousLine` says
+ * in as many words that this reader is why. It cannot be drawn against an empty
+ * history, so it is what proves the reload came back to a device that had kept
+ * the session -- and it is absent from the finished screen this route reloads
+ * away from, which is what makes the reload falsifiable.
+ *
+ * The set row is named as well because the arrangement is the pair. The line is a
+ * day and a run of sets on one wrapping row above a card that has its own
+ * heading, its own weight and its own controls, and a line measured before the
+ * card is measured against a column nothing else is competing for.
+ */
+const LOGBOOK_LAST_TIME_SETTLE = [
+  'ptk-active-workout p.previous',
+  'ptk-active-workout li[data-set]',
+];
+
+/**
  * Switch the rest timer on, which is what makes everything below it exist.
  *
  * Section 7.11 leaves the feature optional and it defaults off, so a route that
@@ -2739,6 +2884,25 @@ const ROUTES = [
     settle: LOGBOOK_HANDOFF_SETTLE,
   },
   {
+    // The same offer with a workout already running under it, which the card
+    // answers by dropping Start and explaining why. It is a separate route and
+    // not a longer version of the one above because the two are different
+    // paragraphs at different heights, and it needs a reload because the app has
+    // no path to it: Start is only drawn while nothing is active, resume only
+    // goes the other way, and the one exit from a live session ends it. Booting
+    // with the session on the device is how a lifter reaches this in the morning,
+    // and it is the only way anyone reaches it.
+    path: '/logbook/',
+    label: '/logbook/ (handoff over a session)',
+    seed: LOGBOOK_HANDOFF_SEED,
+    click: LOGBOOK_PLAN_CLICK,
+    reveal: [],
+    fill: LOGBOOK_PLAN_FILL,
+    clickAfter: LOGBOOK_START,
+    revisit: { holding: LOGBOOK_BUSY_HANDOFF_HOLDING },
+    settle: LOGBOOK_BUSY_HANDOFF_SETTLE,
+  },
+  {
     path: '/logbook/',
     label: '/logbook/ (plan)',
     click: LOGBOOK_PLAN_CLICK,
@@ -2755,6 +2919,29 @@ const ROUTES = [
     clickAfter: LOGBOOK_START,
     clickLast: LOGBOOK_LOG_CLICK,
     settle: LOGBOOK_LOG_SETTLE,
+  },
+  {
+    // The same screen for a lift that has been done before, which adds section
+    // 7.8's line above the first card and had never been measured at any width:
+    // every other route on this path opens on an empty logbook, and the line is
+    // drawn only where a completed session already holds the lift. It is also the
+    // longest single string the logging screen can draw -- a date and a whole run
+    // of sets on one line -- so 320px is the width it is at risk on.
+    //
+    // Two sessions in one route, and no shorter version exists. The history has to
+    // be a real workout in IndexedDB, which nothing here can seed without a second
+    // copy of the record schema, so the first session is walked through the app's
+    // own controls and the second is planned on the far side of the reload.
+    path: '/logbook/',
+    label: '/logbook/ (last time)',
+    click: LOGBOOK_PLAN_CLICK,
+    reveal: [],
+    fill: LOGBOOK_PLAN_FILL,
+    clickAfter: LOGBOOK_LAST_TIME_CLICK_AFTER,
+    revisit: { holding: LOGBOOK_LAST_TIME_HOLDING, then: LOGBOOK_LAST_TIME_THEN },
+    fillAfter: LOGBOOK_LAST_TIME_FILL_AFTER,
+    clickLast: LOGBOOK_START,
+    settle: LOGBOOK_LAST_TIME_SETTLE,
   },
   {
     // §7.7's four changes to the shape of a lift. Three of them are a wrapping
@@ -3527,6 +3714,101 @@ function whereOf(route, pass) {
 }
 
 /**
+ * Loads the route a second time, so the screen is rebuilt from what was kept.
+ *
+ * WHY A SECOND NAVIGATION IS A STEP AT ALL
+ *
+ * Two screens in the logbook need one and neither is reachable without it. The
+ * handoff card's busy branch wants a seeded record, a live session and the home
+ * screen at once, and there is no control that returns home from a live session
+ * -- the only exit is finish, which ends it (#93). Section 7.8's
+ * previous-performance line wants a completed session already in IndexedDB, which
+ * no `seed` can write: a workout is a schema-validated record in an object store,
+ * so an init script that wrote one would be a second copy of the valibot schema
+ * living in this directory, racing the application's own `openLogbookStore()`
+ * (#94). Reloading answers both, because the thing both screens are actually
+ * about is state the *device* kept -- and the only writer that can put a workout
+ * there without duplicating the schema is the application, driven through its own
+ * controls by the press lists above.
+ *
+ * WHY IT IS THE MOST DANGEROUS STEP IN THIS FILE
+ *
+ * Every other step adds something to a screen. This one throws a screen away. The
+ * tool boots to its home screen, so a route whose earlier presses failed to leave
+ * anything behind still arrives *somewhere* that renders -- and a settle list that
+ * happens to match the home page would then report a clean measurement of the
+ * wrong screen, under a label naming the right one. That is worse than the gap
+ * #93 and #94 were filed about, because a gap is visible in the route list and
+ * this is not.
+ *
+ * So a revisit is falsifiable from both sides, and neither half is optional:
+ *
+ *   - `holding` is what has to be on screen at the moment of the reload. It says
+ *     what the reload is being asked to carry, and it fails before the navigation
+ *     rather than eight seconds after it, which is the difference between a report
+ *     naming the press that did not land and one naming a screen that did not
+ *     arrive. A revisit that holds nothing is refused outright.
+ *   - At least one `settle` selector has to be *absent* before the reload. If
+ *     everything the route waits for was already on screen, the reload proves
+ *     nothing -- the same run, with the navigation deleted, would pass. Requiring
+ *     all of them to be absent would be wrong: the storage line is on every screen
+ *     this tool draws and is worth settling on either side.
+ *
+ * `then` is the press list for the rebooted app, and it is a separate slot rather
+ * than more entries in `clickAfter` because that list has already run. Without it
+ * a revisit could only ever end a route on the boot screen, which is one of the
+ * two screens wanted here and not the other.
+ *
+ * @param {import('playwright').Page} page
+ * @param {{settle?: readonly string[], revisit?: {holding: readonly string[], then?: readonly string[]}}} route
+ * @param {{width: number, textScale: number}} pass
+ * @param {string} where
+ * @param {string[]} failures
+ * @returns {Promise<boolean>}
+ */
+async function revisit(page, route, pass, where, failures) {
+  const step = route.revisit;
+  if (step === undefined) return true;
+
+  if (step.holding.length === 0) {
+    failures.push(`${where}: a revisit that holds nothing cannot say what the reload carried`);
+    return false;
+  }
+
+  for (const selector of step.holding) {
+    if (!(await settled(page, selector))) {
+      failures.push(`${where}: ${selector} was not on screen when the page was reloaded`);
+      return false;
+    }
+  }
+
+  // Counted after `holding` has settled, so this is the finished pre-reload
+  // screen rather than one caught mid-render -- a selector that is merely late
+  // would otherwise read as one the reload conjured.
+  const already = await Promise.all(
+    (route.settle ?? []).map((selector) => page.locator(selector).first().count()),
+  );
+  if (already.length === 0 || already.every((count) => count > 0)) {
+    failures.push(
+      `${where}: nothing this route settles on is missing before the reload, so the reload proves nothing`,
+    );
+    return false;
+  }
+
+  await page.reload({ waitUntil: 'networkidle' });
+
+  // The reload discards the declaration `main` wrote through the CSSOM after the
+  // first navigation, and nothing downstream would notice: the two 200% passes
+  // and the headroom pass would measure this screen at the browser's own text
+  // size and report a pass on a question they never asked.
+  if (pass.textScale !== 1) {
+    await page.evaluate(textSizeExpression(pass.textScale));
+  }
+
+  return tap(page, step.then ?? [], where, failures);
+}
+
+/**
  * Drives a route into the state worth measuring.
  *
  * Returns false, having recorded a failure, if any step could not be taken. A
@@ -3572,6 +3854,12 @@ async function reveal(page, route, pass, failures) {
   // one that would push somebody to weaken the unmatched-selector failure into
   // a skip, which is the thing that makes this file stop checking.
   if (!(await tap(page, route.clickAfter ?? [], where, failures))) return false;
+
+  // The reload sits here and not lower down because everything above it is how a
+  // route puts something on the device worth keeping, and everything below it is
+  // how a route drives the app that came back. Both logbook routes that use it
+  // need presses on the far side, so it cannot be last.
+  if (!(await revisit(page, route, pass, where, failures))) return false;
 
   // Fields that do not exist until something above was pressed. Platform
   // Targets' lift entry is the case: since the three-phase rebuild the setup
