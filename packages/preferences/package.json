@@ -3,10 +3,30 @@
   "version": "0.0.0",
   "private": true,
   "description": "The seam between a tool and whatever remembers a visitor's own settings between visits.",
+  "keywords": [
+    "powerlifting",
+    "strength-training",
+    "preferences",
+    "localstorage",
+    "settings",
+    "ports-and-adapters"
+  ],
+  "homepage": "https://platform-toolkit.github.io",
+  "bugs": {
+    "url": "https://github.com/platform-toolkit/platform-toolkit.github.io/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/platform-toolkit/platform-toolkit.github.io.git",
+    "directory": "packages/preferences"
+  },
   "license": "Apache-2.0",
+  "author": "Jason Smathers",
   "type": "module",
+  "sideEffects": false,
   "files": [
     "dist",
+    "README.md",
     "LICENSE"
   ],
   "exports": {
@@ -21,5 +41,8 @@
   },
   "dependencies": {
     "valibot": "1.4.2"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

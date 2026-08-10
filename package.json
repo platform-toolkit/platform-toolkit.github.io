@@ -3,8 +3,23 @@
   "version": "0.0.0",
   "private": true,
   "description": "Open-source tools for the powerlifting community. Each works alone and embeds anywhere.",
+  "keywords": [
+    "powerlifting",
+    "strength-training",
+    "web-components",
+    "lit",
+    "monorepo"
+  ],
+  "homepage": "https://platform-toolkit.github.io",
+  "bugs": {
+    "url": "https://github.com/platform-toolkit/platform-toolkit.github.io/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/platform-toolkit/platform-toolkit.github.io.git"
+  },
   "license": "Apache-2.0",
-  "author": "Jason Smathers <jason@smathe.rs>",
+  "author": "Jason Smathers",
   "type": "module",
   "engines": {
     "node": ">=24.0.0",

@@ -3,10 +3,32 @@
   "version": "0.0.0",
   "private": true,
   "description": "Pure powerlifting domain calculations. No DOM, no network, no I/O.",
+  "keywords": [
+    "powerlifting",
+    "strength-training",
+    "wilks",
+    "dots",
+    "one-rep-max",
+    "plate-math",
+    "barbell",
+    "pure-functions"
+  ],
+  "homepage": "https://platform-toolkit.github.io",
+  "bugs": {
+    "url": "https://github.com/platform-toolkit/platform-toolkit.github.io/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/platform-toolkit/platform-toolkit.github.io.git",
+    "directory": "packages/domain"
+  },
   "license": "Apache-2.0",
+  "author": "Jason Smathers",
   "type": "module",
+  "sideEffects": false,
   "files": [
     "dist",
+    "README.md",
     "LICENSE"
   ],
   "exports": {
@@ -21,5 +43,8 @@
   },
   "dependencies": {
     "@platform-toolkit/data-contracts": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -3,10 +3,29 @@
   "version": "0.0.0",
   "private": true,
   "description": "The port between the application and wherever data is stored, plus the static-file adapter in use today.",
+  "keywords": [
+    "powerlifting",
+    "strength-training",
+    "repository-pattern",
+    "data-source",
+    "ports-and-adapters"
+  ],
+  "homepage": "https://platform-toolkit.github.io",
+  "bugs": {
+    "url": "https://github.com/platform-toolkit/platform-toolkit.github.io/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/platform-toolkit/platform-toolkit.github.io.git",
+    "directory": "packages/data-access"
+  },
   "license": "Apache-2.0",
+  "author": "Jason Smathers",
   "type": "module",
+  "sideEffects": false,
   "files": [
     "dist",
+    "README.md",
     "LICENSE"
   ],
   "exports": {
@@ -22,5 +41,8 @@
   "dependencies": {
     "@platform-toolkit/data-contracts": "workspace:*",
     "valibot": "1.4.2"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

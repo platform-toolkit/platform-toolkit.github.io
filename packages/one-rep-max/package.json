@@ -3,8 +3,30 @@
   "version": "0.0.0",
   "private": true,
   "description": "Estimate a one-rep max from a set that was actually performed, showing every published equation behind the figure.",
+  "keywords": [
+    "powerlifting",
+    "strength-training",
+    "web-components",
+    "lit",
+    "one-rep-max",
+    "1rm",
+    "epley",
+    "brzycki",
+    "calculator"
+  ],
+  "homepage": "https://platform-toolkit.github.io",
+  "bugs": {
+    "url": "https://github.com/platform-toolkit/platform-toolkit.github.io/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/platform-toolkit/platform-toolkit.github.io.git",
+    "directory": "packages/one-rep-max"
+  },
   "license": "Apache-2.0",
+  "author": "Jason Smathers",
   "type": "module",
+  "sideEffects": false,
   "files": [
     "dist",
     "README.md",
@@ -42,5 +64,8 @@
   },
   "devDependencies": {
     "lit": "3.3.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

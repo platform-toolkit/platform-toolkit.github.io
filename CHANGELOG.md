@@ -196,6 +196,19 @@ interpreted, and nothing derives a programme from a history.
 
 ### Distribution and hardening
 
+- **Every package now declares whether importing it does anything.** None of them said, so a bundler
+  had to assume the worst and keep every module a route touched, reachable or not. The five tool
+  packages register their elements inside an explicit call rather than at module scope, so they are
+  genuinely free of import-time effects and say so; the shared component package is the one that is
+  not, and it names the files that self-register instead of claiming purity it does not have. Seven
+  of the eight routes got smaller, between 3 939 B and 41 193 B each, about 220 KB in total — more
+  than the per-element subpath work saved. Measured across two builds, not estimated.
+
+  The same pass filled in the metadata every package was missing: where the source lives, where to
+  report a bug, what the package is for, and a consistent key order across all twelve so a diff
+  between two of them shows a real difference. The root manifest was also the last place still
+  publishing an old contact address.
+
 - **Every tool is now a package.** Platform Targets, the One-Rep Max Estimator and Pounds and
   Kilograms were the last three that existed only as directories inside the site, so reusing one
   meant copying files out of it. Each is its own package now, with a pure core, its elements behind

@@ -3,10 +3,30 @@
   "version": "0.0.0",
   "private": true,
   "description": "Runtime schemas and types for every published static data artifact.",
+  "keywords": [
+    "powerlifting",
+    "strength-training",
+    "valibot",
+    "schema",
+    "runtime-validation",
+    "typescript"
+  ],
+  "homepage": "https://platform-toolkit.github.io",
+  "bugs": {
+    "url": "https://github.com/platform-toolkit/platform-toolkit.github.io/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/platform-toolkit/platform-toolkit.github.io.git",
+    "directory": "packages/data-contracts"
+  },
   "license": "Apache-2.0",
+  "author": "Jason Smathers",
   "type": "module",
+  "sideEffects": false,
   "files": [
     "dist",
+    "README.md",
     "LICENSE"
   ],
   "exports": {
@@ -21,5 +41,8 @@
   },
   "dependencies": {
     "valibot": "1.4.2"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

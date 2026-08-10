@@ -3,10 +3,31 @@
   "version": "0.0.0",
   "private": true,
   "description": "Theme configuration and the protocol an embedding page speaks to a framed tool.",
+  "keywords": [
+    "powerlifting",
+    "strength-training",
+    "web-components",
+    "theming",
+    "iframe",
+    "postmessage",
+    "embed"
+  ],
+  "homepage": "https://platform-toolkit.github.io",
+  "bugs": {
+    "url": "https://github.com/platform-toolkit/platform-toolkit.github.io/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/platform-toolkit/platform-toolkit.github.io.git",
+    "directory": "packages/configuration"
+  },
   "license": "Apache-2.0",
+  "author": "Jason Smathers",
   "type": "module",
+  "sideEffects": false,
   "files": [
     "dist",
+    "README.md",
     "LICENSE"
   ],
   "exports": {
@@ -22,5 +43,8 @@
   "dependencies": {
     "@platform-toolkit/data-contracts": "workspace:*",
     "valibot": "1.4.2"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

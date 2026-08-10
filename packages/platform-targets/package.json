@@ -3,8 +3,28 @@
   "version": "0.0.0",
   "private": true,
   "description": "What a lifter has to lift to reach the next classification, the next record, or a goal they set, from a federation's own published data.",
+  "keywords": [
+    "powerlifting",
+    "strength-training",
+    "web-components",
+    "lit",
+    "classification",
+    "records",
+    "goals"
+  ],
+  "homepage": "https://platform-toolkit.github.io",
+  "bugs": {
+    "url": "https://github.com/platform-toolkit/platform-toolkit.github.io/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/platform-toolkit/platform-toolkit.github.io.git",
+    "directory": "packages/platform-targets"
+  },
   "license": "Apache-2.0",
+  "author": "Jason Smathers",
   "type": "module",
+  "sideEffects": false,
   "files": [
     "dist",
     "README.md",
@@ -43,5 +63,8 @@
   },
   "devDependencies": {
     "lit": "3.3.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

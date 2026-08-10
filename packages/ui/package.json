@@ -3,11 +3,37 @@
   "version": "0.0.0",
   "private": true,
   "description": "Shared custom elements, design tokens, and theme wiring used by every tool.",
+  "keywords": [
+    "powerlifting",
+    "strength-training",
+    "web-components",
+    "lit",
+    "custom-elements",
+    "design-tokens",
+    "design-system",
+    "accessibility"
+  ],
+  "homepage": "https://platform-toolkit.github.io",
+  "bugs": {
+    "url": "https://github.com/platform-toolkit/platform-toolkit.github.io/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/platform-toolkit/platform-toolkit.github.io.git",
+    "directory": "packages/ui"
+  },
   "license": "Apache-2.0",
+  "author": "Jason Smathers",
   "type": "module",
+  "sideEffects": [
+    "./dist/index.js",
+    "./dist/ptk-*.js",
+    "*.css"
+  ],
   "files": [
     "dist",
     "src/tokens.css",
+    "README.md",
     "LICENSE"
   ],
   "exports": {
@@ -102,5 +128,8 @@
   },
   "devDependencies": {
     "lit": "3.3.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

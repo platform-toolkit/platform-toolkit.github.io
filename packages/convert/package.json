@@ -3,8 +3,29 @@
   "version": "0.0.0",
   "private": true,
   "description": "Convert pounds and kilograms against a federation's published chart, never against arithmetic alone.",
+  "keywords": [
+    "powerlifting",
+    "strength-training",
+    "web-components",
+    "lit",
+    "kilograms",
+    "pounds",
+    "unit-conversion",
+    "attempt-card"
+  ],
+  "homepage": "https://platform-toolkit.github.io",
+  "bugs": {
+    "url": "https://github.com/platform-toolkit/platform-toolkit.github.io/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/platform-toolkit/platform-toolkit.github.io.git",
+    "directory": "packages/convert"
+  },
   "license": "Apache-2.0",
+  "author": "Jason Smathers",
   "type": "module",
+  "sideEffects": false,
   "files": [
     "dist",
     "README.md",
@@ -43,5 +64,8 @@
   },
   "devDependencies": {
     "lit": "3.3.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
