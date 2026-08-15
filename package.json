@@ -81,14 +81,14 @@
     "@vitest/browser": "4.1.10",
     "@vitest/browser-playwright": "4.1.10",
     "axe-core": "4.13.0",
-    "eslint": "10.8.0",
-    "globals": "17.9.0",
+    "eslint": "10.8.1",
+    "globals": "17.10.0",
     "npm-run-all2": "9.0.3",
     "playwright": "1.62.1",
     "prettier": "3.9.6",
     "storybook": "10.5.7",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.66.0",
+    "typescript-eslint": "8.67.0",
     "vite": "catalog:",
     "vitest": "4.1.10"
   }
