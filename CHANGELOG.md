@@ -83,6 +83,12 @@ one lift, one target type, one compact matrix, with the exact number first.
   at or above the meet's level, a full 2.5 kg when it is below. Kilograms are authoritative; a
   published pound figure is a conversion and is never used to compute a target.
 - A lifter can commit to a target and see the exact remaining gap.
+- The lift bar offers **All lifts**: every record or classification the chosen category reaches, on
+  one screen, across every lift and event. Collecting that answer used to take a tour of the bar —
+  four taps with a long scroll between each. Where the report is wide enough for the bar to sit on
+  one row it now stays in reach while the report scrolls; on a narrow screen it scrolls with the
+  report rather than pinning a third of it. Record rows are headed by the division alone, since the
+  caption above them already names whose records they are.
 - The report says how old its numbers are, states plainly when the device is offline or a refresh
   failed, and offers a retry that restarts every stalled load.
 
