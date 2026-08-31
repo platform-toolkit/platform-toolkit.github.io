@@ -488,7 +488,7 @@ export class PtkLiveScreen extends LitElement {
    */
   #renderDetail(view: LiveView): TemplateResult {
     return html`
-      <ptk-disclosure label=${MEET_DETAIL_SUMMARY} summary=${MEET_DETAIL_SUMMARY}>
+      <ptk-disclosure label=${MEET_DETAIL_SUMMARY}>
         <div class="detail">
           <p>${liftsFinishedText(view.position.liftsFinished)}</p>
         </div>
