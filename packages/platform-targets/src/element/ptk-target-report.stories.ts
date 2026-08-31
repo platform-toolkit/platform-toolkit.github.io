@@ -70,7 +70,7 @@ const meta: Meta<PtkTargetReport> = {
     },
     initialLift: {
       control: 'inline-radio',
-      options: ['squat', 'bench', 'deadlift', 'total'],
+      options: ['squat', 'bench', 'deadlift', 'total', 'all'],
       description: 'Which lift a fresh report opens on. Read once; the bar decides after that.',
     },
     initialTargetType: {
@@ -147,6 +147,25 @@ export const EverythingAnswered: Story = {
  */
 export const Records: Story = {
   args: {
+    initialTargetType: 'records',
+    selection: FULLY_ANSWERED,
+    recordReads: reads(NORTH_READY, NATIONAL_READY),
+  },
+};
+
+/**
+ * Every record the lifter could be chasing, on one screen.
+ *
+ * The lift bar's fifth option, and the survey the single-lift views cannot give:
+ * the question "what could I take home" is answered across all four lifts and
+ * every event, and collecting it used to mean four taps of the bar with a scroll
+ * between each. The sections are the single-lift sections stacked in platform
+ * order, the record rule is still said once, and the lift bar stays in reach to
+ * jump back to one lift's tables.
+ */
+export const AllLiftsRecords: Story = {
+  args: {
+    initialLift: 'all',
     initialTargetType: 'records',
     selection: FULLY_ANSWERED,
     recordReads: reads(NORTH_READY, NATIONAL_READY),

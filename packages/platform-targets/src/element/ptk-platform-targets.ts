@@ -45,7 +45,6 @@ import type {
   CategoryCatalog,
   ClassificationBook,
   DataMeta,
-  Lift,
 } from '@platform-toolkit/data-contracts';
 import type { PreferenceStore } from '@platform-toolkit/preferences';
 import { LitElement, css, html, type PropertyValues, type TemplateResult } from 'lit';
@@ -87,7 +86,7 @@ import {
   type ViewChangeDetail,
 } from './ptk-target-report.js';
 import { NO_SELECTION, resolveSelection } from '../core/selection.js';
-import type { CategorySelection, TargetType } from '../types.js';
+import type { CategorySelection, LiftChoice, TargetType } from '../types.js';
 import { loadSettings, saveContext, saveView } from '../core/session.js';
 import { NO_ENTRIES, type LiftEntries } from '../core/standards.js';
 
@@ -272,7 +271,7 @@ export class PtkPlatformTargets extends LitElement {
   @state() private draftSeed: CategorySelection = NO_SELECTION;
 
   /** Where the two navigation bars open. Restored, then owned by the report. */
-  @state() private lift: Lift = 'squat';
+  @state() private lift: LiftChoice = 'squat';
 
   @state() private targetType: TargetType = 'classifications';
 

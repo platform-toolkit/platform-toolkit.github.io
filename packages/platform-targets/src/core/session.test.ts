@@ -74,6 +74,12 @@ describe('loadSettings', () => {
     expect(settings.targetType).toBe('records');
   });
 
+  it('remembers the all-lifts view like any other place the bar can stand', () => {
+    const remembering = store();
+    saveView(remembering, 'all', 'records');
+    expect(loadSettings(remembering).lift).toBe('all');
+  });
+
   it('reads back the fallbacks when the device remembers nothing', () => {
     // Not an error and not a branch the caller writes: a third-party iframe with
     // storage denied is a supported mode (§5.12), and the tool has to open on the

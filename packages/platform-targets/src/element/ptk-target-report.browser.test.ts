@@ -257,15 +257,26 @@ function figuresIn(table: Element): string[] {
   });
 }
 
-/** The one table with this caption, so a test names what a reader would read. */
+/**
+ * The one table with this caption, so a test names what a reader would read.
+ *
+ * Throws on more than one match as well as on none. In the all-lifts view
+ * several tables answer to one caption, and a helper that quietly took the
+ * first would let a test assert about the squat's table while believing it had
+ * picked a specific one -- and pass.
+ */
 function tableCaptioned(element: PtkTargetReport, caption: string): Element {
-  const found = tables(element).find(
+  const found = tables(element).filter(
     (table) => table.querySelector('caption')?.textContent.trim() === caption,
   );
-  if (found === undefined) {
+  const [first, ...rest] = found;
+  if (first === undefined) {
     throw new Error(`No table captioned "${caption}". Found: ${captions(element).join(', ')}.`);
   }
-  return found;
+  if (rest.length > 0) {
+    throw new Error(`Expected one table captioned "${caption}", found ${String(found.length)}.`);
+  }
+  return first;
 }
 
 function recordButtons(element: PtkTargetReport): HTMLButtonElement[] {
@@ -385,12 +396,197 @@ describe('ptk-target-report', () => {
       'Bench press',
       'Deadlift',
       'Total',
+      'All lifts',
     ]);
     expect(all(element, '.panel')).toHaveLength(1);
 
     await chooseSegment(element, 'lift', 'Bench press');
     expect(panelHeading(element)).toBe('Bench press');
     expect(all(element, '.panel')).toHaveLength(1);
+  });
+
+  /**
+   * The survey the bar's fifth option exists for: every lift's targets on one
+   * screen, in platform order, without a tour of the bar. The sections are the
+   * same sections the single-lift view draws, which is what keeps a record
+   * openable and a goal settable from either view.
+   */
+  it('shows every lift at once when All lifts is chosen', async () => {
+    const element = await mount();
+    await chooseSegment(element, 'lift', 'All lifts');
+    expect(all(element, '.panel h3').map((heading) => heading.textContent.trim())).toEqual([
+      'Squat',
+      'Bench press',
+      'Deadlift',
+      'Total',
+    ]);
+    // Four sections, four distinct heading ids: a duplicated id would point
+    // every aria-labelledby past the first section at the first.
+    const ids = all(element, '.panel h3').map((heading) => heading.id);
+    expect(new Set(ids).size).toBe(4);
+  });
+
+  /**
+   * The rule is still explained once. Four stacked sections each carrying the
+   * note and the fold would reintroduce, four times over, the repetition the
+   * single-lift view already removed.
+   */
+  it('explains the record rule once in the all-lifts view', async () => {
+    const element = await mount({ reads: [ready(NATIONAL, BOOK)] });
+    await showRecords(element);
+    await chooseSegment(element, 'lift', 'All lifts');
+    expect(all(element, 'ptk-disclosure')).toHaveLength(1);
+    expect(
+      occurrences(text(element), 'Meet level affects the attempt needed to break a record.'),
+    ).toBe(1);
+  });
+
+  /**
+   * With four lifts' buttons in one page, every spoken name has to be distinct.
+   * The names lead with the lift for exactly this screen: without it a rotor
+   * lists the same "Class I, Open, 90 kg" four times with no way to tell the
+   * squat's from the deadlift's.
+   */
+  it('gives every cell a distinct spoken name in the all-lifts view', async () => {
+    const element = await mount({
+      selection: FULLY_ANSWERED,
+      initialLift: 'all',
+      reads: [ready(NATIONAL, BOOK), ready(NORTH, STATE_BOOK)],
+    });
+    const names = all(element, 'td [aria-label]').map((button) =>
+      button.getAttribute('aria-label'),
+    );
+    expect(names.length).toBeGreaterThan(0);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  /**
+   * Four tables cannot answer to one name. The caption carries the lift in
+   * this view -- off-screen, because the heading above already shows it -- so
+   * a table rotor can tell the squat's national records from the bench's.
+   */
+  it('names each table with its lift in the all-lifts view', async () => {
+    const element = await mount({
+      selection: FULLY_ANSWERED,
+      initialLift: 'all',
+      initialTargetType: 'records',
+      reads: [ready(NATIONAL, BOOK)],
+    });
+    const spoken = captions(element);
+    expect(spoken.length).toBeGreaterThan(1);
+    expect(new Set(spoken).size).toBe(spoken.length);
+
+    // And the single-lift view keeps its unprefixed caption: there the lift is
+    // one heading away and saying it twice is noise.
+    await chooseSegment(element, 'lift', 'Squat');
+    expect(captions(element)).toEqual(['National records']);
+  });
+
+  /**
+   * While the reads are on the wire, every section would say the same thing --
+   * the read set is shared, not per lift. One skeleton, not four: four copies
+   * of "Updating targets…" is one answer dressed as four, and a screen reader
+   * on gym signal reads them all out.
+   */
+  it('says it is updating once in the all-lifts view, not once per lift', async () => {
+    const element = await mount({
+      selection: FULLY_ANSWERED,
+      initialLift: 'all',
+      initialTargetType: 'records',
+      reads: [{ partition: NATIONAL, status: 'loading', book: null }],
+    });
+    expect(occurrences(text(element), 'Updating targets…')).toBe(1);
+    expect(all(element, '.skeleton')).toHaveLength(1);
+
+    // Settled and empty says so once too.
+    const settled = await mount({
+      selection: FULLY_ANSWERED,
+      classifications: null,
+      initialLift: 'all',
+      reads: [ready(NATIONAL, null)],
+    });
+    expect(occurrences(text(settled), 'No published target was found')).toBe(1);
+  });
+
+  /**
+   * A refusal is not an absence. The two-conflicting-records case produces a
+   * notice and no rows, and the all-lifts view's one-empty-sentence hoist must
+   * not swallow it: "no record was found. The first qualifying lift sets one"
+   * over a record that exists is an invitation to go take a record somebody
+   * holds.
+   */
+  it('keeps the conflict notice in the all-lifts view instead of calling the category empty', async () => {
+    const element = await mount({
+      classifications: null,
+      initialLift: 'all',
+      initialTargetType: 'records',
+      reads: [
+        ready(
+          NATIONAL,
+          bookOf([record('squat', { kilograms: 145 }), record('squat', { kilograms: 150 })]),
+        ),
+      ],
+    });
+    expect(text(element)).toContain('More than one National record is published');
+    // The squat's section carries the refusal and nothing contradicting it;
+    // the other lifts, which really do have nothing, keep their own sentence.
+    const [squat] = all(element, '.panel');
+    if (squat === undefined) {
+      throw new Error('No lift section rendered.');
+    }
+    expect(squat.textContent).toContain('More than one National record is published');
+    expect(squat.textContent).not.toContain('No published record was found');
+  });
+
+  /**
+   * The two halves of the sticky bargain, at the widths where each applies.
+   * Nothing else in the repo exercises the container query: the narrow-layout
+   * check stops at 430 px and axe cannot see an obscured focus ring, so
+   * without this the whole sticky block could be deleted and every gate would
+   * stay green.
+   */
+  it('pins the lift bar only where it fits on one row, with focus kept clear of it', async () => {
+    const wide = document.createElement('div');
+    wide.style.width = '700px';
+    document.body.append(wide);
+    teardown.push(() => {
+      wide.remove();
+    });
+    const element = await mount({ initialLift: 'all' });
+    wide.append(element);
+    await element.updateComplete;
+
+    const bar = only(root(element), '.lift-bar');
+    expect(getComputedStyle(bar).position).toBe('sticky');
+    // The margin that keeps a focused control out from under the bar has to
+    // clear the bar's own height, or Shift+Tab from below the fold puts the
+    // focus ring behind it.
+    const [button] = recordButtons(element);
+    if (button === undefined) {
+      throw new Error('No cell button to measure.');
+    }
+    const margin = Number.parseFloat(getComputedStyle(button).scrollMarginBlockStart);
+    expect(margin).toBeGreaterThan(bar.getBoundingClientRect().height);
+
+    // And in a narrow column the bar scrolls with the report rather than
+    // pinning rows of wrapped segments over it.
+    wide.style.width = '320px';
+    await element.updateComplete;
+    expect(getComputedStyle(bar).position).toBe('static');
+  });
+
+  /** The all-lifts choice is a place the bars can stand, so it is remembered too. */
+  it('says so when the lifter moves the bar to All lifts, and opens there when seeded', async () => {
+    const element = await mount();
+    const heard: ViewChangeDetail[] = [];
+    element.addEventListener(VIEW_CHANGE_EVENT, (event) => {
+      heard.push(event.detail);
+    });
+    await chooseSegment(element, 'lift', 'All lifts');
+    expect(heard).toEqual([{ lift: 'all', targetType: 'classifications' }]);
+
+    const seeded = await mount({ initialLift: 'all' });
+    expect(all(seeded, '.panel')).toHaveLength(4);
   });
 
   /**
@@ -552,7 +748,7 @@ describe('ptk-target-report', () => {
     const element = await mount();
     await showRecords(element);
     await chooseSegment(element, 'lift', 'Deadlift');
-    expect(await segmentLabels(element, 'lift')).toHaveLength(4);
+    expect(await segmentLabels(element, 'lift')).toHaveLength(5);
     expect(tables(element)).toEqual([]);
     expect(text(element)).toContain(
       'No published record was found for this exact Example Federation category. The first qualifying lift sets one.',
@@ -629,7 +825,10 @@ describe('ptk-target-report', () => {
     await showRecords(element);
 
     const table = tableCaptioned(element, 'National records');
-    expect(rowLabels(table)).toEqual(['National record / Masters 1', 'National record / Open']);
+    // The rows are headed by the division alone: the caption above them already
+    // says whose records these are, and repeating it per row printed the same
+    // words down the whole report.
+    expect(rowLabels(table)).toEqual(['Masters 1', 'Open']);
     const bodies = [...table.querySelectorAll('tbody')];
     expect(bodies).toHaveLength(1);
     expect(bodyRows(table)).toHaveLength(2);
@@ -805,16 +1004,16 @@ describe('ptk-target-report', () => {
     const element = await mount();
     await showRecords(element);
     expect(recordButtons(element).map((button) => button.getAttribute('aria-label'))).toEqual([
-      'National record, Full power, 56 kg: 145 kilograms',
+      'Squat, National record, Full power, 56 kg: 145 kilograms',
     ]);
 
     await chooseSegment(element, 'target-type', 'Classifications');
     expect(
       all(element, 'td [aria-label]').map((button) => button.getAttribute('aria-label')),
     ).toEqual([
-      'Class III, 56 kg: 100 kilograms',
-      'Class II, 56 kg: 120 kilograms',
-      'Class I, 56 kg: 150 kilograms',
+      'Squat, Class III, 56 kg: 100 kilograms',
+      'Squat, Class II, 56 kg: 120 kilograms',
+      'Squat, Class I, 56 kg: 150 kilograms',
     ]);
   });
 
@@ -830,8 +1029,8 @@ describe('ptk-target-report', () => {
     });
     await showRecords(element);
     expect(recordButtons(element).map((button) => button.getAttribute('aria-label'))).toEqual([
-      'National record, Full power, Masters 1, 56 kg: 120 kilograms',
-      'National record, Full power, Open, 56 kg: 145 kilograms',
+      'Squat, National record, Full power, Masters 1, 56 kg: 120 kilograms',
+      'Squat, National record, Full power, Open, 56 kg: 145 kilograms',
     ]);
   });
 
@@ -928,7 +1127,7 @@ describe('ptk-target-report', () => {
     // embedded on third-party sites where that is the embedder's URL.
     expect(link.getAttribute('rel')).toBe('noopener noreferrer');
     expect(link.getAttribute('aria-label')).toBe(
-      'Published table for National record, Full power, 56 kg',
+      'Published table for Squat, National record, Full power, 56 kg',
     );
   });
 
@@ -1244,6 +1443,25 @@ describe('ptk-target-report', () => {
     expect(only(root(element), 'button[aria-expanded="true"]').getAttribute('aria-controls')).toBe(
       detail.id,
     );
+
+    const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
+    expect(results.violations).toEqual([]);
+  });
+
+  /**
+   * The all-lifts view mounts four sections at once, which is the arrangement
+   * most likely to smuggle in a duplicated id or an aria-labelledby pointing at
+   * the wrong section -- so it gets its own axe pass rather than inheriting the
+   * single-lift one's.
+   */
+  it('has no accessibility violations showing every lift at once', async () => {
+    const element = await mount({
+      selection: FULLY_ANSWERED,
+      initialLift: 'all',
+      initialTargetType: 'records',
+      reads: [ready(NATIONAL, BOOK), ready(NORTH, STATE_BOOK)],
+    });
+    await openFirstRecord(element);
 
     const results = await axe.run(element, { rules: { 'color-contrast': { enabled: false } } });
     expect(results.violations).toEqual([]);

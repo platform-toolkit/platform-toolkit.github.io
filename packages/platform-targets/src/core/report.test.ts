@@ -351,9 +351,11 @@ describe('buildReport', () => {
     expect(report.divisions.map((division) => division.id)).toEqual(['masters-1', 'open']);
 
     const rows = rowsIn(targetsFor(report, 'squat').records);
+    // The division is the row heading. The partition is not repeated here: the
+    // matrix caption already carries it, once, for every row below.
     expect(rows.map((row) => [row.label, row.divisionLabel])).toEqual([
-      ['National record', 'Masters 1'],
-      ['National record', 'Open'],
+      ['Masters 1', null],
+      ['Open', null],
     ]);
     expect(new Set(rows.map((row) => row.groupId)).size).toBe(1);
     expect(valuesIn(targetsFor(report, 'squat').records)).toEqual([118, 145]);
@@ -445,14 +447,23 @@ describe('buildReport', () => {
    * and a reader who jumps straight to a value hears none of them.
    */
   it('names every cell with the whole context it sits in', () => {
+    // The lift leads the name. It is redundant with the bar in the single-lift
+    // view and load-bearing in the all-lifts one, where four otherwise
+    // identical names would sit in one rotor listing.
     const answered = targetsFor(reportFor(ANSWERED), 'squat');
     expect(cellsIn(answered.classifications)[0]?.accessibleName).toBe(
-      'Class III, 56 kg: 100 kilograms',
+      'Squat, Class III, 56 kg: 100 kilograms',
     );
 
     const compared = targetsFor(reportFor(FULLY_ANSWERED), 'squat');
     const named = cellsIn(compared.records).find((cell) => cell.value !== null);
-    expect(named?.accessibleName).toBe('National record, Full power, Open, 56 kg: 145 kilograms');
+    expect(named?.accessibleName).toBe(
+      'Squat, National record, Full power, Open, 56 kg: 145 kilograms',
+    );
+    // Two spellings of the scope: the spoken one carries the lift for names
+    // read out of context, and the printed one leaves it to the heading the
+    // panel always sits under.
+    expect(named?.detail?.spokenScope).toBe('Squat, National record, Full power, Open, 56 kg');
     expect(named?.detail?.scopeLabel).toBe('National record, Full power, Open, 56 kg');
   });
 

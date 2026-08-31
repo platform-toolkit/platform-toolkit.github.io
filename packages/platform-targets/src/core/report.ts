@@ -191,13 +191,23 @@ export interface RecordDetail {
   /** The federation's own table for this record's scope. Never assembled here. */
   readonly sourceUrl: string | null;
   /**
-   * The whole scope, spelled out, for the disclosure's own heading and for the
-   * accessible name of the link out to the federation's table.
+   * The scope without the lift, spelled out, for the panel's printed heading.
    *
-   * Seventy links all named "National record" is a screen-reader link list with
-   * no way to tell one from another, which is the P1 this field exists to fix.
+   * The panel always sits under a heading that already says the lift -- the
+   * single-lift view's h3, or the all-lifts view's section heading -- so
+   * printing it again three lines down is the repetition the row headings
+   * were just relieved of.
    */
   readonly scopeLabel: string;
+  /**
+   * The whole scope, lift included, for every name that is read out of
+   * context: the panel's group label, the link out to the federation's table,
+   * the goal buttons. Seventy links all named "National record" is a
+   * screen-reader link list with no way to tell one from another, which is
+   * the P1 the field exists to fix -- and with four lifts mountable at once,
+   * the lift is part of the telling-apart.
+   */
+  readonly spokenScope: string;
 }
 
 /**
@@ -729,7 +739,12 @@ function classificationRows(
                   attempt: 'none',
                 },
           accessibleName: cellName(
-            [level.label, divisions.length > 1 ? division.label : null],
+            // The lift leads. It used to live only in the bar above the panel,
+            // which was enough while exactly one lift was on screen; the
+            // all-lifts view mounts four panels at once, and without it a
+            // rotor lists the same "Class I, Open, 90 kg" four times with no
+            // way to tell the squat's from the deadlift's.
+            [LIFT_LABELS[lift], level.label, divisions.length > 1 ? division.label : null],
             weightClass,
             value,
             NOT_PUBLISHED,
@@ -873,8 +888,13 @@ function recordGroupsPerLift(
           rows[lift].push({
             id: `record:${lift}:${partition.levelId}:${partition.regionId ?? ''}:${discipline.id}:${division.id}`,
             groupId: `record:${lift}:${partition.levelId}:${partition.regionId ?? ''}:${discipline.id}`,
-            label: `${partition.label} record`,
-            divisionLabel: divisions.length > 1 ? division.label : null,
+            // The division, not the partition: the caption above the matrix
+            // already says whose records these are, and a row heading that
+            // repeats it prints the same words once per division down the whole
+            // report. The cell's accessible name still carries the full scope,
+            // so a reader who jumps straight to a figure loses nothing.
+            label: division.label,
+            divisionLabel: null,
             cells: cells[lift],
           });
         }
@@ -940,11 +960,17 @@ function recordCell(
   divisionsShown: number,
 ): MatrixCell {
   const id = `record:${weightClass.id}:${partition.levelId}:${partition.regionId ?? ''}:${division.id}:${discipline.id}:${standing.lift}`;
-  const context = [
+  // The lift leads the spoken names, for the reason the classification cells
+  // give: the all-lifts view mounts every lift's matrices at once, and a
+  // spoken name that omits the lift is the same string four times over. The
+  // printed detail heading takes the scope without it -- see the two fields
+  // on RecordDetail.
+  const scope = [
     `${partition.label} record`,
     discipline.label,
     divisionsShown > 1 ? division.label : null,
   ];
+  const context = [LIFT_LABELS[standing.lift], ...scope];
   const emptyLabel = standing.record.kind === 'ambiguous' ? NOT_PUBLISHED : NO_RECORD_YET;
 
   if (standing.record.kind !== 'record') {
@@ -1007,7 +1033,8 @@ function recordCell(
       disagreement: recordDisagreement(record),
       holder: recordHolder(record),
       sourceUrl: standing.sourceUrl,
-      scopeLabel: [...context, weightClass.label].filter((part) => part !== null).join(', '),
+      scopeLabel: [...scope, weightClass.label].filter((part) => part !== null).join(', '),
+      spokenScope: [...context, weightClass.label].filter((part) => part !== null).join(', '),
     },
     // The record itself is not a goal: equalling it takes nothing, and which of
     // the two attempts under it applies is a fact about the meet. See the

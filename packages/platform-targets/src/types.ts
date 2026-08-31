@@ -14,7 +14,9 @@
  *
  * `TargetType` in particular was declared inside `ptk-target-report` and read by
  * `session`, which is a core module importing an element -- backwards, and only
- * invisible while the two lived in one directory.
+ * invisible while the two lived in one directory. `LiftChoice` follows it for
+ * the same reason: the session remembers where the lift bar stood, and the bar
+ * now has one answer that is not a `Lift`.
  *
  * Everything else stays where it is computed. The statuses (`CatalogStatus`,
  * `StandardsStatus`, `RecordsStatus`) belong to the elements that report them,
@@ -22,6 +24,8 @@
  * belong to `@platform-toolkit/data-contracts`, which is where a second tool
  * reading the same artifacts would look for them.
  */
+
+import type { Lift } from '@platform-toolkit/data-contracts';
 
 /** Every answer the screen collects. */
 export type SelectionField =
@@ -50,3 +54,17 @@ export interface RecordPartition {
 
 /** Which family of targets is on screen. */
 export type TargetType = 'classifications' | 'records';
+
+/**
+ * The lift bar's fifth answer: every lift at once.
+ *
+ * A value of the bar rather than a fifth `Lift`, because nothing downstream of
+ * the bar treats it as one -- no record is set in it, no entry is typed against
+ * it. It exists for the reader who asked "what could I take home", whose answer
+ * is spread across all four lifts and every event, and who was previously sent
+ * around the bar four times to collect it.
+ */
+export const ALL_LIFTS = 'all';
+
+/** What the lift bar can say: one of the four, or all of them. */
+export type LiftChoice = Lift | typeof ALL_LIFTS;

@@ -47,9 +47,7 @@ import {
   type PreferenceStore,
 } from '@platform-toolkit/preferences';
 
-import type { Lift } from '@platform-toolkit/data-contracts';
-
-import type { CategorySelection, SelectionField, TargetType } from '../types.js';
+import type { CategorySelection, LiftChoice, SelectionField, TargetType } from '../types.js';
 import { NO_SELECTION } from './selection.js';
 
 /**
@@ -116,7 +114,7 @@ export const TARGETS_PREFERENCES = {
       // Spelled inline for the reason convert's `core/session.ts` records: `choice`
       // infers its union from a `const` type parameter, and a named constant
       // annotated `readonly Lift[]` widens it straight back to `string`.
-      lift: PreferenceValue.choice(['squat', 'bench', 'deadlift', 'total']),
+      lift: PreferenceValue.choice(['squat', 'bench', 'deadlift', 'total', 'all']),
       targetType: PreferenceValue.choice(['classifications', 'records']),
     }),
     // The squat's classifications: the first lift of a meet, and the half of
@@ -127,7 +125,7 @@ export const TARGETS_PREFERENCES = {
 };
 
 interface StoredView {
-  readonly lift: Lift;
+  readonly lift: LiftChoice;
   readonly targetType: TargetType;
 }
 
@@ -144,7 +142,7 @@ export interface TargetsSettings {
    * a published identifier harmless.
    */
   readonly context: CategorySelection;
-  readonly lift: Lift;
+  readonly lift: LiftChoice;
   readonly targetType: TargetType;
 }
 
@@ -175,7 +173,11 @@ export function saveContext(store: PreferenceStore | null, selection: CategorySe
   store?.write(TARGETS_PREFERENCES.context, toStored(selection));
 }
 
-export function saveView(store: PreferenceStore | null, lift: Lift, targetType: TargetType): void {
+export function saveView(
+  store: PreferenceStore | null,
+  lift: LiftChoice,
+  targetType: TargetType,
+): void {
   store?.write(TARGETS_PREFERENCES.view, { lift, targetType });
 }
 

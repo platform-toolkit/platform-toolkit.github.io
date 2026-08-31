@@ -22,3 +22,7 @@
 
 export * from './core/index.js';
 export type * from './types.js';
+// The one runtime value in the vocabulary. `export type *` above erases it, and
+// a consumer handling the widened view-change event from this entry point
+// should get the sentinel, not have to spell 'all' as a literal.
+export { ALL_LIFTS } from './types.js';

@@ -21,7 +21,11 @@
  * to the styling:
  *
  * 1. **One lift at a time**, chosen with a bar that stays put. Four lifts on one
- *    page is four times the scrolling to reach the one being planned.
+ *    page is four times the scrolling to reach the one being planned. The bar
+ *    also offers **all lifts at once**, because the two readings are different
+ *    tasks: planning one lift wants one lift's tables, and asking "what could I
+ *    take home" wants every record on one screen instead of a tour of the bar --
+ *    four taps and four scrolls to collect an answer that is one list.
  * 2. **One target type at a time.** Classification standards and records answer
  *    different questions -- "where do I place" and "what would I take" -- and
  *    interleaving them by weight makes a reader sort them mentally before they
@@ -115,7 +119,13 @@ import {
   type TargetGroup,
 } from '../core/report.js';
 import { NO_SELECTION, resolveSelection } from '../core/selection.js';
-import type { CategorySelection, RecordPartition, TargetType } from '../types.js';
+import {
+  ALL_LIFTS,
+  type CategorySelection,
+  type LiftChoice,
+  type RecordPartition,
+  type TargetType,
+} from '../types.js';
 import {
   LIFTS,
   NO_ENTRIES,
@@ -166,7 +176,7 @@ export interface PartitionRead {
  * to live, out of step with this element the moment a seed changes.
  */
 export interface ViewChangeDetail {
-  readonly lift: Lift;
+  readonly lift: LiftChoice;
   readonly targetType: TargetType;
 }
 
@@ -213,6 +223,15 @@ const TARGET_TYPE_CHOICES: readonly Choice[] = [
   { value: 'records', label: 'Records' },
 ];
 
+/**
+ * The lift bar's fifth option, after the four lifts.
+ *
+ * Last rather than first, because the four lifts are the planning path and the
+ * one most taps land on; this is the survey. "All lifts" rather than "All" so
+ * the segment still says what it does when read on its own from a rotor.
+ */
+const ALL_LIFTS_CHOICE: Choice = { value: ALL_LIFTS, label: 'All lifts' };
+
 /** The attribute a delegated listener reads to tell the two bars apart. */
 const CONTROL_ATTRIBUTE = 'data-control';
 
@@ -244,8 +263,14 @@ const CLASSIFICATIONS_NOTE =
 
 export class PtkTargetReport extends LitElement {
   static override styles = css`
+    /*
+     * A size container, so the sticky rule below can ask about this element's
+     * own width. Inline-size containment costs nothing here: the host is a
+     * block whose width the page already imposes.
+     */
     :host {
       display: block;
+      container-type: inline-size;
     }
 
     h2 {
@@ -281,20 +306,93 @@ export class PtkTargetReport extends LitElement {
     }
 
     /*
-     * The two bars sit together and stay in the same place as the panel below
-     * them changes. A control that moves when it is used is a control a reader
-     * has to re-find on every tap, which on a phone is most of the interaction.
+     * The two bars stay in the same place as the panel below them changes. A
+     * control that moves when it is used is a control a reader has to re-find
+     * on every tap, which on a phone is most of the interaction.
+     *
+     * They are not one block any more. The target-type bar is answered about
+     * once per visit, so it scrolls away like the context above it; the lift
+     * bar is the navigation, and it is the one that sticks where it can afford
+     * to -- see the container query below. Both bars together were tried first
+     * and pinned a third of a phone's screen: the reader got the bars
+     * everywhere and the report nowhere.
      */
     .controls {
-      display: flex;
-      flex-direction: column;
-      gap: var(--ptk-space-sm);
+      margin-block-end: var(--ptk-space-sm);
+    }
+
+    .lift-bar {
       margin-block-end: var(--ptk-space-md);
+    }
+
+    /*
+     * The navigation, kept in reach -- but only where keeping it costs a
+     * single row. The matrices under it run to thousands of pixels, and the
+     * price of switching lifts from the foot of a report used to be the whole
+     * scroll back up. Below this width the five segments wrap to two or three
+     * rows, and a pinned bar of that height is the outcome already rejected
+     * once: the reader gets the bar everywhere and the report nowhere, on
+     * exactly the screens with the least height to spare.
+     *
+     * A container query rather than a media query, for the reason the
+     * auto-fit grids in this package are written against their own width
+     * rather than the viewport's: a tool in a narrow embed column is in the
+     * same situation as one on a phone, and a media query gets that
+     * backwards. Sticky rather than fixed for the reason the categories'
+     * action bar gives: these tools live inside other people's pages, and
+     * sticky resolves against the scroll container that actually exists
+     * there. The background is opaque so figures do not scroll through the
+     * bar.
+     *
+     * The threshold is in rem because the thing it proxies for is in rem: the
+     * segments wrap on 6.5rem tracks, so the width at which five fit on one
+     * row moves with the reader's text size. 35rem is that width at the
+     * default root; written in pixels it would go sticky over a wrapped,
+     * taller bar for anyone reading at 150 percent text.
+     *
+     * The scroll margins are the other half of the bargain. A browser
+     * scrolling a focused control into view aligns it with the top of the
+     * scrollport, which is under the bar -- so without them, Shift+Tab from
+     * below the fold puts the focus ring behind the navigation, invisible,
+     * and nothing in axe reports it. The margin clears the bar's single-row
+     * height with room over, and grows with the same rem the bar's tracks do.
+     */
+    @container (min-width: 35rem) {
+      .lift-bar {
+        position: sticky;
+        inset-block-start: 0;
+        z-index: 1;
+        padding-block: var(--ptk-space-xs);
+        background-color: var(--ptk-color-surface);
+      }
+
+      h2,
+      .panel h3,
+      .cell-button,
+      .goal-button,
+      .source-link,
+      ptk-disclosure,
+      ptk-button {
+        scroll-margin-block-start: 7rem;
+      }
     }
 
     .panel h3 {
       margin: 0 0 var(--ptk-space-xs);
       font-size: var(--ptk-font-size-lg);
+    }
+
+    /*
+     * In the all-lifts view the sections stack, and the rule between them is
+     * what keeps "where does the bench end" a glance rather than a search --
+     * the same job the rule between two table bodies does at a smaller scale.
+     * A sibling selector rather than a class, so the single-lift view, which
+     * renders exactly one section, cannot draw a rule under nothing.
+     */
+    .panel + .panel {
+      margin-block-start: var(--ptk-space-xl);
+      padding-block-start: var(--ptk-space-lg);
+      border-block-start: 1px solid var(--ptk-color-border);
     }
 
     .note {
@@ -348,6 +446,23 @@ export class PtkTargetReport extends LitElement {
       text-align: start;
       font-size: var(--ptk-font-size-md);
       font-weight: 700;
+    }
+
+    /*
+     * In the accessibility tree, out of the layout: the usual clip rectangle,
+     * for text that names a table's lift in the all-lifts view. Not
+     * display:none, which would take it out of the accessible name too --
+     * the same rule the announcer above follows.
+     */
+    .assistive {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
     }
 
     th,
@@ -746,7 +861,7 @@ export class PtkTargetReport extends LitElement {
    * records half of the tool, and later for a returning visit to open where the
    * last one left off.
    */
-  @property({ attribute: false }) initialLift: Lift = 'squat';
+  @property({ attribute: false }) initialLift: LiftChoice = 'squat';
 
   @property({ attribute: false }) initialTargetType: TargetType = 'classifications';
 
@@ -758,7 +873,7 @@ export class PtkTargetReport extends LitElement {
    * treatment as the rest of the context, and a half-restored screen -- the lift
    * remembered, the category not -- is more confusing than a fresh one.
    */
-  @state() private selectedLift: Lift = 'squat';
+  @state() private selectedLift: LiftChoice = 'squat';
 
   @state() private targetType: TargetType = 'classifications';
 
@@ -846,28 +961,54 @@ export class PtkTargetReport extends LitElement {
       recordBooks: new Map([...this.recordReads].map(([key, read]) => [key, read.book] as const)),
     });
 
-    const lift = report.lifts.find((entry) => entry.lift === this.selectedLift) ?? report.lifts[0];
+    const lift =
+      this.selectedLift === ALL_LIFTS
+        ? null
+        : (report.lifts.find((entry) => entry.lift === this.selectedLift) ?? report.lifts[0]);
 
     return html`
       <h2 tabindex="-1">Targets</h2>
       <p class="context">${contextLine(report)}</p>
       ${this.#renderNotices(report)}
+      <!--
+        The family first and the navigation second: a reader answers
+        "classifications or records" about once, then moves between lifts for
+        the rest of the visit, and the bar used constantly is the one that
+        should sit nearest what it changes. Both labels are drawn off-screen --
+        the segments say what they are -- but stay as the groups' accessible
+        names. "Target type", not "Targets": the h2 above is already named
+        that, and two differently shaped things answering to one name is a
+        group listing that reads as a duplicate.
+      -->
       <div class="controls">
         <ptk-segmented
-          data-control="lift"
-          label="Lift"
-          .choices=${report.lifts.map((entry) => ({ value: entry.lift, label: entry.label }))}
-          .value=${this.selectedLift}
-        ></ptk-segmented>
-        <ptk-segmented
           data-control="target-type"
-          label="Targets"
+          label="Target type"
+          hide-label
           .choices=${TARGET_TYPE_CHOICES}
           .value=${this.targetType}
         ></ptk-segmented>
       </div>
+      <div class="lift-bar">
+        <ptk-segmented
+          data-control="lift"
+          label="Lift"
+          hide-label
+          .choices=${[
+            ...report.lifts.map((entry) => ({ value: entry.lift, label: entry.label })),
+            ALL_LIFTS_CHOICE,
+          ]}
+          .value=${this.selectedLift}
+        ></ptk-segmented>
+      </div>
       <p class="goal-status" role="status">${this.goalMessage}</p>
-      ${lift === undefined ? nothing : this.#renderPanel(lift)}
+      ${
+        this.selectedLift === ALL_LIFTS
+          ? this.#renderAllPanels(report)
+          : lift === null || lift === undefined
+            ? nothing
+            : this.#renderPanel(lift)
+      }
     `;
   }
 
@@ -948,22 +1089,93 @@ export class PtkTargetReport extends LitElement {
 
   /** One lift, one target type: the whole of what is on screen below the bars. */
   #renderPanel(lift: LiftTargets): TemplateResult {
+    return this.#renderLiftSection(lift, this.#renderHelp());
+  }
+
+  /**
+   * Every lift, one target type: the answer to "what could I take home".
+   *
+   * The sections are the same sections the single-lift view draws -- same
+   * matrices, same open-detail behaviour, same empty sentences -- stacked in
+   * platform order. What moves is what is true of the whole page rather than
+   * of one lift: the shared explanation is said once above the first section,
+   * and a report with nothing to draw anywhere says so once rather than four
+   * times. #reading() asks about the read set, not the lift, so while the
+   * artifacts are on the wire every section would agree -- four copies of
+   * "Updating targets…" over four skeletons is one answer dressed as four.
+   * A single empty lift among full ones keeps its own sentence, because there
+   * it is the lift's answer and an invitation to set the first record.
+   *
+   * A lift with a notice keeps its section even when it has no rows. The
+   * refusal branches -- two published records that cannot both be current, a
+   * table that could not be read -- are exactly the ones that produce a notice
+   * and nothing else, and hoisting them into the empty sentence would replace
+   * "we will not choose between two records" with "no record was found. The
+   * first qualifying lift sets one": an invitation to go take a record that
+   * already exists. The section also puts the lift's own heading over a
+   * notice whose sentence does not name the lift.
+   */
+  #renderAllPanels(report: Report): TemplateResult {
+    const records = this.targetType === 'records';
+    const empty = report.lifts.every(
+      (lift) =>
+        (records ? lift.records : lift.classifications).length === 0 &&
+        (records ? lift.recordNotices : lift.classificationNotices).length === 0,
+    );
+    return html`
+      ${this.#renderHelp()}
+      ${
+        empty
+          ? this.#renderEmpty(records)
+          : report.lifts.map((lift) => this.#renderLiftSection(lift, nothing))
+      }
+    `;
+  }
+
+  /** The one explanation the target type needs, shared by both panel shapes. */
+  #renderHelp(): TemplateResult {
+    return this.targetType === 'records'
+      ? this.#renderRecordsHelp()
+      : html`<p class="note">${CLASSIFICATIONS_NOTE}</p>`;
+  }
+
+  #renderLiftSection(lift: LiftTargets, help: TemplateResult | typeof nothing): TemplateResult {
     const records = this.targetType === 'records';
     const groups = records ? lift.records : lift.classifications;
     const notices = records ? lift.recordNotices : lift.classificationNotices;
     const lifted = this.#liftedKilograms(lift.lift);
     const reached = reachedIn(groups, lifted);
     const next = nextIn(groups, lifted);
+    // Unique per lift, because the all-lifts view mounts four of these sections
+    // at once and a duplicated id makes every aria-labelledby past the first
+    // point at the first.
+    const headingId = `panel-heading-${lift.lift}`;
 
     return html`
-      <section class="panel" aria-labelledby="panel-heading">
-        <h3 id="panel-heading">${lift.label}</h3>
-        ${records ? this.#renderRecordsHelp() : html`<p class="note">${CLASSIFICATIONS_NOTE}</p>`}
-        ${notices.map((notice) => html`<p class="notices">${notice}</p>`)}
+      <section class="panel" aria-labelledby=${headingId}>
+        <h3 id=${headingId}>${lift.label}</h3>
+        ${help} ${notices.map((notice) => html`<p class="notices">${notice}</p>`)}
         ${
           groups.length === 0
-            ? this.#renderEmpty(records)
-            : groups.map((group) => this.#renderGroup(group, reached, next))
+            ? // "No published record was found" is a finding, and a notice
+              // above it -- two conflicting records, a table that could not be
+              // read -- is a refusal that already explains the empty panel.
+              // Printing both is a contradiction: the sentence under the
+              // notice asserts an absence the notice just denied, and its
+              // "the first qualifying lift sets one" invites an attempt on a
+              // record somebody holds. A skeleton still shows while reads are
+              // in flight, notice or no notice.
+              notices.length > 0 && !this.#reading(records)
+              ? nothing
+              : this.#renderEmpty(records)
+            : groups.map((group) =>
+                this.#renderGroup(
+                  group,
+                  reached,
+                  next,
+                  this.selectedLift === ALL_LIFTS ? lift.label : null,
+                ),
+              )
         }
       </section>
     `;
@@ -1023,7 +1235,7 @@ export class PtkTargetReport extends LitElement {
   #renderRecordsHelp(): TemplateResult {
     return html`
       <p class="note">${RECORDS_NOTE}</p>
-      <ptk-disclosure label=${RECORDS_FOLD_SUMMARY} summary=${RECORDS_FOLD_SUMMARY}>
+      <ptk-disclosure label=${RECORDS_FOLD_SUMMARY}>
         <div class="fold">
           <p>
             A record is taken by beating it, and by how much depends on the level of the meet you
@@ -1048,11 +1260,12 @@ export class PtkTargetReport extends LitElement {
     group: TargetGroup,
     reached: ReadonlySet<string>,
     next: ReadonlySet<string>,
+    liftLabel: string | null,
   ): TemplateResult {
     return html`
       <div class="group">
         ${group.heading === null ? nothing : html`<h4>${group.heading}</h4>`}
-        ${group.matrices.map((matrix) => this.#renderMatrix(matrix, reached, next))}
+        ${group.matrices.map((matrix) => this.#renderMatrix(matrix, reached, next, liftLabel))}
       </div>
     `;
   }
@@ -1061,6 +1274,7 @@ export class PtkTargetReport extends LitElement {
     matrix: Matrix,
     reached: ReadonlySet<string>,
     next: ReadonlySet<string>,
+    liftLabel: string | null,
   ): TemplateResult {
     // The open panel belongs to this matrix only when one of its own cells is the
     // open one, so a reader who opens a national record and scrolls to the state
@@ -1072,8 +1286,17 @@ export class PtkTargetReport extends LitElement {
     return html`
       <div class="matrix">
         <table>
+          <!--
+            The caption is the table's accessible name, and in the all-lifts
+            view four tables would otherwise answer to one name -- a table
+            rotor listing "National records" four times over. The lift is
+            drawn off-screen rather than printed, because a sighted reader is
+            directly under a heading that already says it; it is passed in at
+            all only in that view, so the single-lift caption is exactly what
+            it was.
+          -->
           <caption>
-            ${matrix.caption}
+            ${liftLabel === null ? nothing : html`<span class="assistive">${liftLabel} — </span>`}${matrix.caption}
           </caption>
           <thead>
             <tr>
@@ -1205,7 +1428,13 @@ export class PtkTargetReport extends LitElement {
    */
   #renderDetail(cellId: string, detail: RecordDetail): TemplateResult {
     return html`
-      <div class="detail" id=${domId(cellId)} role="group" aria-label=${detail.scopeLabel}>
+      <!--
+        The group is announced with the lift; the printed title omits it. The
+        panel always sits under a heading that already says the lift, so the
+        print would be repetition -- but the group's name is read from element
+        lists that carry no such heading. See the two fields on RecordDetail.
+      -->
+      <div class="detail" id=${domId(cellId)} role="group" aria-label=${detail.spokenScope}>
         <p class="detail-title">${detail.scopeLabel}</p>
         <p class="record-figure">
           Current record
@@ -1224,7 +1453,7 @@ export class PtkTargetReport extends LitElement {
                 <span class="attempt-basis">${attempt.basis}</span>
                 ${this.#renderGoalButton(
                   attempt.goal,
-                  `${attempt.label}, ${attempt.kilogramsText} kilograms, ${detail.scopeLabel}`,
+                  `${attempt.label}, ${attempt.kilogramsText} kilograms, ${detail.spokenScope}`,
                 )}
               </li>
             `,
@@ -1332,7 +1561,7 @@ export class PtkTargetReport extends LitElement {
       return;
     }
     const value = event.detail.value;
-    if (control.getAttribute(CONTROL_ATTRIBUTE) === 'lift' && isLift(value)) {
+    if (control.getAttribute(CONTROL_ATTRIBUTE) === 'lift' && isLiftChoice(value)) {
       this.selectedLift = value;
       // A detail belongs to a record in the lift that was on screen. Leaving it
       // open would draw somebody else's record under a table it is not in.
@@ -1401,10 +1630,10 @@ function joinedName(title: string, scope: string): string {
 /**
  * The link out to the federation's own table (requirement 12).
  *
- * The accessible name carries the record's whole scope. Seventy links all named
- * "National record" is a link list with no way to tell one from another, which
- * is a real failure and not a theoretical one -- and this is why the detail
- * carries `scopeLabel` rather than the element reassembling it.
+ * The accessible name carries the record's whole scope, lift included. Seventy
+ * links all named "National record" is a link list with no way to tell one from
+ * another, which is a real failure and not a theoretical one -- and this is why
+ * the detail carries `spokenScope` rather than the element reassembling it.
  *
  * `rel="noreferrer"` as well as `noopener`: the referrer would carry the page a
  * lifter is reading, and these tools are embedded on third-party sites where
@@ -1423,7 +1652,7 @@ function renderSourceLink(detail: RecordDetail): TemplateResult | typeof nothing
     href=${detail.sourceUrl}
     target="_blank"
     rel="noopener noreferrer"
-    aria-label=${`Published table for ${detail.scopeLabel}`}
+    aria-label=${`Published table for ${detail.spokenScope}`}
     >Published table</a
   >`;
 }
@@ -1559,8 +1788,8 @@ function labelOf(read: PartitionRead): string {
   return read.partition.label;
 }
 
-function isLift(value: string): value is Lift {
-  return LIFTS.some((lift) => lift === value);
+function isLiftChoice(value: string): value is LiftChoice {
+  return value === ALL_LIFTS || LIFTS.some((lift) => lift === value);
 }
 
 function isTargetType(value: string): value is TargetType {
