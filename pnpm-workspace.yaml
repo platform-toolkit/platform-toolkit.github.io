@@ -26,4 +26,4 @@ allowBuilds:
 # the failure -- a test measuring an element against one Vite's ambient types
 # while the site is built by another's -- would not look like a version problem.
 catalog:
-  vite: 8.2.0
+  vite: 8.2.2
