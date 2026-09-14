@@ -1,13 +1,13 @@
 {
-  "checkedAt": "2026-09-07T15:04:21.266Z",
+  "checkedAt": "2026-09-14T15:53:56.358Z",
   "findings": [
     {
       "id": "ipf-meet-rules",
       "document": "data/sources/meet-rules/ipf.json",
       "expectedSha256": "cf3aac6c4a231918217a3155a9fc34b766e35d6f8ec2bbf6da8af59ec1b37145",
-      "status": "matched",
-      "actualSha256": "cf3aac6c4a231918217a3155a9fc34b766e35d6f8ec2bbf6da8af59ec1b37145",
-      "detail": null
+      "status": "unreachable",
+      "actualSha256": null,
+      "detail": "fetch failed"
     },
     {
       "id": "uspa-classifications",
