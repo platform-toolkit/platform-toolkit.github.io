@@ -23,7 +23,7 @@
     "@platform-toolkit/training-logbook": "workspace:*",
     "@platform-toolkit/ui": "workspace:*",
     "lit": "3.3.3",
-    "valibot": "1.4.2"
+    "valibot": "1.5.0"
   },
   "devDependencies": {
     "vite": "catalog:"
